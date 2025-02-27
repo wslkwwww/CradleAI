@@ -1,0 +1,35 @@
+import ImageCropPicker from 'react-native-image-crop-picker';
+
+// ...existing code...
+
+const pickAvatar = async () => {
+  try {
+    const result = await ImageCropPicker.openPicker({
+      width: 400,
+      height: 400,
+      cropperCircleOverlay: true, // 使用圆形裁剪
+      cropping: true,
+      mediaType: 'photo',
+      cropperToolbarTitle: '裁剪头像',
+      cropperToolbarColor: '#282828',
+      cropperStatusBarColor: '#282828',
+      cropperActiveWidgetColor: 'rgb(255, 224, 195)',
+      cropperCancelText: '取消',
+      cropperChooseText: '选择',
+    });
+
+    // 直接使用裁剪后的图片
+    const avatarUri = result.path;
+    
+    if (character) {
+      const updatedCharacter = { ...character, avatar: avatarUri };
+      setCharacter(updatedCharacter);
+      await updateCharacter(updatedCharacter);
+    }
+  } catch (error) {
+    if (error.code !== 'E_PICKER_CANCELLED') { // 忽略用户取消的情况
+      console.error("Image picking error:", error);
+      Alert.alert("提示", "选择图片时出现错误");
+    }
+  }
+};
