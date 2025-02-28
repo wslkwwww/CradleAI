@@ -37,6 +37,11 @@ export interface CircleResponse {
         comment?: string;
     };
     error?: string;
+    relationshipUpdates?: Array<{
+        targetId: string;
+        strengthDelta: number;
+        newType?: string;
+    }>;
 }
 
 export interface CircleMemorySystem {

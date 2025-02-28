@@ -1,3 +1,4 @@
+import { CharacterMetadata } from '../shared/types/circle-types';
 // ============= 基础类型 =============
 export interface User {
     id: string;
@@ -133,23 +134,41 @@ export interface GeminiMessage {
 
 // ============= UI 组件类型 =============
 export interface Character {
-    id: string;
-    name: string;
-    avatar: string | null;
-    backgroundImage: string | null;
-    conversationId: string;
-    jsonData?: string;
-    circlePosts?: CirclePost[];
-    memX?: number;
-    autoMessage?: boolean;
-    circleInteraction?: boolean;
-    circlePostFrequency?: 'low' | 'medium' | 'high'; // 发布频率
-    circleInteractionFrequency?: 'low' | 'medium' | 'high'; // 互动频率
-    circleStats?: {
-        repliedToCharacters: Record<string, number>; // 已回复角色ID和次数
-        repliedToPostsCount: number; // 已回复的不同角色帖子数
-        repliedToCommentsCount: Record<string, number>; // 已回复评论ID和次数
-    };
+  id: string;
+  name: string;
+  avatar: string | null;
+  backgroundImage: string | null;
+  // 基本
+  description: string;
+  personality: string;
+  interests: string[];
+  voiceType?: string;
+  createdAt: number;
+  updatedAt: number;
+  isSystem?: boolean;
+  isArchived?: boolean;
+  metadata?: CharacterMetadata;
+  age?: string;
+  gender?: string;
+  relationshipEnabled?: boolean;
+  messageBox?: any[];
+  relationshipMap?: any;
+  // Circle-related fields (existing)
+  conversationId?: string;
+  jsonData?: string;
+  circlePosts?: any[];
+  memX?: number;
+  autoMessage?: boolean;
+  // 聊天所需
+  circleInteraction?: boolean;
+  circlePostFrequency?: 'low' | 'medium' | 'high';
+  circleInteractionFrequency?: 'low' | 'medium' | 'high';
+  circleStats?: {
+    repliedToCharacters: Record<string, number>;
+    repliedToPostsCount: number;
+    repliedToCommentsCount: Record<string, number>;
+  // Circle-related fields (existing)
+  };
 }
 
 export interface Message {

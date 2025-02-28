@@ -1,0 +1,287 @@
+import { StyleSheet } from 'react-native';
+import {Colors} from '../constants/Colors';
+
+export const relationshipStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 16,
+  },
+  header: {
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: Colors.text,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: Colors.textDim,
+    marginBottom: 16,
+  },
+  card: {
+    backgroundColor: Colors.cardBackground,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  relationshipItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  characterInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  characterName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  relationshipType: {
+    fontSize: 14,
+    color: Colors.textDim,
+    marginTop: 4,
+  },
+  strengthIndicator: {
+    height: 8,
+    width: 120,
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  strengthBar: {
+    height: '100%',
+  },
+  messageItem: {
+    padding: 12,
+    backgroundColor: Colors.cardBackground,
+    marginBottom: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  senderName: {
+    fontWeight: '600',
+    fontSize: 15,
+    color: Colors.text,
+  },
+  timestamp: {
+    fontSize: 12,
+    color: Colors.textDim,
+  },
+  messageContent: {
+    fontSize: 14,
+    color: Colors.text,
+    lineHeight: 20,
+  },
+  contextContent: {
+    fontSize: 13,
+    color: Colors.textDim,
+    backgroundColor: Colors.subtleBg,
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: Colors.textDim,
+    textAlign: 'center',
+    marginTop: 12,
+  },
+  button: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  buttonText: {
+    color: Colors.white,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 6,
+    padding: 10,
+    marginVertical: 8,
+    color: Colors.text,
+    backgroundColor: Colors.inputBackground,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  strengthText: {
+    fontSize: 14,
+    color: Colors.textDim,
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  unreadBadge: {
+    backgroundColor: Colors.notification,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 6,
+  },
+  relationshipBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  saveButton: {
+    backgroundColor: Colors.success,
+    minWidth: 80,
+  },
+  cancelButton: {
+    backgroundColor: Colors.secondary,
+    minWidth: 80,
+  },
+  deleteButton: {
+    backgroundColor: Colors.error,
+    minWidth: 80,
+  },
+  characterBadge: {
+    marginHorizontal: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 8,
+    backgroundColor: Colors.inputBackground,
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    color: Colors.text,
+    backgroundColor: Colors.inputBackground,
+  },
+  horizontalScroll: {
+    marginVertical: 8,
+    paddingVertical: 4,
+  },
+  strengthSlider: {
+    width: '100%',
+    height: 40,
+    marginVertical: 8,
+  },
+  sliderLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  sliderLabel: {
+    fontSize: 12,
+    color: Colors.textDim,
+  },
+  interactionCount: {
+    fontSize: 12,
+    color: Colors.textDim,
+    marginTop: 2,
+  },
+  lastUpdated: {
+    fontSize: 12,
+    color: Colors.textDim,
+    marginTop: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  imageButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: 'hidden',
+    marginHorizontal: 4,
+  },
+  selectedImageButton: {
+    borderWidth: 2,
+    borderColor: Colors.primary,
+  },
+  characterImage: {
+    width: '100%',
+    height: '100%',
+  },
+  characterItem: {
+    alignItems: 'center',
+    marginHorizontal: 8,
+    width: 70,
+  },
+  viewToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 16,
+    backgroundColor: Colors.cardBackground,
+    borderRadius: 20,
+    padding: 4,
+  },
+  viewToggleButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+  },
+  activeViewToggleButton: {
+    backgroundColor: Colors.primary,
+  },
+  viewToggleText: {
+    fontSize: 14,
+    color: Colors.textDim,
+  },
+  activeViewToggleText: {
+    color: Colors.white,
+    fontWeight: '600',
+  },
+});

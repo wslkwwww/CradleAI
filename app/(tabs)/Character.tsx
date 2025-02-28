@@ -13,6 +13,7 @@ import {
   Animated,
   StatusBar,
   Platform,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
@@ -24,6 +25,9 @@ import { CharacterImporter } from '@/utils/CharacterImporter';
 import { useUser } from '@/constants/UserContext';
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { RelationshipGraph } from '@/components/RelationshipGraph';
+import { MessageBox } from '@/components/MessageBox';
+import { getCharacterById } from '@/services/character-service';
 
 // ... (CharacterCard 组件和常量) ...
 const { width } = Dimensions.get('window');
@@ -89,7 +93,12 @@ const CharactersScreen: React.FC = () => {
   const router = useRouter();
   const [isManaging, setIsManaging] = useState(false);
   const [selectedCharacters, setSelectedCharacters] = useState<string[]>([]);
-  const animatedValue = useRef(new Animated.Value(0)).current; // 用于动画的值, 初始值为 0
+  const animatedValue = useRef(new Animated.Value(0)).current;
+  
+  // New states for relationship view
+  const [showRelationshipModal, setShowRelationshipModal] = useState(false);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [relationshipView, setRelationshipView] = useState<'graph' | 'messages'>('graph');
 
   // useEffect(() => {
   //   console.log('Characters from Context:', characters);
@@ -247,6 +256,82 @@ const CharactersScreen: React.FC = () => {
   //   }
   // }, [isLoading, characters]);
 
+  // Add new function to handle relationship button press
+  const handleRelationshipPress = () => {
+    if (selectedCharacters.length !== 1) {
+      Alert.alert(
+        '选择一个角色',
+        '请先选择一个角色以查看关系图谱',
+        [{ text: '确定', onPress: () => setIsManaging(true) }]
+      );
+      return;
+    }
+    
+    setSelectedCharacterId(selectedCharacters[0]);
+    setShowRelationshipModal(true);
+  };
+
+  // Function to handle character update from relationship components
+  const handleCharacterUpdate = (updatedCharacter: Character) => {
+    updateCharacter(updatedCharacter);
+  };
+
+  // Close the relationship modal
+  const handleCloseRelationshipModal = () => {
+    setShowRelationshipModal(false);
+    setSelectedCharacterId(null);
+    setRelationshipView('graph');
+    // Reset the selection when done
+    setSelectedCharacters([]);
+    setIsManaging(false);
+  };
+
+  // Add a new floating button for relationships
+  const renderFloatingButtons = () => {
+    return (
+      <View style={styles.floatingButtonsContainer}>
+        <TouchableOpacity 
+          style={[styles.floatingButton, isManaging && styles.activeButton]} 
+          onPress={handleManage}
+        >
+          <FontAwesome name="wrench" size={24} color="#282828" />
+        </TouchableOpacity>
+        
+        {/* New Relationship Button */}
+        <TouchableOpacity 
+          style={[
+            styles.floatingButton, 
+            selectedCharacters.length === 1 && styles.highlightButton
+          ]} 
+          onPress={handleRelationshipPress}
+        >
+          <FontAwesome name="group" size={24} color="#282828" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.floatingButton} 
+          onPress={handleExport}
+        >
+          <Ionicons name="cloud-download-outline" size={24} color="#282828" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.floatingButton} 
+          onPress={handleImport}
+        >
+          <Ionicons name="cloud-upload-outline" size={24} color="#282828" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.floatingButton} 
+          onPress={handleCreate}
+        >
+          <Ionicons name="person-add-outline" size={24} color="#282828" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+  
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR_BACKGROUND} />
@@ -274,33 +359,73 @@ const CharactersScreen: React.FC = () => {
         />
       )}
 
-      {/* 右下角按钮组 */}
-      <View style={styles.floatingButtonsContainer}>
-        <TouchableOpacity 
-          style={[styles.floatingButton, isManaging && styles.activeButton]} 
-          onPress={handleManage}
-        >
-          <FontAwesome name="wrench" size={24} color="#282828" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.floatingButton} 
-          onPress={handleExport}
-        >
-          <Ionicons name="cloud-download-outline" size={24} color="#282828" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.floatingButton} 
-          onPress={handleImport}
-        >
-          <Ionicons name="cloud-upload-outline" size={24} color="#282828" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.floatingButton} 
-          onPress={handleCreate}
-        >
-          <Ionicons name="person-add-outline" size={24} color="#282828" />
-        </TouchableOpacity>
-      </View>
+      {/* Render updated floating buttons */}
+      {renderFloatingButtons()}
+      
+      {/* Relationship Modal */}
+      <Modal
+        visible={showRelationshipModal}
+        animationType="slide"
+        onRequestClose={handleCloseRelationshipModal}
+      >
+        <View style={styles.modalContainer}>
+          {/* Modal Header */}
+          <View style={styles.modalHeader}>
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={handleCloseRelationshipModal}
+            >
+              <Ionicons name="close" size={24} color="#282828" />
+            </TouchableOpacity>
+            
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  relationshipView === 'graph' && styles.activeTabButton
+                ]}
+                onPress={() => setRelationshipView('graph')}
+              >
+                <Text style={[
+                  styles.tabText,
+                  relationshipView === 'graph' && styles.activeTabText
+                ]}>关系图谱</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  relationshipView === 'messages' && styles.activeTabButton
+                ]}
+                onPress={() => setRelationshipView('messages')}
+              >
+                <Text style={[
+                  styles.tabText,
+                  relationshipView === 'messages' && styles.activeTabText
+                ]}>消息盒子</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          {/* Modal Content */}
+          {selectedCharacterId && (
+            <View style={styles.modalContent}>
+              {relationshipView === 'graph' ? (
+                <RelationshipGraph
+                  character={getCharacterById(characters, selectedCharacterId)!}
+                  onUpdateCharacter={handleCharacterUpdate}
+                  allCharacters={characters}
+                />
+              ) : (
+                <MessageBox
+                  character={getCharacterById(characters, selectedCharacterId)!}
+                  onUpdateCharacter={handleCharacterUpdate}
+                />
+              )}
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -434,6 +559,60 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  // New styles for relationship functionality
+  highlightButton: {
+    backgroundColor: 'rgb(255, 190, 159)',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: COLOR_BACKGROUND,
+  },
+  modalHeader: {
+    flexDirection: 'column',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 10 : 20,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 224, 195, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  tabButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginHorizontal: 5,
+    borderRadius: 20,
+    backgroundColor: 'rgba(50, 50, 50, 0.5)',
+  },
+  activeTabButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.9)',
+  },
+  tabText: {
+    color: '#AAAAAA',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: '#282828',
+    fontWeight: 'bold',
+  },
+  modalContent: {
+    flex: 1,
   },
 });
 
