@@ -54,10 +54,7 @@ const Profile: React.FC = () => {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* 头部 */}
-      <View style={headerStyles.header}>
-        <Text style={headerStyles.headerText}>我的</Text>
-      </View>
+
 
       {/* 用户信息 */}
       <View style={styles.header}>

@@ -1204,11 +1204,7 @@ const Explore: React.FC = () => {
         source={require('@/assets/images/default-background.jpeg')}
         style={styles.backgroundImage}
       >
-        <View style={styles.header}>
-          <Text style={styles.headerText}>小圈</Text>
-        </View>
-
-        {/* Tab Navigation */}
+        {/* 调整后的 Tab Navigation */}
         <View style={styles.tabBar}>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'circle' && styles.activeTab]}
@@ -1244,7 +1240,7 @@ const Explore: React.FC = () => {
             </Text>
           </TouchableOpacity>
         </View>
-        
+
         {/* Circle Tab Content */}
         {activeTab === 'circle' && (
           <>
@@ -1560,16 +1556,18 @@ const styles = StyleSheet.create({
   // Tab navigation styles
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(40, 40, 40, 0.7)',
+    backgroundColor: 'rgba(40, 40, 40, 0.95)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingTop: Platform.OS === 'ios' ? 47 : StatusBar.currentHeight, // 调整顶部内边距
+    height: Platform.OS === 'ios' ? 90 : 90, // 确保总高度与其他页面一致
   },
   tab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingBottom: 12, // 调整底部内边距
   },
   tabText: {
     marginLeft: 8,
@@ -1679,22 +1677,6 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#666',
     fontSize: 16,
-  },
-  header: {
-    padding: 16,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: 'rgba(40, 40, 40, 0.7)',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  headerText: {
-    color: 'rgb(255, 224, 195)',
-    fontSize: 20,
-    fontWeight: 'bold',
   },
   listContainer: {
     padding: 16,

@@ -27,11 +27,20 @@ export default function CradleScreen() {
 
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const { updateCradleSettings, getCradleSettings } = useCharacters();
-  const cradleSettings = getCradleSettings();
+  
+  // 添加默认值，防止 undefined 错误
+  const defaultCradleSettings = {
+    enabled: false,
+    duration: 7,
+    startDate: undefined
+  };
+  const cradleSettings = getCradleSettings() || defaultCradleSettings;
+  
   const [isFeedSheetVisible, setIsFeedSheetVisible] = useState(false);
 
   const handleCradleToggle = async (enabled: boolean) => {
     const newSettings = {
+      ...defaultCradleSettings, // 使用默认值作为基础
       ...cradleSettings,
       enabled,
       startDate: enabled ? new Date().toISOString() : undefined,
@@ -41,6 +50,7 @@ export default function CradleScreen() {
 
   const handleDurationChange = async (days: number) => {
     const newSettings = {
+      ...defaultCradleSettings, // 使用默认值作为基础
       ...cradleSettings,
       duration: days,
     };

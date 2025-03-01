@@ -290,6 +290,14 @@ const CharactersScreen: React.FC = () => {
   const renderFloatingButtons = () => {
     return (
       <View style={styles.floatingButtonsContainer}>
+        {isManaging && (
+          <TouchableOpacity 
+            style={[styles.floatingButton, styles.deleteButton]} 
+            onPress={handleDelete}
+          >
+            <Ionicons name="trash-outline" size={24} color="#282828" />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity 
           style={[styles.floatingButton, isManaging && styles.activeButton]} 
           onPress={handleManage}
@@ -335,17 +343,6 @@ const CharactersScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR_BACKGROUND} />
-      <View style={styles.header}>
-        <Text style={styles.headerText}>角色</Text>
-        {isManaging && (
-          <TouchableOpacity 
-            style={styles.deleteButton} 
-            onPress={handleDelete}
-          >
-            <Ionicons name="trash-outline" size={24} color="#282828" />
-          </TouchableOpacity>
-        )}
-      </View>
 
       {isLoading ? (
         <ActivityIndicator size="large" color="#fff" />
@@ -436,19 +433,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR_BACKGROUND,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    position: 'relative',  // 添加这行
-  },
-  headerText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'rgb(255, 224, 195)',
+    height: Platform.OS === 'ios' ? 90 : 90, // 确保高度与其他页面一致
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 47,
+
+    backgroundColor: 'rgba(40, 40, 40, 0.95)',
   },
   listContainer: {
     padding: 16,
@@ -542,23 +530,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF4444',
   },
   deleteButton: {
-    position: 'absolute',
-    right: 16,
-    // 删除 top 属性，让按钮自然垂直居中
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 224, 195, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    backgroundColor: '#FF4444',
   },
   // New styles for relationship functionality
   highlightButton: {

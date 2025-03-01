@@ -51,19 +51,6 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: '角色',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'people' : 'people-outline'}
-              size={26}
-              color={color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
           title: '聊天',
           headerShown: false,
           tabBarIcon: ({ color, focused }) => (
@@ -90,12 +77,41 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="settings"
+        name="Character"
         options={{
-          title: '设置',
+          title: '角色卡',
+          headerShown: true,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'settings' : 'settings-outline'}
+              name={focused ? 'document-text' : 'document-text-outline'}
+              size={26}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="cradle"
+        options={{
+          title: '摇篮',
+          headerShown: false,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'leaf' : 'leaf-outline'}
+              size={26}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="Profile"
+        options={{
+          title: '我',
+          headerShown: true,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'person' : 'person-outline'}
               size={26}
               color={color}
             />
