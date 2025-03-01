@@ -116,7 +116,12 @@ const CreateChar: React.FC = () => {
     name: '',
     avatar: null,
     backgroundImage: null,
-    conversationId: ''  // 将在保存时设置为与id相同的值
+    conversationId: '',  // 将在保存时设置为与id相同的值
+    description: '',
+    personality: '',
+    interests: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   });
   const [loading, setLoading] = useState(false);
 
@@ -514,6 +519,11 @@ const CreateChar: React.FC = () => {
         avatar: character.avatar,
         backgroundImage: character.backgroundImage,
         conversationId: characterId,
+        description: roleCard.description || '',
+        personality: roleCard.personality || '',
+        interests: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
         jsonData: JSON.stringify(jsonData)
       };
   

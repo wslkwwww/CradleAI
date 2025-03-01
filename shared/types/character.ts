@@ -1,4 +1,5 @@
 import { RelationshipMapData, MessageBoxItem } from './relationship-types';
+import { RelationshipAction } from '@/services/action-service';
 
 export interface Character {
   id: string;
@@ -36,11 +37,13 @@ export interface Character {
   relationshipMap?: RelationshipMapData;
   messageBox?: MessageBoxItem[];
   relationshipEnabled?: boolean;
+  relationshipActions?: RelationshipAction[];
 }
 
 export interface CharacterMetadata {
   // Existing metadata fields
   [key: string]: any;
 }
+
 
 // Any other existing types in this file...

@@ -1,25 +1,27 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  Image, 
-  ScrollView, 
-  TouchableOpacity, 
-  Modal, 
-  TextInput,
-  Alert
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  Alert,
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  Modal,
+  TextInput
 } from 'react-native';
-import { Character } from '../shared/types';
+import { Character } from '@/shared/types';
+import { RelationshipService } from '@/services/relationship-service';
 import { 
   Relationship, 
   RelationshipType, 
   RelationshipMapData,
   createDefaultRelationship 
 } from '../shared/types/relationship-types';
-import { relationshipStyles as styles } from '../styles/relationship-styles';
 import {Colors} from '../constants/Colors';
 import { getCharacterById } from '../services/character-service';
-import { RelationshipService } from '../services/relationship-service';
 import { RelationshipCanvas } from './RelationshipCanvas';
 
 interface RelationshipGraphProps {
@@ -28,11 +30,12 @@ interface RelationshipGraphProps {
   allCharacters: Character[];
 }
 
-export const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
-  character,
+export const RelationshipGraph: React.FC<RelationshipGraphProps> = ({ 
+  character, 
   onUpdateCharacter,
-  allCharacters
+  allCharacters 
 }) => {
+  const [isLoading, setIsLoading] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [selectedRelationship, setSelectedRelationship] = useState<Relationship | null>(null);
@@ -41,6 +44,63 @@ export const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
   const [relationshipType, setRelationshipType] = useState<RelationshipType>('acquaintance');
   const [relationshipDescription, setRelationshipDescription] = useState<string>('');
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('graph');
+
+  // Check if relationship system is enabled for this character
+  const isRelationshipSystemEnabled = !!character.relationshipMap;
+
+  // Function to initialize the relationship system
+  const handleEnableRelationshipSystem = async () => {
+    setIsLoading(true);
+    try {
+      // Initialize relationship map using RelationshipService
+      const updatedCharacter = RelationshipService.initializeRelationshipMap(character);
+      
+      // 修复：明确设置 relationshipEnabled 标志
+      updatedCharacter.relationshipEnabled = true;
+      
+      // Update the character with the newly initialized relationship map
+      await onUpdateCharacter(updatedCharacter);
+      
+      Alert.alert(
+        "关系系统已启用",
+        `成功为${character.name}启用了关系系统！`
+      );
+    } catch (error) {
+      console.error("启用关系系统失败:", error);
+      Alert.alert(
+        "启用失败",
+        "无法为此角色启用关系系统，请稍后再试。"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // If no relationship system is enabled yet, show activation UI
+  if (!isRelationshipSystemEnabled) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.emptyStateContainer}>
+          <Text style={styles.emptyStateTitle}>关系系统未启用</Text>
+          <Text style={styles.emptyStateDescription}>
+            {character.name}还没有启用关系系统。启用后，角色将能够建立和管理与其他角色的关系，并记忆互动历史。
+          </Text>
+          
+          <TouchableOpacity 
+            style={styles.enableButton}
+            onPress={handleEnableRelationshipSystem}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.enableButtonText}>启用关系系统</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   // Initialize component with proper relationship data
   const initializedCharacter = RelationshipService.initializeRelationshipMap(character);
@@ -495,3 +555,227 @@ export const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#282828',
+  },
+  header: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'rgb(255, 224, 195)',
+    marginBottom: 8,
+    textAlign: 'center',
+    width: '100%',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#AAAAAA',
+    textAlign: 'center',
+    marginBottom: 12,
+    width: '100%',
+  },
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'rgb(255, 224, 195)',
+    marginBottom: 12,
+  },
+  emptyStateDescription: {
+    fontSize: 16,
+    color: '#AAAAAA',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  enableButton: {
+    backgroundColor: '#1a237e',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 25,
+    minWidth: 150,
+    alignItems: 'center',
+  },
+  enableButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  relationshipItem: {
+    backgroundColor: '#333333',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: 'rgb(255, 224, 195)',
+  },
+  relationshipName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  relationshipDetails: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    marginBottom: 4,
+  },
+  relationshipDescription: {
+    fontSize: 14,
+    color: '#AAAAAA',
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  viewToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  viewToggleButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginHorizontal: 8,
+    backgroundColor: 'rgba(50, 50, 50, 0.5)',
+  },
+  activeViewToggleButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.9)',
+  },
+  viewToggleText: {
+    color: '#AAAAAA',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  activeViewToggleText: {
+    color: '#282828',
+    fontWeight: 'bold',
+  },
+  button: {
+    backgroundColor: '#1a237e',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptyState: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    color: '#AAAAAA',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  modalContent: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  input: {
+    backgroundColor: '#444',
+    color: '#FFF',
+    padding: 10,
+    borderRadius: 8,
+    marginVertical: 8,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  cancelButton: {
+    backgroundColor: '#666',
+    flex: 1,
+    marginRight: 8,
+  },
+  deleteButton: {
+    backgroundColor: '#B71C1C',
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  saveButton: {
+    backgroundColor: '#1a237e',
+    flex: 1,
+    marginLeft: 8,
+  },
+  characterInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
+  },
+  characterName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  relationshipType: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    marginBottom: 8,
+  },
+  strengthIndicator: {
+    height: 6,
+    backgroundColor: '#444',
+    borderRadius: 3,
+    width: '100%',
+    marginBottom: 8,
+  },
+  strengthBar: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  strengthText: {
+    fontSize: 12,
+    color: '#AAAAAA',
+  },
+  relationshipBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    marginRight: 8,
+  },
+  characterBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    marginRight: 8,
+  },
+  badgeText: {
+    fontSize: 14,
+  },
+});

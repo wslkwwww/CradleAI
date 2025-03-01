@@ -1,3 +1,34 @@
+# 开发规范
+
+为确保系统的一致性和可维护性，我们规定**所有**基于AI对话的扩展工具和功能**必须**使用`PromptBuilderService`构建请求体，并遵循以下规范：
+
+## 1. 使用前置声明
+
+在任何使用`PromptBuilderService`的模块头部进行导入和工具声明：
+
+```typescript
+import { PromptBuilderService, DEntry, RFrameworkEntry } from '../services/prompt-builder-service';
+```
+
+## 2. 坚持使用创建方法
+
+始终使用提供的创建方法构建条目，而不是手动创建对象：
+
+```typescript
+// 正确做法
+const entry = PromptBuilderService.createDEntry({
+  name: "Context",
+  content: "重要信息"
+});
+
+// 错误做法
+const entry = {
+  name: "Context",
+  content: "重要信息",
+  depth: 1
+};
+```
+
 # 朋友圈互动系统文档
 
 ## 1. 系统概述
@@ -144,7 +175,11 @@ graph TD
 'checkInteractionLimits'：检查互动频率限制
 'updateInteractionStats'：更新互动统计
 
+`/NodeST/nodest/index.ts`：NodeST API 封装层
+
 ### 5.3 核心层
+`/NodeST/nodest/services/prompt-builder-seervice`：# 构建 AI 请求体的核心通用服务（新增）
+
 `/NodeST/nodest/managers/circle-manager.ts`：朋友圈核心处理器
 'circleInit'：初始化角色朋友圈框架
 'circlePost'：处理各类朋友圈交互
@@ -155,9 +190,6 @@ graph TD
 'CircleRFramework'：朋友圈R框架结构
 'CirclePostOptions'：交互选项参数
 'CircleResponse'：交互响应结构
-
-`/NodeST/nodest/index.ts`：NodeST API 封装层
-
 
 ## 6. 关键接口与实现
 

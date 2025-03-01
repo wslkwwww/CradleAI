@@ -1,14 +1,17 @@
-import { Character } from '../shared/types';
+import { Character } from '@/shared/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CHARACTERS_STORAGE_KEY = 'characters';
 
 /**
- * Get a character by ID from the provided characters array
+ * Get a character by ID from a list of characters
  */
-export const getCharacterById = (characters: Character[], id: string): Character | undefined => {
+export function getCharacterById(
+  characters: Character[],
+  id: string
+): Character | undefined {
   return characters.find(character => character.id === id);
-};
+}
 
 /**
  * Save all characters to AsyncStorage

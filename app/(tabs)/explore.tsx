@@ -27,7 +27,15 @@ import ForwardSheet from '@/components/ForwardSheet';
 import TestResultsModal from '@/components/TestResultsModal';
 import { useUser } from '@/constants/UserContext';
 import { CircleService } from '@/services/circle-service';
-
+import { RelationshipAction } from '@/shared/types/action-types';
+import RelationshipActions from '@/components/RelationshipActions';
+import { ActionService } from '@/services/action-service';
+import CharacterSelector from '@/components/CharacterSelector';
+import EmptyState from '@/components/EmptyState';
+import RelationshipTestControls, { RelationshipTestOptions } from '@/components/RelationshipTestControls';
+import RelationshipTestResults, { RelationshipTestResult } from '@/components/RelationshipTestResults';
+import { RelationshipService, SocialInteraction, PostInteraction } from '@/services/relationship-service';
+import { Relationship } from '@/shared/types/relationship-types';
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
 const AVATAR_SIZE = 48;
@@ -69,7 +77,7 @@ const generateTestPost = () => {
 };
 
 const Explore: React.FC = () => {
-  const { characters, updateCharacter, toggleFavorite, addMessage } = useCharacters();
+  const { characters, setCharacters, updateCharacter, toggleFavorite, addMessage } = useCharacters();
   const { user } = useUser();
   const [posts, setPosts] = useState<CirclePost[]>([]);
   const [commentText, setCommentText] = useState('');
@@ -87,6 +95,87 @@ const Explore: React.FC = () => {
   const [selectedPost, setSelectedPost] = useState<CirclePost | null>(null);
   const [replyTo, setReplyTo] = useState<{userId: string, userName: string} | null>(null);
   const [publishingPost, setPublishingPost] = useState(false);
+  
+  // Tab Navigation state
+  const [activeTab, setActiveTab] = useState<'circle' | 'relationships'>('circle');
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [pendingActions, setPendingActions] = useState<RelationshipAction[]>([]);
+  const [isGeneratingActions, setIsGeneratingActions] = useState(false);
+
+  // Add these states and variables for relationship testing
+  const [isRunningRelationshipTest, setIsRunningRelationshipTest] = useState(false);
+  const [relationshipTestResults, setRelationshipTestResults] = useState<RelationshipTestResult | null>(null);
+  const [showRelationshipTestResults, setShowRelationshipTestResults] = useState(false);
+
+  // Select first character as default when characters are loaded
+  useEffect(() => {
+    if (!isLoading && characters.length > 0 && !selectedCharacterId) {
+      setSelectedCharacterId(characters[0].id);
+    }
+  }, [characters, isLoading, selectedCharacterId]);
+  
+  // Load the active character's pending actions
+  useEffect(() => {
+    if (selectedCharacterId && characters.length > 0) {
+      const character = characters.find(c => c.id === selectedCharacterId);
+      if (character) {
+        // Filter pending actions for this character
+        if (character.relationshipActions) {
+          const now = Date.now();
+          const pending = character.relationshipActions.filter(
+            action => action.status === 'pending' && action.expiresAt > now
+          );
+          setPendingActions(pending);
+        }
+      }
+    }
+  }, [selectedCharacterId, characters]);
+
+  // Generate new relationship actions
+  const handleGenerateActions = async () => {
+    if (!selectedCharacterId) return;
+    
+    const character = characters.find(c => c.id === selectedCharacterId);
+    if (!character) return;
+    
+    setIsGeneratingActions(true);
+    
+    try {
+      // Check for potential relationship actions
+      const newActions = ActionService.checkForPotentialActions(character);
+      
+      if (newActions.length > 0) {
+        // Update the character with new actions
+        const updatedCharacter = {
+          ...character,
+          relationshipActions: [
+            ...(character.relationshipActions || []),
+            ...newActions
+          ]
+        };
+        
+        // Update character
+        await updateCharacter(updatedCharacter);
+        
+        setPendingActions([...pendingActions, ...newActions]);
+      } else {
+        Alert.alert('提示', '没有新的关系行动可生成');
+      }
+    } catch (error) {
+      console.error('Failed to generate relationship actions:', error);
+      Alert.alert('错误', '生成关系行动时发生错误');
+    } finally {
+      setIsGeneratingActions(false);
+    }
+  };
+
+  // Map characters object to an array for CharacterSelector
+  const charactersArray = Object.values(characters || {});
+
+  // Process characters update from RelationshipActions component
+  const handleUpdateCharacters = (updatedCharacters: Character[]) => {
+    setCharacters(updatedCharacters);
+  };
 
   // Circle interaction handling
   const handleCirclePostUpdate = useCallback(async (testPost: CirclePost) => {
@@ -289,12 +378,12 @@ const Explore: React.FC = () => {
         isCharacter: false,
         createdAt: new Date().toISOString()
       };
-  
+
       const updatedPost = {
         ...post,
         likes: post.likes + 1,
         hasLiked: true,
-        likedBy: [...(post.likedBy || []), newLike]
+        likedBy: [...(post.likedBy || [] as CircleLike[]), newLike]
       };
   
       const updatedPosts = character.circlePosts.map(p =>
@@ -331,9 +420,9 @@ const Explore: React.FC = () => {
       };
   
       // 更新帖子，添加用户评论
-      let updatedPost = {
+      let updatedPost: CirclePost = {
         ...post,
-        comments: [...(post.comments || []), newComment],
+        comments: [...(post.comments || []), newComment] as CircleComment[],
       };
       
       // 现在使用 CircleService 获取角色回复
@@ -362,7 +451,7 @@ const Explore: React.FC = () => {
             }
           };
           
-          updatedPost.comments.push(characterReply);
+          (updatedPost.comments = updatedPost.comments || []).push(characterReply);
         }
       }
   
@@ -697,7 +786,382 @@ const Explore: React.FC = () => {
     </View>
   ), [activePostId, renderComment, renderCommentInput, testModeEnabled, processingCharacters, handleLike, handleFavorite, handleCommentPress]);
 
-  if (isLoading) {
+  // Add the relationship test functions
+  const runRelationshipTest = async (options: RelationshipTestOptions) => {
+    // Don't run if a test is already in progress
+    if (isRunningRelationshipTest) return;
+    
+    setIsRunningRelationshipTest(true);
+    const messages: string[] = [];
+    
+    const log = (message: string) => {
+      console.log(`【关系测试】${message}`);
+      if (options.showDetailedLogs) {
+        messages.push(message);
+      }
+    };
+    
+    try {
+      log('开始执行关系系统测试...');
+      
+      // 1. Select a character with relationship system enabled as the post author
+      const eligibleAuthors = characters.filter(c => c.relationshipEnabled);
+      
+      if (eligibleAuthors.length === 0) {
+        log('❌ 没有找到启用关系系统的角色，请先启用至少一个角色的关系系统');
+        Alert.alert('测试失败', '没有找到启用关系系统的角色，请先启用至少一个角色的关系系统');
+        setIsRunningRelationshipTest(false);
+        return;
+      }
+      
+      const author = eligibleAuthors[Math.floor(Math.random() * eligibleAuthors.length)];
+      log(`选择 ${author.name} 作为帖子发布者`);
+      
+      // 2. Find interacting characters (with relationship system enabled but not the author)
+      const interactors = characters.filter(c => 
+        c.relationshipEnabled && c.id !== author.id
+      );
+      
+      if (interactors.length === 0) {
+        log('❌ 没有足够的角色进行互动测试，请启用至少两个角色的关系系统');
+        Alert.alert('测试失败', '没有足够的角色进行互动测试，请启用至少两个角色的关系系统');
+        setIsRunningRelationshipTest(false);
+        return;
+      }
+      
+      log(`找到 ${interactors.length} 个可用于互动的角色`);
+      
+      // 3. Record relationships before the test
+      const beforeRelationships: Record<string, Relationship | null> = {};
+      
+      interactors.forEach(interactor => {
+        const rel = author.relationshipMap?.relationships[interactor.id] || null;
+        beforeRelationships[interactor.id] = rel ? {...rel} : null;
+        
+        if (rel) {
+          log(`${author.name} 与 ${interactor.name} 的初始关系: 类型=${rel.type}, 强度=${rel.strength}, 互动次数=${rel.interactions}`);
+        } else {
+          log(`${author.name} 与 ${interactor.name} 尚无关系记录`);
+        }
+      });
+      
+      // 4. Generate test post content
+      const postTemplates = [
+        '今天的心情超级好！阳光明媚，万里无云，你们周末有什么计划吗？',
+        '刚读完一本很棒的书，书名是《未来简史》，强烈推荐给大家！',
+        '昨晚做了一个奇怪的梦，梦见自己在太空中漂浮，感觉既恐怖又奇妙...',
+        '新学会了一道菜，红烧排骨，味道居然出乎意料的好，有没有人想要食谱？',
+        '今天工作中遇到了一个难题，思考了一整天都没解决，有点沮丧...'
+      ];
+      
+      const postContent = postTemplates[Math.floor(Math.random() * postTemplates.length)];
+      log(`${author.name} 发布了帖子: "${postContent}"`);
+      
+      // 5. Record interactions
+      const participants: {id: string; name: string; action: string}[] = [];
+      
+      // 6. Process interactions
+      log('开始处理角色互动...');
+      
+      // Create a test post object
+      const testPost = {
+        id: `test-post-${Date.now()}`,
+        characterId: author.id,
+        characterName: author.name,
+        characterAvatar: author.avatar || null,
+        content: postContent,
+        createdAt: new Date().toISOString(),
+        comments: [], // Initialize as empty array
+        likes: 0,
+        hasLiked: false,
+        likedBy: [] // Initialize as empty array
+      };
+      
+      // Process interactions for each character
+      for (const interactor of interactors) {
+        try {
+          // Randomly choose interaction type
+          const interactionType = Math.random() > 0.4 ? 'comment' : 'like';
+          let actionText = '';
+          
+          if (interactionType === 'like') {
+            actionText = '点赞了帖子';
+            log(`${interactor.name} 点赞了 ${author.name} 的帖子`);
+            
+            // Process like interaction
+            let updatedAuthor = { ...author };
+            if (!author.relationshipMap) {
+              updatedAuthor = await RelationshipService.initializeRelationshipMap(author);
+            }
+            
+            updatedAuthor = RelationshipService.processPostInteraction(
+              updatedAuthor,
+              interactor.id,
+              interactor.name,
+              'like',
+              '点赞',
+              testPost.id,
+              testPost.content
+            );
+            
+            // Apply strength modifier
+            if (updatedAuthor.relationshipMap?.relationships[interactor.id]) {
+              const rel = updatedAuthor.relationshipMap.relationships[interactor.id];
+              
+              // Add proper strength delta based on options
+              const strengthDelta = options.strengthModifier;
+              
+              // Randomly choose positive or negative update
+              const isPositive = Math.random() > 0.3; // 70% chance of positive
+              
+              if (isPositive) {
+                rel.strength = Math.min(100, rel.strength + strengthDelta);
+                log(`👍 ${author.name} 对 ${interactor.name} 的好感度增加了 ${strengthDelta} (${rel.strength})`);
+              } else {
+                rel.strength = Math.max(-100, rel.strength - strengthDelta);
+                log(`👎 ${author.name} 对 ${interactor.name} 的好感度降低了 ${strengthDelta} (${rel.strength})`);
+              }
+              
+              // Update relationship type
+              const oldType = rel.type;
+              rel.type = RelationshipService.getRelationshipTypeFromStrength(rel.strength);
+              
+              if (oldType !== rel.type) {
+                log(`🔄 关系类型从 ${oldType} 变为 ${rel.type}`);
+              }
+              
+              // Accelerate interaction count if enabled
+              if (options.accelerateInteractions) {
+                rel.interactions += 3; // Add extra interactions to accelerate action triggers
+                log(`🔄 互动次数加速增长到 ${rel.interactions}`);
+              }
+            }
+            
+            // Add like to test post
+            testPost.likes += 1;
+            (testPost.likedBy = testPost.likedBy || [] as CircleLike[]).push({
+              userId: interactor.id,
+              userName: interactor.name,
+              isCharacter: true,
+              createdAt: new Date().toISOString()
+            });
+            
+            // Update author
+            await updateCharacter(updatedAuthor);
+            
+            // Record participant action
+            participants.push({
+              id: interactor.id,
+              name: interactor.name,
+              action: '点赞了帖子'
+            });
+            
+          } else {
+            // Comment interaction
+            const commentTemplates = [
+              '这个内容真有趣，谢谢分享！',
+              '我也有类似的经历，感同身受。',
+              '这让我想到了一些事情，改天我们聊聊？',
+              '这真是太棒了，我很喜欢！',
+              '有意思，不过我有不同的看法...'
+            ];
+            
+            const commentContent = commentTemplates[Math.floor(Math.random() * commentTemplates.length)];
+            actionText = `评论: "${commentContent}"`;
+            log(`${interactor.name} 评论了 ${author.name} 的帖子: "${commentContent}"`);
+            
+            // Process comment interaction
+            let updatedAuthor = { ...author };
+            if (!author.relationshipMap) {
+              updatedAuthor = await RelationshipService.initializeRelationshipMap(author);
+            }
+            
+            updatedAuthor = RelationshipService.processPostInteraction(
+              updatedAuthor,
+              interactor.id,
+              interactor.name,
+              'comment',
+              commentContent,
+              testPost.id,
+              testPost.content
+            );
+            
+            // Apply strength modifier as with likes
+            if (updatedAuthor.relationshipMap?.relationships[interactor.id]) {
+              const rel = updatedAuthor.relationshipMap.relationships[interactor.id];
+              
+              // Comments have more impact than likes
+              const strengthDelta = options.strengthModifier * 1.5;
+              
+              const isPositive = Math.random() > 0.2; // 80% chance of positive for comments
+              
+              if (isPositive) {
+                rel.strength = Math.min(100, rel.strength + strengthDelta);
+                log(`👍 ${author.name} 对 ${interactor.name} 的好感度增加了 ${strengthDelta} (${rel.strength})`);
+              } else {
+                rel.strength = Math.max(-100, rel.strength - strengthDelta);
+                log(`👎 ${author.name} 对 ${interactor.name} 的好感度降低了 ${strengthDelta} (${rel.strength})`);
+              }
+              
+              // Update relationship type
+              const oldType = rel.type;
+              rel.type = RelationshipService.getRelationshipTypeFromStrength(rel.strength);
+              
+              if (oldType !== rel.type) {
+                log(`🔄 关系类型从 ${oldType} 变为 ${rel.type}`);
+              }
+              
+              // Accelerate interaction count if enabled
+              if (options.accelerateInteractions) {
+                rel.interactions += 5; // Comments add more interactions
+                log(`🔄 互动次数加速增长到 ${rel.interactions}`);
+              }
+            }
+            
+            // Add comment to test post
+            (testPost.comments = testPost.comments || []).push({
+              id: `comment-${Date.now()}-${interactor.id}`,
+              userId: interactor.id,
+              userName: interactor.name,
+              content: commentContent,
+              createdAt: new Date().toISOString(),
+              type: 'character'
+            });
+            
+            // Update author
+            await updateCharacter(updatedAuthor);
+            
+            // Record participant action
+            participants.push({
+              id: interactor.id,
+              name: interactor.name,
+              action: `评论: "${commentContent}"`
+            });
+          }
+        } catch (err) {
+          log(`处理 ${interactor.name} 互动时出错: ${err}`);
+        }
+      }
+      
+      // 7. Check for relationship updates
+      log('检查关系更新结果...');
+      
+      const relationshipUpdates: {
+        targetId: string;
+        targetName: string;
+        before: Relationship | null;
+        after: Relationship | null;
+      }[] = [];
+      
+      // Get latest author data
+      const updatedAuthor = characters.find(c => c.id === author.id);
+      if (!updatedAuthor || !updatedAuthor.relationshipMap) {
+        throw new Error('无法获取更新后的作者数据');
+      }
+      
+      // Compare before and after relationships
+      interactors.forEach(interactor => {
+        const beforeRel = beforeRelationships[interactor.id];
+        const afterRel = updatedAuthor.relationshipMap?.relationships[interactor.id] || null;
+        
+        relationshipUpdates.push({
+          targetId: interactor.id,
+          targetName: interactor.name,
+          before: beforeRel,
+          after: afterRel
+        });
+        
+        if (beforeRel && afterRel) {
+          if (beforeRel.strength !== afterRel.strength) {
+            log(`${updatedAuthor.name} 对 ${interactor.name} 的关系强度: ${beforeRel.strength} -> ${afterRel.strength}`);
+          }
+          if (beforeRel.type !== afterRel.type) {
+            log(`${updatedAuthor.name} 对 ${interactor.name} 的关系类型: ${beforeRel.type} -> ${afterRel.type}`);
+          }
+        } else if (!beforeRel && afterRel) {
+          log(`${updatedAuthor.name} 与 ${interactor.name} 建立了新关系: 类型=${afterRel.type}, 强度=${afterRel.strength}`);
+        }
+      });
+      
+      // 8. Check for triggered actions
+      log('检查是否触发关系行动...');
+      
+      const newActions = ActionService.checkForPotentialActions(updatedAuthor);
+      log(`检测到 ${newActions.length} 个潜在关系行动`);
+      
+      if (newActions.length > 0) {
+        const updatedAuthorWithActions = {
+          ...updatedAuthor,
+          relationshipActions: [
+            ...(updatedAuthor.relationshipActions || []),
+            ...newActions
+          ]
+        };
+        
+        await updateCharacter(updatedAuthorWithActions);
+        
+        // Log triggered actions
+        newActions.forEach(action => {
+          const targetChar = characters.find(c => c.id === action.targetCharacterId);
+          log(`🎯 触发行动: ${action.type} - ${updatedAuthor.name} -> ${targetChar?.name || 'unknown'}`);
+        });
+      }
+      
+      // 9. Prepare test results
+      const testResult: RelationshipTestResult = {
+        postAuthor: {
+          id: author.id,
+          name: author.name
+        },
+        postContent,
+        participants,
+        relationshipUpdates,
+        triggeredActions: newActions,
+        messages
+      };
+      
+      // 10. Display results
+      setRelationshipTestResults(testResult);
+      setShowRelationshipTestResults(true);
+      
+      log('测试完成');
+      
+    } catch (error) {
+      console.error('【关系测试】测试过程出错:', error);
+      Alert.alert('测试失败', '测试过程中发生错误');
+    } finally {
+      setIsRunningRelationshipTest(false);
+    }
+  };
+
+  // Reset all relationships
+  const resetAllRelationships = async () => {
+    try {
+      let updatedCount = 0;
+      
+      // Reset each character's relationship data
+      for (const character of characters) {
+        if (character.relationshipMap || character.messageBox || character.relationshipActions) {
+          const resetCharacter = {
+            ...character,
+            relationshipMap: undefined,
+            messageBox: undefined,
+            relationshipActions: undefined
+          };
+          
+          await updateCharacter(resetCharacter);
+          updatedCount++;
+        }
+      }
+      
+      Alert.alert('重置完成', `已重置 ${updatedCount} 个角色的关系数据`);
+    } catch (error) {
+      console.error('重置关系数据失败:', error);
+      Alert.alert('错误', '重置关系数据时发生错误');
+    }
+  };
+
+  if (isLoading && activeTab === 'circle') {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
@@ -708,7 +1172,7 @@ const Explore: React.FC = () => {
     );
   }
 
-  if (error) {
+  if (error && activeTab === 'circle') {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.errorContainer}>
@@ -741,50 +1205,152 @@ const Explore: React.FC = () => {
         style={styles.backgroundImage}
       >
         <View style={styles.header}>
-          <Text style={styles.headerText}>小窝</Text>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity 
-              style={[
-                styles.headerButton,
-                publishingPost && styles.headerButtonDisabled
-              ]} 
-              onPress={handlePublishTestPost}
-              disabled={publishingPost}
-            >
-              {publishingPost ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.headerButtonText}>发布测试</Text>
-              )}
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.headerButton, 
-                testModeEnabled && styles.testButtonActive
-              ]} 
-              onPress={toggleTestMode}
-            >
-              <Text style={styles.headerButtonText}>
-                {testModeEnabled ? '关闭测试' : '互动测试'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.headerText}>小圈</Text>
+        </View>
+
+        {/* Tab Navigation */}
+        <View style={styles.tabBar}>
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'circle' && styles.activeTab]}
+            onPress={() => setActiveTab('circle')}
+          >
+            <MaterialCommunityIcons 
+              name="forum-outline" 
+              size={20} 
+              color={activeTab === 'circle' ? "#FF9ECD" : "#FFFFFF"} 
+            />
+            <Text style={[
+              styles.tabText, 
+              activeTab === 'circle' && styles.activeTabText
+            ]}>
+              动态
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'relationships' && styles.activeTab]}
+            onPress={() => setActiveTab('relationships')}
+          >
+            <MaterialCommunityIcons 
+              name="account-multiple-outline" 
+              size={20} 
+              color={activeTab === 'relationships' ? "#FF9ECD" : "#FFFFFF"} 
+            />
+            <Text style={[
+              styles.tabText, 
+              activeTab === 'relationships' && styles.activeTabText
+            ]}>
+              关系
+            </Text>
+          </TouchableOpacity>
         </View>
         
-        <FlatList
-          ref={flatListRef}
-          data={posts}
-          renderItem={renderPost}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.listContainer}
-          keyboardShouldPersistTaps="handled"
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>暂无动态</Text>
+        {/* Circle Tab Content */}
+        {activeTab === 'circle' && (
+          <>
+            <View style={styles.circleHeaderButtons}>
+              <TouchableOpacity 
+                style={[
+                  styles.headerButton,
+                  publishingPost && styles.headerButtonDisabled
+                ]} 
+                onPress={handlePublishTestPost}
+                disabled={publishingPost}
+              >
+                {publishingPost ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.headerButtonText}>发布测试</Text>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.headerButton, 
+                  testModeEnabled && styles.testButtonActive
+                ]} 
+                onPress={toggleTestMode}
+              >
+                <Text style={styles.headerButtonText}>
+                  {testModeEnabled ? '关闭测试' : '互动测试'}
+                </Text>
+              </TouchableOpacity>
             </View>
-          }
-        />
+            
+            <FlatList
+              ref={flatListRef}
+              data={posts}
+              renderItem={renderPost}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.listContainer}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>暂无动态</Text>
+                </View>
+              }
+            />
+          </>
+        )}
+        
+        {/* Relationships Tab Content */}
+        {activeTab === 'relationships' && (
+          <View style={styles.relationshipsContainer}>
+            <View style={styles.characterSelectorContainer}>
+              <CharacterSelector
+                characters={charactersArray}
+                selectedCharacterId={selectedCharacterId}
+                onSelectCharacter={setSelectedCharacterId}
+                loading={false}
+              />
+              
+              {/* Add the relationship test controls */}
+              <View style={styles.testControlContainer}>
+                <RelationshipTestControls
+                  characters={charactersArray}
+                  onRunTest={runRelationshipTest}
+                  onResetRelationships={resetAllRelationships}
+                  isRunningTest={isRunningRelationshipTest}
+                />
+              </View>
+            </View>
+            
+            {selectedCharacterId ? (
+              <ScrollView style={styles.relationshipsContent}>
+                <View style={styles.actionsHeader}>
+                  <Text style={styles.sectionTitle}>角色关系行动</Text>
+                  <TouchableOpacity 
+                    style={styles.generateButton}
+                    onPress={handleGenerateActions}
+                    disabled={isGeneratingActions}
+                  >
+                    {isGeneratingActions ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <>
+                        <Ionicons name="refresh-outline" size={16} color="#ffffff" />
+                        <Text style={styles.generateButtonText}>生成行动</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                
+                {selectedCharacterId && (
+                  <RelationshipActions
+                      character={characters.find(c => c.id === selectedCharacterId)!}
+                      allCharacters={Object.fromEntries(charactersArray.map(c => [c.id, c]))}
+                      onUpdateCharacters={handleUpdateCharacters}
+                  />
+                )}
+              </ScrollView>
+            ) : (
+              <EmptyState
+                message="请选择一个角色"
+                icon="person-outline"
+              />
+            )}
+          </View>
+        )}
         
         {isForwardSheetVisible && selectedPost && (
           <ForwardSheet
@@ -799,11 +1365,18 @@ const Explore: React.FC = () => {
           />
         )}
 
-        {/* 添加测试结果模态窗口 */}
+        {/* 测试结果模态窗口 */}
         <TestResultsModal
           visible={showTestResults}
           onClose={() => setShowTestResults(false)}
           results={testResults}
+        />
+
+        {/* Relationship Test Results Modal */}
+        <RelationshipTestResults
+          visible={showRelationshipTestResults}
+          onClose={() => setShowRelationshipTestResults(false)}
+          results={relationshipTestResults}
         />
       </ImageBackground>
     </KeyboardAvoidingView>
@@ -811,24 +1384,161 @@ const Explore: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  // ...existing styles...
+  // Existing tab navigation styles
+  // ...
   
-  // Add new styles
-  testButton: {
-    position: 'absolute',
-    right: 16,
+  // Post and card styles
+  card: {
+    width: CARD_WIDTH,
+    backgroundColor: 'rgba(51, 51, 51, 0.95)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    flex: 1,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  authorAvatar: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    marginRight: 8,
+  },
+  authorName: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  timestamp: {
+    color: '#777777',
+    fontSize: 12,
+  },
+  content: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  contentImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionText: {
+    color: '#FFFFFF',
+    marginLeft: 4,
+  },
+  
+  // Like section styles
+  likesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#444',
+  },
+  likeIcon: {
+    marginRight: 8,
+  },
+  likeAvatars: {
+    flexDirection: 'row',
+  },
+  likeAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 4,
     backgroundColor: '#444',
+  },
+  
+  // Comment styles
+  comment: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  commentContent: {
+    flex: 1,
+  },
+  commentAuthor: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  commentText: {
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  replyText: {
+    color: '#FF9ECD',
+    fontWeight: 'bold',
+    marginRight: 4,
+  },
+  replyButton: {
+    marginTop: 4,
+    paddingVertical: 4,
+  },
+  replyButtonText: {
+    color: '#666',
+    fontSize: 12,
+  },
+  
+  // Comment input styles
+  commentInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#444',
+    position: 'relative',
+    zIndex: 1,
+    paddingBottom: Platform.OS === 'android' ? 4 : 0,
+  },
+  commentTextInput: {
+    flex: 1,
+    backgroundColor: '#444',
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
-  },
-  testButtonActive: {
-    backgroundColor: '#FF9ECD',
-  },
-  testButtonText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
+    marginRight: 8,
+    maxHeight: 100,
+  },
+  sendButton: {
+    padding: 8,
+  },
+  replyIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#3a3a3a',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  replyIndicatorText: {
+    color: '#fff',
+    fontSize: 12,
   },
   processingIndicator: {
     flexDirection: 'row',
@@ -844,6 +1554,86 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 4,
   },
+  
+  // The rest of your existing styles
+  // ...
+  // Tab navigation styles
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(40, 40, 40, 0.7)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  tabText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#FF9ECD',
+  },
+  activeTabText: {
+    color: '#FF9ECD',
+    fontWeight: '500',
+  },
+  
+  // Relationship tab styles
+  relationshipsContainer: {
+    flex: 1,
+  },
+  characterSelectorContainer: {
+    backgroundColor: 'rgba(51, 51, 51, 0.95)',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  relationshipsContent: {
+    flex: 1,
+    backgroundColor: 'rgba(40, 40, 40, 0.7)',
+  },
+  actionsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF9ECD',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+  },
+  generateButtonText: {
+    color: '#ffffff',
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  circleHeaderButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 8,
+    backgroundColor: 'rgba(51, 51, 51, 0.95)',
+  },
+  
+  // These style properties should be moved from your existing styles
+  // to create comprehensive styles list
   safeArea: {
     flex: 1,
     backgroundColor: '#282828',
@@ -913,153 +1703,6 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
-  // Card styles
-  card: {
-    width: CARD_WIDTH,
-    backgroundColor: 'rgba(51, 51, 51, 0.95)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    flex: 1,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  authorAvatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    marginRight: 8,
-  },
-  authorName: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  timestamp: {
-    color: '#777777',
-    fontSize: 12,
-  },
-  content: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  contentImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  cardActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  actionText: {
-    color: '#FFFFFF',
-    marginLeft: 4,
-  },
-  likesContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#444',
-  },
-  likeIcon: {
-    marginRight: 8,
-  },
-  likeAvatars: {
-    flexDirection: 'row',
-  },
-  likeAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 4,
-    backgroundColor: '#444',
-  },
-  comment: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 8,
-  },
-  commentAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 8,
-  },
-  commentContent: {
-    flex: 1,
-  },
-  commentAuthor: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    marginBottom: 2,
-  },
-  commentText: {
-    color: '#FFFFFF',
-    flexShrink: 1,
-  },
-  commentInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#444',
-    position: 'relative',
-    zIndex: 1,
-    paddingBottom: Platform.OS === 'android' ? 4 : 0,
-  },
-  commentTextInput: {
-    flex: 1,
-    backgroundColor: '#444',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    color: '#fff',
-    marginRight: 8,
-    maxHeight: 100,
-  },
-  sendButton: {
-    padding: 8,
-  },
-  replyButton: {
-    marginTop: 4,
-    paddingVertical: 4,
-  },
-  replyButtonText: {
-    color: '#666',
-    fontSize: 12,
-  },
-  replyText: {
-    color: '#FF9ECD',
-    fontWeight: 'bold',
-    marginRight: 4,
-  },
-  replyIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#3a3a3a',
-    padding: 8,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  replyIndicatorText: {
-    color: '#fff',
-    fontSize: 12,
-  },
   headerButtons: {
     position: 'absolute',
     right: 16,
@@ -1080,6 +1723,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  testButtonActive: {
+    backgroundColor: '#FF9ECD',
+  },
+  testControlContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  }
 });
 
 export default Explore;

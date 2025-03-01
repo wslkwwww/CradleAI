@@ -1,238 +1,295 @@
-import { Character } from '../shared/types';
-import { 
-  RelationshipMapData, 
-  Relationship, 
-  RelationshipType, 
-  MessageBoxItem,
-  createEmptyRelationshipMap,
-  createDefaultRelationship
-} from '../shared/types/relationship-types';
+import { Character } from '@/shared/types';
+import { generateId } from '@/utils/id-utils';
 
+// Define relationship types
+export type RelationshipType = 
+  'enemy' | 'rival' | 'stranger' | 'acquaintance' | 'colleague' | 
+  'friend' | 'close_friend' | 'best_friend';
+
+// Define relationship structure
+export interface Relationship {
+  targetId: string;         // Target character ID
+  strength: number;         // Relationship strength (-100 to 100)
+  type: RelationshipType;   // Relationship type
+  description: string;      // Relationship description
+  lastUpdated: number;      // Last update timestamp
+  interactions: number;     // Interaction count
+}
+
+// Define relationship map data structure
+export interface RelationshipMapData {
+  relationships: Record<string, Relationship>;  // Relationship mapping
+  lastReviewed: number;                        // Last review timestamp
+}
+
+// Define message box item structure
+export interface MessageBoxItem {
+  id: string;               // Message ID
+  senderId: string;         // Sender ID
+  senderName?: string;      // Sender name
+  content: string;          // Message content
+  timestamp: number;        // Send timestamp
+  read: boolean;            // Read status
+  type: 'post' | 'comment' | 'like' | 'reply' | 'action';  // Message type
+  contextId?: string;       // Related content ID
+  contextContent?: string;  // Related content summary
+}
+
+// Define social interaction type for explore page
+export interface SocialInteraction {
+  userId: string;
+  userName: string;
+  isCharacter: boolean;
+  createdAt: string;
+  interactionType?: string;
+  content?: string;
+}
+
+// Define post interaction type for explore page
+export interface PostInteraction {
+  id: string;
+  userId: string;
+  userName: string;
+  content: string;
+  createdAt: string;
+  type: string;
+}
+
+// Relationship Service class for managing character relationships
 export class RelationshipService {
-  private static DEFAULT_RELATIONSHIP_STRENGTH = 0;
-  private static DEFAULT_RELATIONSHIP_TYPE: RelationshipType = 'stranger';
-  private static MAX_MESSAGE_BOX_ITEMS = 50;
+  // Relationship type thresholds
   private static RELATIONSHIP_TYPE_THRESHOLDS: Record<RelationshipType, number> = {
     'enemy': -80,
     'rival': -40,
-    'stranger': -10,
+    'stranger': -20,
     'acquaintance': 10,
-    'colleague': 20,
-    'friend': 40,
-    'close_friend': 60,
-    'best_friend': 80,
-    'family': 90,
-    'admirer': 50,
-    'romantic_interest': 70,
-    'partner': 85,
-    'mentor': 60,
-    'student': 40,
-    'business_partner': 30,
-    'crush': 65,
-    'lover': 95,
-    'ex': -30,
-    'idol': 75
+    'colleague': 30,
+    'friend': 50,
+    'close_friend': 70,
+    'best_friend': 90
   };
-
-  // Initialize relationship map for a character if not already initialized
-  static initializeRelationshipMap(character: Character): Character {
-    if (!character.relationshipEnabled) {
+  static needsRelationshipReview(character: Character): boolean {
+    // Add your review logic here
+    return character.relationshipEnabled && 
+           character.messageBox?.some(msg => !msg.read) || false;
+  }
+  static updateRelationship(character: Character, interactorId: string, strengthDelta: number, reason: string): Character {
+      // Implementation logic here
       return character;
     }
-    
+  /**
+   * Initialize a relationship map for a character
+   */
+  public static initializeRelationshipMap(character: Character): Character {
+    // Check if relationship map already exists
+    if (character.relationshipMap) {
+      return character;
+    }
+
+    // Initialize empty relationship map
+    const relationshipMap: RelationshipMapData = {
+      relationships: {},
+      lastReviewed: Date.now()
+    };
+
+    // Initialize empty message box if not exists
+    const messageBox = character.messageBox || [];
+
+    // Return updated character
     return {
       ...character,
-      relationshipMap: character.relationshipMap || createEmptyRelationshipMap(),
-      messageBox: character.messageBox || []
+      relationshipMap,
+      messageBox,
+      relationshipActions: [],
+      relationshipEnabled: true
     };
   }
 
-  // Add message to a character's message box
-  static addToMessageBox(
-    character: Character,
-    message: Omit<MessageBoxItem, 'id' | 'read'>
-  ): Character {
-    if (!character.relationshipEnabled) {
-      return character;
-    }
-
-    const updatedCharacter = this.initializeRelationshipMap(character);
-    const messageBox = updatedCharacter.messageBox || [];
+  /**
+   * Add a message to character's message box
+   */
+  public static addToMessageBox(character: Character, message: Omit<MessageBoxItem, 'id' | 'read'>): Character {
+    // Ensure character has a message box
+    const messageBox = character.messageBox || [];
     
+    // Create new message with ID and unread status
     const newMessage: MessageBoxItem = {
-      ...message,
-      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      read: false
+      id: generateId(),
+      read: false,
+      ...message
     };
     
-    // Keep only last 50 messages
+    // Add to message box (limit size to 50 messages)
     const updatedMessageBox = [newMessage, ...messageBox].slice(0, 50);
     
     return {
-      ...updatedCharacter,
+      ...character,
       messageBox: updatedMessageBox
     };
   }
 
-  // Process post interaction (like, comment)
-  static processPostInteraction(
+  /**
+   * Process a post interaction and update relationships
+   */
+  public static processPostInteraction(
     character: Character,
     interactorId: string,
     interactorName: string,
-    interactionType: 'like' | 'comment',
+    interactionType: 'like' | 'comment' | 'reply',
     content: string,
     postId: string,
     postContent: string
   ): Character {
-    if (!character.relationshipEnabled) {
-      return character;
+    // Ensure character has a relationship map
+    if (!character.relationshipMap) {
+      character = this.initializeRelationshipMap(character);
     }
-
-    // Add to message box
-    const updatedWithMessage = this.addToMessageBox(character, {
+    
+    // Get existing relationship or create new one
+    const relationship = character.relationshipMap.relationships[interactorId] || {
+      targetId: interactorId,
+      strength: 0,
+      type: 'stranger',
+      description: `${interactorName}是一个陌生人`,
+      lastUpdated: Date.now(),
+      interactions: 0
+    };
+    
+    // Update relationship based on interaction type
+    let strengthDelta = 0;
+    switch (interactionType) {
+      case 'like':
+        strengthDelta = 1;
+        break;
+      case 'comment':
+        strengthDelta = 2;
+        break;
+      case 'reply':
+        strengthDelta = 3;
+        break;
+    }
+    
+    // Update relationship strength (ensure within -100 to 100 range)
+    relationship.strength = Math.min(100, Math.max(-100, relationship.strength + strengthDelta));
+    relationship.lastUpdated = Date.now();
+    relationship.interactions += 1;
+    
+    // Update relationship type based on strength
+    relationship.type = this.getRelationshipTypeFromStrength(relationship.strength);
+    
+    // Update the relationship map
+    const updatedRelationshipMap = {
+      ...character.relationshipMap,
+      relationships: {
+        ...character.relationshipMap.relationships,
+        [interactorId]: relationship
+      }
+    };
+    
+    // Add message to message box
+    const updatedCharacter = {
+      ...character,
+      relationshipMap: updatedRelationshipMap
+    };
+    
+    // Add interaction to message box
+    return this.addToMessageBox(updatedCharacter, {
       senderId: interactorId,
       senderName: interactorName,
-      content: interactionType === 'like' ? '点赞了你的帖子' : content,
+      content: content,
       timestamp: Date.now(),
       type: interactionType,
       contextId: postId,
-      contextContent: postContent
+      contextContent: postContent.substring(0, 50) + (postContent.length > 50 ? '...' : '')
     });
-
-    // Update relationship with this character
-    return this.updateRelationship(
-      updatedWithMessage, 
-      interactorId, 
-      interactionType === 'like' ? 1 : 2, // Like gives +1, comment gives +2
-      interactionType === 'like' ? '点赞了帖子' : '评论了帖子'
-    );
   }
 
-  // Process comment reply interaction
-  static processCommentReply(
-    character: Character,
-    replierId: string,
-    replierName: string,
-    replyContent: string,
-    commentId: string,
-    commentContent: string
-  ): Character {
-    if (!character.relationshipEnabled) {
-      return character;
-    }
-
-    // Add to message box
-    const updatedWithMessage = this.addToMessageBox(character, {
-      senderId: replierId,
-      senderName: replierName,
-      content: replyContent,
-      timestamp: Date.now(),
-      type: 'reply',
-      contextId: commentId,
-      contextContent: commentContent
-    });
-
-    // Update relationship with this character (+3 for reply)
-    return this.updateRelationship(
-      updatedWithMessage,
-      replierId,
-      3,
-      '回复了评论'
-    );
-  }
-
-  // Update relationship with another character
-  static updateRelationship(
+  /**
+   * Process relationship updates from AI responses
+   */
+  public static processRelationshipUpdate(
     character: Character,
     targetId: string,
     strengthDelta: number,
-    interactionDescription: string
+    newType?: string
   ): Character {
-    if (!character.relationshipEnabled || targetId === character.id) {
-      return character;
+    // Ensure we have a relationship map
+    if (!character.relationshipMap) {
+      character.relationshipMap = {
+        lastReviewed: Date.now(),
+        relationships: {}
+      };
     }
 
-    const updatedCharacter = this.initializeRelationshipMap(character);
-    const relationshipMap = { ...updatedCharacter.relationshipMap! };
-    const relationships = { ...relationshipMap.relationships };
-    
-    // Get or create relationship entry
-    const currentRelationship = relationships[targetId] || 
-      createDefaultRelationship(targetId);
-    
-    // Update relationship
-    const updatedStrength = Math.max(-100, Math.min(100, 
-      currentRelationship.strength + strengthDelta));
-    
-    relationships[targetId] = {
-      ...currentRelationship,
-      strength: updatedStrength,
-      type: this.determineRelationshipType(updatedStrength),
-      description: interactionDescription 
-        ? `${currentRelationship.description} ${interactionDescription}` 
-        : currentRelationship.description,
-      lastUpdated: Date.now(),
-      interactions: currentRelationship.interactions + 1
-    };
+    // Get or initialize the relationship
+    let relationship = character.relationshipMap.relationships[targetId];
+    if (!relationship) {
+      relationship = {
+        type: 'stranger',
+        strength: 0,
+        lastUpdated: Date.now(),
+        description: `Relationship with ${targetId}`,
+        interactions: 0
+      };
+    }
 
-    return {
-      ...updatedCharacter,
-      relationshipMap: {
-        ...relationshipMap,
-        relationships
+    // Apply strength delta
+    relationship.strength = Math.max(-100, Math.min(100, relationship.strength + strengthDelta));
+    
+    // Apply new type if provided, otherwise calculate based on strength
+    if (newType) {
+      relationship.type = newType;
+    } else {
+      relationship.type = this.getRelationshipTypeFromStrength(relationship.strength);
+    }
+    
+    relationship.lastUpdated = Date.now();
+    
+    // Store the updated relationship
+    character.relationshipMap.relationships[targetId] = relationship;
+    character.relationshipMap.lastReviewed = Date.now();
+
+    return character;
+  }
+
+  /**
+   * Determine relationship type for explore page social interactions
+   */
+  public static determineRelationshipType(interaction: SocialInteraction | PostInteraction): string {
+    // This is a simplified version - in a real app would analyze based on past interactions
+    if ('type' in interaction) {
+      // For posts/comments
+      switch (interaction.type) {
+        case 'post':
+          return 'friend';
+        case 'comment':
+          return 'close_friend';
+        case 'like':
+          return 'acquaintance';
+        default:
+          return 'stranger';
       }
-    };
+    }
+    return 'stranger';
   }
 
-  // Get relationship between two characters
-  static getRelationship(
-    character: Character,
-    targetId: string
-  ): Relationship | null {
-    if (!character.relationshipEnabled || !character.relationshipMap) {
-      return null;
+  /**
+   * Get relationship type based on strength value
+   * Public method to be used from explore.tsx
+   */
+  public static getRelationshipTypeFromStrength(strength: number): RelationshipType {
+    // Sort thresholds in descending order
+    const sortedTypes = Object.entries(this.RELATIONSHIP_TYPE_THRESHOLDS)
+      .sort(([, a], [, b]) => b - a);
+    
+    // Find appropriate type based on strength
+    for (const [type, threshold] of sortedTypes) {
+      if (strength >= threshold) {
+        return type as RelationshipType;
+      }
     }
     
-    return character.relationshipMap.relationships[targetId] || null;
-  }
-
-  // Mark all messages as read
-  static markAllMessagesAsRead(character: Character): Character {
-    if (!character.messageBox?.length) {
-      return character;
-    }
-
-    return {
-      ...character,
-      messageBox: character.messageBox.map(msg => ({
-        ...msg,
-        read: true
-      }))
-    };
-  }
-
-  // Determine relationship type based on strength
-  static determineRelationshipType(strength: number): RelationshipType {
-    if (strength <= -80) return 'enemy';
-    if (strength <= -50) return 'rival';
-    if (strength <= -20) return 'stranger';
-    if (strength <= 20) return 'acquaintance';
-    if (strength <= 50) return 'friend';
-    if (strength <= 80) return 'close_friend';
-    return 'best_friend';
-  }
-  
-  // Check if relationship needs review
-  static needsRelationshipReview(character: Character): boolean {
-    if (!character.relationshipEnabled || !character.relationshipMap) {
-      return false;
-    }
-    
-    const lastReviewed = character.relationshipMap.lastReviewed;
-    if (!lastReviewed) return true;
-    
-    // Check if last review was more than 1 day ago
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    return Date.now() - lastReviewed > oneDayMs;
+    // Default to stranger
+    return 'stranger';
   }
 }

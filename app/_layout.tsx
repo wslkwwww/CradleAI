@@ -1,7 +1,6 @@
-// app/_layout.tsx
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router'; //  Tabs 不在这里导入
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -11,16 +10,41 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { CharactersProvider } from '@/constants/CharactersContext';
 import { UserProvider } from '@/constants/UserContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-
+import Colors from '@/constants/Colors';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() || 'light';
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
   const { height: windowHeight } = useWindowDimensions();
+
+  // Use the correct theme structure that ReactNavigation expects
+  const theme = colorScheme === 'dark' 
+    ? { 
+        ...DarkTheme, 
+        colors: {
+          ...DarkTheme.colors,
+          primary: Colors.dark.tint,
+          background: '#282828',
+          card: '#333333',
+          text: '#ffffff',
+          border: 'rgba(255, 255, 255, 0.1)',
+        }
+      } 
+    : { 
+        ...DefaultTheme, 
+        colors: {
+          ...DefaultTheme.colors,
+          primary: Colors.light.tint,
+          background: '#f8f8f8',
+          card: '#ffffff',
+          text: '#333333',
+          border: 'rgba(0, 0, 0, 0.1)',
+        }
+      };
 
   useEffect(() => {
     if (loaded) {
@@ -53,9 +77,9 @@ export default function RootLayout() {
       <UserProvider>
         <CharactersProvider>
           <View style={styles.container}>
-            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <ThemeProvider value={theme}>
               <Stack screenOptions={{headerShown: false}}>
-                
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               </Stack>
               <StatusBar style="dark" backgroundColor='black' />
             </ThemeProvider>
@@ -69,6 +93,6 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'gray',
+    backgroundColor: '#282828',
   },
 });

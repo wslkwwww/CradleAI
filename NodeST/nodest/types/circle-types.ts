@@ -23,7 +23,8 @@ export interface CircleRFramework {
 export interface CirclePostOptions {
     type: 'newPost' | 'replyToComment' | 'replyToPost';
     content: {
-        authorId: string;  // 帖子作者ID
+        authorId: string;
+        authorName?: string;  // Add this field
         text: string;
         context?: string;
     };

@@ -1,14 +1,9 @@
-import React from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
-import Svg, { Circle, Line, G, Text as SvgText } from 'react-native-svg';
-import { Character } from '../shared/types';
-import { Relationship } from '../shared/types/relationship-types';
-import { Colors } from '../constants/Colors';
-
-const { width, height } = Dimensions.get('window');
-const CENTER_X = width / 2;
-const CENTER_Y = height / 3;
-const RADIUS = Math.min(width, height) / 3;
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, ScrollView } from 'react-native';
+import Svg, { Line, Circle, Text as SvgText } from 'react-native-svg';
+import { Character } from '@/shared/types';
+import { Relationship } from '@/shared/types/relationship-types';
+import { getCharacterById } from '@/services/character-service';
 
 interface RelationshipCanvasProps {
   character: Character;
@@ -16,164 +11,168 @@ interface RelationshipCanvasProps {
   onSelectRelationship: (relationship: Relationship) => void;
 }
 
-export const RelationshipCanvas: React.FC<RelationshipCanvasProps> = ({ 
-  character, 
-  allCharacters, 
-  onSelectRelationship 
+export const RelationshipCanvas: React.FC<RelationshipCanvasProps> = ({
+  character,
+  allCharacters,
+  onSelectRelationship
 }) => {
-  const relationships = character.relationshipMap?.relationships || {};
-  const relationshipEntries = Object.entries(relationships);
+  const [dimensions, setDimensions] = useState({
+    width: Dimensions.get('window').width - 32, // Account for padding
+    height: 400
+  });
 
-  if (relationshipEntries.length === 0) {
+  // Get color based on relationship strength
+  const getRelationshipColor = (strength: number) => {
+    if (strength <= -50) return '#E53935'; // Very negative
+    if (strength <= -20) return '#FF9800'; // Negative
+    if (strength <= 20) return '#9E9E9E';  // Neutral
+    if (strength <= 60) return '#4CAF50';  // Positive
+    return '#3F51B5';                      // Very positive
+  };
+
+  // No relationships exist
+  if (!character.relationshipMap || 
+      !character.relationshipMap.relationships || 
+      Object.keys(character.relationshipMap.relationships).length === 0) {
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>暂无关系数据</Text>
+        <Text style={styles.emptyText}>还没有关系数据</Text>
+        <Text style={styles.emptySubtext}>
+          添加关系或与其他角色互动后，关系图谱将显示在这里
+        </Text>
       </View>
     );
   }
 
-  // Calculate positions in a circle
-  const getNodePosition = (index: number, total: number) => {
-    const angleStep = (2 * Math.PI) / total;
-    const angle = index * angleStep - Math.PI / 2; // Start from top
-    
-    const x = CENTER_X + RADIUS * Math.cos(angle);
-    const y = CENTER_Y + RADIUS * Math.sin(angle);
-    
-    return { x, y };
+  // Get relationships
+  const relationships = Object.values(character.relationshipMap.relationships) as Relationship[];
+  
+  // Calculate positions in a circle layout
+  const centerX = dimensions.width / 2;
+  const centerY = dimensions.height / 2;
+  const radius = Math.min(centerX, centerY) - 70;
+  
+  // Position for the central character
+  const centralNode = {
+    x: centerX,
+    y: centerY,
+    character
   };
+  
+  interface RelationshipNode {
+    x: number;
+    y: number;
+    relationship: Relationship;
+    character: Character | undefined;
+  }
 
-  // Get color based on relationship strength
-  const getRelationshipColor = (strength: number) => {
-    if (strength <= -50) return Colors.negative;
-    if (strength <= -20) return Colors.caution;
-    if (strength <= 20) return Colors.neutral;
-    if (strength <= 60) return Colors.positive;
-    return Colors.veryPositive;
-  };
-
-  // Get line width based on relationship strength
-  const getLineWidth = (strength: number) => {
-    const absStrength = Math.abs(strength);
-    return absStrength / 25 + 1; // 1-5 width range
-  };
+  // Calculate positions for related characters
+  const nodes: RelationshipNode[] = relationships.map((relationship, index) => {
+    const angle = (2 * Math.PI * index) / relationships.length;
+    const x = centerX + radius * Math.cos(angle);
+    const y = centerY + radius * Math.sin(angle);
+    const targetCharacter = getCharacterById(allCharacters, relationship.targetId);
+    
+    return {
+      x,
+      y,
+      relationship,
+      character: targetCharacter
+    };
+  });
 
   return (
-    <View style={styles.container}>
-      <Svg width={width} height={height * 0.7}>
-        {/* Central node (main character) */}
-        <G>
-          <Circle
-            cx={CENTER_X}
-            cy={CENTER_Y}
-            r={30}
-            fill={Colors.primary}
-          />
-          <SvgText
-            x={CENTER_X}
-            y={CENTER_Y + 5}
-            textAnchor="middle"
-            fill="#FFFFFF"
-            fontSize="12"
-          >
-            {character.name}
-          </SvgText>
-        </G>
-
-        {/* Relationship lines and nodes */}
-        {relationshipEntries.map(([id, rel], index) => {
-          const { x, y } = getNodePosition(index, relationshipEntries.length);
-          const targetChar = allCharacters.find(c => c.id === id);
-          const relationship = rel as Relationship;
-          const strength = relationship.strength;
-          const color = getRelationshipColor(strength);
-          const lineWidth = getLineWidth(strength);
-
-          return (
-            <G key={id}>
-              {/* Relationship line */}
-              <Line
-                x1={CENTER_X}
-                y1={CENTER_Y}
-                x2={x}
-                y2={y}
-                stroke={color}
-                strokeWidth={lineWidth}
-              />
-              
-              {/* Character node */}
-              <Circle
-                cx={x}
-                cy={y}
-                r={25}
-                fill={Colors.cardBackground}
-                strokeWidth={2}
-                stroke={color}
-                onPress={() => onSelectRelationship(relationship)}
-              />
-              <SvgText
-                x={x}
-                y={y + 5}
-                textAnchor="middle"
-                fill="#FFFFFF"
-                fontSize="10"
-                onPress={() => onSelectRelationship(relationship)}
-              >
-                {targetChar?.name || 'Unknown'}
-              </SvgText>
-              
-              {/* Relationship strength */}
-              <SvgText
-                x={(CENTER_X + x) / 2}
-                y={(CENTER_Y + y) / 2 - 10}
-                textAnchor="middle"
-                fill="#FFFFFF"
-                fontSize="12"
-                fontWeight="bold"
-              >
-                {strength}
-              </SvgText>
-              
-              {/* Relationship type */}
-              <SvgText
-                x={(CENTER_X + x) / 2}
-                y={(CENTER_Y + y) / 2 + 10}
-                textAnchor="middle"
-                fill="#FFFFFF"
-                fontSize="10"
-                fontStyle="italic"
-              >
-                {relationship.type}
-              </SvgText>
-            </G>
-          );
-        })}
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      <Svg height={dimensions.height} width={dimensions.width}>
+        {/* Draw relationship lines */}
+        {nodes.map((node, index) => (
+          <React.Fragment key={`line-${index}`}>
+            <Line
+              x1={centralNode.x}
+              y1={centralNode.y}
+              x2={node.x}
+              y2={node.y}
+              stroke={getRelationshipColor(node.relationship.strength)}
+              strokeWidth={Math.abs(node.relationship.strength / 20) + 1}
+              opacity={0.7}
+            />
+          </React.Fragment>
+        ))}
+        
+        {/* Draw central node */}
+        <Circle
+          cx={centralNode.x}
+          cy={centralNode.y}
+          r={30}
+          fill="#333"
+          stroke="rgb(255, 224, 195)"
+          strokeWidth={2}
+        />
+        <SvgText
+          x={centralNode.x}
+          y={centralNode.y + 5}
+          fill="#FFF"
+          fontSize={12}
+          textAnchor="middle"
+          fontWeight="bold"
+        >
+          {character.name.substring(0, 4)}
+        </SvgText>
+        
+        {/* Draw relationship nodes */}
+        {nodes.map((node, index) => (
+          <React.Fragment key={`node-${index}`}>
+            <Circle
+              cx={node.x}
+              cy={node.y}
+              r={25}
+              fill="#444"
+              stroke={getRelationshipColor(node.relationship.strength)}
+              strokeWidth={2}
+              onPress={() => onSelectRelationship(node.relationship)}
+            />
+            <SvgText
+              x={node.x}
+              y={node.y + 5}
+              fill="#FFF"
+              fontSize={10}
+              textAnchor="middle"
+              fontWeight="bold"
+              onPress={() => onSelectRelationship(node.relationship)}
+            >
+              {node.character?.name.substring(0, 4) || "?"}
+            </SvgText>
+          </React.Fragment>
+        ))}
       </Svg>
       
+      {/* Legend */}
       <View style={styles.legend}>
-        <Text style={styles.legendTitle}>关系图例</Text>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendItem, { backgroundColor: Colors.negative }]} />
-          <Text style={styles.legendText}>敌对 (≤ -50)</Text>
+        <Text style={styles.legendTitle}>图例</Text>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendColor, { backgroundColor: '#E53935' }]} />
+          <Text style={styles.legendText}>强烈敌对 (≤ -50)</Text>
         </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendItem, { backgroundColor: Colors.caution }]} />
-          <Text style={styles.legendText}>不良 (≤ -20)</Text>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendColor, { backgroundColor: '#FF9800' }]} />
+          <Text style={styles.legendText}>敌对 (≤ -20)</Text>
         </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendItem, { backgroundColor: Colors.neutral }]} />
-          <Text style={styles.legendText}>中性 (≤ 20)</Text>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendColor, { backgroundColor: '#9E9E9E' }]} />
+          <Text style={styles.legendText}>中立 (≤ 20)</Text>
         </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendItem, { backgroundColor: Colors.positive }]} />
-          <Text style={styles.legendText}>友好 (≤ 60)</Text>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendColor, { backgroundColor: '#4CAF50' }]} />
+          <Text style={styles.legendText}>友善 (≤ 60)</Text>
         </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendItem, { backgroundColor: Colors.veryPositive }]} />
+        <View style={styles.legendItem}>
+          <View style={[styles.legendColor, { backgroundColor: '#3F51B5' }]} />
           <Text style={styles.legendText}>亲密 ({'>'}60)</Text>
         </View>
       </View>
-    </View>
+      
+      <Text style={styles.helpText}>点击节点可编辑关系</Text>
+    </ScrollView>
   );
 };
 
@@ -181,42 +180,59 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  contentContainer: {
+    paddingBottom: 20,
+  },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   emptyText: {
-    color: Colors.textDim,
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#AAAAAA',
+    marginBottom: 10,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#888888',
+    textAlign: 'center',
   },
   legend: {
-    position: 'absolute',
-    right: 10,
-    top: 10,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    padding: 10,
+    marginTop: 20,
+    backgroundColor: '#333333',
+    padding: 15,
     borderRadius: 8,
+    marginHorizontal: 10,
   },
   legendTitle: {
-    color: Colors.text,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 2,
+    color: '#FFFFFF',
+    marginBottom: 10,
   },
   legendItem: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  legendColor: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 10,
   },
   legendText: {
-    color: Colors.textDim,
-    fontSize: 12,
+    fontSize: 14,
+    color: '#DDDDDD',
   },
+  helpText: {
+    fontSize: 12,
+    color: '#AAAAAA',
+    textAlign: 'center',
+    marginTop: 10,
+    fontStyle: 'italic',
+  }
 });

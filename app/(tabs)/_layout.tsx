@@ -1,76 +1,107 @@
-// app/(tabs)/_layout.tsx
-import { Tabs } from 'expo-router/tabs';
-import { FontAwesome } from '@expo/vector-icons';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLocalSearchParams } from 'expo-router';
+import { Tabs } from 'expo-router';
+import { useColorScheme } from 'react-native';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { Ionicons } from '@expo/vector-icons';
 
+import Colors from '@/constants/Colors';
+import React from 'react';
+
+/**
+ * You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
+ */
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
   color: string;
 }) {
-  return <FontAwesome size={28} style={{ marginBottom: -7 }} {...props} />;
+  return <FontAwesome size={26} style={{ marginBottom: -3 }} {...props} />;
 }
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const { hideTabBar } = useLocalSearchParams<{ hideTabBar?: string }>();
+  const colorScheme = useColorScheme() || 'light';
+  
+  // Define fallback theme to prevent undefined tint error
+  const theme = Colors[colorScheme] || {
+    text: colorScheme === 'dark' ? '#fff' : '#000',
+    background: colorScheme === 'dark' ? '#000' : '#fff',
+    tint: colorScheme === 'dark' ? '#fff' : '#2f95dc', 
+    tabIconDefault: '#ccc',
+    tabIconSelected: colorScheme === 'dark' ? '#fff' : '#2f95dc',
+  };
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'dark'].tint,
+        tabBarActiveTintColor: theme.tabIconSelected,
         tabBarStyle: {
-          // Hide tab bar when keyboard is visible
-          display: hideTabBar === 'true' ? 'none' : 'flex',
+          backgroundColor: '#282828',
+          borderTopColor: 'rgba(255, 255, 255, 0.1)',
         },
+        tabBarLabelStyle: {
+          fontWeight: '500',
+        },
+        headerStyle: {
+          backgroundColor: '#282828',
+        },
+        headerTitleStyle: {
+          color: 'rgb(255, 224, 195)',
+          fontWeight: 'bold',
+        },
+        headerTintColor: 'rgb(255, 224, 195)',
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title:"",
-          tabBarIcon: ({ color }) => <TabBarIcon name="comment" color= "rgb(255, 224, 195)" />,
-          headerShown: false,
-          headerTitle: ""
+          title: '角色',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'people' : 'people-outline'}
+              size={26}
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
-        name="Character"
+        name="chat"
         options={{
-          title:"",
-          tabBarIcon: ({ color }) => <TabBarIcon name="users" color="rgb(255, 224, 195)" />,
-           headerShown: false,
-           headerTitle: ""
-        }}
-      />
-            <Tabs.Screen
-        name="cradle"
-        options={{
-          title:"",
-          tabBarIcon: ({ color }) => <TabBarIcon name="heart" color="rgb(255, 224, 195)" />,
+          title: '聊天',
           headerShown: false,
-          headerTitle: ""
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
+              size={26}
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
-          title:"",
-          tabBarIcon: ({ color }) => <TabBarIcon name="wpexplorer" color="rgb(255, 224, 195)" />,
+          title: '发现',
           headerShown: false,
-          headerTitle: ""
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'compass' : 'compass-outline'}
+              size={26}
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
-        name="Profile"
+        name="settings"
         options={{
-          title:"",
-          tabBarIcon: ({ color }) => <TabBarIcon name="user" color="rgb(255, 224, 195)" />,
-          headerShown: false,
-          headerTitle: ""
+          title: '设置',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'settings' : 'settings-outline'}
+              size={26}
+              color={color}
+            />
+          ),
         }}
       />
-
     </Tabs>
   );
 }

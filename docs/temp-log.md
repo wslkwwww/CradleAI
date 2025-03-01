@@ -1,1503 +1,220 @@
-```
-[{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2322",
-	"severity": 8,
-	"message": "Type '{ character: Character; onClose: () => void; }' is not assignable to type 'IntrinsicAttributes & RelationshipGraphProps'.\n  Property 'onClose' does not exist on type 'IntrinsicAttributes & RelationshipGraphProps'.",
-	"source": "ts",
-	"startLineNumber": 42,
-	"startColumn": 53,
-	"endLineNumber": 42,
-	"endColumn": 60
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2322",
-	"severity": 8,
-	"message": "Type '{ character: Character; onClose: () => void; }' is not assignable to type 'IntrinsicAttributes & MessageBoxProps'.\n  Property 'onClose' does not exist on type 'IntrinsicAttributes & MessageBoxProps'.",
-	"source": "ts",
-	"startLineNumber": 47,
-	"startColumn": 46,
-	"endLineNumber": 47,
-	"endColumn": 53
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2552",
-	"severity": 8,
-	"message": "Cannot find name 'onUpdateCharacter'. Did you mean 'updatedCharacter'?",
-	"source": "ts",
-	"startLineNumber": 65,
-	"startColumn": 5,
-	"endLineNumber": 65,
-	"endColumn": 22,
-	"relatedInformation": [
-		{
-			"startLineNumber": 51,
-			"startColumn": 11,
-			"endLineNumber": 51,
-			"endColumn": 27,
-			"message": "'updatedCharacter' is declared here.",
-			"resource": "/f:/my-app/components/CharacterSettings.tsx"
-		}
-	]
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'container' does not exist on type '{ sectionContainer: { marginBottom: number; paddingHorizontal: number; }; sectionTitle: { color: string; fontSize: number; marginBottom: number; fontWeight: \"bold\"; }; settingItem: { flexDirection: \"row\"; justifyContent: \"space-between\"; alignItems: \"center\"; marginBottom: number; }; ... 18 more ...; buttonText: { ....'.",
-	"source": "ts",
-	"startLineNumber": 69,
-	"startColumn": 25,
-	"endLineNumber": 69,
-	"endColumn": 34
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2552",
-	"severity": 8,
-	"message": "Cannot find name 'navigation'. Did you mean 'navigator'?",
-	"source": "ts",
-	"startLineNumber": 178,
-	"startColumn": 32,
-	"endLineNumber": 178,
-	"endColumn": 42,
-	"relatedInformation": [
-		{
-			"startLineNumber": 27988,
-			"startColumn": 13,
-			"endLineNumber": 27988,
-			"endColumn": 22,
-			"message": "'navigator' is declared here.",
-			"resource": "/f:/Microsoft VS Code/resources/app/extensions/node_modules/typescript/lib/lib.dom.d.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2552",
-	"severity": 8,
-	"message": "Cannot find name 'navigation'. Did you mean 'navigator'?",
-	"source": "ts",
-	"startLineNumber": 185,
-	"startColumn": 32,
-	"endLineNumber": 185,
-	"endColumn": 42,
-	"relatedInformation": [
-		{
-			"startLineNumber": 27988,
-			"startColumn": 13,
-			"endLineNumber": 27988,
-			"endColumn": 22,
-			"message": "'navigator' is declared here.",
-			"resource": "/f:/Microsoft VS Code/resources/app/extensions/node_modules/typescript/lib/lib.dom.d.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'border' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 271,
-	"startColumn": 28,
-	"endLineNumber": 271,
-	"endColumn": 34
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 277,
-	"startColumn": 19,
-	"endLineNumber": 277,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 282,
-	"startColumn": 19,
-	"endLineNumber": 282,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'cardBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 286,
-	"startColumn": 29,
-	"endLineNumber": 286,
-	"endColumn": 43
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'border' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 291,
-	"startColumn": 25,
-	"endLineNumber": 291,
-	"endColumn": 31
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 300,
-	"startColumn": 19,
-	"endLineNumber": 300,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 304,
-	"startColumn": 19,
-	"endLineNumber": 304,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'cardBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 314,
-	"startColumn": 29,
-	"endLineNumber": 314,
-	"endColumn": 43
-},{
-	"resource": "/f:/my-app/components/CharacterSettings.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 321,
-	"startColumn": 19,
-	"endLineNumber": 321,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/components/MessageBox.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 24,
-	"startColumn": 30,
-	"endLineNumber": 24,
-	"endColumn": 40
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2307",
-	"severity": 8,
-	"message": "Cannot find module '../services/character-service' or its corresponding type declarations.",
-	"source": "ts",
-	"startLineNumber": 21,
-	"startColumn": 34,
-	"endLineNumber": 21,
-	"endColumn": 65
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 45,
-	"startColumn": 48,
-	"endLineNumber": 45,
-	"endColumn": 63
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'negative' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 49,
-	"startColumn": 40,
-	"endLineNumber": 49,
-	"endColumn": 48
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'caution' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 50,
-	"startColumn": 40,
-	"endLineNumber": 50,
-	"endColumn": 47
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'neutral' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 51,
-	"startColumn": 39,
-	"endLineNumber": 51,
-	"endColumn": 46
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'positive' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 52,
-	"startColumn": 39,
-	"endLineNumber": 52,
-	"endColumn": 47
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'veryPositive' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 53,
-	"startColumn": 19,
-	"endLineNumber": 53,
-	"endColumn": 31
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2769",
-	"severity": 8,
-	"message": "No overload matches this call.\n  Overload 1 of 2, '(props: ViewProps): View', gave the following error.\n    Type '{ width: string; backgroundColor: any; alignSelf: \"flex-start\" | \"flex-end\"; }' is not assignable to type 'ViewStyle | Falsy | RegisteredStyle<ViewStyle> | RecursiveArray<ViewStyle | Falsy | RegisteredStyle<ViewStyle>> | readonly (ViewStyle | ... 1 more ... | RegisteredStyle<...>)[]'.\n      Types of property 'width' are incompatible.\n        Type 'string' is not assignable to type 'DimensionValue | undefined'.\n  Overload 2 of 2, '(props: ViewProps, context: any): View', gave the following error.\n    Type '{ width: string; backgroundColor: any; alignSelf: \"flex-start\" | \"flex-end\"; }' is not assignable to type 'ViewStyle | Falsy | RegisteredStyle<ViewStyle> | RecursiveArray<ViewStyle | Falsy | RegisteredStyle<ViewStyle>> | readonly (ViewStyle | ... 1 more ... | RegisteredStyle<...>)[]'.\n      Types of property 'width' are incompatible.\n        Type 'string' is not assignable to type 'DimensionValue | undefined'.",
-	"source": "ts",
-	"startLineNumber": 93,
-	"startColumn": 19,
-	"endLineNumber": 97,
-	"endColumn": 20
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 137,
-	"startColumn": 33,
-	"endLineNumber": 137,
-	"endColumn": 48
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 182,
-	"startColumn": 44,
-	"endLineNumber": 182,
-	"endColumn": 59
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 214,
-	"startColumn": 41,
-	"endLineNumber": 214,
-	"endColumn": 56
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "18046",
-	"severity": 8,
-	"message": "'relationship' is of type 'unknown'.",
-	"source": "ts",
-	"startLineNumber": 262,
-	"startColumn": 64,
-	"endLineNumber": 262,
-	"endColumn": 76
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2345",
-	"severity": 8,
-	"message": "Argument of type 'unknown' is not assignable to parameter of type 'Relationship'.",
-	"source": "ts",
-	"startLineNumber": 263,
-	"startColumn": 43,
-	"endLineNumber": 263,
-	"endColumn": 55
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'primary' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 305,
-	"startColumn": 34,
-	"endLineNumber": 305,
-	"endColumn": 41
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'inputBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 306,
-	"startColumn": 34,
-	"endLineNumber": 306,
-	"endColumn": 49
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'white' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 314,
-	"startColumn": 67,
-	"endLineNumber": 314,
-	"endColumn": 72
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 314,
-	"startColumn": 82,
-	"endLineNumber": 314,
-	"endColumn": 86
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'primary' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 376,
-	"startColumn": 34,
-	"endLineNumber": 376,
-	"endColumn": 41
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'inputBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 377,
-	"startColumn": 34,
-	"endLineNumber": 377,
-	"endColumn": 49
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'white' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 385,
-	"startColumn": 73,
-	"endLineNumber": 385,
-	"endColumn": 78
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 385,
-	"startColumn": 88,
-	"endLineNumber": 385,
-	"endColumn": 92
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'primary' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 411,
-	"startColumn": 34,
-	"endLineNumber": 411,
-	"endColumn": 41
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'inputBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 412,
-	"startColumn": 34,
-	"endLineNumber": 412,
-	"endColumn": 49
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'white' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 420,
-	"startColumn": 67,
-	"endLineNumber": 420,
-	"endColumn": 72
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 420,
-	"startColumn": 82,
-	"endLineNumber": 420,
-	"endColumn": 86
-},{
-	"resource": "/f:/my-app/components/RelationshipsOverview.tsx",
-	"owner": "typescript",
-	"code": "2613",
-	"severity": 8,
-	"message": "Module '\"f:/my-app/constants/Colors\"' has no default export. Did you mean to use 'import { Colors } from \"f:/my-app/constants/Colors\"' instead?",
-	"source": "ts",
-	"startLineNumber": 12,
-	"startColumn": 8,
-	"endLineNumber": 12,
-	"endColumn": 14
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 232,
-	"startColumn": 48,
-	"endLineNumber": 232,
-	"endColumn": 67
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 232,
-	"startColumn": 85,
-	"endLineNumber": 232,
-	"endColumn": 95
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 233,
-	"startColumn": 54,
-	"endLineNumber": 233,
-	"endColumn": 64
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "7006",
-	"severity": 8,
-	"message": "Parameter 'msg' implicitly has an 'any' type.",
-	"source": "ts",
-	"startLineNumber": 233,
-	"startColumn": 72,
-	"endLineNumber": 233,
-	"endColumn": 75
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 469,
-	"startColumn": 24,
-	"endLineNumber": 469,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 469,
-	"startColumn": 54,
-	"endLineNumber": 469,
-	"endColumn": 64
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 474,
-	"startColumn": 42,
-	"endLineNumber": 474,
-	"endColumn": 52
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "7006",
-	"severity": 8,
-	"message": "Parameter 'msg' implicitly has an 'any' type.",
-	"source": "ts",
-	"startLineNumber": 474,
-	"startColumn": 60,
-	"endLineNumber": 474,
-	"endColumn": 63
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "7006",
-	"severity": 8,
-	"message": "Parameter 'msg' implicitly has an 'any' type.",
-	"source": "ts",
-	"startLineNumber": 485,
-	"startColumn": 23,
-	"endLineNumber": 485,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "7006",
-	"severity": 8,
-	"message": "Parameter 'idx' implicitly has an 'any' type.",
-	"source": "ts",
-	"startLineNumber": 485,
-	"startColumn": 28,
-	"endLineNumber": 485,
-	"endColumn": 31
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 492,
-	"startColumn": 28,
-	"endLineNumber": 492,
-	"endColumn": 43
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "18046",
-	"severity": 8,
-	"message": "'rel' is of type 'unknown'.",
-	"source": "ts",
-	"startLineNumber": 493,
-	"startColumn": 20,
-	"endLineNumber": 493,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/NodeST/nodest/managers/circle-manager.ts",
-	"owner": "typescript",
-	"code": "18046",
-	"severity": 8,
-	"message": "'rel' is of type 'unknown'.",
-	"source": "ts",
-	"startLineNumber": 493,
-	"startColumn": 38,
-	"endLineNumber": 493,
-	"endColumn": 41
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "2307",
-	"severity": 8,
-	"message": "Cannot find module '../shared/types/circle-types' or its corresponding type declarations.",
-	"source": "ts",
-	"startLineNumber": 3,
-	"startColumn": 55,
-	"endLineNumber": 3,
-	"endColumn": 85
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "2554",
-	"severity": 8,
-	"message": "Expected 7 arguments, but got 4.",
-	"source": "ts",
-	"startLineNumber": 290,
-	"startColumn": 54,
-	"endLineNumber": 290,
-	"endColumn": 76,
-	"relatedInformation": [
-		{
-			"startLineNumber": 79,
-			"startColumn": 5,
-			"endLineNumber": 79,
-			"endColumn": 20,
-			"message": "An argument for 'content' was not provided.",
-			"resource": "/f:/my-app/services/relationship-service.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "2554",
-	"severity": 8,
-	"message": "Expected 7 arguments, but got 4.",
-	"source": "ts",
-	"startLineNumber": 317,
-	"startColumn": 54,
-	"endLineNumber": 317,
-	"endColumn": 76,
-	"relatedInformation": [
-		{
-			"startLineNumber": 79,
-			"startColumn": 5,
-			"endLineNumber": 79,
-			"endColumn": 20,
-			"message": "An argument for 'content' was not provided.",
-			"resource": "/f:/my-app/services/relationship-service.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "2554",
-	"severity": 8,
-	"message": "Expected 7 arguments, but got 4.",
-	"source": "ts",
-	"startLineNumber": 325,
-	"startColumn": 54,
-	"endLineNumber": 325,
-	"endColumn": 76,
-	"relatedInformation": [
-		{
-			"startLineNumber": 79,
-			"startColumn": 5,
-			"endLineNumber": 79,
-			"endColumn": 20,
-			"message": "An argument for 'content' was not provided.",
-			"resource": "/f:/my-app/services/relationship-service.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "7034",
-	"severity": 8,
-	"message": "Variable 'characters' implicitly has type 'any[]' in some locations where its type cannot be determined.",
-	"source": "ts",
-	"startLineNumber": 342,
-	"startColumn": 11,
-	"endLineNumber": 342,
-	"endColumn": 21
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "7005",
-	"severity": 8,
-	"message": "Variable 'characters' implicitly has an 'any[]' type.",
-	"source": "ts",
-	"startLineNumber": 343,
-	"startColumn": 12,
-	"endLineNumber": 343,
-	"endColumn": 22
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "2366",
-	"severity": 8,
-	"message": "Function lacks ending return statement and return type does not include 'undefined'.",
-	"source": "ts",
-	"startLineNumber": 587,
-	"startColumn": 4,
-	"endLineNumber": 587,
-	"endColumn": 66
-},{
-	"resource": "/f:/my-app/services/circle-service.ts",
-	"owner": "typescript",
-	"code": "2304",
-	"severity": 8,
-	"message": "Cannot find name 'getAllCharacters'.",
-	"source": "ts",
-	"startLineNumber": 589,
-	"startColumn": 33,
-	"endLineNumber": 589,
-	"endColumn": 49
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2353",
-	"severity": 8,
-	"message": "Object literal may only specify known properties, and ''romantic_interest'' does not exist in type 'Record<RelationshipType, number>'.",
-	"source": "ts",
-	"startLineNumber": 26,
-	"startColumn": 5,
-	"endLineNumber": 26,
-	"endColumn": 24
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 35,
-	"startColumn": 20,
-	"endLineNumber": 35,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2353",
-	"severity": 8,
-	"message": "Object literal may only specify known properties, and 'relationshipMap' does not exist in type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 41,
-	"startColumn": 7,
-	"endLineNumber": 41,
-	"endColumn": 22
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 41,
-	"startColumn": 34,
-	"endLineNumber": 41,
-	"endColumn": 49
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 42,
-	"startColumn": 29,
-	"endLineNumber": 42,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 51,
-	"startColumn": 20,
-	"endLineNumber": 51,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 56,
-	"startColumn": 41,
-	"endLineNumber": 56,
-	"endColumn": 51
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2353",
-	"severity": 8,
-	"message": "Object literal may only specify known properties, and 'messageBox' does not exist in type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 69,
-	"startColumn": 7,
-	"endLineNumber": 69,
-	"endColumn": 17
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 83,
-	"startColumn": 20,
-	"endLineNumber": 83,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 116,
-	"startColumn": 20,
-	"endLineNumber": 116,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 147,
-	"startColumn": 20,
-	"endLineNumber": 147,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 152,
-	"startColumn": 51,
-	"endLineNumber": 152,
-	"endColumn": 66
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2353",
-	"severity": 8,
-	"message": "Object literal may only specify known properties, and 'relationshipMap' does not exist in type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 176,
-	"startColumn": 7,
-	"endLineNumber": 176,
-	"endColumn": 22
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 188,
-	"startColumn": 20,
-	"endLineNumber": 188,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 188,
-	"startColumn": 54,
-	"endLineNumber": 188,
-	"endColumn": 69
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 192,
-	"startColumn": 22,
-	"endLineNumber": 192,
-	"endColumn": 37
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 197,
-	"startColumn": 20,
-	"endLineNumber": 197,
-	"endColumn": 30
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2353",
-	"severity": 8,
-	"message": "Object literal may only specify known properties, and 'messageBox' does not exist in type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 203,
-	"startColumn": 7,
-	"endLineNumber": 203,
-	"endColumn": 17
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 203,
-	"startColumn": 29,
-	"endLineNumber": 203,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "7006",
-	"severity": 8,
-	"message": "Parameter 'msg' implicitly has an 'any' type.",
-	"source": "ts",
-	"startLineNumber": 203,
-	"startColumn": 44,
-	"endLineNumber": 203,
-	"endColumn": 47
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 223,
-	"startColumn": 20,
-	"endLineNumber": 223,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 223,
-	"startColumn": 54,
-	"endLineNumber": 223,
-	"endColumn": 69
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipMap' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 227,
-	"startColumn": 36,
-	"endLineNumber": 227,
-	"endColumn": 51
-},{
-	"resource": "/f:/my-app/shared/types.ts",
-	"owner": "typescript",
-	"code": "2552",
-	"severity": 8,
-	"message": "Cannot find name 'CharacterMetadata'. Did you mean 'CharacterData'?",
-	"source": "ts",
-	"startLineNumber": 149,
-	"startColumn": 14,
-	"endLineNumber": 149,
-	"endColumn": 31,
-	"relatedInformation": [
-		{
-			"startLineNumber": 6038,
-			"startColumn": 13,
-			"endLineNumber": 6038,
-			"endColumn": 26,
-			"message": "'CharacterData' is declared here.",
-			"resource": "/f:/Microsoft VS Code/resources/app/extensions/node_modules/typescript/lib/lib.dom.d.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 15,
-	"startColumn": 19,
-	"endLineNumber": 15,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 20,
-	"startColumn": 19,
-	"endLineNumber": 20,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'cardBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 24,
-	"startColumn": 29,
-	"endLineNumber": 24,
-	"endColumn": 43
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'border' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 29,
-	"startColumn": 25,
-	"endLineNumber": 29,
-	"endColumn": 31
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'border' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 37,
-	"startColumn": 31,
-	"endLineNumber": 37,
-	"endColumn": 37
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 53,
-	"startColumn": 19,
-	"endLineNumber": 53,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 57,
-	"startColumn": 19,
-	"endLineNumber": 57,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'border' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 63,
-	"startColumn": 29,
-	"endLineNumber": 63,
-	"endColumn": 35
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'cardBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 73,
-	"startColumn": 29,
-	"endLineNumber": 73,
-	"endColumn": 43
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 86,
-	"startColumn": 19,
-	"endLineNumber": 86,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 90,
-	"startColumn": 19,
-	"endLineNumber": 90,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 94,
-	"startColumn": 19,
-	"endLineNumber": 94,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 99,
-	"startColumn": 19,
-	"endLineNumber": 99,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'subtleBg' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 100,
-	"startColumn": 29,
-	"endLineNumber": 100,
-	"endColumn": 37
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 113,
-	"startColumn": 19,
-	"endLineNumber": 113,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'primary' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 118,
-	"startColumn": 29,
-	"endLineNumber": 118,
-	"endColumn": 36
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'white' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 126,
-	"startColumn": 19,
-	"endLineNumber": 126,
-	"endColumn": 24
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'background' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 138,
-	"startColumn": 29,
-	"endLineNumber": 138,
-	"endColumn": 39
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'border' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 146,
-	"startColumn": 25,
-	"endLineNumber": 146,
-	"endColumn": 31
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 150,
-	"startColumn": 19,
-	"endLineNumber": 150,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'inputBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 151,
-	"startColumn": 29,
-	"endLineNumber": 151,
-	"endColumn": 44
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 160,
-	"startColumn": 19,
-	"endLineNumber": 160,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'notification' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 165,
-	"startColumn": 29,
-	"endLineNumber": 165,
-	"endColumn": 41
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'success' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 182,
-	"startColumn": 29,
-	"endLineNumber": 182,
-	"endColumn": 36
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'secondary' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 186,
-	"startColumn": 29,
-	"endLineNumber": 186,
-	"endColumn": 38
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'error' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 190,
-	"startColumn": 29,
-	"endLineNumber": 190,
-	"endColumn": 34
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'inputBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 199,
-	"startColumn": 29,
-	"endLineNumber": 199,
-	"endColumn": 44
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'border' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 203,
-	"startColumn": 25,
-	"endLineNumber": 203,
-	"endColumn": 31
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 207,
-	"startColumn": 19,
-	"endLineNumber": 207,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'inputBackground' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 208,
-	"startColumn": 29,
-	"endLineNumber": 208,
-	"endColumn": 44
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 226,
-	"startColumn": 19,
-	"endLineNumber": 226,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 230,
-	"startColumn": 19,
-	"endLineNumber": 230,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'textDim' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 235,
-	"startColumn": 19,
-	"endLineNumber": 235,
-	"endColumn": 26
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'primary' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 252,
-	"startColumn": 25,
-	"endLineNumber": 252,
-	"endColumn": 32
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "1117",
-	"severity": 8,
-	"message": "An object literal cannot have multiple properties with the same name.",
-	"source": "ts",
-	"startLineNumber": 258,
-	"startColumn": 3,
-	"endLineNumber": 258,
-	"endColumn": 16
-},{
-	"resource": "/f:/my-app/styles/relationship-styles.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'text' does not exist on type '{ light: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; dark: { text: string; background: string; tint: string; icon: string; tabIconDefault: string; tabIconSelected: string; }; }'.",
-	"source": "ts",
-	"startLineNumber": 261,
-	"startColumn": 19,
-	"endLineNumber": 261,
-	"endColumn": 23
-},{
-	"resource": "/f:/my-app/utils/relationship-utils.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 10,
-	"startColumn": 38,
-	"endLineNumber": 10,
-	"endColumn": 57
-},{
-	"resource": "/f:/my-app/utils/relationship-utils.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 38,
-	"startColumn": 49,
-	"endLineNumber": 38,
-	"endColumn": 68
-},{
-	"resource": "/f:/my-app/utils/relationship-utils.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'relationshipEnabled' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 60,
-	"startColumn": 18,
-	"endLineNumber": 60,
-	"endColumn": 37
-},{
-	"resource": "/f:/my-app/utils/relationship-utils.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 60,
-	"startColumn": 52,
-	"endLineNumber": 60,
-	"endColumn": 62
-},{
-	"resource": "/f:/my-app/utils/relationship-utils.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'messageBox' does not exist on type 'Character'.",
-	"source": "ts",
-	"startLineNumber": 64,
-	"startColumn": 36,
-	"endLineNumber": 64,
-	"endColumn": 46
-},{
-	"resource": "/f:/my-app/utils/relationship-utils.ts",
-	"owner": "typescript",
-	"code": "7006",
-	"severity": 8,
-	"message": "Parameter 'msg' implicitly has an 'any' type.",
-	"source": "ts",
-	"startLineNumber": 64,
-	"startColumn": 54,
-	"endLineNumber": 64,
-	"endColumn": 57
-},{
-	"resource": "/f:/my-app/utils/relationship-utils.ts",
-	"owner": "typescript",
-	"code": "7006",
-	"severity": 8,
-	"message": "Parameter 'msg' implicitly has an 'any' type.",
-	"source": "ts",
-	"startLineNumber": 72,
-	"startColumn": 22,
-	"endLineNumber": 72,
-	"endColumn": 25
-}]
-```
+(NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1738930528012
+ (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1740821349159
+ (NOBRIDGE) LOG  【朋友圈服务】尝试发布测试帖子
+ (NOBRIDGE) LOG  【朋友圈服务】选择角色 小刘 作为发帖者
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小刘 创建新朋友圈帖子
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小刘 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小刘 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小刘 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】处理互动，类型: newPost，作者ID: 1740662644578，响应者ID: 1740662644578
+ (NOBRIDGE) LOG  [PromptBuilderService] Inserting 3 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
+家的经...
+ (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
+ (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
+ (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=3，历史消息数=0
+ (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你是义工
+
+你的性格容易激动
+
+你正在创建一条新的朋友圈动态。基于你的角色性格，请以JSON格式回应：
+- 决定是否点赞（like: true/false，对自己发的内容通常为false）
+- 提供一条你想发布的内容（comment字段）
+- 包含你的情感反应（emotion对象，含type和intensity）
+
+严格按以下格式回复，不要包含任何其他文字：
+{
+  "action": {
+   ...
+ (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
+ (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: ```json
+{
+  "action": {
+    "like": false,
+    "comment": "今天去社区给孤寡老人送温暖，看到他们脸上洋溢的笑容，我真是太激动了！能帮到别人，感觉真好！希望以后能多参加这样的活动！💪
+💪💪"
+  },
+  "emotion": {
+    "type": "positive",
+    "intensity": 0.9
+  }
+}
+```...
+ (NOBRIDGE) LOG  【朋友圈】开始解析响应
+ (NOBRIDGE) LOG  【朋友圈】成功提取JSON: {"action": {"comment": "今天去社区给孤寡老人送温暖，看到他们脸上洋溢的笑容，我真是太激动了！能 
+帮到别人，感觉真好！希望以后能多参加这样的活动！💪💪💪", "like": false}, "emotion": {"intensity": 0.9, "type": "positive"}}
+ (NOBRIDGE) LOG  【朋友圈】更新了角色 1740662644578 的朋友圈记忆
+ (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"action": {"comment": "今天去社区给孤寡老人送温暖，看到他们脸上洋溢的笑容，我真是太激动 
+了！能帮到别人，感觉真好！希望以后能多参加这样的活动！💪💪💪", "like": false}, "success": true}
+ (NOBRIDGE) LOG  【朋友圈服务】成功发布测试帖子: "遇到了一个有趣的人，让我感到很有灵感，想听听大家的经历。..."
+ (NOBRIDGE) LOG  【朋友圈测试】开始朋友圈互动测试，帖子内容: 遇到了一个有趣的人，让我感到很有灵感，想听听大家的经历。
+ (NOBRIDGE) LOG  【朋友圈测试】找到 5 个启用了朋友圈互动的角色
+ (NOBRIDGE) LOG  【朋友圈测试】使用真实API Key进行调用
+ (NOBRIDGE) LOG  【朋友圈服务】开始测试互动，共有 5 个启用朋友圈的角色
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小李 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小李 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小李 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小李 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小李 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小李 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小李 朋友圈初始化成功，开始处理互动
+ (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740662574493
+ (NOBRIDGE) LOG  [PromptBuilderService] Inserting 1 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
+家的经...
+ (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
+ (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
+ (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=1，历史消息数=0
+ (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你是一个老师
+
+性格活泼开朗
+
+你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
+- 决定是否点赞（like: true/false）
+- 可选择是否发表评论（comment字段）
+- 包含你的情感反应（emotion对象，含type和intensity）
+
+严格按以下格式回复，不要包含任何其他文字：
+{
+  "action": {
+    "like": true/false,...
+ (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
+ (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，明白！请给我看朋友圈动态的内容，我将根据我的角色性格，以JSON格式回复。
+...
+ (NOBRIDGE) LOG  【朋友圈】开始解析响应
+ (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
+ (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
+ (NOBRIDGE) LOG  【朋友圈】更新了角色 1740662574493 的朋友圈记忆
+ (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小李 的互动响应: 失败: 未能从AI回复中提取有效数据
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小王 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小王 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小王 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小王 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小王 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小王 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小王 朋友圈初始化成功，开始处理互动
+ (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740662618894
+ (NOBRIDGE) LOG  [PromptBuilderService] Inserting 1 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
+家的经...
+ (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
+ (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
+ (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=1，历史消息数=0
+ (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你很好学
+
+你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
+- 决定是否点赞（like: true/false）
+- 可选择是否发表评论（comment字段）
+- 包含你的情感反应（emotion对象，含type和intensity）
+
+严格按以下格式回复，不要包含任何其他文字：
+{
+  "action": {
+    "like": true/false,
+    "comm...
+ (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
+ (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，我理解了。请给我一条朋友圈动态，我会根据我的“好学”角色生成JSON格式的回复。     
+...
+ (NOBRIDGE) LOG  【朋友圈】开始解析响应
+ (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
+ (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
+ (NOBRIDGE) LOG  【朋友圈】更新了角色 1740662618894 的朋友圈记忆
+ (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小王 的互动响应: 失败: 未能从AI回复中提取有效数据
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小刘 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小刘 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小刘 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】阻止角色 小刘 回复自己的帖子
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小刘 的互动响应: 失败: 不允许回复自己的帖子
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小丽 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小丽 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小丽 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小丽 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小丽 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小丽 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小丽 朋友圈初始化成功，开始处理互动
+ (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740819287241
+ (NOBRIDGE) LOG  [PromptBuilderService] Inserting 3 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
+家的经...
+ (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
+ (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
+ (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=3，历史消息数=0
+ (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你很好学
+
+你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
+- 决定是否点赞（like: true/false）
+- 可选择是否发表评论（comment字段）
+- 包含你的情感反应（emotion对象，含type和intensity）
+
+严格按以下格式回复，不要包含任何其他文字：
+{
+  "action": {
+    "like": true/false,
+    "comm...
+ (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
+ (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，明白了。请给我看朋友圈的动态内容，我将根据我的角色性格给出JSON格式的回复。     
+...
+ (NOBRIDGE) LOG  【朋友圈】开始解析响应
+ (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
+ (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
+ (NOBRIDGE) LOG  【朋友圈】更新了角色 1740819287241 的朋友圈记忆
+ (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小丽 的互动响应: 失败: 未能从AI回复中提取有效数据
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小那 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小那 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小那 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小那 的朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈】成功加载角色 小那 的角色卡
+ (NOBRIDGE) LOG  【朋友圈】成功为角色 小那 初始化朋友圈框架
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小那 朋友圈初始化成功，开始处理互动
+ (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740821349159
+ (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=0，历史消息数=0
+ (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你很严谨
+
+你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
+- 决定是否点赞（like: true/false）
+- 可选择是否发表评论（comment字段）
+- 包含你的情感反应（emotion对象，含type和intensity）
+
+严格按以下格式回复，不要包含任何其他文字：
+{
+  "action": {
+    "like": true/false,
+    "comm...
+ (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
+ (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，明白了。请给我看朋友圈动态内容。我将根据内容和我的严谨性格生成JSON格式的回复。 
+...
+ (NOBRIDGE) LOG  【朋友圈】开始解析响应
+ (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
+ (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
+ (NOBRIDGE) LOG  【朋友圈】更新了角色 1740821349159 的朋友圈记忆
+ (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小那 的互动响应: 失败: 未能从AI回复中提取有效数据
+ (NOBRIDGE) LOG  【朋友圈服务】测试互动完成，成功: 0/5
+ (NOBRIDGE) LOG  【朋友圈测试】互动测试结果: {"总结果数": 5, "成功数": 0, "点赞数": 0, "评论数": 0}

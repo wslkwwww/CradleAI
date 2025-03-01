@@ -95,15 +95,20 @@ export class CircleService {
         };
       }
       
-      // 创建带responderId的postOptions
+      // 创建带更多上下文信息的postOptions
       const postOptions: CirclePostOptions = {
         type: 'replyToPost',
         content: {
           authorId: post.characterId,
+          authorName: post.characterName,  // Now TypeScript won't complain
           text: post.content,
-          context: `这是一条${post.characterName}发布的朋友圈动态`
+          context: `这是${post.characterName}发布的一条朋友圈动态。${
+            post.comments?.length ? 
+            `目前已有${post.comments.length}条评论和${post.likes}个点赞。` : 
+            '还没有其他人互动。'
+          }`
         },
-        responderId: character.id  // 添加responderId
+        responderId: character.id
       };
 
       // Initialize character for circle interaction if needed
@@ -589,7 +594,8 @@ export class CircleService {
     let updatedCharacter = character;
     
     for (const update of response.relationshipUpdates) {
-      updatedCharacter = RelationshipService.updateRelationship(
+      // Fix: Use correct method from RelationshipService for updating relationships
+      updatedCharacter = RelationshipService.processRelationshipUpdate(
         updatedCharacter,
         update.targetId,
         update.strengthDelta,

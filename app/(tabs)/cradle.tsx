@@ -20,7 +20,6 @@ const { width, height } = Dimensions.get('window');
 
 export default function CradleScreen() {
   const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme ?? 'dark'];
   
   // Animation values
   const scale = useSharedValue(1);

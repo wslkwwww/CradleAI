@@ -1,16 +1,14 @@
-import React from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  TouchableOpacity, 
-  StyleSheet 
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
 } from 'react-native';
-import { Character } from '../shared/types';
-import { MessageBoxItem } from '../shared/types/relationship-types';
-import { relationshipStyles as styles } from '../styles/relationship-styles';
-import { RelationshipService } from '../services/relationship-service';
-
+import { Character } from '@/shared/types';
+import { MessageBoxItem } from '@/services/relationship-service';
+import { Ionicons } from '@expo/vector-icons';
 
 interface MessageBoxProps {
   character: Character;
@@ -21,82 +19,233 @@ export const MessageBox: React.FC<MessageBoxProps> = ({
   character, 
   onUpdateCharacter 
 }) => {
-  const messages = character.messageBox || [];
-  
+  // Function to mark all messages as read
   const handleMarkAllAsRead = () => {
-    const updatedCharacter = RelationshipService.markAllMessagesAsRead(character);
-    onUpdateCharacter(updatedCharacter);
-  };
-
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString('zh-CN', { 
-      month: 'numeric', 
-      day: 'numeric', 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    if (!character.messageBox || character.messageBox.length === 0) return;
+    
+    const updatedMessageBox = character.messageBox.map(message => ({
+      ...message,
+      read: true
+    }));
+    
+    onUpdateCharacter({
+      ...character,
+      messageBox: updatedMessageBox
     });
   };
-
-  const getMessageTypeColor = (type: MessageBoxItem['type']) => {
+  
+  // Function to render timestamp in a readable format
+  const formatTimestamp = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    return date.toLocaleString();
+  };
+  
+  // Function to get icon based on message type
+  const getMessageIcon = (type: string) => {
     switch (type) {
-      case 'like': return '#4CAF50';
-      case 'comment': return '#2196F3';
-      case 'reply': return '#9C27B0';
-      case 'post': return '#FF9800';
-      case 'action': return '#F44336';
-      default: return '#757575';
+      case 'post':
+        return <Ionicons name="document-text" size={18} color="#AAAAAA" />;
+      case 'comment':
+        return <Ionicons name="chatbox" size={18} color="#AAAAAA" />;
+      case 'like':
+        return <Ionicons name="heart" size={18} color="#AAAAAA" />;
+      case 'reply':
+        return <Ionicons name="return-down-back" size={18} color="#AAAAAA" />;
+      case 'action':
+        return <Ionicons name="flash" size={18} color="#AAAAAA" />;
+      default:
+        return <Ionicons name="help-circle" size={18} color="#AAAAAA" />;
     }
   };
 
-  const renderItem = ({ item }: { item: MessageBoxItem }) => {
-    const borderColor = getMessageTypeColor(item.type);
+  // Function to mark a single message as read
+  const handleMarkAsRead = (messageId: string) => {
+    if (!character.messageBox) return;
     
+    const updatedMessageBox = character.messageBox.map(message => 
+      message.id === messageId ? {...message, read: true} : message
+    );
+    
+    onUpdateCharacter({
+      ...character,
+      messageBox: updatedMessageBox
+    });
+  };
+
+  // If relationship system is not enabled
+  if (!character.relationshipMap) {
     return (
-      <View style={[styles.messageItem, { borderLeftColor: borderColor }]}>
-        {!item.read && <View style={styles.unreadBadge} />}
-        <View style={styles.messageHeader}>
-          <Text style={styles.senderName}>{item.senderName}</Text>
-          <Text style={styles.timestamp}>{formatDate(item.timestamp)}</Text>
+      <View style={styles.container}>
+        <View style={styles.emptyStateContainer}>
+          <Text style={styles.emptyStateTitle}>需要启用关系系统</Text>
+          <Text style={styles.emptyStateDescription}>
+            请先在关系图谱标签中启用关系系统，然后才能查看消息盒子。
+          </Text>
         </View>
-        <Text style={styles.messageContent}>{item.content}</Text>
-        {item.contextContent && (
-          <Text style={styles.contextContent}>{item.contextContent}</Text>
-        )}
       </View>
     );
-  };
+  }
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{character.name}的消息盒子</Text>
-        <Text style={styles.subtitle}>查看你收到的互动和消息</Text>
+        
+        {character.messageBox && character.messageBox.some(msg => !msg.read) && (
+          <TouchableOpacity 
+            style={styles.markAllReadButton}
+            onPress={handleMarkAllAsRead}
+          >
+            <Text style={styles.markAllReadText}>全部标为已读</Text>
+          </TouchableOpacity>
+        )}
       </View>
       
-      {messages.length > 0 && (
-        <TouchableOpacity 
-          style={styles.button}
-          onPress={handleMarkAllAsRead}
-        >
-          <Text style={styles.buttonText}>标记所有为已读</Text>
-        </TouchableOpacity>
-      )}
-
-      {messages.length > 0 ? (
-        <FlatList
-          data={messages}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          style={{ flex: 1 }}
-        />
-      ) : (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>
-            暂无消息。与其他角色互动后，消息会显示在这里。
+      {(!character.messageBox || character.messageBox.length === 0) && (
+        <View style={styles.emptyStateContainer}>
+          <Text style={styles.emptyStateDescription}>
+            暂无消息。当其他角色与{character.name}互动时，消息将显示在这里。
           </Text>
         </View>
+      )}
+      
+      {character.messageBox && character.messageBox.length > 0 && (
+        <FlatList
+          data={character.messageBox}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <TouchableOpacity 
+              style={[styles.messageItem, !item.read && styles.unreadMessage]}
+              onPress={() => handleMarkAsRead(item.id)}
+            >
+              <View style={styles.messageHeader}>
+                <View style={styles.messageIconContainer}>
+                  {getMessageIcon(item.type)}
+                </View>
+                <Text style={styles.messageSender}>
+                  {item.senderName || "未知角色"}
+                </Text>
+                {!item.read && (
+                  <View style={styles.unreadDot} />
+                )}
+              </View>
+              
+              <Text style={styles.messageContent}>
+                {item.content}
+              </Text>
+              
+              {item.contextContent && (
+                <View style={styles.contextContainer}>
+                  <Text style={styles.contextContent}>
+                    回应: {item.contextContent}
+                  </Text>
+                </View>
+              )}
+              
+              <Text style={styles.messageTimestamp}>
+                {formatTimestamp(item.timestamp)}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
       )}
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#282828',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'rgb(255, 224, 195)',
+  },
+  markAllReadButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+  },
+  markAllReadText: {
+    color: 'rgb(255, 224, 195)',
+    fontSize: 12,
+  },
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'rgb(255, 224, 195)',
+    marginBottom: 12,
+  },
+  emptyStateDescription: {
+    fontSize: 16,
+    color: '#AAAAAA',
+    textAlign: 'center',
+  },
+  messageItem: {
+    backgroundColor: '#333333',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  },
+  unreadMessage: {
+    borderLeftWidth: 4,
+    borderLeftColor: 'rgb(255, 224, 195)',
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  messageIconContainer: {
+    marginRight: 8,
+  },
+  messageSender: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgb(255, 224, 195)',
+  },
+  messageContent: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    marginBottom: 8,
+  },
+  contextContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 8,
+  },
+  contextContent: {
+    fontSize: 12,
+    color: '#AAAAAA',
+    fontStyle: 'italic',
+  },
+  messageTimestamp: {
+    fontSize: 12,
+    color: '#888888',
+    alignSelf: 'flex-end',
+  },
+});

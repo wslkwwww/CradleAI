@@ -1,27 +1,86 @@
-import { Character } from "../shared/types";
-import { RelationshipService } from "../services/relationship-service";
+import { Character } from '@/shared/types';
+import { CircleResponse } from '@/NodeST/nodest';
+import { RelationshipService } from '@/services/relationship-service';
 
-// Apply relationship updates from AI response to character
+/**
+ * Apply relationship updates from NodeST circle response
+ * @param character Character to update
+ * @param response CircleResponse containing relationship updates
+ * @returns Updated character
+ */
 export const applyRelationshipUpdates = (
-  character: Character,
-  updates: { targetId: string; strengthDelta: number; description: string }[]
+  character: Character, 
+  response: CircleResponse
 ): Character => {
-  if (!updates?.length || !character.relationshipEnabled) {
+  if (!response.relationshipUpdates || response.relationshipUpdates.length === 0) {
     return character;
   }
-
-  let updatedCharacter = { ...character };
-
-  for (const update of updates) {
-    updatedCharacter = RelationshipService.updateRelationship(
+  
+  let updatedCharacter = character;
+  
+  for (const update of response.relationshipUpdates) {
+    updatedCharacter = RelationshipService.processRelationshipUpdate(
       updatedCharacter,
       update.targetId,
       update.strengthDelta,
-      update.description
+      update.newType as any
     );
   }
-
+  
   return updatedCharacter;
+};
+
+/**
+ * Calculate relationship strength modifier based on interaction type
+ * @param interactionType Type of interaction
+ * @param content Content of interaction (for sentiment analysis)
+ * @returns Strength modifier value
+ */
+export const getStrengthModifier = (
+  interactionType: string, 
+  content?: string
+): number => {
+  // Base modifiers by interaction type
+  const baseModifiers = {
+    'like': 2,
+    'comment': 3,
+    'reply': 4,
+    'share': 5
+  };
+  
+  // Get base modifier or default to 1
+  const baseModifier = baseModifiers[interactionType as keyof typeof baseModifiers] || 1;
+  
+  // If no content, return base modifier
+  if (!content) return baseModifier;
+  
+  // Very simple sentiment analysis (would be more sophisticated in production)
+  const positive = ['thanks', 'good', 'great', 'love', 'awesome', 'happy', 'nice', 'like'].some(
+    word => content.toLowerCase().includes(word)
+  );
+  
+  const negative = ['bad', 'hate', 'awful', 'terrible', 'poor', 'dislike'].some(
+    word => content.toLowerCase().includes(word)
+  );
+  
+  // Apply sentiment multiplier
+  if (positive) return baseModifier * 1.5;
+  if (negative) return baseModifier * -1;
+  
+  return baseModifier;
+};
+
+/**
+ * Calculate relationship depth based on interaction count
+ * @param interactions Number of interactions
+ * @returns Relationship depth level (1-5)
+ */
+export const getRelationshipDepth = (interactions: number): number => {
+  if (interactions < 5) return 1;
+  if (interactions < 15) return 2;
+  if (interactions < 30) return 3;
+  if (interactions < 50) return 4;
+  return 5;
 };
 
 // Process relationship updates for multiple characters

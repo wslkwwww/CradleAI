@@ -14,7 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useUser } from '@/constants/UserContext';
-import { GlobalSettings } from '@/constants/types';
+import { GlobalSettings } from '@/shared/types';
 
 const GlobalSettingsScreen = () => {
   const router = useRouter();

@@ -335,4 +335,48 @@ export class PromptBuilderService {
       isChatHistory: true
     };
   }
+
+  /**
+   * Adds an R-framework entry to the builder
+   */
+  addRFrameworkEntry(entry: RFrameworkEntry): PromptBuilderService {
+    this.rFramework.push(entry);
+    return this;
+  }
+
+  /**
+   * Adds a D-entry to the builder
+   */
+  addDEntry(entry: DEntry): PromptBuilderService {
+    this.dEntries.push(entry);
+    return this;
+  }
+
+  /**
+   * Adds a user message to the builder
+   */
+  addUserMessage(message: string): PromptBuilderService {
+    this.userMessage = message;
+    return this;
+  }
+
+  /**
+   * Builds the complete prompt
+   */
+  build(): string {
+    const messages = PromptBuilderService.buildPrompt({
+      rFramework: this.rFramework,
+      dEntries: this.dEntries,
+      userMessage: this.userMessage,
+      chatHistory: this.chatHistory
+    });
+    
+    return PromptBuilderService.messagesToText(messages);
+  }
+  
+  // Private properties for instance methods
+  private rFramework: RFrameworkEntry[] = [];
+  private dEntries: DEntry[] = [];
+  private userMessage: string = '';
+  private chatHistory: any[] = [];
 }

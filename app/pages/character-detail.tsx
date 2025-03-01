@@ -385,11 +385,16 @@ const CharacterDetail: React.FC = () => {
       const updatedCharacter: Character = {
         id: character.id,
         name: roleCard.name.trim(),
+        description: roleCard.description || '',
+        personality: roleCard.personality || '',
+        interests: character.interests || [],
         jsonData: JSON.stringify(jsonData),
         avatar: character.avatar,
         backgroundImage: character.backgroundImage,
         conversationId: character.id, // 使用角色ID作为会话ID
-        circlePosts: character.circlePosts || []
+        circlePosts: character.circlePosts || [],
+        createdAt: character.createdAt || new Date().getTime(),
+        updatedAt: new Date().getTime()
       };
   
       // 更新到 NodeST

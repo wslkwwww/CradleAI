@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 10,
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: Colors.grey,
     paddingTop: 20,
   },
   relationshipTitle: {
@@ -226,16 +226,16 @@ const styles = StyleSheet.create({
   },
   relationshipDescription: {
     fontSize: 14,
-    color: Colors.textDim,
+    color: Colors.grey,
     marginBottom: 16,
   },
   statsCard: {
-    backgroundColor: Colors.cardBackground,
+    backgroundColor: Colors.card,
     borderRadius: 8,
     padding: 16,
     marginVertical: 8,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.grey,
   },
   statRow: {
     flexDirection: 'row',
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 14,
-    color: Colors.textDim,
+    color: Colors.grey,
   },
   statValue: {
     fontSize: 14,
@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    backgroundColor: Colors.cardBackground,
+    backgroundColor: Colors.card,
     padding: 12,
     borderRadius: 8,
     marginHorizontal: 4,

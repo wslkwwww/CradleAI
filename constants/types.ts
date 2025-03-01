@@ -40,6 +40,7 @@ export interface CharactersContextType {
     getFavorites: () => CirclePost[];
     updateCradleSettings: (settings: CradleSettings) => Promise<void>;
     getCradleSettings: () => CradleSettings;
+    setCharacters: (characters: Character[]) => void;
 }
 
 // UI 专用类型

@@ -199,6 +199,12 @@ export class CircleManager {
                 circleRFramework
             );
             
+            // 保存角色数据以便后续处理
+            await this.saveJson(
+                this.getStorageKey(character.id, '_character_data'),
+                character
+            );
+            
             console.log(`【朋友圈】成功为角色 ${character.name} 初始化朋友圈框架`);
 
             return true;
@@ -349,9 +355,19 @@ export class CircleManager {
         const updatedFramework = { ...framework };
         let scenePrompt = '';
 
+        // 准备要显示的内容
+        const contentText = options.content.text.length > 100 ? 
+            `${options.content.text.substring(0, 100)}...` : 
+            options.content.text;
+
         switch (options.type) {
             case 'newPost':
-                scenePrompt = `你正在创建一条新的朋友圈动态。基于你的角色性格，请以JSON格式回应：
+                scenePrompt = `作为一个角色，你正在创建一条新的朋友圈动态。以下是准备发布的内容：
+
+【内容】${contentText}
+【上下文】${options.content.context || '无'}
+
+基于你的角色性格，请以JSON格式回应：
 - 决定是否点赞（like: true/false，对自己发的内容通常为false）
 - 提供一条你想发布的内容（comment字段）
 - 包含你的情感反应（emotion对象，含type和intensity）
@@ -370,7 +386,13 @@ export class CircleManager {
                 break;
                 
             case 'replyToPost':
-                scenePrompt = `你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
+                scenePrompt = `你正在浏览以下朋友圈动态：
+
+【作者】${options.content.authorName || '某人'}
+【内容】${contentText}
+【上下文】${options.content.context || '无'}
+
+基于你的角色性格，请以JSON格式回应：
 - 决定是否点赞（like: true/false）
 - 可选择是否发表评论（comment字段）
 - 包含你的情感反应（emotion对象，含type和intensity）
@@ -389,7 +411,13 @@ export class CircleManager {
                 break;
                 
             case 'replyToComment':
-                scenePrompt = `你看到一条朋友圈评论。基于你的角色性格和上下文信息，请以JSON格式回应：
+                scenePrompt = `你看到以下朋友圈评论：
+
+【原帖内容】${options.content.context || '无'}
+【评论内容】${contentText}
+【评论作者】${options.content.authorName || '某人'}
+
+基于你的角色性格，请以JSON格式回应：
 - 决定是否点赞（like: true/false）
 - 可选择是否回复此评论（comment字段）
 - 包含你的情感反应（emotion对象，含type和intensity）
@@ -408,7 +436,6 @@ export class CircleManager {
                 break;
                 
             default:
-                // 默认使用原始场景提示词
                 scenePrompt = framework.circle.scenePrompt;
         }
 
@@ -446,21 +473,12 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
         try {
             console.log('【朋友圈】开始解析响应');
             
-            // 尝试提取JSON部分
             const extractedJson = this.extractJson(response);
-            
             if (!extractedJson) {
-                console.error('【朋友圈】未能在响应中找到有效的JSON');
                 throw new Error('未能从AI回复中提取有效数据');
             }
-            
+
             console.log('【朋友圈】成功提取JSON:', extractedJson);
-            
-            // 验证解析出的JSON是否包含必要字段
-            if (!extractedJson.action) {
-                console.error('【朋友圈】解析出的JSON缺少action字段');
-                throw new Error('AI回复数据格式不完整');
-            }
             
             return {
                 success: true,
@@ -483,49 +501,123 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
      */
     private extractJson(text: string): any {
         try {
-            // 直接尝试解析整个文本
+            // 第1步：预处理文本
+            let cleanText = this.cleanResponseText(text);
+            
+            // 第2步：直接尝试解析清理后的文本
             try {
-                return JSON.parse(text);
+                const directParsed = JSON.parse(cleanText);
+                if (this.validateJsonStructure(directParsed)) {
+                    return directParsed;
+                }
             } catch (e) {
-                // 解析失败，继续下面的提取逻辑
+                // 直接解析失败，继续尝试其他方法
             }
             
-            // 使用正则表达式寻找文本中的JSON部分
+            // 第3步：使用正则提取JSON对象
             const jsonPattern = /\{(?:[^{}]|(?:\{[^{}]*\}))*\}/g;
-            const matches = text.match(jsonPattern);
+            const matches = cleanText.match(jsonPattern);
             
             if (!matches || matches.length === 0) {
                 console.error('【朋友圈】未找到JSON格式内容');
                 return null;
             }
             
-            // 尝试解析找到的每一个JSON候选
+            // 第4步：尝试解析每个匹配的JSON对象
             for (const match of matches) {
                 try {
                     const parsed = JSON.parse(match);
-                    
-                    // 验证这是否是我们期望的响应格式
-                    if (parsed && typeof parsed === 'object' && 'action' in parsed) {
-                        console.log('【朋友圈】找到有效的JSON响应');
+                    if (this.validateJsonStructure(parsed)) {
                         return parsed;
                     }
                 } catch (e) {
-                    // 继续尝试下一个匹配
                     continue;
                 }
             }
             
-            // 如果没有找到有效的JSON，但至少有一个JSON结构，则尝试解析第一个
-            try {
-                return JSON.parse(matches[0]);
-            } catch (e) {
-                console.error('【朋友圈】所有候选JSON均解析失败');
-                return null;
-            }
+            console.error('【朋友圈】所有提取的JSON都未通过验证');
+            return null;
+            
         } catch (error) {
             console.error('【朋友圈】提取JSON时出错:', error);
             return null;
         }
+    }
+
+    /**
+     * 清理响应文本，移除无关内容
+     */
+    private cleanResponseText(text: string): string {
+        // 1. 移除所有```json和```标记
+        text = text.replace(/```json\n?|\n?```/g, '');
+        
+        // 2. 移除常见的AI礼貌用语前缀
+        const prefixesToRemove = [
+            /^好的，(这是)?我的朋友圈回应：\s*/i,
+            /^好的，(我)?(明白|理解)了。\s*/i,
+            /^请给我看朋友圈(的)?动态内容，.*?(?=\{)/i,
+            /^作为[^{]*?(?=\{)/i,
+            /^我将(会)?根据[^{]*?(?=\{)/i,
+            /^以下是[^{]*?(?=\{)/i
+        ];
+        
+        for (const prefix of prefixesToRemove) {
+            text = text.replace(prefix, '');
+        }
+        
+        // 3. 移除末尾的注释和说明
+        const suffixesToRemove = [
+            /\n*希望[^}]*$/,
+            /\n*这样的回[复应][^}]*$/,
+            /\n*[请让]?我知道[^}]*$/
+        ];
+        
+        for (const suffix of prefixesToRemove) {
+            text = text.replace(suffix, '');
+        }
+        
+        // 4. 移除多余的空白字符
+        text = text.trim().replace(/\s+/g, ' ');
+        
+        return text;
+    }
+
+    /**
+     * 验证JSON结构是否符合预期
+     */
+    private validateJsonStructure(json: any): boolean {
+        // 1. 必须是对象
+        if (!json || typeof json !== 'object') {
+            return false;
+        }
+
+        // 2. 必须包含action字段
+        if (!json.action || typeof json.action !== 'object') {
+            return false;
+        }
+
+        // 3. action必须包含like字段
+        if (typeof json.action.like !== 'boolean') {
+            return false;
+        }
+
+        // 4. 如果有comment字段，必须是字符串
+        if ('comment' in json.action && typeof json.action.comment !== 'string') {
+            return false;
+        }
+
+        // 5. 验证emotion字段（可选）
+        if (json.emotion) {
+            if (typeof json.emotion !== 'object' ||
+                !['positive', 'neutral', 'negative'].includes(json.emotion.type) ||
+                typeof json.emotion.intensity !== 'number' ||
+                json.emotion.intensity < 0 ||
+                json.emotion.intensity > 1) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // 新增：生成关系状态检查提示词的方法
