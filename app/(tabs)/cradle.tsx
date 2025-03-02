@@ -1,243 +1,700 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Dimensions,Platform,StatusBar, Text, TouchableOpacity } from 'react-native';
-import Animated, { 
-  useAnimatedStyle, 
-  withSpring, 
-  withRepeat, 
-  withSequence,
-  useSharedValue,
-} from 'react-native-reanimated';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Image,
+  SafeAreaView,
+  StatusBar,
+  ActivityIndicator
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ThemedText } from '@/components/ThemedText';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { Colors } from '@/constants/Colors';
-import Icon from 'react-native-vector-icons/MaterialIcons';
-import CradleSettings from '@/components/CradleSettings';
 import { useCharacters } from '@/constants/CharactersContext';
 import CradleFeedModal from '@/components/CradleFeedModal';
-
-const { width, height } = Dimensions.get('window');
+import CradleSettings from '@/components/CradleSettings';
+import ImportToCradleModal from '@/components/ImportToCradleModal';
+import { CradleCharacter, } from '@/shared/types';
+import { CradleSettings as CradleSettingsType } from '@/constants/types';
 
 export default function CradleScreen() {
-  const colorScheme = useColorScheme();
-  
-  // Animation values
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(0.85);
+  const router = useRouter();
+  const {
+    getCradleSettings,
+    updateCradleSettings,
+    getCradleCharacters,
+    generateCharacterFromCradle
+  } = useCharacters();
 
-  const [isSettingsVisible, setIsSettingsVisible] = useState(false);
-  const { updateCradleSettings, getCradleSettings } = useCharacters();
-  
-  // 添加默认值，防止 undefined 错误
-  const defaultCradleSettings = {
+  // Define types for state variables
+  const [cradleSettings, setCradleSettingsState] = useState<CradleSettingsType>({
     enabled: false,
     duration: 7,
-    startDate: undefined
-  };
-  const cradleSettings = getCradleSettings() || defaultCradleSettings;
+    startDate: undefined,
+    progress: 0
+  });
+  const [characters, setCharactersState] = useState<CradleCharacter[]>([]);
+  const [loading, setLoading] = useState(true);
   
-  const [isFeedSheetVisible, setIsFeedSheetVisible] = useState(false);
-
-  const handleCradleToggle = async (enabled: boolean) => {
-    const newSettings = {
-      ...defaultCradleSettings, // 使用默认值作为基础
-      ...cradleSettings,
-      enabled,
-      startDate: enabled ? new Date().toISOString() : undefined,
-    };
-    await updateCradleSettings(newSettings);
-  };
-
-  const handleDurationChange = async (days: number) => {
-    const newSettings = {
-      ...defaultCradleSettings, // 使用默认值作为基础
-      ...cradleSettings,
-      duration: days,
-    };
-    await updateCradleSettings(newSettings);
-  };
-
+  // Modals
+  const [showFeedModal, setShowFeedModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  
+  // Load data on mount
   useEffect(() => {
-    // Breathing animation
-    scale.value = withRepeat(
-      withSequence(
-        withSpring(1.1, { duration: 2000 }),
-        withSpring(1, { duration: 2000 })
-      ),
-      -1,
-      true
-    );
-
-    // Glow animation
-    opacity.value = withRepeat(
-      withSequence(
-        withSpring(1, { duration: 2000 }),
-        withSpring(0.85, { duration: 2000 })
-      ),
-      -1,
-      true
-    );
+    loadData();
   }, []);
+  
+  // Load cradle data
+  const loadData = () => {
+    try {
+      setLoading(true);
+      const settings = getCradleSettings();
+      const chars = getCradleCharacters();
+      
+      console.log("Loaded cradle settings:", settings);
+      console.log("Loaded cradle characters:", chars);
+      
+      setCradleSettingsState(settings as CradleSettingsType);
+      setCharactersState(chars || []);
+    } catch (error) {
+      console.error("Error loading cradle data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Toggle cradle system enabled state
+  const handleToggleCradle = async (enabled: boolean) => {
+    const newSettings: CradleSettingsType = { 
+      ...cradleSettings, 
+      enabled,
+      // If enabling, set start date if not already set
+      startDate: enabled && !cradleSettings.startDate ? new Date().toISOString() : cradleSettings.startDate
+    };
+    
+    try {
+      await updateCradleSettings(newSettings);
+      setCradleSettingsState(newSettings);
+    } catch (error) {
+      console.error("Error toggling cradle:", error);
+    }
+  };
+  
+  // Update cradle duration
+  const handleDurationChange = async (duration: number) => {
+    try {
+      const newSettings: CradleSettingsType = { ...cradleSettings, duration };
+      await updateCradleSettings(newSettings);
+      setCradleSettingsState(newSettings);
+    } catch (error) {
+      console.error("Error changing duration:", error);
+    }
+  };
+  
+  // Calculate progress based on start date and duration
+  const calculateProgress = () => {
+    if (!cradleSettings.enabled || !cradleSettings.startDate) {
+      return 0;
+    }
+    
+    const startDate = new Date(cradleSettings.startDate);
+    const currentDate = new Date();
+    const elapsedDays = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
+    const totalDuration = cradleSettings.duration || 7;
+    
+    return Math.min(Math.round((elapsedDays / totalDuration) * 100), 100);
+  };
+  
+  const progress = calculateProgress();
+  
+  // Handle character generation
+  const handleGenerateCharacter = async (characterId: string) => {
+    try {
+      const character = await generateCharacterFromCradle(characterId);
+      router.push({
+        pathname: "/(tabs)",
+        params: { characterId: character.id }
+      });
+    } catch (error) {
+      console.error('Failed to generate character:', error);
+    }
+  };
+  
+  // Handle feed button click
+  const handleFeedCharacter = () => {
+    setShowFeedModal(true);
+  };
 
-  const animatedStyles = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
+  // Create new character
+  const handleCreateCharacter = () => {
+    router.push('/pages/create_char_cradle');
+  };
+  
+  // Add new function to handle importing characters
+  const handleImportCharacter = () => {
+    setShowImportModal(true);
+  };
+  
+  // If still loading data
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4A90E2" />
+        <Text style={styles.loadingText}>加载摇篮系统...</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBarContainer}>
-        <View style={styles.leftSection}>
-          <Text></Text>
-        </View>
-        <View style={styles.rightButtons}>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#282828" />
+      
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>摇篮系统</Text>
+        <View style={styles.headerButtons}>
           <TouchableOpacity 
-            style={[styles.iconButton, { padding: 12 }]}  // 增加按钮大小
-            onPress={() => setIsSettingsVisible(true)}
+            style={styles.headerButton}
+            onPress={handleImportCharacter}
           >
-            <Icon name="settings" size={24} color="#4A4A4A" />
+            <Ionicons name="cloud-download-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={() => setShowSettingsModal(true)}
+          >
+            <Ionicons name="settings-outline" size={22} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
       
-      <LinearGradient
-        colors={['#FFE6E6', '#E6E6FF']}
-        style={styles.gradient}
-      >
-        <View style={styles.content}>
-          <TouchableOpacity 
-            onPress={() => setIsFeedSheetVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Animated.View style={[styles.cradle, animatedStyles]}>
-              <View style={styles.innerGlow} />
-            </Animated.View>
-          </TouchableOpacity>
+      <ScrollView style={styles.scrollView}>
+        <LinearGradient
+          colors={['#2c3e50', '#1a1a2e']}
+          style={styles.banner}
+        >
+          <View style={styles.bannerContent}>
+            <Text style={styles.bannerTitle}>
+              {cradleSettings.enabled 
+                ? "摇篮培育进行中" 
+                : "摇篮系统未启用"}
+            </Text>
+            
+            {cradleSettings.enabled && (
+              <>
+                <View style={styles.progressContainer}>
+                  <View style={styles.progressBar}>
+                    <View 
+                      style={[
+                        styles.progressFill, 
+                        { width: `${progress}%` }
+                      ]} 
+                    />
+                  </View>
+                  <Text style={styles.progressText}>{progress}%</Text>
+                </View>
+                
+                <Text style={styles.bannerSubtitle}>
+                  {progress >= 100 
+                    ? "培育周期已完成，可以生成角色" 
+                    : `培育周期: ${cradleSettings.duration || 7} 天`}
+                </Text>
+              </>
+            )}
+            
+            <View style={styles.actionButtons}>
+              <TouchableOpacity 
+                style={styles.bannerButton}
+                onPress={() => handleToggleCradle(!cradleSettings.enabled)}
+              >
+                <Text style={styles.bannerButtonText}>
+                  {cradleSettings.enabled ? "暂停培育" : "开始培育"}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.bannerButton, styles.secondaryButton]}
+                onPress={handleFeedCharacter}
+                disabled={characters.length === 0}
+              >
+                <Text style={[styles.bannerButtonText, styles.secondaryButtonText]}>
+                  投喂数据
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </LinearGradient>
+        
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>我的摇篮角色</Text>
+            <View style={styles.headerActionButtons}>
+              <TouchableOpacity 
+                style={styles.smallActionButton}
+                onPress={handleImportCharacter}
+              >
+                <Ionicons name="download-outline" size={16} color="#fff" />
+                <Text style={styles.smallButtonText}>导入</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.addButton}
+                onPress={handleCreateCharacter}
+              >
+                <Ionicons name="add" size={20} color="#fff" />
+                <Text style={styles.addButtonText}>新建</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           
-          <View style={styles.textContainer}>
-            <ThemedText style={styles.subtitle}>点击摇篮，投喂你的兴趣...</ThemedText>
+          {characters && characters.length > 0 ? (
+            characters.map((character: CradleCharacter) => (
+              <View key={character.id} style={styles.characterCard}>
+                <View style={styles.characterHeader}>
+                  <View style={styles.avatarContainer}>
+                    {character.avatar ? (
+                      <Image source={{ uri: character.avatar }} style={styles.avatar} />
+                    ) : (
+                      <View style={styles.placeholderAvatar}>
+                        <Ionicons name="person" size={30} color="#ccc" />
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.characterInfo}>
+                    <Text style={styles.characterName}>
+                      {character.name || '未命名角色'}
+                      {character.importedFromCharacter && (
+                        <Text style={styles.importBadge}> (导入)</Text>
+                      )}
+                    </Text>
+                    <Text style={styles.characterMeta}>
+                      投喂数据: {character.feedHistory?.length || 0} 条
+                    </Text>
+                  </View>
+                  <TouchableOpacity>
+                    <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.actionRow}>
+                  <TouchableOpacity 
+                    style={styles.actionButton}
+                    onPress={() => setShowFeedModal(true)}
+                  >
+                    <Ionicons name="add-circle-outline" size={18} color="#4A90E2" />
+                    <Text style={styles.actionText}>投喂</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity style={styles.actionButton}>
+                    <Ionicons name="analytics-outline" size={18} color="#4A90E2" />
+                    <Text style={styles.actionText}>培育状态</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.actionButton, progress >= 100 ? styles.readyButton : styles.disabledButton]}
+                    disabled={progress < 100}
+                    onPress={() => handleGenerateCharacter(character.id)}
+                  >
+                    <Ionicons 
+                      name={character.importedFromCharacter ? "refresh-outline" : "rocket-outline"} 
+                      size={18} 
+                      color={progress >= 100 ? "#4A90E2" : "#999"} 
+                    />
+                    <Text style={[
+                      styles.actionText,
+                      progress >= 100 ? styles.readyText : styles.disabledText
+                    ]}>
+                      {progress >= 100 
+                        ? (character.importedFromCharacter ? "应用更新" : "生成角色")
+                        : "未准备好"
+                      }
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="leaf-outline" size={60} color="#666" />
+              <Text style={styles.emptyTitle}>没有摇篮角色</Text>
+              <Text style={styles.emptyText}>创建一个摇篮角色开始培育吧</Text>
+              <View style={styles.emptyButtons}>
+                <TouchableOpacity
+                  style={styles.createButton}
+                  onPress={handleCreateCharacter}
+                >
+                  <Text style={styles.createButtonText}>创建角色</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.createButton, styles.importButton]}
+                  onPress={handleImportCharacter}
+                >
+                  <Text style={styles.createButtonText}>导入已有角色</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>摇篮系统说明</Text>
+          <View style={styles.infoCard}>
+            <Text style={styles.infoText}>
+              摇篮系统可以帮助你培育更具个性的AI角色。通过投喂文本、图片等数据，系统将为角色塑造个性。培育周期结束后，你可以将摇篮角色生成为正式角色进行互动。
+            </Text>
+            
+            <View style={styles.infoPoints}>
+              <View style={styles.infoPoint}>
+                <Ionicons name="time-outline" size={20} color="#4A90E2" />
+                <Text style={styles.infoPointText}>需要时间培育</Text>
+              </View>
+              
+              <View style={styles.infoPoint}>
+                <Ionicons name="document-text-outline" size={20} color="#4A90E2" />
+                <Text style={styles.infoPointText}>投喂各类数据</Text>
+              </View>
+              
+              <View style={styles.infoPoint}>
+                <Ionicons name="person-outline" size={20} color="#4A90E2" />
+                <Text style={styles.infoPointText}>塑造个性特征</Text>
+              </View>
+            </View>
           </View>
         </View>
-      </LinearGradient>
-
-      <CradleSettings
-        isVisible={isSettingsVisible}
-        onClose={() => setIsSettingsVisible(false)}
-        onCradleToggle={handleCradleToggle}
-        onDurationChange={handleDurationChange}
-        isCradleEnabled={cradleSettings.enabled}
-        cradleDuration={cradleSettings.duration}
+      </ScrollView>
+      
+      {/* Modals */}
+      {showFeedModal && (
+        <CradleFeedModal
+          visible={showFeedModal}
+          onClose={() => {
+            setShowFeedModal(false);
+            loadData(); // Reload data when modal closes
+          }}
+        />
+      )}
+      
+      {showSettingsModal && (
+        <CradleSettings
+          isVisible={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          onCradleToggle={handleToggleCradle}
+          onDurationChange={handleDurationChange}
+          isCradleEnabled={cradleSettings.enabled}
+          cradleDuration={cradleSettings.duration || 7}
+        />
+      )}
+      
+      {/* New Import Modal */}
+      <ImportToCradleModal
+        visible={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImportSuccess={loadData}
       />
-
-      <CradleFeedModal
-        visible={isFeedSheetVisible}
-        onClose={() => setIsFeedSheetVisible(false)}
-      />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#282828',
   },
-  gradient: {
+  loadingContainer: {
     flex: 1,
-    alignItems: 'center',
-    
-    justifyContent: 'center',
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingVertical: height * 0.1,
-    width: '100%',
-  },
-  cradle: {
-    width: width * 0.5,
-    height: width * 0.5,
-    borderRadius: width * 0.25,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#282828',
   },
-  innerGlow: {
-    width: '80%',
-    height: '80%',
-    borderRadius: width * 0.2,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    shadowColor: '#FFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 15,
-    elevation: 8,
-  },
-  textContainer: {
-    alignItems: 'center',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
-    backgroundColor: 'transparent',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '600',
-    marginBottom: 10,
-    color:"black"
-  },
-  subtitle: {
+  loadingText: {
+    marginTop: 16,
     fontSize: 16,
-    opacity: 0.8,
-    marginBottom: 20,
-    color:"black"
+    color: '#fff',
   },
-  progress: {
-    fontSize: 14,
-    opacity: 0.6,
-    color: "black"
-  },
-  topBarContainer: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    position: 'absolute',
-    top: 40,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-    zIndex: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-    borderRadius: 10,
-  },
-  leftSection: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  rightButtons: {
-    flexDirection: 'row',
-    position: 'absolute',
-    right: 16,
-    alignItems: 'center',
-    gap: 8,
-  },
-  iconButton: {
-    padding: 8,
-    borderRadius: 20,
-    marginHorizontal: 2,
-  },
-  header: {
-    padding: 16,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
-    alignItems: 'center',
-    backgroundColor: '#282828',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: '#333',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  settingsButton: {
+    padding: 8,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  banner: {
+    padding: 20,
+  },
+  bannerContent: {
+    alignItems: 'center',
+  },
+  bannerTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginVertical: 8,
+  },
+  progressBar: {
+    flex: 1,
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 4,
+    marginRight: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4A90E2',
+    borderRadius: 4,
+  },
+  progressText: {
+    width: 40,
+    fontSize: 14,
+    color: '#fff',
+    textAlign: 'right',
+  },
+  bannerSubtitle: {
+    fontSize: 14,
+    color: '#ccc',
+    marginBottom: 16,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  bannerButton: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    marginHorizontal: 8,
+  },
+  bannerButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#4A90E2',
+  },
+  secondaryButtonText: {
+    color: '#4A90E2',
+  },
+  section: {
+    padding: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4A90E2',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  addButtonText: {
+    color: '#fff',
+    marginLeft: 4,
+  },
+  characterCard: {
+    backgroundColor: '#333',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+  },
+  characterHeader: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  avatarContainer: {
+    marginRight: 12,
+  },
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
+  placeholderAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#444',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  characterInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  characterName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  characterMeta: {
+    fontSize: 14,
+    color: '#aaa',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    paddingTop: 12,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  actionText: {
+    marginLeft: 4,
+    color: '#4A90E2',
+  },
+  readyButton: {
+    // Additional styles when ready
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  readyText: {
+    color: '#4A90E2',
+  },
+  disabledText: {
+    color: '#999',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    backgroundColor: '#333',
+    borderRadius: 10,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    color: '#fff',
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#aaa',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  createButton: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  createButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  infoCard: {
+    backgroundColor: '#333',
+    borderRadius: 10,
+    padding: 16,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#ddd',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  infoPoints: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  infoPoint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '48%',
+    marginBottom: 8,
+  },
+  infoPointText: {
+    marginLeft: 6,
+    color: '#bbb',
+    fontSize: 13,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+  },
+  headerButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  headerActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  smallActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#555',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  smallButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  importBadge: {
+    fontSize: 12,
+    color: '#4A90E2',
+    fontStyle: 'italic',
+  },
+  emptyButtons: {
+    flexDirection: 'row',
+    marginTop: 16,
+  },
+  importButton: {
+    backgroundColor: '#555',
+    marginLeft: 12,
   },
 });

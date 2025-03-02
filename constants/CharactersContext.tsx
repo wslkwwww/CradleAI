@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { Alert } from 'react-native';
-import {  SidebarItemProps, CharactersContextType, Memo,CradleSettings } from '@/constants/types';
+import {  SidebarItemProps, CharactersContextType, Memo,CradleSettings, } from '@/constants/types';
+import { CradleCharacter } from '@/shared/types';
 import * as FileSystem from 'expo-file-system';
 import { useUser } from './UserContext';
 import { Character, Message, CirclePost } from '@/shared/types';
@@ -24,6 +25,15 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [messagesMap, setMessagesMap] = useState<{ [conversationId: string]: Message[] }>({});
   const [memos, setMemos] = useState<Memo[]>([]);
   const [favorites, setFavorites] = useState<CirclePost[]>([]);
+  
+  // 添加摇篮系统相关状态
+  const [cradleSettings, setCradleSettings] = useState<CradleSettings>({
+    enabled: false,
+    duration: 7,
+    progress: 0
+  });
+  const [cradleCharacters, setCradleCharacters] = useState<CradleCharacter[]>([]);
+  
   const { user } = useUser();
 
   useEffect(() => {
@@ -31,7 +41,9 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadConversations();
     loadMessages();
     loadMemos();
-    loadFavorites();;
+    loadFavorites();
+    loadCradleSettings();
+    loadCradleCharacters();
   }, []);
 
   const loadMessages = async () => {
@@ -530,21 +542,20 @@ if (!savedCharacter) {
     if (!character) return;
   
     // 创建更新后的角色对象，确保 circlePosts 存在
-    const updatedCharacter = {
-      ...character,
-      circlePosts: character.circlePosts || []
-    };
+    if (!character.circlePosts) {
+      character.circlePosts = [];
+    }
   
     // 查找要更新的帖子
-    const postIndex = updatedCharacter.circlePosts.findIndex(p => p.id === postId);
+    const postIndex = character.circlePosts.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
   
     // 创建更新后的帖子对象
-    const post = updatedCharacter.circlePosts[postIndex];
+    const post = character.circlePosts[postIndex];
     const isFavorited = !post.isFavorited;
   
     // 更新帖子的收藏状态
-    updatedCharacter.circlePosts = updatedCharacter.circlePosts.map(p =>
+    character.circlePosts = character.circlePosts.map(p =>
       p.id === postId ? { ...p, isFavorited } : p
     );
   
@@ -556,11 +567,329 @@ if (!savedCharacter) {
     }
   
     // 保存更新
-    await updateCharacter(updatedCharacter);
+    await updateCharacter(character);
     await saveFavorites(favorites);
   };
 
   const getFavorites = () => favorites;
+  
+  // 摇篮系统相关功能实现
+  const loadCradleSettings = async () => {
+    try {
+      console.log('[摇篮系统] 开始加载摇篮设置');
+      const settingsStr = await FileSystem.readAsStringAsync(
+        FileSystem.documentDirectory + 'cradle_settings.json',
+        { encoding: FileSystem.EncodingType.UTF8 }
+      ).catch(() => JSON.stringify({
+        enabled: false,
+        duration: 7,
+        progress: 0
+      }));
+
+      const settings = JSON.parse(settingsStr);
+      console.log('[摇篮系统] 加载的设置:', settings);
+      
+      // 如果摇篮已启用，计算当前进度
+      if (settings.enabled && settings.startDate) {
+        const startDate = new Date(settings.startDate);
+        const currentDate = new Date();
+        const elapsedDays = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
+        const totalDuration = settings.duration || 7;
+        
+        // 计算进度百分比，最大100%
+        settings.progress = Math.min(Math.round((elapsedDays / totalDuration) * 100), 100);
+        console.log(`[摇篮系统] 计算进度: 已过${elapsedDays.toFixed(1)}天，总共${totalDuration}天，进度${settings.progress}%`);
+      }
+      
+      setCradleSettings(settings);
+    } catch (error) {
+      console.error('[摇篮系统] 加载摇篮设置失败:', error);
+      setCradleSettings({
+        enabled: false,
+        duration: 7,
+        progress: 0
+      });
+    }
+  };
+  
+  const saveCradleSettings = async (settings: CradleSettings) => {
+    try {
+      console.log('[摇篮系统] 保存摇篮设置:', settings);
+      await FileSystem.writeAsStringAsync(
+        FileSystem.documentDirectory + 'cradle_settings.json',
+        JSON.stringify(settings),
+        { encoding: FileSystem.EncodingType.UTF8 }
+      );
+    } catch (error) {
+      console.error('[摇篮系统] 保存摇篮设置失败:', error);
+    }
+  };
+  
+  const updateCradleSettings = async (settings: CradleSettings) => {
+    console.log('[摇篮系统] 更新摇篮设置:', settings);
+    await saveCradleSettings(settings);
+    setCradleSettings(settings);
+  };
+  
+  const getCradleSettings = () => {
+    return cradleSettings;
+  };
+  
+  // 加载摇篮角色列表
+  const loadCradleCharacters = async () => {
+    try {
+      console.log('[摇篮系统] 开始加载摇篮角色');
+      const charactersStr = await FileSystem.readAsStringAsync(
+        FileSystem.documentDirectory + 'cradle_characters.json',
+        { encoding: FileSystem.EncodingType.UTF8 }
+      ).catch(() => '[]');
+
+      const loadedCharacters: CradleCharacter[] = JSON.parse(charactersStr);
+      console.log('[摇篮系统] 加载了', loadedCharacters.length, '个摇篮角色');
+      setCradleCharacters(loadedCharacters);
+    } catch (error) {
+      console.error('[摇篮系统] 加载摇篮角色失败:', error);
+      setCradleCharacters([]);
+    }
+  };
+  
+  // 保存摇篮角色列表
+  const saveCradleCharacters = async (newCradleCharacters: CradleCharacter[]) => {
+    try {
+      console.log('[摇篮系统] 保存摇篮角色列表，数量:', newCradleCharacters.length);
+      await FileSystem.writeAsStringAsync(
+        FileSystem.documentDirectory + 'cradle_characters.json',
+        JSON.stringify(newCradleCharacters),
+        { encoding: FileSystem.EncodingType.UTF8 }
+      );
+    } catch (error) {
+      console.error('[摇篮系统] 保存摇篮角色列表失败:', error);
+    }
+  };
+  
+  // 获取摇篮角色列表
+  const getCradleCharacters = () => {
+    return cradleCharacters;
+  };
+  
+  // 添加摇篮角色
+  const addCradleCharacter = async (character: CradleCharacter) => {
+    console.log('[摇篮系统] 添加新的摇篮角色:', character.name);
+    
+    if (!character.id) {
+      character.id = Date.now().toString();
+    }
+    
+    if (!character.createdAt) {
+      character.createdAt = Date.now();
+    }
+    
+    // 确保feedHistory存在
+    if (!character.feedHistory) {
+      character.feedHistory = [];
+    }
+    
+    const updatedCharacters = [...cradleCharacters, character];
+    setCradleCharacters(updatedCharacters);
+    await saveCradleCharacters(updatedCharacters);
+    
+    console.log('[摇篮系统] 摇篮角色添加成功');
+  };
+  
+  // 更新摇篮角色
+  const updateCradleCharacter = async (character: CradleCharacter) => {
+    console.log('[摇篮系统] 更新摇篮角色:', character.id);
+    
+    const updatedCharacters = cradleCharacters.map(char => 
+      char.id === character.id ? character : char
+    );
+    
+    setCradleCharacters(updatedCharacters);
+    await saveCradleCharacters(updatedCharacters);
+    
+    console.log('[摇篮系统] 摇篮角色更新成功');
+  };
+  
+  // 删除摇篮角色
+  const deleteCradleCharacter = async (id: string) => {
+    console.log('[摇篮系统] 删除摇篮角色:', id);
+    
+    const updatedCharacters = cradleCharacters.filter(char => char.id !== id);
+    setCradleCharacters(updatedCharacters);
+    await saveCradleCharacters(updatedCharacters);
+    
+    console.log('[摇篮系统] 摇篮角色删除成功');
+  };
+  
+  // 添加投喂内容
+  const addFeed = async (characterId: string, content: string, type: 'text' | 'voice' | 'image' = 'text') => {
+    console.log(`[摇篮系统] 向角色 ${characterId} 投喂内容，类型: ${type}`);
+    
+    const character = cradleCharacters.find(char => char.id === characterId);
+    if (!character) {
+      console.error('[摇篮系统] 未找到目标摇篮角色');
+      throw new Error('未找到目标摇篮角色');
+    }
+    
+    // 创建新的投喂记录
+    const newFeed = {
+      id: Date.now().toString(),
+      content,
+      timestamp: Date.now(), // Using number type as defined in the Feed interface
+      type,
+      processed: false
+    };
+    
+    // 添加到角色的投喂历史
+    const updatedCharacter: CradleCharacter = {
+      ...character,
+      feedHistory: [...(character.feedHistory || []), newFeed]
+    };
+    
+    // 更新角色
+    await updateCradleCharacter(updatedCharacter);
+    console.log('[摇篮系统] 投喂内容添加成功');
+  };
+  
+  // 标记投喂内容为已处理
+  const markFeedAsProcessed = async (characterId: string, feedId: string) => {
+    console.log(`[摇篮系统] 标记角色 ${characterId} 的投喂内容 ${feedId} 为已处理`);
+    
+    const character = cradleCharacters.find(char => char.id === characterId);
+    if (!character || !character.feedHistory) {
+      console.error('[摇篮系统] 未找到目标摇篮角色或投喂历史');
+      return;
+    }
+    
+    // 更新投喂状态
+    const updatedFeedHistory = character.feedHistory.map(feed => 
+      feed.id === feedId ? { ...feed, processed: true } : feed
+    );
+    
+    // 更新角色
+    const updatedCharacter: CradleCharacter = {
+      ...character,
+      feedHistory: updatedFeedHistory
+    };
+    
+    await updateCradleCharacter(updatedCharacter);
+    console.log('[摇篮系统] 投喂内容已标记为已处理');
+  };
+  
+  // 从摇篮生成正式角色
+  const generateCharacterFromCradle = async (cradleCharacterId: string): Promise<Character> => {
+    console.log('[摇篮系统] 开始从摇篮生成正式角色', cradleCharacterId);
+    
+    const cradleCharacter = cradleCharacters.find(char => char.id === cradleCharacterId);
+    if (!cradleCharacter) {
+      console.error('[摇篮系统] 未找到目标摇篮角色');
+      throw new Error('未找到目标摇篮角色');
+    }
+    
+    // 使用处理过的投喂内容构建角色个性
+    const processedFeeds = cradleCharacter.feedHistory?.filter(feed => feed.processed) || [];
+    console.log(`[摇篮系统] 共有 ${processedFeeds.length} 条已处理的投喂内容`);
+    
+    // 检查角色是否是从常规角色导入的
+    if (cradleCharacter.importedFromCharacter && cradleCharacter.importedCharacterId) {
+      // 更新原有角色而不是创建新角色
+      const originalCharacter = characters.find(char => char.id === cradleCharacter.importedCharacterId);
+      
+      if (originalCharacter) {
+        // 合并原有角色与摇篮系统中培育的数据
+        const updatedCharacter: Character = {
+          ...originalCharacter,
+          // 更新性格描述，根据投喂内容增强角色设定
+          personality: `${originalCharacter.personality || ''}\n\n通过摇篮系统培育增强: 基于${processedFeeds.length}条投喂数据`,
+          updatedAt: Date.now(),
+        };
+        
+        // 更新角色
+        await updateCharacter(updatedCharacter);
+        
+        // 从摇篮系统中移除该角色
+        await deleteCradleCharacter(cradleCharacterId);
+        
+        console.log('[摇篮系统] 成功更新导入的角色:', updatedCharacter.name);
+        return updatedCharacter;
+      } else {
+        console.error('[摇篮系统] 未找到原始角色，将创建新角色');
+      }
+    }
+    
+    // 如果不是导入的角色或找不到原始角色，则创建新角色
+    const characterId = Date.now().toString();
+    
+    // 构建角色基本信息
+    const newCharacter: Character = {
+      id: characterId,
+      name: cradleCharacter.name || "新角色",
+      avatar: cradleCharacter.avatar || null,
+      backgroundImage: cradleCharacter.backgroundImage || null,
+      description: cradleCharacter.description || `这是一个通过摇篮系统培育的AI角色，基于${processedFeeds.length}条投喂数据生成。`,
+      personality: cradleCharacter.personality || "个性特征将基于投喂的内容动态生成。", 
+      interests: cradleCharacter.interests || [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      conversationId: characterId,
+      // 添加标记，表明这是从摇篮生成的角色
+      isSystem: false,
+      isCradleGenerated: true,
+    };
+    
+    // 添加到角色列表
+    await addCharacter(newCharacter);
+    
+    // 创建对话
+    await addConversation({
+      id: characterId,
+      title: newCharacter.name
+    });
+    
+    // 从摇篮系统中移除该角色
+    await deleteCradleCharacter(cradleCharacterId);
+    
+    console.log('[摇篮系统] 成功生成角色:', newCharacter.name);
+    return newCharacter;
+  };
+  
+  // 新增方法: 导入常规角色到摇篮系统
+  const importCharacterToCradle = async (characterId: string): Promise<void> => {
+    console.log('[摇篮系统] 导入常规角色到摇篮:', characterId);
+    
+    // 查找要导入的角色
+    const character = characters.find(char => char.id === characterId);
+    if (!character) {
+      console.error('[摇篮系统] 未找到指定角色');
+      throw new Error('未找到指定角色');
+    }
+    
+    // 检查该角色是否已在摇篮系统中
+    const existingCradleChar = cradleCharacters.find(
+      char => char.importedCharacterId === characterId
+    );
+    
+    if (existingCradleChar) {
+      console.error('[摇篮系统] 该角色已在摇篮系统中');
+      throw new Error('该角色已在摇篮系统中');
+    }
+    
+    // 创建一个摇篮角色版本
+    const cradleCharacter: CradleCharacter = {
+      ...character,                         // 复制原有角色的所有属性
+      id: `cradle_${Date.now()}`,           // 新ID以避免冲突
+      inCradleSystem: true,                 // 标记为在摇篮系统中
+      feedHistory: [],                      // 初始化空的投喂历史
+      importedFromCharacter: true,          // 标记为从常规角色导入
+      importedCharacterId: character.id,    // 记录原始角色ID
+      updatedAt: Date.now()
+    };
+    
+    // 添加到摇篮系统
+    await addCradleCharacter(cradleCharacter);
+    
+    console.log('[摇篮系统] 成功导入角色到摇篮:', character.name);
+  };
   
   return (
     <CharactersContext.Provider
@@ -586,8 +915,19 @@ if (!savedCharacter) {
         rateMessage,
         toggleFavorite,
         getFavorites,
-        updateCradleSettings: async () => {}, // Add empty implementation
-        getCradleSettings: () => ({ enabled: false, duration: 30, progress: 0 }), // Add default implementation
+        setCharacters,
+        
+        // 摇篮系统相关方法
+        updateCradleSettings,
+        getCradleSettings,
+        getCradleCharacters,
+        addCradleCharacter,
+        updateCradleCharacter,
+        deleteCradleCharacter,
+        importCharacterToCradle,   // 新增方法
+        addFeed,
+        markFeedAsProcessed,
+        generateCharacterFromCradle,
       }}
     >
       {children}

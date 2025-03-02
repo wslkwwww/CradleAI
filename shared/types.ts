@@ -1,4 +1,9 @@
 import { CharacterMetadata } from '../shared/types/circle-types';
+import { RelationshipMapData, MessageBoxItem } from '../shared/types/relationship-types';
+import { RelationshipAction } from '@/services/action-service';
+import { CradleAnimation } from '@/constants/types';
+import { Feed } from '@/constants/types';
+
 // ============= 基础类型 =============
 export interface User {
     id: string;
@@ -132,13 +137,18 @@ export interface GeminiMessage {
     injection_depth?: number;
 }
 
-// ============= UI 组件类型 =============
+
+export interface SidebarItemProps {
+    id: string;
+    title: string;
+  }
+
+// ============= 角色类型 =============
 export interface Character {
   id: string;
   name: string;
   avatar: string | null;
   backgroundImage: string | null;
-  // 基本
   description: string;
   personality: string;
   interests: string[];
@@ -150,16 +160,13 @@ export interface Character {
   metadata?: CharacterMetadata;
   age?: string;
   gender?: string;
-  relationshipEnabled?: boolean;
-  messageBox?: any[];
-  relationshipMap?: any;
+  isCradleGenerated?: boolean;
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
   circlePosts?: any[];
   memX?: number;
   autoMessage?: boolean;
-  // 聊天所需
   circleInteraction?: boolean;
   circlePostFrequency?: 'low' | 'medium' | 'high';
   circleInteractionFrequency?: 'low' | 'medium' | 'high';
@@ -167,9 +174,42 @@ export interface Character {
     repliedToCharacters: Record<string, number>;
     repliedToPostsCount: number;
     repliedToCommentsCount: Record<string, number>;
-  // Circle-related fields (existing)
   };
+  
+  // Relationship system fields
+  relationshipMap?: RelationshipMapData;
+  messageBox?: MessageBoxItem[];
+  relationshipEnabled?: boolean;
+  relationshipActions?: RelationshipAction[];
 }
+
+
+export interface CradleCharacter extends Character {
+    feedHistory: Feed[];             // 投喂历史
+    inCradleSystem: boolean;         // 是否在摇篮系统中
+    isCradleGenerated?: boolean;     // 是否由摇篮生成的角色
+    cradleAnimation?: CradleAnimation;
+    importedFromCharacter?: boolean; // 是否从常规角色导入
+    importedCharacterId?: string;    // 导入来源的角色ID
+    initialSettings?: {              // 初始设定
+      axis?: {
+        [key: string]: {
+          x: number;
+          y: number;
+          xLabel?: string;
+          yLabel?: string;
+        }
+      };
+      sliders?: {
+        [key: string]: number;
+      };
+      reference?: string;            // 参考角色ID
+      description?: string;          // 描述
+    };
+  }
+
+
+
 
 export interface Message {
     id: string;

@@ -79,7 +79,15 @@ export default function RootLayout() {
           <View style={styles.container}>
             <ThemeProvider value={theme}>
               <Stack screenOptions={{headerShown: false}}>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="index" />
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="pages/character-detail" />
+                <Stack.Screen name="pages/create_char" />
+                <Stack.Screen name="pages/create_char_cradle" />
+                <Stack.Screen name="pages/create_character_tabs" />
+                <Stack.Screen name="pages/settings" />
+                <Stack.Screen name="pages/character-import" />
+                <Stack.Screen name="pages/update-avatar" />
               </Stack>
               <StatusBar style="dark" backgroundColor='black' />
             </ThemeProvider>

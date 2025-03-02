@@ -17,7 +17,7 @@ export interface Character {
   metadata?: CharacterMetadata;
   age?: string;
   gender?: string;
-  
+  iscradelGenerated?: boolean;
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
@@ -41,9 +41,15 @@ export interface Character {
 }
 
 export interface CharacterMetadata {
-  // Existing metadata fields
-  [key: string]: any;
+  firstMeetingDate?: number;
+  favoriteTopics?: string[];
+  notes?: string;
+  customTags?: string[];
+  location?: string;
+  occupation?: string;
+  [key: string]: any; // Allow for additional custom metadata
 }
+
 
 
 // Any other existing types in this file...
