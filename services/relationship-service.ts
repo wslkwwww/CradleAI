@@ -1,6 +1,5 @@
 import { Character } from '@/shared/types';
 import { generateId } from '@/utils/id-utils';
-
 // Define relationship types
 export type RelationshipType = 
   'enemy' | 'rival' | 'stranger' | 'acquaintance' | 'colleague' | 

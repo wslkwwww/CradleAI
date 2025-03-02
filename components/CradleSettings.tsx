@@ -2,254 +2,314 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  Modal,
   StyleSheet,
+  Modal,
   TouchableOpacity,
   Switch,
-  ScrollView
+  ScrollView,
+  SafeAreaView
 } from 'react-native';
-import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
-import { theme } from '@/constants/theme';
+import Slider from '@react-native-community/slider';
 
 interface CradleSettingsProps {
   isVisible: boolean;
   onClose: () => void;
-  onCradleToggle: (enabled: boolean) => void;
-  onDurationChange: (days: number) => void;
   isCradleEnabled: boolean;
   cradleDuration: number;
+  onCradleToggle: (enabled: boolean) => void;
+  onDurationChange: (duration: number) => void;
 }
 
-const CradleSettings: React.FC<CradleSettingsProps> = ({
+export default function CradleSettings({
   isVisible,
   onClose,
-  onCradleToggle,
-  onDurationChange,
   isCradleEnabled,
-  cradleDuration
-}) => {
-  // 本地状态，提交前可以修改
+  cradleDuration,
+  onCradleToggle,
+  onDurationChange
+}: CradleSettingsProps) {
   const [localEnabled, setLocalEnabled] = useState(isCradleEnabled);
   const [localDuration, setLocalDuration] = useState(cradleDuration);
+  const [isDirty, setIsDirty] = useState(false);
 
-  // 保存设置
+  // Handle toggle
+  const handleToggle = (value: boolean) => {
+    setLocalEnabled(value);
+    setIsDirty(true);
+  };
+
+  // Handle duration change
+  const handleDurationChange = (value: number) => {
+    const roundedValue = Math.round(value);
+    setLocalDuration(roundedValue);
+    setIsDirty(true);
+  };
+
+  // Handle save
   const handleSave = () => {
-    console.log('[摇篮系统] 保存设置:', { enabled: localEnabled, duration: localDuration });
     onCradleToggle(localEnabled);
     onDurationChange(localDuration);
     onClose();
   };
 
-  // 取消
-  const handleCancel = () => {
-    // 重置为外部传入的值
-    setLocalEnabled(isCradleEnabled);
-    setLocalDuration(cradleDuration);
-    onClose();
-  };
+  // Reset values when modal opens
+  React.useEffect(() => {
+    if (isVisible) {
+      setLocalEnabled(isCradleEnabled);
+      setLocalDuration(cradleDuration);
+      setIsDirty(false);
+    }
+  }, [isVisible, isCradleEnabled, cradleDuration]);
 
   return (
     <Modal
-      visible={isVisible}
-      animationType="slide"
       transparent={true}
-      onRequestClose={handleCancel}
+      visible={isVisible}
+      animationType="fade"
+      onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>摇篮系统设置</Text>
-            <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.modal}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>摇篮系统设置</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalContent}>
-            {/* 摇篮系统开关 */}
-            <View style={styles.settingSection}>
-              <Text style={styles.sectionTitle}>开启摇篮系统</Text>
-              <View style={styles.switchContainer}>
-                <Text style={styles.settingLabel}>
-                  {localEnabled ? '已开启' : '已关闭'}
+          <ScrollView style={styles.content}>
+            {/* Enable/Disable Toggle */}
+            <View style={styles.settingItem}>
+              <View style={styles.settingDescription}>
+                <Text style={styles.settingTitle}>启用摇篮系统</Text>
+                <Text style={styles.settingSubtitle}>
+                  启用后，摇篮系统将开始培育过程
                 </Text>
-                <Switch
-                  value={localEnabled}
-                  onValueChange={setLocalEnabled}
-                  trackColor={{ false: '#767577', true: '#4A90E2' }}
-                  thumbColor={localEnabled ? '#f4f3f4' : '#f4f3f4'}
-                />
               </View>
-              <Text style={styles.settingDescription}>
-                开启后，您可以在此创建摇篮角色，通过投喂数据来培育它们。
-              </Text>
+              <Switch
+                value={localEnabled}
+                onValueChange={handleToggle}
+                trackColor={{ false: '#555', true: '#4A90E2' }}
+                thumbColor={localEnabled ? '#fff' : '#f4f3f4'}
+              />
             </View>
 
-            {/* 培育周期 */}
-            <View style={styles.settingSection}>
-              <Text style={styles.sectionTitle}>培育周期</Text>
-              <Text style={styles.durationValue}>{localDuration} 天</Text>
+            {/* Duration Setting */}
+            <View style={styles.settingItem}>
+              <View style={styles.settingDescription}>
+                <Text style={styles.settingTitle}>培育周期</Text>
+                <Text style={styles.settingSubtitle}>
+                  设置角色培育所需的天数
+                </Text>
+              </View>
+              <Text style={styles.durationText}>{localDuration} 天</Text>
+            </View>
+
+            <View style={styles.sliderContainer}>
               <Slider
                 style={styles.slider}
                 minimumValue={1}
                 maximumValue={30}
                 step={1}
                 value={localDuration}
-                onValueChange={setLocalDuration}
+                onValueChange={handleDurationChange}
                 minimumTrackTintColor="#4A90E2"
-                maximumTrackTintColor="#444"
+                maximumTrackTintColor="#555"
                 thumbTintColor="#4A90E2"
               />
               <View style={styles.sliderLabels}>
                 <Text style={styles.sliderLabel}>1天</Text>
                 <Text style={styles.sliderLabel}>30天</Text>
               </View>
-              <Text style={styles.settingDescription}>
-                设置角色培育的周期。周期越长，角色个性形成越充分，但需要更多投喂数据。
-              </Text>
             </View>
 
-            {/* 注意事项 */}
-            <View style={styles.settingSection}>
-              <Text style={styles.sectionTitle}>注意事项</Text>
-              <Text style={styles.settingDescription}>
-                1. 角色培育期间需定期投喂数据，以帮助形成个性。{'\n'}
-                2. 培育周期结束后，可选择是否生成正式角色。{'\n'}
-                3. 已生成的摇篮角色将有特殊标记，表明其来源。
+            {/* Information Section */}
+            <View style={styles.infoSection}>
+              <Text style={styles.infoTitle}>关于摇篮系统</Text>
+              <Text style={styles.infoText}>
+                摇篮系统通过让用户在一段时间内"投喂"数据（文本、图片等）给未成熟的角色，来塑造和生成具有独特个性的AI角色。这种方式比直接创建角色更能形成有深度和个性的角色设定。
               </Text>
+              
+              <View style={styles.infoListItem}>
+                <Ionicons name="time-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
+                <Text style={styles.infoListText}>
+                  培育周期越长，角色个性越丰富
+                </Text>
+              </View>
+              
+              <View style={styles.infoListItem}>
+                <Ionicons name="document-text-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
+                <Text style={styles.infoListText}>
+                  投喂内容包括"关于我"、"素材"和"知识"三种类型
+                </Text>
+              </View>
+              
+              <View style={styles.infoListItem}>
+                <Ionicons name="information-circle-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
+                <Text style={styles.infoListText}>
+                  投喂数据将定期批量处理，而不是每次投喂都即时处理
+                </Text>
+              </View>
             </View>
           </ScrollView>
 
-          <View style={styles.modalFooter}>
-            <TouchableOpacity 
-              style={[styles.footerButton, styles.cancelButton]} 
-              onPress={handleCancel}
+          <View style={styles.footer}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={onClose}
             >
-              <Text style={styles.buttonText}>取消</Text>
+              <Text style={styles.cancelButtonText}>取消</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.footerButton, styles.saveButton]} 
+            
+            <TouchableOpacity
+              style={[styles.saveButton, !isDirty && styles.disabledButton]}
               onPress={handleSave}
+              disabled={!isDirty}
             >
-              <Text style={styles.saveButtonText}>保存设置</Text>
+              <Text style={styles.saveButtonText}>保存</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 20,
   },
-  modalContainer: {
-    width: '90%',
-    maxHeight: '80%',
+  modal: {
     backgroundColor: '#282828',
-    borderRadius: 15,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '90%',
   },
-  modalHeader: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#333',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: '#444',
   },
-  modalTitle: {
+  headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
   },
   closeButton: {
-    padding: 5,
+    padding: 4,
   },
-  modalContent: {
-    padding: 16,
+  content: {
+    padding: 20,
   },
-  settingSection: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  switchContainer: {
+  settingItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
-  },
-  settingLabel: {
-    fontSize: 14,
-    color: '#fff',
+    marginBottom: 20,
   },
   settingDescription: {
-    fontSize: 12,
-    color: '#aaa',
+    flex: 1,
+    marginRight: 10,
   },
-  durationValue: {
+  settingTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
-    textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
+  },
+  settingSubtitle: {
+    fontSize: 14,
+    color: '#aaa',
+  },
+  durationText: {
+    fontSize: 16,
+    color: '#4A90E2',
+    fontWeight: 'bold',
+  },
+  sliderContainer: {
+    marginBottom: 20,
   },
   slider: {
-    width: '100%',
     height: 40,
   },
   sliderLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: -8,
   },
   sliderLabel: {
+    color: '#999',
     fontSize: 12,
-    color: '#aaa',
   },
-  modalFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 16,
+  infoSection: {
     backgroundColor: '#333',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  footerButton: {
-    flex: 1,
-    padding: 12,
     borderRadius: 8,
+    padding: 16,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  infoText: {
+    color: '#ccc',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  infoListItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  infoIcon: {
+    marginRight: 8,
+  },
+  infoListText: {
+    color: '#ccc',
+    flex: 1,
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    borderTopWidth: 1,
+    borderTopColor: '#444',
+    padding: 16,
   },
   cancelButton: {
-    backgroundColor: '#444',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
     marginRight: 8,
+  },
+  cancelButtonText: {
+    color: '#aaa',
+    fontWeight: 'bold',
   },
   saveButton: {
     backgroundColor: '#4A90E2',
-  },
-  buttonText: {
-    fontSize: 14,
-    color: '#fff',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
   },
   saveButtonText: {
-    fontSize: 14,
     color: '#fff',
     fontWeight: 'bold',
   },
+  disabledButton: {
+    backgroundColor: '#555',
+    opacity: 0.7,
+  },
 });
-
-export default CradleSettings;

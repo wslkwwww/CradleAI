@@ -5,7 +5,18 @@ import { CradleCharacter } from '@/shared/types';
 import * as FileSystem from 'expo-file-system';
 import { useUser } from './UserContext';
 import { Character, Message, CirclePost } from '@/shared/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
+import { CradleService } from '@/NodeST/nodest/services/cradle-service';
+
 const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
+
+// Initialize CradleService with API key from environment or settings
+const API_KEY = "YOUR_API_KEY_HERE"; // In production, load from secure storage
+const cradleService = new CradleService(API_KEY);
+
+// Initialize the service when app starts
+cradleService.initialize();
 
 interface InteractionStats {
   messageFrequency: Record<string, number>;
@@ -890,7 +901,50 @@ if (!savedCharacter) {
     
     console.log('[摇篮系统] 成功导入角色到摇篮:', character.name);
   };
+
+  // Add feed to cradle service
+  const addFeedToCradle = async (content: string, type: FeedType): Promise<string> => {
+    console.log('[摇篮系统] 添加投喂内容到摇篮系统', type);
+    
+    try {
+      // Use the cradle service to add the feed
+      const feedId = cradleService.addFeed(content, type);
+      
+      // Return the feed ID
+      return feedId;
+    } catch (error) {
+      console.error('[摇篮系统] 添加投喂内容失败:', error);
+      throw error;
+    }
+  };
   
+  // Get feed history from cradle service
+  const getFeedHistory = () => {
+    return cradleService.getAllFeeds();
+  };
+  
+  // Process feeds now (manually triggered)
+  const processFeedsNow = async (): Promise<void> => {
+    console.log('[摇篮系统] 手动处理投喂数据');
+    
+    try {
+      const result = await cradleService.processFeeds();
+      if (!result) {
+        console.log('[摇篮系统] 没有需要处理的投喂数据');
+        return;
+      }
+      
+      console.log('[摇篮系统] 处理结果:', result.success ? '成功' : '失败');
+      
+      if (!result.success) {
+        throw new Error(result.errorMessage || '处理投喂数据失败');
+      }
+    } catch (error) {
+      console.error('[摇篮系统] 处理投喂数据时出错:', error);
+      throw error;
+    }
+  };
+
   return (
     <CharactersContext.Provider
       value={{
@@ -928,6 +982,11 @@ if (!savedCharacter) {
         addFeed,
         markFeedAsProcessed,
         generateCharacterFromCradle,
+
+        // Add these new methods to the context value:
+        addFeedToCradle,
+        getFeedHistory,
+        processFeedsNow,
       }}
     >
       {children}

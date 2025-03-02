@@ -2,17 +2,17 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  Modal,
   StyleSheet,
+  Modal,
   TouchableOpacity,
   FlatList,
-  Image,
-  Alert,
-  ActivityIndicator
+  SafeAreaView,
+  ActivityIndicator,
+  Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
-import { Character,} from '@/shared/types';
+import { Character } from '@/shared/types';
 
 interface ImportToCradleModalProps {
   visible: boolean;
@@ -20,191 +20,228 @@ interface ImportToCradleModalProps {
   onImportSuccess: () => void;
 }
 
-const ImportToCradleModal: React.FC<ImportToCradleModalProps> = ({
-  visible,
-  onClose,
-  onImportSuccess
-}) => {
+export default function ImportToCradleModal({ visible, onClose, onImportSuccess }: ImportToCradleModalProps) {
   const { characters, getCradleCharacters, importCharacterToCradle } = useCharacters();
-  const [loading, setLoading] = useState(false);
+  
   const [availableCharacters, setAvailableCharacters] = useState<Character[]>([]);
-
-  // 加载角色列表，过滤掉已经在摇篮系统中的角色
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  
+  // Filter out characters that are already in cradle system
   useEffect(() => {
     if (visible) {
-      const loadAvailableCharacters = () => {
-        try {
-          // 获取摇篮系统中的角色
-          const cradleChars = getCradleCharacters();
-          
-          // 获取已经导入到摇篮系统的角色ID
-          const importedCharacterIds = cradleChars
-            .filter(char => char.importedFromCharacter)
-            .map(char => char.importedCharacterId);
-          
-          // 过滤掉已在摇篮系统中的角色
-          const available = characters.filter(char => 
-            !importedCharacterIds.includes(char.id)
-          );
-          
-          setAvailableCharacters(available);
-        } catch (error) {
-          console.error('[摇篮导入] 加载可用角色失败:', error);
-          Alert.alert('错误', '加载角色列表失败');
-        }
-      };
-      
       loadAvailableCharacters();
     }
-  }, [visible, characters, getCradleCharacters]);
-
-  // 导入角色到摇篮系统
-  const handleImport = async (characterId: string) => {
-    setLoading(true);
+  }, [visible, characters]);
+  
+  const loadAvailableCharacters = () => {
     try {
-      await importCharacterToCradle(characterId);
-      Alert.alert(
-        '导入成功', 
-        '角色已成功导入到摇篮系统，可以开始投喂数据进行培育',
-        [{ text: '确定', onPress: () => {
-          onImportSuccess();
-          onClose();
-        }}]
+      const cradleChars = getCradleCharacters();
+      // Get IDs of characters already in cradle system
+      const cradleCharIds = cradleChars
+        .filter(c => c.importedFromCharacter)
+        .map(c => c.importedCharacterId);
+      
+      // Filter out characters already in cradle
+      const available = characters.filter(char => 
+        !cradleCharIds.includes(char.id)
       );
+      
+      setAvailableCharacters(available);
     } catch (error) {
-      console.error('[摇篮导入] 导入角色失败:', error);
-      Alert.alert('错误', error instanceof Error ? error.message : '导入失败');
+      console.error("Error loading available characters:", error);
+    }
+  };
+  
+  const handleImport = async () => {
+    if (!selectedCharacterId) return;
+    
+    setIsImporting(true);
+    setImportError(null);
+    
+    try {
+      await importCharacterToCradle(selectedCharacterId);
+      onImportSuccess();
+      onClose();
+    } catch (error) {
+      console.error("Import failed:", error);
+      setImportError(error instanceof Error ? error.message : "导入失败");
     } finally {
-      setLoading(false);
+      setIsImporting(false);
     }
   };
 
-  // 渲染角色项
-  const renderCharacterItem = ({ item }: { item: Character }) => (
-    <TouchableOpacity 
-      style={styles.characterItem}
-      onPress={() => handleImport(item.id)}
-      disabled={loading}
-    >
-      <Image 
-        source={item.avatar ? { uri: item.avatar } : require('@/assets/images/default-avatar.png')} 
-        style={styles.avatar} 
-      />
-      <View style={styles.characterInfo}>
-        <Text style={styles.characterName}>{item.name}</Text>
-        <Text style={styles.characterDesc} numberOfLines={2}>
-          {item.description || '没有描述'}
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={24} color="#aaa" />
-    </TouchableOpacity>
-  );
-
   return (
     <Modal
-      visible={visible}
-      animationType="slide"
       transparent={true}
+      visible={visible}
+      animationType="fade"
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity 
-              style={styles.closeButton}
-              onPress={onClose}
-            >
+      <SafeAreaView style={styles.container}>
+        <View style={styles.modal}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>导入角色到摇篮</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>导入现有角色</Text>
           </View>
 
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#4A90E2" />
-              <Text style={styles.loadingText}>导入中...</Text>
-            </View>
-          ) : (
+          {availableCharacters.length > 0 ? (
             <>
-              <Text style={styles.infoText}>
-                选择一个角色导入到摇篮系统进行培育
+              <Text style={styles.description}>
+                选择要导入到摇篮系统的角色。导入后，您可以通过投喂数据来增强角色特性。
               </Text>
               
-              {availableCharacters.length > 0 ? (
-                <FlatList
-                  data={availableCharacters}
-                  renderItem={renderCharacterItem}
-                  keyExtractor={item => item.id}
-                  contentContainerStyle={styles.listContainer}
-                />
-              ) : (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="alert-circle-outline" size={48} color="#aaa" />
-                  <Text style={styles.emptyText}>没有可导入的角色</Text>
-                  <Text style={styles.emptySubtext}>所有角色都已在摇篮系统中或无可用角色</Text>
-                </View>
+              <FlatList
+                data={availableCharacters}
+                keyExtractor={item => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.characterItem,
+                      selectedCharacterId === item.id && styles.selectedCharacter
+                    ]}
+                    onPress={() => setSelectedCharacterId(item.id)}
+                  >
+                    <View style={styles.characterAvatar}>
+                      {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} style={styles.avatarImage} />
+                      ) : (
+                        <View style={styles.placeholderAvatar}>
+                          <Ionicons name="person" size={24} color="#ccc" />
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.characterInfo}>
+                      <Text style={styles.characterName}>{item.name}</Text>
+                      <Text style={styles.characterDescription} numberOfLines={2}>
+                        {item.description || "无描述"}
+                      </Text>
+                    </View>
+                    <View style={styles.radioButton}>
+                      {selectedCharacterId === item.id && (
+                        <View style={styles.radioButtonInner} />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
+              
+              {importError && (
+                <Text style={styles.errorText}>{importError}</Text>
               )}
+              
+              <View style={styles.actionButtons}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={onClose}
+                >
+                  <Text style={styles.cancelButtonText}>取消</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.importButton,
+                    (!selectedCharacterId || isImporting) && styles.disabledButton
+                  ]}
+                  onPress={handleImport}
+                  disabled={!selectedCharacterId || isImporting}
+                >
+                  {isImporting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.importButtonText}>导入</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="information-circle-outline" size={48} color="#888" />
+              <Text style={styles.emptyText}>没有可导入的角色</Text>
+              <Text style={styles.emptySubText}>
+                所有角色都已在摇篮系统中，或者您还没有创建任何角色。
+              </Text>
+              <TouchableOpacity
+                style={styles.closeButtonFull}
+                onPress={onClose}
+              >
+                <Text style={styles.closeButtonText}>关闭</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 20,
   },
-  modalContainer: {
-    width: '90%',
-    maxHeight: '80%',
+  modal: {
     backgroundColor: '#282828',
     borderRadius: 12,
-    overflow: 'hidden',
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    padding: 20,
   },
-  modalHeader: {
+  header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#333',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  closeButton: {
-    padding: 4,
+    marginBottom: 16,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    marginLeft: 12,
   },
-  infoText: {
+  closeButton: {
+    padding: 4,
+  },
+  description: {
     color: '#ccc',
-    fontSize: 14,
-    padding: 16,
-    textAlign: 'center',
-  },
-  listContainer: {
-    padding: 12,
+    marginBottom: 16,
+    lineHeight: 20,
   },
   characterItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
     backgroundColor: '#333',
     borderRadius: 8,
-    marginBottom: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#444',
   },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  selectedCharacter: {
+    borderColor: '#4A90E2',
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+  },
+  characterAvatar: {
     marginRight: 12,
+  },
+  avatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  placeholderAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#444',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   characterInfo: {
     flex: 1,
@@ -215,37 +252,87 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 4,
   },
-  characterDesc: {
+  characterDescription: {
     color: '#aaa',
-    fontSize: 13,
+    fontSize: 14,
   },
-  loadingContainer: {
-    padding: 40,
-    alignItems: 'center',
+  radioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#4A90E2',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  loadingText: {
+  radioButtonInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#4A90E2',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 20,
+  },
+  cancelButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    marginRight: 10,
+  },
+  cancelButtonText: {
+    color: '#aaa',
+    fontWeight: 'bold',
+  },
+  importButton: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  importButtonText: {
     color: '#fff',
-    marginTop: 12,
-    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  disabledButton: {
+    backgroundColor: '#555',
+    opacity: 0.7,
+  },
+  errorText: {
+    color: '#ff6b6b',
+    marginVertical: 10,
+    textAlign: 'center',
   },
   emptyContainer: {
-    padding: 40,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 20,
   },
   emptyText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 18,
     marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubText: {
+    color: '#aaa',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  closeButtonFull: {
+    backgroundColor: '#555',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    alignItems: 'center',
+    width: '100%',
+  },
+  closeButtonText: {
+    color: '#fff',
     fontWeight: 'bold',
   },
-  emptySubtext: {
-    color: '#aaa',
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-  },
 });
-
-export default ImportToCradleModal;

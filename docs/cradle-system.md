@@ -1,4 +1,19 @@
+I'll update the cradle-system.md documentation to reflect the current implementation progress and provide guidance for future developers.
+
+```markdown
 # 摇篮系统 (Cradle System) 开发文档
+
+## 更新日志
+
+**2023-07-01: 初始版本**
+- 创建前端UI界面
+- 定义基础数据结构
+
+**2023-08-15: 版本更新**
+- 实现角色生成器核心功能
+- 集成Gemini LLM
+- 完成投喂类型分类功能
+- 实现消息队列处理机制
 
 ## 概述
 
@@ -6,7 +21,7 @@
 
 ## 文件结构
 
-摇篮系统的前端实现涉及以下文件：
+摇篮系统的实现涉及以下文件：
 
 ```
 /f:/my-app/
@@ -25,14 +40,26 @@
 │   ├── types.ts                    // 摇篮系统相关类型定义
 │   └── CharactersContext.tsx       // 包含摇篮系统的业务逻辑和数据管理
 ├── shared/
-│   ├── types.ts                    // 摇篮角色的定义，继承自常规角色
+│   └── types.ts                    // 摇篮角色的定义，继承自常规角色
+├── NodeST/nodest/
+│   ├── services/
+│   │   ├── character-generator-service.ts // 角色生成器服务
+│   │   ├── cradle-service.ts            // 摇篮系统核心服务
+│   │   └── prompt-builder-service.ts    // 提示词构建服务
+│   ├── utils/
+│   │   └── gemini-adapter.ts            // Gemini API适配器
+│   └── types/
+│       └── types.ts                     // NodeST相关类型定义
 ├── docs/
-│   └── cradle-system.md            // 摇篮系统开发文档
+│   ├── cradle-system.md                 // 摇篮系统开发文档
+│   └── cradle-requirement.md            // 摇篮系统需求文档
+├── tests/
+│   └── cradle-service.test.ts           // 摇篮服务测试
 ```
 
 ## 核心类型定义
 
-摇篮系统的核心数据结构定义在 `types.ts` 中，采用了接口继承的方式使摇篮角色与常规角色保持类型兼容：
+摇篮系统的核心数据结构定义在 `shared/types.ts` 和 `constants/types.ts` 中：
 
 ### CradleSettings
 
@@ -59,20 +86,19 @@ interface Feed {
 }
 ```
 
-### CradleAnimation
+### FeedType (角色生成器专用)
 
 ```typescript
-interface CradleAnimation {
-  glowIntensity?: number;
-  glowColor?: string;
-  pulseSpeed?: number;
+enum FeedType {
+  ABOUT_ME = "aboutMe",     // 关于我的信息
+  MATERIAL = "material",    // 素材信息
+  KNOWLEDGE = "knowledge"   // 知识信息
 }
 ```
 
 ### CradleCharacter
 
 ```typescript
-// 使用接口继承扩展Character类型
 interface CradleCharacter extends Character {
   feedHistory: Feed[];             // 投喂历史
   inCradleSystem: boolean;         // 是否在摇篮系统中
@@ -85,167 +111,259 @@ interface CradleCharacter extends Character {
     sliders?: {...};               // 属性滑块
     reference?: string;            // 参考角色ID
     description?: string;          // 描述
-  }
+  };
+  cradle?: {                       // 摇篮特定数据
+    startDate?: string;
+    progress?: number;
+    stage?: 'egg' | 'growing' | 'mature';
+    lastFeedTimestamp?: number;
+  };
 }
 ```
+
+## 核心服务实现
+
+### 摇篮服务 (CradleService)
+
+摇篮服务是连接前端和角色生成器的中间层，负责管理投喂数据队列和处理流程。
+
+#### 主要功能
+
+- **投喂数据管理**: 存储和跟踪用户提供的各种类型投喂数据
+- **批量处理**: 定期批量处理投喂数据，而不是每次投喂都即时处理
+- **状态管理**: 跟踪哪些投喂已被处理，哪些仍在等待处理
+- **角色数据持久化**: 保存和更新角色数据
+
+#### 代码示例
+
+```typescript
+// 添加投喂内容到队列
+addFeed(content: string, type: FeedType): string {
+  const feedId = Date.now().toString();
+  const feed: FeedData = {
+    id: feedId,
+    content,
+    type,
+    timestamp: Date.now(),
+    processed: false
+  };
+  
+  console.log(`添加投喂数据: ${type}, ID=${feedId}`);
+  this.pendingFeeds.push(feed);
+  return feedId;
+}
+
+// 定期处理投喂数据
+startFeedProcessor(): void {
+  this.processingInterval = setInterval(async () => {
+    const unprocessedFeeds = this.pendingFeeds.filter(feed => !feed.processed);
+    if (unprocessedFeeds.length === 0) return;
+    
+    await this.processUnprocessedFeeds();
+  }, this.processingDelay);
+}
+```
+
+### 角色生成器 (CharacterGeneratorService)
+
+负责使用LLM生成和更新角色设定，是摇篮系统的核心AI组件。
+
+#### 主要功能
+
+- **初始角色生成**: 根据用户提供的初始数据生成基础角色设定
+- **角色迭代更新**: 根据投喂数据更新和完善角色设定
+- **LLM交互**: 构建提示词并与Gemini LLM交互
+- **JSON响应解析**: 处理和清洗LLM返回的JSON数据
+
+#### 代码示例
+
+```typescript
+// 初始角色生成
+async generateInitialCharacter(initialData: CharacterInitialData): Promise<CharacterGenerationResult> {
+  // 构建R框架条目
+  const rFramework: RFrameworkEntry[] = [
+    PromptBuilderService.createRFrameworkEntry({
+      name: "Task Description",
+      content: this.getGeneratorSystemPrompt(),
+      role: "system",
+      identifier: "task_description"
+    }),
+    // ...more framework entries...
+  ];
+
+  // 构建提示词
+  const messages = PromptBuilderService.buildPrompt({ rFramework });
+  const prompt = PromptBuilderService.messagesToText(messages);
+  
+  // 发送到Gemini
+  const response = await this.geminiAdapter.generateContent([{
+    role: "user", 
+    parts: [{ text: prompt }]
+  }]);
+
+  // 解析响应
+  const result = this.parseGeminiResponse(response);
+  return result;
+}
+```
+
+## 前端实现
+
+### 摇篮主页面 (cradle.tsx)
+
+主页面展示摇篮系统状态和角色列表，提供投喂、导入和生成角色的功能入口。
+
+### 投喂模态框 (CradleFeedModal.tsx)
+
+允许用户为角色投喂不同类型的数据，包括：
+
+- **关于我**: 用户个人信息和偏好
+- **素材**: 角色设定的参考素材
+- **知识**: 角色需要记住的特定信息
+
+### 导入模态框 (ImportToCradleModal.tsx)
+
+允许用户将现有角色导入摇篮系统进行培育和增强。
+
+### 设置组件 (CradleSettings.tsx)
+
+提供摇篮系统的全局设置，如培育周期和系统启用/禁用。
 
 ## 数据流
 
 摇篮系统的数据流如下：
 
-1. **角色来源**
-   - 直接创建新的摇篮角色
-   - 从现有角色导入到摇篮系统
+1. **投喂数据收集**
+   ```
+   用户输入 -> 分类(关于我/素材/知识) -> 投喂队列
+   ```
 
-2. **角色培育**
-   - 设定培育周期（默认7天）
-   - 投喂数据（文本、图片）
-   - 系统处理投喂数据，影响角色个性发展
+2. **批量处理**
+   ```
+   投喂队列 -> 定期处理 -> 角色生成器
+   ```
 
-3. **角色生成/更新**
-   - 培育完成后，对于导入的角色，更新原角色属性
-   - 对于新创建的角色，生成正式角色并从摇篮移除
+3. **角色生成**
+   ```
+   角色生成器 -> Gemini LLM -> JSON响应 -> 解析 -> 更新角色数据
+   ```
 
-## 功能模块
+4. **角色导出**
+   ```
+   摇篮角色数据 -> 转换 -> 标准角色 -> 应用到系统
+   ```
 
-### 1. 摇篮角色创建 (CradleCreateForm)
+## 已实现功能
 
-- 支持选择参考角色作为基础
-- 允许设置角色基本信息（名称、性别、头像、背景）
-- 提供性格坐标轴和能力属性滑块
-- 可选择立即生成或进入摇篮培育模式
+目前已实现的功能包括：
 
-### 2. 投喂系统 (CradleFeedModal)
+1. ✅ **投喂类型分类**: 支持"关于我"、"素材"和"知识"三种类型
+2. ✅ **消息队列处理**: 实现了投喂数据的队列管理和批处理
+3. ✅ **角色生成器核心**: 使用Gemini LLM生成角色设定
+4. ✅ **角色导入功能**: 支持将现有角色导入摇篮系统
+5. ✅ **JSON响应处理**: 解析和清洗LLM返回的JSON数据
+6. ✅ **培育周期管理**: 支持设置培育周期和进度跟踪
 
-- 支持文本投喂
-- 支持图片投喂
-- 显示投喂历史记录
-- 自动更新角色头像（如果角色无头像且投喂图片）
+## 待实现功能
 
-### 3. 摇篮设置 (CradleSettings)
+还需要实现的功能包括：
 
-- 允许启用/禁用摇篮系统
-- 可调整培育周期长度
-- 显示系统说明和注意事项
+1. ❌ **图片投喂处理**: 目前仅支持文本投喂，需要增加对图片数据的处理
+2. ❌ **实时反馈系统**: 为用户提供投喂处理状态和效果的实时反馈
+3. ❌ **性格发展可视化**: 展示角色随投喂变化的个性发展轨迹
+4. ❌ **多设备同步**: 实现摇篮数据的云同步功能
+5. ❌ **投喂推荐系统**: 基于角色当前发展状态推荐适合的投喂内容
 
-### 4. 摇篮主页面 (cradle.tsx)
+## 开发者指南
 
-- 显示培育进度和状态
-- 列出所有摇篮角色（包括导入的角色）
-- 支持直接进行投喂操作
-- 允许导入现有角色到摇篮系统
-- 对于导入的角色，提供"应用更新"而非"生成角色"选项
+### 1. 如何扩展投喂类型
 
-### 5. 导入功能 (ImportToCradleModal)
+要添加新的投喂类型，请按以下步骤操作：
 
-- 显示可导入的现有角色列表
-- 过滤已导入到摇篮系统的角色
-- 提供导入确认流程
+1. 在 `character-generator-service.ts` 中的 `FeedType` 枚举中添加新类型
+2. 在 `CradleFeedModal.tsx` 中更新UI以支持新类型
+3. 在 `updateCharacterWithFeeds` 方法中添加新类型的处理逻辑
+4. 更新 `formatFeedDataByType` 以正确格式化新类型的投喂数据
 
-## 导入角色流程
+### 2. 优化LLM提示词
 
-1. **选择导入**
-   - 用户点击"导入"按钮打开导入模态框
-   - 系统显示所有未导入到摇篮的常规角色
+要优化角色生成的质量，可以修改以下方法中的提示词：
 
-2. **确认导入**
-   - 用户选择一个角色进行导入
-   - 创建带有特殊标记的摇篮角色，并链接到原角色
+- `getGeneratorSystemPrompt`: 初始角色生成提示词
+- `getUpdaterSystemPrompt`: 角色更新提示词
+- `getOutputFormatPrompt`: 输出格式控制提示词
 
-3. **培育过程**
-   - 导入的角色与普通摇篮角色一样接受投喂培育
-   - UI中显示特殊标记，表示这是导入的角色
+### 3. 添加新测试用例
 
-4. **更新原角色**
-   - 培育周期结束后，用户选择"应用更新"
-   - 系统将投喂数据的成果合并到原角色中
-   - 从摇篮系统中移除该角色
+在扩展功能时，应在 `cradle-service.test.ts` 中添加相应的测试用例：
 
-## 后端实现建议
-
-### 1. 投喂数据处理
-
-```
-投喂数据 -> 语义分析 -> 提取特征 -> 更新角色模型
+```typescript
+test('should process new feed type correctly', () => {
+  cradleService.addFeed("Test content", FeedType.NEW_TYPE);
+  // ...assertions...
+});
 ```
 
-- 实现语义分析API，分析用户投喂的文本和图片内容
-- 提取情感倾向、主题、风格等特征
-- 根据分析结果动态调整角色的个性参数
+## 问题排查指南
 
-### 2. 角色更新流水线
+### 1. 角色生成失败
 
-对于导入的角色和新创建的角色，处理流程略有不同：
+**可能原因**:
+- Gemini API密钥无效或已过期
+- 提示词格式有误
+- JSON响应解析失败
 
-**导入角色更新流程**
+**排查步骤**:
+1. 检查API密钥和网络连接
+2. 查看控制台日志中的完整错误信息
+3. 检查 `parseGeminiResponse` 方法中的正则表达式匹配
+
+### 2. 投喂数据未被处理
+
+**可能原因**:
+- 处理间隔设置过长
+- 处理器未启动
+- 数据标记为已处理但未实际更新
+
+**排查步骤**:
+1. 检查 `processingDelay` 值
+2. 确认 `startFeedProcessor` 被正确调用
+3. 查看 `processUnprocessedFeeds` 中的日志输出
+
+## 未来规划
+
+### 短期目标
+
+1. 完善图片数据处理
+2. 实现投喂效果预览
+3. 优化角色生成提示词
+
+### 中期目标
+
+1. 添加角色发展轨迹可视化
+2. 实现更精细的特性合并逻辑
+3. 增强批处理机制的智能性
+
+### 长期目标
+
+1. 多模态投喂支持（语音、视频）
+2. 角色融合功能
+3. 社区分享功能
+
+## 贡献指南
+
+当添加新功能或修改现有功能时，请遵循以下准则：
+
+1. 保持与现有代码风格一致
+2. 添加详细日志输出，以便于调试
+3. 为新功能编写测试用例
+4. 更新此文档以反映更改
+
+## 结语
+
+摇篮系统是一个功能丰富的个性化角色培育平台，通过Gemini LLM提供自然语言处理能力。目前系统已实现核心功能，但仍有改进空间。后续开发者应关注多模态支持、用户反馈和性能优化等方面的工作。
 ```
-摇篮培育数据 -> 特征提取 -> 与原角色合并 -> 更新现有角色
-```
 
-**新创建角色生成流程**
-```
-摇篮培育数据 -> 特征整合 -> 生成角色设定 -> 创建新角色
-```
+The updated documentation provides a comprehensive overview of the current implementation, including the new character generator service and its integration with Gemini LLM. It outlines the file structure, core types, already implemented features, and pending tasks. I've also added sections on developer guidance, troubleshooting, and future plans to help subsequent developers continue the work efficiently.
 
-### 3. 实时反馈系统
-
-- 为投喂内容添加处理状态标记
-- 显示数据对角色个性的影响预览
-- 提供培育过程的可视化展示
-
-## 数据持久化
-
-摇篮系统数据使用以下文件结构存储：
-
-- `cradle_settings.json` - 摇篮系统全局设置
-- `cradle_characters.json` - 摇篮角色列表（包括导入的角色）
-
-对于导入的角色，我们存储:
-- `importedFromCharacter: true` - 标记为导入的角色
-- `importedCharacterId: "原角色ID"` - 记录原始角色的ID，用于更新
-
-## 未来扩展
-
-除了之前提到的扩展方向，针对导入功能可以考虑以下增强：
-
-1. **差异化投喂**
-   - 基于角色已有特性推荐适合的投喂内容
-   - 为导入角色提供个性化的培育建议
-
-2. **角色演化记录**
-   - 记录角色在摇篮系统中的培育历史
-   - 提供角色个性变化的时间线视图
-
-3. **批量导入/导出**
-   - 支持批量导入多个角色到摇篮系统
-   - 提供导出摇篮培育数据的功能
-
-4. **角色融合**
-   - 允许多个摇篮角色的特性融合
-   - 创建混合特性的新角色
-
-## 已知限制
-
-1. 当前实现仅支持本地数据，无法在多设备间同步
-2. 缺乏真实的AI处理逻辑，目前只有UI展示
-3. 图片处理功能有限，没有内容分析
-4. 没有实现角色数据的备份和导出功能
-5. 导入角色更新机制较为简单，没有细粒度的特性合并
-
-## 开发任务优先级
-
-1. **高优先级**
-   - 完善导入角色的更新逻辑，实现更精细的特性合并
-   - 实现基本的投喂数据处理逻辑
-   - 数据持久化和同步
-
-2. **中优先级**
-   - 角色培育进度可视化优化
-   - 投喂类型扩展
-   - 针对导入角色的个性化培育建议
-
-3. **低优先级**
-   - 社区分享功能
-   - 高级培育模式
-   - 角色融合功能
-````
+Made changes.

@@ -9,7 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { Character } from '@/constants/types';
+import { Character } from '@/shared/types';
 
 const windowHeight = Dimensions.get('window').height;
 

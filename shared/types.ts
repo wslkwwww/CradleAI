@@ -2,7 +2,6 @@ import { CharacterMetadata } from '../shared/types/circle-types';
 import { RelationshipMapData, MessageBoxItem } from '../shared/types/relationship-types';
 import { RelationshipAction } from '@/services/action-service';
 import { CradleAnimation } from '@/constants/types';
-import { Feed } from '@/constants/types';
 
 // ============= 基础类型 =============
 export interface User {
@@ -283,4 +282,88 @@ export interface ProcessChatOptions {
     jsonString?: string;
 }
 
-// ... 其他现有类型保持不变
+
+
+// Cradle-specific types
+export interface CradleCharacter extends Character {
+  inCradleSystem: boolean;
+  feedHistory: Feed[];
+  isCradleGenerated?: boolean;
+  cradle?: {
+    startDate?: string;
+    progress?: number;
+    stage?: 'egg' | 'growing' | 'mature';
+    lastFeedTimestamp?: number;
+  };
+}
+
+export type FeedType = 'about' | 'knowledge' | 'material' | 'image' | 'voice' | 'text';
+
+export interface FeedQueue {
+  characterId: string;
+  feeds: Feed[];
+  lastProcessed?: number;
+  processing: boolean;
+}
+
+
+export interface Feed {
+  id: string;
+  content: string;
+  type: 'text' | 'voice' | 'image' | string;
+  timestamp: number;
+  processed: boolean;
+}
+
+export interface CradleSettings {
+  enabled: boolean;         // 摇篮系统是否启用
+  duration: number;         // 培育周期（天）
+  startDate?: string;       // 开始培育日期
+  progress?: number;        // 培育进度（百分比）
+  lastInterruption?: string; // 上次中断时间
+  cradleConversationId?: string; // 关联的会话ID
+}
+
+// Fix CradleCharacter interface - remove duplicate declarations
+export interface CradleCharacter extends Character {
+    feedHistory: Feed[];             // 投喂历史（确保为必填字段，非可选）
+    inCradleSystem: boolean;         // 是否在摇篮系统中
+    isCradleGenerated?: boolean;     // 是否由摇篮生成的角色
+    cradleAnimation?: {
+      glowIntensity?: number;
+      glowColor?: string;
+      pulseSpeed?: number;
+    };
+    importedFromCharacter?: boolean; // 是否从常规角色导入
+    importedCharacterId?: string;    // 导入来源的角色ID
+    initialSettings?: {              // 初始设定
+      axis?: {
+        [key: string]: {
+          x: number;
+          y: number;
+          xLabel?: string;
+          yLabel?: string;
+        }
+      };
+      sliders?: {
+        [key: string]: number;
+      };
+      reference?: string;            // 参考角色ID
+      description?: string;          // 描述
+    };
+    // Add cradle specific fields that existed in the other definition
+    cradle?: {
+      startDate?: string;
+      progress?: number;
+      stage?: 'egg' | 'growing' | 'mature';
+      lastFeedTimestamp?: number;
+    };
+  }
+
+
+
+
+
+
+
+

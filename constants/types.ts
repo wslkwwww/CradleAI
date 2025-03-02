@@ -1,6 +1,8 @@
 import { ImageSourcePropType, ViewStyle, StyleProp } from 'react-native';
 import { User, Character, Message, CirclePost } from '../shared/types';
 import { CradleCharacter } from '../shared/types';
+import { FeedType, FeedData } from '@/NodeST/nodest/services/character-generator-service';
+
 // 只保留 Context 相关类型
 export interface CradleSettingsProps {
   isVisible: boolean;
@@ -58,6 +60,11 @@ export interface CharactersContextType {
   // 生成角色
   generateCharacterFromCradle: (cradleCharacterId: string) => Promise<Character>;
   importCharacterToCradle: (characterId: string) => Promise<void>;
+
+  // Add these new properties for cradle functionality:
+  addFeedToCradle: (content: string, type: FeedType) => Promise<string>;
+  getFeedHistory: () => FeedData[];
+  processFeedsNow: () => Promise<void>;
 }
 
 // UI 专用类型
