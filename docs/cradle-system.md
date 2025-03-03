@@ -1,4 +1,3 @@
-
 # 摇篮系统 (Cradle System) 开发文档
 
 ## 更新日志
@@ -12,6 +11,13 @@
 - 集成Gemini LLM
 - 完成投喂类型分类功能
 - 实现消息队列处理机制
+
+**2023-10-20: OpenRouter集成及UI优化**
+- 集成OpenRouter API支持，扩展LLM选项
+- 重新设计摇篮培育详情展示区，支持背景图片
+- 改进角色选择交互，实现角色选择与详情联动
+- 优化键盘处理，解决页面偏移问题
+- 修复角色列表刷新和投喂计数更新问题
 
 ## 概述
 
@@ -33,26 +39,35 @@
 │   ├── CradleCreateForm.tsx        // 摇篮角色创建表单组件
 │   ├── CradleFeedModal.tsx         // 摇篮数据投喂模态框
 │   ├── CradleSettings.tsx          // 摇篮系统设置组件
+│   ├── CradleApiSettings.tsx       // 新增 - 摇篮API设置组件
 │   └── ImportToCradleModal.tsx     // 导入现有角色到摇篮系统组件
 ├── constants/
 │   ├── types.ts                    // 摇篮系统相关类型定义
 │   └── CharactersContext.tsx       // 包含摇篮系统的业务逻辑和数据管理
 ├── shared/
-│   └── types.ts                    // 摇篮角色的定义，继承自常规角色
+│   ├── types.ts                    // 摇篮角色的定义，继承自常规角色
+│   └── types/
+│       └── api-types.ts           // 新增 - API相关类型定义
 ├── NodeST/nodest/
 │   ├── services/
 │   │   ├── character-generator-service.ts // 角色生成器服务
 │   │   ├── cradle-service.ts            // 摇篮系统核心服务
 │   │   └── prompt-builder-service.ts    // 提示词构建服务
 │   ├── utils/
-│   │   └── gemini-adapter.ts            // Gemini API适配器
+│   │   ├── gemini-adapter.ts           // Gemini API适配器
+│   │   ├── openrouter-adapter.ts       // 新增 - OpenRouter API适配器
+│   │   └── openrouter-model-manager.ts // 新增 - OpenRouter模型管理器
 │   └── types/
-│       └── types.ts                     // NodeST相关类型定义
+│       └── types.ts                    // NodeST相关类型定义
+├── assets/
+│   └── images/
+│       └── default-cradle-bg.jpg       // 新增 - 默认摇篮背景图
 ├── docs/
-│   ├── cradle-system.md                 // 摇篮系统开发文档
-│   └── cradle-requirement.md            // 摇篮系统需求文档
+│   ├── cradle-system.md                // 摇篮系统开发文档
+│   ├── cradle-requirement.md           // 摇篮系统需求文档
+│   └── issue.md                        // 问题追踪和修复文档
 ├── tests/
-│   └── cradle-service.test.ts           // 摇篮服务测试
+│   └── cradle-service.test.ts          // 摇篮服务测试
 ```
 
 ## 核心类型定义
@@ -97,7 +112,7 @@ enum FeedType {
 ### CradleCharacter
 
 ```typescript
-interface CradleCharacter extends Character {
+interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
   feedHistory: Feed[];             // 投喂历史
   inCradleSystem: boolean;         // 是否在摇篮系统中
   isCradleGenerated?: boolean;     // 是否由摇篮生成的角色
@@ -116,247 +131,211 @@ interface CradleCharacter extends Character {
     stage?: 'egg' | 'growing' | 'mature';
     lastFeedTimestamp?: number;
   };
+  backgroundImage: string | null;  // 角色背景图片
 }
 ```
 
-## 核心服务实现
+## OpenRouter API 集成
+
+OpenRouter API是一项服务，它允许通过统一的API访问多种AI大模型，包括OpenAI的GPT模型、Anthropic的Claude以及其他知名AI提供商的模型。我们的摇篮系统现在支持通过OpenRouter API访问这些模型，为用户提供更多选择。
+
+### OpenRouterAdapter
+
+`OpenRouterAdapter` 类提供与OpenRouter API的接口，主要功能包括：
+
+- 文本生成请求处理
+- 模型列表获取
+- 对话历史管理
+
+```typescript
+export class OpenRouterAdapter {
+  // 核心方法
+  async generateContent(messages: ChatMessage[]): Promise<string> { ... }
+  async listModels(): Promise<OpenRouterModel[]> { ... }
+}
+```
+
+### OpenRouterModelManager
+
+`OpenRouterModelManager` 类提供模型缓存和管理功能，以减少API调用和提高响应速度：
+
+```typescript
+export class OpenRouterModelManager {
+  // 核心方法
+  static async getModels(apiKey: string, forceRefresh = false): Promise<OpenRouterModel[]> { ... }
+  static async clearCache(): Promise<void> { ... }
+}
+```
+
+### CradleApiSettings 组件
+
+新增的 `CradleApiSettings` 组件提供了友好的用户界面，允许用户：
+
+- 在Gemini API和OpenRouter API之间切换
+- 配置OpenRouter API密钥
+- 从可用模型列表中选择特定模型
+- 测试API连接
+
+## UI/UX优化
+
+### 重新设计的摇篮培育详情区
+
+"摇篮培育进行中"区域改造为"摇篮培育详情区"，具有以下改进：
+
+- 支持角色背景图片显示
+- 使用LinearGradient提供更好的文本可见度
+- 突出显示选中角色的头像和信息
+- 实现角色状态的实时更新
+- 更清晰地展示培育进度
+
+### 角色选择交互优化
+
+- 选择角色后自动显示在详情区域
+- 对当前选择的角色提供视觉反馈（高亮显示）
+- 只有在选择了角色后才能执行特定操作（如投喂）
+- 角色列表和详情区保持数据同步
+
+### 键盘处理优化
+
+解决了键盘弹出/隐藏引起的UI问题：
+
+- 使用`KeyboardAvoidingView`适当调整布局
+- 添加键盘事件监听器以跟踪键盘状态
+- 在键盘弹出时滚动到相关输入区域
+- 在键盘隐藏时恢复正常布局
+
+### 数据刷新优化
+
+解决了数据刷新相关的问题：
+
+- 导入角色后立即刷新摇篮角色列表
+- 投喂数据后立即更新投喂计数显示
+- 模态框关闭后自动刷新相关数据
+- 角色选择状态在数据刷新后保持一致
+
+## 核心服务实现更新
 
 ### 摇篮服务 (CradleService)
 
-摇篮服务是连接前端和角色生成器的中间层，负责管理投喂数据队列和处理流程。
-
-#### 主要功能
-
-- **投喂数据管理**: 存储和跟踪用户提供的各种类型投喂数据
-- **批量处理**: 定期批量处理投喂数据，而不是每次投喂都即时处理
-- **状态管理**: 跟踪哪些投喂已被处理，哪些仍在等待处理
-- **角色数据持久化**: 保存和更新角色数据
-
-#### 代码示例
+摇篮服务已更新以支持OpenRouter API：
 
 ```typescript
-// 添加投喂内容到队列
-addFeed(content: string, type: FeedType): string {
-  const feedId = Date.now().toString();
-  const feed: FeedData = {
-    id: feedId,
-    content,
-    type,
-    timestamp: Date.now(),
-    processed: false
-  };
-  
-  console.log(`添加投喂数据: ${type}, ID=${feedId}`);
-  this.pendingFeeds.push(feed);
-  return feedId;
-}
+export class CradleService {
+  // 支持API设置更新
+  public updateApiSettings(apiSettings: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }) { ... }
 
-// 定期处理投喂数据
-startFeedProcessor(): void {
-  this.processingInterval = setInterval(async () => {
-    const unprocessedFeeds = this.pendingFeeds.filter(feed => !feed.processed);
-    if (unprocessedFeeds.length === 0) return;
-    
-    await this.processUnprocessedFeeds();
-  }, this.processingDelay);
+  // 根据设置选择合适的适配器
+  private getActiveAdapter() { ... }
 }
 ```
 
 ### 角色生成器 (CharacterGeneratorService)
 
-负责使用LLM生成和更新角色设定，是摇篮系统的核心AI组件。
-
-#### 主要功能
-
-- **初始角色生成**: 根据用户提供的初始数据生成基础角色设定
-- **角色迭代更新**: 根据投喂数据更新和完善角色设定
-- **LLM交互**: 构建提示词并与Gemini LLM交互
-- **JSON响应解析**: 处理和清洗LLM返回的JSON数据
-
-#### 代码示例
+角色生成器现在支持多LLM提供商：
 
 ```typescript
-// 初始角色生成
-async generateInitialCharacter(initialData: CharacterInitialData): Promise<CharacterGenerationResult> {
-  // 构建R框架条目
-  const rFramework: RFrameworkEntry[] = [
-    PromptBuilderService.createRFrameworkEntry({
-      name: "Task Description",
-      content: this.getGeneratorSystemPrompt(),
-      role: "system",
-      identifier: "task_description"
-    }),
-    // ...more framework entries...
-  ];
-
-  // 构建提示词
-  const messages = PromptBuilderService.buildPrompt({ rFramework });
-  const prompt = PromptBuilderService.messagesToText(messages);
+export class CharacterGeneratorService {
+  private llmAdapter: GeminiAdapter | OpenRouterAdapter;
   
-  // 发送到Gemini
-  const response = await this.geminiAdapter.generateContent([{
-    role: "user", 
-    parts: [{ text: prompt }]
-  }]);
-
-  // 解析响应
-  const result = this.parseGeminiResponse(response);
-  return result;
+  constructor(adapter: GeminiAdapter | OpenRouterAdapter) {
+    this.llmAdapter = adapter;
+  }
+  
+  // 生成和更新方法保持不变，但现在可以使用不同的适配器
 }
 ```
 
-## 前端实现
+## 已实现功能更新
 
-### 摇篮主页面 (cradle.tsx)
+除了之前已实现的功能外，现在还包括：
 
-主页面展示摇篮系统状态和角色列表，提供投喂、导入和生成角色的功能入口。
-
-### 投喂模态框 (CradleFeedModal.tsx)
-
-允许用户为角色投喂不同类型的数据，包括：
-
-- **关于我**: 用户个人信息和偏好
-- **素材**: 角色设定的参考素材
-- **知识**: 角色需要记住的特定信息
-
-### 导入模态框 (ImportToCradleModal.tsx)
-
-允许用户将现有角色导入摇篮系统进行培育和增强。
-
-### 设置组件 (CradleSettings.tsx)
-
-提供摇篮系统的全局设置，如培育周期和系统启用/禁用。
-
-## 数据流
-
-摇篮系统的数据流如下：
-
-1. **投喂数据收集**
-   ```
-   用户输入 -> 分类(关于我/素材/知识) -> 投喂队列
-   ```
-
-2. **批量处理**
-   ```
-   投喂队列 -> 定期处理 -> 角色生成器
-   ```
-
-3. **角色生成**
-   ```
-   角色生成器 -> Gemini LLM -> JSON响应 -> 解析 -> 更新角色数据
-   ```
-
-4. **角色导出**
-   ```
-   摇篮角色数据 -> 转换 -> 标准角色 -> 应用到系统
-   ```
-
-## 已实现功能
-
-目前已实现的功能包括：
-
-1. ✅ **投喂类型分类**: 支持"关于我"、"素材"和"知识"三种类型
-2. ✅ **消息队列处理**: 实现了投喂数据的队列管理和批处理
-3. ✅ **角色生成器核心**: 使用Gemini LLM生成角色设定
-4. ✅ **角色导入功能**: 支持将现有角色导入摇篮系统
-5. ✅ **JSON响应处理**: 解析和清洗LLM返回的JSON数据
-6. ✅ **培育周期管理**: 支持设置培育周期和进度跟踪
+1. ✅ **多LLM提供商支持**: 通过OpenRouter API支持多种LLM
+2. ✅ **角色详情展示优化**: 使用背景图片增强视觉体验
+3. ✅ **角色选择交互**: 实现了角色选择与详情展示的联动
+4. ✅ **UI/UX优化**: 改进了键盘处理和数据刷新机制
+5. ✅ **即时数据更新**: 导入和投喂后立即更新相关数据
+6. ✅ **API设置管理**: 新增了API设置管理界面
 
 ## 待实现功能
 
-还需要实现的功能包括：
+除了之前的待实现功能外，新增：
 
-1. ❌ **图片投喂处理**: 目前仅支持文本投喂，需要增加对图片数据的处理
-2. ❌ **实时反馈系统**: 为用户提供投喂处理状态和效果的实时反馈
-3. ❌ **性格发展可视化**: 展示角色随投喂变化的个性发展轨迹
-4. ❌ **多设备同步**: 实现摇篮数据的云同步功能
-5. ❌ **投喂推荐系统**: 基于角色当前发展状态推荐适合的投喂内容
+1. ❌ **更细粒度的模型参数控制**: 允许用户调整温度、top-p等模型参数
+2. ❌ **模型与角色的兼容性匹配**: 根据角色类型推荐适合的模型
+3. ❌ **多API费用跟踪**: 跟踪不同API提供商的使用成本
+4. ❌ **自定义二元对立模块**: 实现角色创建时的性格滑块自定义功能
 
 ## 开发者指南
 
-### 1. 如何扩展投喂类型
+### 如何添加新的API提供商
 
-要添加新的投喂类型，请按以下步骤操作：
+要添加新的API提供商，请按以下步骤操作：
 
-1. 在 `character-generator-service.ts` 中的 `FeedType` 枚举中添加新类型
-2. 在 `CradleFeedModal.tsx` 中更新UI以支持新类型
-3. 在 `updateCharacterWithFeeds` 方法中添加新类型的处理逻辑
-4. 更新 `formatFeedDataByType` 以正确格式化新类型的投喂数据
+1. 创建新的适配器类，实现与`GeminiAdapter`和`OpenRouterAdapter`相同的接口
+2. 更新`CradleService`以支持新的适配器
+3. 在`CharactersContext`中添加相关设置和方法
+4. 创建对应的设置UI组件
+5. 更新`CradleApiSettings`组件以包含新提供商
 
-### 2. 优化LLM提示词
+### 如何扩展角色详情区
 
-要优化角色生成的质量，可以修改以下方法中的提示词：
+详情区可以进一步扩展以显示更多信息：
 
-- `getGeneratorSystemPrompt`: 初始角色生成提示词
-- `getUpdaterSystemPrompt`: 角色更新提示词
-- `getOutputFormatPrompt`: 输出格式控制提示词
-
-### 3. 添加新测试用例
-
-在扩展功能时，应在 `cradle-service.test.ts` 中添加相应的测试用例：
-
-```typescript
-test('should process new feed type correctly', () => {
-  cradleService.addFeed("Test content", FeedType.NEW_TYPE);
-  // ...assertions...
-});
-```
+1. 添加角色情绪动画
+2. 实现点击角色头像显示更多详细信息
+3. 在详情区域增加培育过程可视化
+4. 添加快速操作按钮
 
 ## 问题排查指南
 
-### 1. 角色生成失败
+### 1. API连接问题
 
 **可能原因**:
-- Gemini API密钥无效或已过期
-- 提示词格式有误
-- JSON响应解析失败
+- API密钥无效或过期
+- 网络连接问题
+- 请求格式错误
 
 **排查步骤**:
-1. 检查API密钥和网络连接
-2. 查看控制台日志中的完整错误信息
-3. 检查 `parseGeminiResponse` 方法中的正则表达式匹配
+1. 使用"测试连接"功能验证API密钥
+2. 检查控制台中的请求/响应日志
+3. 确认API提供商服务状态
+4. 验证请求体格式是否符合API要求
 
-### 2. 投喂数据未被处理
+### 2. 模型加载失败
 
 **可能原因**:
-- 处理间隔设置过长
-- 处理器未启动
-- 数据标记为已处理但未实际更新
+- API密钥权限不足
+- 网络请求超时
+- 返回数据格式变更
 
 **排查步骤**:
-1. 检查 `processingDelay` 值
-2. 确认 `startFeedProcessor` 被正确调用
-3. 查看 `processUnprocessedFeeds` 中的日志输出
+1. 检查`OpenRouterModelManager`缓存
+2. 尝试使用`forceRefresh`参数强制刷新模型列表
+3. 验证API响应格式是否符合预期
 
 ## 未来规划
 
 ### 短期目标
 
-1. 完善图片数据处理
-2. 实现投喂效果预览
-3. 优化角色生成提示词
+1. 完成自定义二元对立模块的实现
+2. 优化角色背景图片的裁剪和显示
+3. 增强投喂类型的处理逻辑
 
 ### 中期目标
 
-1. 添加角色发展轨迹可视化
-2. 实现更精细的特性合并逻辑
-3. 增强批处理机制的智能性
+1. 实现模型参数的精细控制
+2. 添加培育过程的可视化展示
+3. 支持更多的媒体类型投喂
 
 ### 长期目标
 
-1. 多模态投喂支持（语音、视频）
-2. 角色融合功能
-3. 社区分享功能
-
-## 贡献指南
-
-当添加新功能或修改现有功能时，请遵循以下准则：
-
-1. 保持与现有代码风格一致
-2. 添加详细日志输出，以便于调试
-3. 为新功能编写测试用例
-4. 更新此文档以反映更改
-
-## 结语
-
-摇篮系统是一个功能丰富的个性化角色培育平台，通过Gemini LLM提供自然语言处理能力。目前系统已实现核心功能，但仍有改进空间。后续开发者应关注多模态支持、用户反馈和性能优化等方面的工作。
+1. 实现社区分享功能
+2. 开发角色融合机制
+3. 提供模板库以快速创建特定类型的角色

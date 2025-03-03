@@ -65,6 +65,24 @@ export interface CharactersContextType {
   addFeedToCradle: (content: string, type: FeedType) => Promise<string>;
   getFeedHistory: () => FeedData[];
   processFeedsNow: () => Promise<void>;
+
+  // Add these new methods for Cradle API functionality:
+  getCradleApiSettings: () => {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  };
+  updateCradleApiSettings: (settings: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }) => Promise<void>;
 }
 
 // UI 专用类型

@@ -1,5 +1,7 @@
 ````markdown
 # PromptBuilderService 技术文档
+## 更新日志
+
 
 ## 设计理念
 

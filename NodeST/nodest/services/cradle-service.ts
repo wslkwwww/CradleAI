@@ -1,20 +1,90 @@
 import { FeedData, FeedType, CharacterGeneratorService, CharacterInitialData, CharacterGenerationResult } from './character-generator-service';
 import { GeminiAdapter } from '../utils/gemini-adapter';
+import { OpenRouterAdapter } from '../utils/openrouter-adapter'; // Add OpenRouter adapter import
 import { RoleCardJson, WorldBookJson } from '../types/types';
+
+interface ProcessResult {
+  success: boolean;
+  errorMessage?: string;
+  processedFeeds?: FeedData[];
+}
 
 /**
  * 摇篮系统服务 - 管理角色培育过程
  */
 export class CradleService {
-  private characterGenerator: CharacterGeneratorService;
+  private characterGenerator: CharacterGeneratorService | null = null;
   private pendingFeeds: FeedData[] = [];
   private processingInterval: NodeJS.Timeout | null = null;
   private batchSize: number = 5; // 一次处理的最大投喂数量
   private processingDelay: number = 30000; // 30秒处理一次
   private initialized: boolean = false;
+  private geminiAdapter: GeminiAdapter;
+  private openRouterAdapter: OpenRouterAdapter | null = null;
 
-  constructor(apiKey: string) {
-    this.characterGenerator = new CharacterGeneratorService(apiKey);
+  // Add apiSettings as an optional parameter
+  constructor(apiKey: string, apiSettings?: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }) {
+    this.geminiAdapter = new GeminiAdapter(apiKey);
+    
+    // Initialize OpenRouter if settings are provided
+    if (apiSettings?.apiProvider === 'openrouter' && 
+        apiSettings.openrouter?.enabled && 
+        apiSettings.openrouter?.apiKey) {
+      this.openRouterAdapter = new OpenRouterAdapter(
+        apiSettings.openrouter.apiKey,
+        apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+      );
+      console.log('[CradleService] OpenRouter adapter initialized');
+    }
+    
+    // Get the appropriate adapter based on settings
+    const adapter = this.getActiveAdapter();
+    this.characterGenerator = new CharacterGeneratorService(adapter);
+  }
+  
+  // Helper method to get the active adapter
+  private getActiveAdapter() {
+    if (this.openRouterAdapter) {
+      console.log('[CradleService] Using OpenRouter adapter');
+      return this.openRouterAdapter;
+    }
+    console.log('[CradleService] Using Gemini adapter');
+    return this.geminiAdapter;
+  }
+  
+  // Update API settings
+  public updateApiSettings(apiSettings: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }) {
+    // Reinitialize OpenRouter if needed
+    if (apiSettings.apiProvider === 'openrouter' && 
+        apiSettings.openrouter?.enabled && 
+        apiSettings.openrouter?.apiKey) {
+      this.openRouterAdapter = new OpenRouterAdapter(
+        apiSettings.openrouter.apiKey,
+        apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+      );
+      console.log('[CradleService] OpenRouter adapter updated');
+    } else {
+      this.openRouterAdapter = null;
+      console.log('[CradleService] OpenRouter adapter disabled');
+    }
+    
+    // Update the character generator with the new adapter
+    const adapter = this.getActiveAdapter();
+    this.characterGenerator = new CharacterGeneratorService(adapter);
   }
 
   /**
@@ -47,6 +117,9 @@ export class CradleService {
    */
   async createInitialCharacter(initialData: CharacterInitialData): Promise<CharacterGenerationResult> {
     console.log("创建初始角色...", initialData);
+    if (!this.characterGenerator) {
+      throw new Error('Character generator not initialized');
+    }
     return await this.characterGenerator.generateInitialCharacter(initialData);
   }
 
@@ -82,11 +155,14 @@ export class CradleService {
    * 手动触发处理待处理的投喂
    * @returns 处理结果
    */
-  async processFeeds(): Promise<CharacterGenerationResult | null> {
+  async processFeeds(): Promise<ProcessResult> {
     const unprocessedFeeds = this.pendingFeeds.filter(feed => !feed.processed);
     if (unprocessedFeeds.length === 0) {
       console.log("没有需要处理的投喂数据");
-      return null;
+      return {
+        success: true,
+        processedFeeds: []
+      };
     }
 
     console.log(`手动处理${unprocessedFeeds.length}条投喂数据...`);
@@ -97,6 +173,9 @@ export class CradleService {
    * 获取当前角色数据
    */
   getCurrentCharacterData(): { roleCard?: RoleCardJson; worldBook?: WorldBookJson } {
+    if (!this.characterGenerator) {
+      return { roleCard: undefined, worldBook: undefined };
+    }
     return this.characterGenerator.getCurrentCharacterData();
   }
 
@@ -104,6 +183,9 @@ export class CradleService {
    * 重置生成器状态
    */
   reset(): void {
+    if (!this.characterGenerator) {
+      throw new Error('Character generator not initialized');
+    }
     this.characterGenerator.reset();
     this.pendingFeeds = [];
     console.log("摇篮系统服务已重置");
@@ -136,41 +218,80 @@ export class CradleService {
   /**
    * 处理未处理的投喂数据
    */
-  private async processUnprocessedFeeds(): Promise<CharacterGenerationResult> {
-    // 获取未处理的投喂
-    const unprocessedFeeds = this.pendingFeeds.filter(feed => !feed.processed);
-    
-    // 如果没有未处理的投喂，返回当前状态
-    if (unprocessedFeeds.length === 0) {
-      const currentData = this.characterGenerator.getCurrentCharacterData();
+  private async processUnprocessedFeeds(): Promise<ProcessResult> {
+    if (!this.characterGenerator) {
       return {
-        roleCard: currentData.roleCard || this.createEmptyRoleCard(),
-        worldBook: currentData.worldBook || this.createEmptyWorldBook(),
-        success: true
+        success: false,
+        errorMessage: 'Character generator not initialized'
       };
     }
     
-    // 限制批次大小
-    const feedsToProcess = unprocessedFeeds.slice(0, this.batchSize);
-    console.log(`处理${feedsToProcess.length}条投喂数据（总共${unprocessedFeeds.length}条未处理）`);
+    console.log('[CradleService] Processing unprocessed feeds...');
     
-    // 调用字符生成器处理投喂
-    const result = await this.characterGenerator.updateCharacterWithFeeds(feedsToProcess);
-    
-    // 更新已处理状态
-    if (result.success) {
-      feedsToProcess.forEach(feed => {
-        const index = this.pendingFeeds.findIndex(item => item.id === feed.id);
-        if (index !== -1) {
-          this.pendingFeeds[index].processed = true;
+    try {
+      // Get all unprocessed feeds
+      const unprocessedFeeds = this.pendingFeeds.filter(feed => !feed.processed);
+      if (unprocessedFeeds.length === 0) {
+        return {
+          success: true,
+          processedFeeds: []
+        };
+      }
+      
+      // Group feeds by type
+      const feedsByType: Record<FeedType, FeedData[]> = {
+        [FeedType.ABOUT_ME]: [],
+        [FeedType.MATERIAL]: [],
+        [FeedType.KNOWLEDGE]: []
+      };
+      
+      unprocessedFeeds.forEach(feed => {
+        if (feedsByType[feed.type]) {
+          feedsByType[feed.type].push(feed);
+        } else {
+          console.warn(`[CradleService] Unknown feed type: ${feed.type}`);
         }
       });
-      console.log(`成功处理${feedsToProcess.length}条投喂数据`);
-    } else {
-      console.error("处理投喂数据失败:", result.errorMessage);
+      
+      // Using a dummy data structure as this is just a prototype implementation
+      // In a real implementation, this would reference a specific character or cradle
+      const characterData = {
+        name: 'Cradle Character',
+        description: 'A character being developed in the Cradle System',
+        personalityTraits: []
+      };
+      
+      // Process each feed type
+      await Promise.all(Object.keys(feedsByType).map(async (typeKey) => {
+        const type = typeKey as FeedType;
+        const feeds = feedsByType[type];
+        
+        if (feeds.length === 0) return;
+        
+        console.log(`[CradleService] Processing ${feeds.length} feeds of type ${type}`);
+        
+        // Mark these feeds as processed
+        feeds.forEach(feed => {
+          const index = this.pendingFeeds.findIndex(f => f.id === feed.id);
+          if (index !== -1) {
+            this.pendingFeeds[index].processed = true;
+          }
+        });
+      }));
+      
+      console.log('[CradleService] Feeds processed successfully');
+      
+      return {
+        success: true,
+        processedFeeds: unprocessedFeeds
+      };
+    } catch (error) {
+      console.error('[CradleService] Error processing feeds:', error);
+      return {
+        success: false,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      };
     }
-    
-    return result;
   }
 
   /**

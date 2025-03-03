@@ -165,6 +165,7 @@ export interface Character {
   age?: string;
   gender?: string;
   isCradleGenerated?: boolean;
+  inCradleSystem?: boolean;
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
@@ -188,29 +189,6 @@ export interface Character {
 }
 
 
-export interface CradleCharacter extends Character {
-    feedHistory: Feed[];             // 投喂历史
-    inCradleSystem: boolean;         // 是否在摇篮系统中
-    isCradleGenerated?: boolean;     // 是否由摇篮生成的角色
-    cradleAnimation?: CradleAnimation;
-    importedFromCharacter?: boolean; // 是否从常规角色导入
-    importedCharacterId?: string;    // 导入来源的角色ID
-    initialSettings?: {              // 初始设定
-      axis?: {
-        [key: string]: {
-          x: number;
-          y: number;
-          xLabel?: string;
-          yLabel?: string;
-        }
-      };
-      sliders?: {
-        [key: string]: number;
-      };
-      reference?: string;            // 参考角色ID
-      description?: string;          // 描述
-    };
-  }
 
 
 
@@ -287,21 +265,7 @@ export interface ProcessChatOptions {
     jsonString?: string;
 }
 
-
-
 // Cradle-specific types
-export interface CradleCharacter extends Character {
-  inCradleSystem: boolean;
-  feedHistory: Feed[];
-  isCradleGenerated?: boolean;
-  cradle?: {
-    startDate?: string;
-    progress?: number;
-    stage?: 'egg' | 'growing' | 'mature';
-    lastFeedTimestamp?: number;
-  };
-}
-
 export type FeedType = 'about' | 'knowledge' | 'material' | 'image' | 'voice' | 'text';
 
 export interface FeedQueue {
@@ -315,30 +279,17 @@ export interface FeedQueue {
 export interface Feed {
   id: string;
   content: string;
-  type: 'text' | 'voice' | 'image' | string;
+  type: 'text' | 'voice' | 'image';
   timestamp: number;
   processed: boolean;
 }
 
-export interface CradleSettings {
-  enabled: boolean;         // 摇篮系统是否启用
-  duration: number;         // 培育周期（天）
-  startDate?: string;       // 开始培育日期
-  progress?: number;        // 培育进度（百分比）
-  lastInterruption?: string; // 上次中断时间
-  cradleConversationId?: string; // 关联的会话ID
-}
-
-// Fix CradleCharacter interface - remove duplicate declarations
-export interface CradleCharacter extends Character {
-    feedHistory: Feed[];             // 投喂历史（确保为必填字段，非可选）
+// Fix the CradleCharacter interface, remove duplicate declarations and fix type issues
+export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
+    feedHistory: Feed[];             // 投喂历史
     inCradleSystem: boolean;         // 是否在摇篮系统中
     isCradleGenerated?: boolean;     // 是否由摇篮生成的角色
-    cradleAnimation?: {
-      glowIntensity?: number;
-      glowColor?: string;
-      pulseSpeed?: number;
-    };
+    cradleAnimation?: CradleAnimation;
     importedFromCharacter?: boolean; // 是否从常规角色导入
     importedCharacterId?: string;    // 导入来源的角色ID
     initialSettings?: {              // 初始设定
@@ -356,14 +307,15 @@ export interface CradleCharacter extends Character {
       reference?: string;            // 参考角色ID
       description?: string;          // 描述
     };
-    // Add cradle specific fields that existed in the other definition
     cradle?: {
       startDate?: string;
       progress?: number;
       stage?: 'egg' | 'growing' | 'mature';
       lastFeedTimestamp?: number;
     };
-  }
+    // Explicitly define backgroundImage with the right type
+    backgroundImage: string | null;
+}
 
 
 

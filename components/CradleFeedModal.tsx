@@ -1,589 +1,379 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   Modal,
   TouchableOpacity,
-  TextInput,
-  FlatList,
-  SafeAreaView,
+  Alert,
+  ScrollView,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  TouchableWithoutFeedback
+  Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
+import { Picker } from '@react-native-picker/picker';
 import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
+import { CradleCharacter } from '@/shared/types';
 
 interface CradleFeedModalProps {
   visible: boolean;
   onClose: () => void;
+  characterId?: string; // Optional - if provided, will pre-select this character
 }
 
-export default function CradleFeedModal({ visible, onClose }: CradleFeedModalProps) {
-  const { addFeedToCradle, getFeedHistory, processFeedsNow } = useCharacters();
-  
+export default function CradleFeedModal({ visible, onClose, characterId }: CradleFeedModalProps) {
+  const { addFeed, getCradleCharacters } = useCharacters();
   const [feedContent, setFeedContent] = useState('');
-  const [feedHistory, setFeedHistory] = useState<any[]>([]);
-  const [selectedType, setSelectedType] = useState<FeedType>(FeedType.MATERIAL);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [processingStatus, setProcessingStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | undefined>(characterId);
+  const [feedType, setFeedType] = useState<FeedType>(FeedType.ABOUT_ME);
+  const [submitting, setSubmitting] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [characters, setCharacters] = useState<CradleCharacter[]>([]);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  // Load feed history
+  // Load characters data when modal opens
   useEffect(() => {
     if (visible) {
-      loadFeedHistory();
-    }
-  }, [visible]);
-
-  const loadFeedHistory = () => {
-    try {
-      const history = getFeedHistory();
-      console.log("Loaded feed history:", history);
-      setFeedHistory(history || []);
-    } catch (error) {
-      console.error("Error loading feed history:", error);
-    }
-  };
-
-  const handleAddFeed = async () => {
-    if (!feedContent.trim()) return;
-    
-    setIsSubmitting(true);
-    try {
-      await addFeedToCradle(feedContent, selectedType);
+      const cradleCharacters = getCradleCharacters();
+      setCharacters(cradleCharacters);
+      
+      // If characterId is provided, use it; otherwise select first character if available
+      if (characterId) {
+        setSelectedCharacterId(characterId);
+      } else if (cradleCharacters.length > 0 && !selectedCharacterId) {
+        setSelectedCharacterId(cradleCharacters[0].id);
+      }
+      
+      // Reset form fields
       setFeedContent('');
-      loadFeedHistory();
-    } catch (error) {
-      console.error("Error adding feed:", error);
-    } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
-  };
+  }, [visible, getCradleCharacters, characterId]);
 
-  const handleProcessFeeds = async () => {
-    setProcessingStatus('processing');
+  // Keyboard event listeners
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    );
+    
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!feedContent.trim()) {
+      Alert.alert('请输入内容', '投喂内容不能为空');
+      return;
+    }
+
+    if (!selectedCharacterId) {
+      Alert.alert('请选择角色', '请选择一个角色进行投喂');
+      return;
+    }
+
     try {
-      await processFeedsNow();
-      setProcessingStatus('success');
-      // Reset status after delay
-      setTimeout(() => {
-        setProcessingStatus('idle');
-      }, 2000);
+      setSubmitting(true);
+      await addFeed(selectedCharacterId, feedContent, feedType as any);
+      Alert.alert('投喂成功', '数据已成功投喂到摇篮系统');
+      setFeedContent('');
+      onClose();
     } catch (error) {
-      console.error("Error processing feeds:", error);
-      setProcessingStatus('error');
-      // Reset status after delay
-      setTimeout(() => {
-        setProcessingStatus('idle');
-      }, 2000);
+      console.error('投喂失败:', error);
+      Alert.alert('投喂失败', error instanceof Error ? error.message : '未知错误');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  // Get type label for display
-  const getTypeLabel = (type: FeedType) => {
-    switch (type) {
-      case FeedType.ABOUT_ME:
-        return '关于我';
-      case FeedType.MATERIAL:
-        return '素材';
-      case FeedType.KNOWLEDGE:
-        return '知识';
-      default:
-        return '未知';
-    }
+  const getSelectedCharacter = () => {
+    return characters.find(c => c.id === selectedCharacterId);
   };
-
-  // Get type color for UI
-  const getTypeColor = (type: FeedType) => {
-    switch (type) {
-      case FeedType.ABOUT_ME:
-        return '#4A90E2';
-      case FeedType.MATERIAL:
-        return '#E2844A';
-      case FeedType.KNOWLEDGE:
-        return '#4AE28A';
-      default:
-        return '#888';
-    }
-  };
-
-  // Get type icon name
-  const getTypeIcon = (type: FeedType) => {
-    switch (type) {
-      case FeedType.ABOUT_ME:
-        return 'person-outline';
-      case FeedType.MATERIAL:
-        return 'color-palette-outline';
-      case FeedType.KNOWLEDGE:
-        return 'book-outline';
-      default:
-        return 'help-circle-outline';
-    }
-  };
-
-  // Get processing status styles
-  const getProcessingStyles = () => {
-    switch (processingStatus) {
-      case 'processing':
-        return { text: '处理中...', color: '#E2844A' };
-      case 'success':
-        return { text: '处理成功!', color: '#4AE28A' };
-      case 'error':
-        return { text: '处理失败', color: '#E24A4A' };
-      default:
-        return { text: '手动处理', color: '#4A90E2' };
-    }
-  };
-
-  const processingStyles = getProcessingStyles();
 
   return (
     <Modal
-      transparent={true}
       visible={visible}
       animationType="slide"
+      transparent={true}
       onRequestClose={onClose}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <SafeAreaView style={styles.container}>
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.keyboardView}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.modalContainer}
+      >
+        <View style={styles.modalContent}>
+          <View style={styles.header}>
+            <Text style={styles.title}>摇篮系统 - 数据投喂</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent} 
+            ref={scrollViewRef}
+            keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.modal}>
-              <View style={styles.header}>
-                <Text style={styles.headerTitle}>数据投喂</Text>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                  <Ionicons name="close" size={24} color="#fff" />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.tabs}>
-                <TouchableOpacity
-                  style={[
-                    styles.tabButton,
-                    !showHistory && styles.activeTabButton
-                  ]}
-                  onPress={() => setShowHistory(false)}
-                >
-                  <Text style={[
-                    styles.tabText,
-                    !showHistory && styles.activeTabText
-                  ]}>
-                    投喂
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.tabButton,
-                    showHistory && styles.activeTabButton
-                  ]}
-                  onPress={() => setShowHistory(true)}
-                >
-                  <Text style={[
-                    styles.tabText,
-                    showHistory && styles.activeTabText
-                  ]}>
-                    历史 ({feedHistory.length})
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {!showHistory ? (
-                <View style={styles.feedForm}>
-                  <Text style={styles.formLabel}>投喂类型</Text>
-                  
-                  <View style={styles.typeSelector}>
-                    <TouchableOpacity
-                      style={[
-                        styles.typeButton,
-                        selectedType === FeedType.ABOUT_ME && { 
-                          backgroundColor: 'rgba(74, 144, 226, 0.2)',
-                          borderColor: '#4A90E2' 
-                        }
-                      ]}
-                      onPress={() => setSelectedType(FeedType.ABOUT_ME)}
-                    >
-                      <Ionicons 
-                        name="person-outline" 
-                        size={24} 
-                        color={selectedType === FeedType.ABOUT_ME ? '#4A90E2' : '#888'} 
-                      />
-                      <Text style={[
-                        styles.typeText,
-                        selectedType === FeedType.ABOUT_ME && { color: '#4A90E2' }
-                      ]}>
-                        关于我
-                      </Text>
-                      <Text style={styles.typeDesc}>个人信息和偏好</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[
-                        styles.typeButton,
-                        selectedType === FeedType.MATERIAL && { 
-                          backgroundColor: 'rgba(226, 132, 74, 0.2)',
-                          borderColor: '#E2844A' 
-                        }
-                      ]}
-                      onPress={() => setSelectedType(FeedType.MATERIAL)}
-                    >
-                      <Ionicons 
-                        name="color-palette-outline" 
-                        size={24} 
-                        color={selectedType === FeedType.MATERIAL ? '#E2844A' : '#888'} 
-                      />
-                      <Text style={[
-                        styles.typeText,
-                        selectedType === FeedType.MATERIAL && { color: '#E2844A' }
-                      ]}>
-                        素材
-                      </Text>
-                      <Text style={styles.typeDesc}>角色设定参考</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[
-                        styles.typeButton,
-                        selectedType === FeedType.KNOWLEDGE && { 
-                          backgroundColor: 'rgba(74, 226, 138, 0.2)',
-                          borderColor: '#4AE28A' 
-                        }
-                      ]}
-                      onPress={() => setSelectedType(FeedType.KNOWLEDGE)}
-                    >
-                      <Ionicons 
-                        name="book-outline" 
-                        size={24} 
-                        color={selectedType === FeedType.KNOWLEDGE ? '#4AE28A' : '#888'} 
-                      />
-                      <Text style={[
-                        styles.typeText,
-                        selectedType === FeedType.KNOWLEDGE && { color: '#4AE28A' }
-                      ]}>
-                        知识
-                      </Text>
-                      <Text style={styles.typeDesc}>角色需记住的内容</Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  <Text style={styles.formLabel}>投喂内容</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="输入投喂内容..."
-                    placeholderTextColor="#888"
-                    multiline={true}
-                    numberOfLines={6}
-                    value={feedContent}
-                    onChangeText={setFeedContent}
-                  />
-                  
-                  <View style={styles.actionButtonsRow}>
-                    <TouchableOpacity
-                      style={styles.processButton}
-                      onPress={handleProcessFeeds}
-                      disabled={processingStatus === 'processing'}
-                    >
-                      <Ionicons 
-                        name={processingStatus === 'processing' ? 'sync-outline' : 'flash-outline'} 
-                        size={20} 
-                        color={processingStyles.color} 
-                      />
-                      <Text style={[styles.processButtonText, { color: processingStyles.color }]}>
-                        {processingStyles.text}
-                      </Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[
-                        styles.submitButton,
-                        (!feedContent.trim() || isSubmitting) && styles.disabledButton
-                      ]}
-                      onPress={handleAddFeed}
-                      disabled={!feedContent.trim() || isSubmitting}
-                    >
-                      {isSubmitting ? (
-                        <Text style={styles.submitButtonText}>提交中...</Text>
-                      ) : (
-                        <>
-                          <Ionicons name="add-circle-outline" size={20} color="#fff" />
-                          <Text style={styles.submitButtonText}>添加投喂</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.historyContainer}>
-                  {feedHistory.length > 0 ? (
-                    <FlatList
-                      data={feedHistory}
-                      keyExtractor={(item) => item.id}
-                      renderItem={({ item }) => (
-                        <View style={styles.historyItem}>
-                          <View style={styles.historyHeader}>
-                            <View style={styles.historyTypeContainer}>
-                              <Ionicons 
-                                name={getTypeIcon(item.type)} 
-                                size={16} 
-                                color={getTypeColor(item.type)} 
-                              />
-                              <Text style={[
-                                styles.historyType,
-                                { color: getTypeColor(item.type) }
-                              ]}>
-                                {getTypeLabel(item.type)}
-                              </Text>
-                            </View>
-                            
-                            <Text style={styles.historyTime}>
-                              {new Date(item.timestamp).toLocaleString()}
-                            </Text>
-                          </View>
-                          
-                          <Text style={styles.historyContent}>
-                            {item.content}
-                          </Text>
-                          
-                          <View style={styles.historyStatus}>
-                            <View style={[
-                              styles.statusIndicator,
-                              item.processed ? styles.processedIndicator : styles.pendingIndicator
-                            ]} />
-                            <Text style={styles.statusText}>
-                              {item.processed ? '已处理' : '等待处理'}
-                            </Text>
-                          </View>
-                        </View>
-                      )}
+            {/* Selected Character Display Area */}
+            {getSelectedCharacter() && (
+              <View style={styles.selectedCharacterContainer}>
+                <View style={styles.avatarContainer}>
+                  {getSelectedCharacter()?.avatar ? (
+                    <Image 
+                      source={{ uri: getSelectedCharacter()?.avatar || undefined }} 
+                      style={styles.avatar} 
                     />
                   ) : (
-                    <View style={styles.emptyHistory}>
-                      <Ionicons name="document-text-outline" size={48} color="#666" />
-                      <Text style={styles.emptyHistoryText}>暂无投喂历史</Text>
+                    <View style={styles.placeholderAvatar}>
+                      <Ionicons name="person" size={30} color="#ccc" />
                     </View>
                   )}
                 </View>
-              )}
+                <View style={styles.characterInfo}>
+                  <Text style={styles.characterName}>
+                    {getSelectedCharacter()?.name || '未命名角色'}
+                  </Text>
+                  <Text style={styles.characterMeta}>
+                    投喂数据: {getSelectedCharacter()?.feedHistory?.length || 0} 条
+                  </Text>
+                </View>
+              </View>
+            )}
+          
+            {/* Only show character selection if no specific character was passed */}
+            {!characterId && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>选择角色</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={selectedCharacterId}
+                    onValueChange={(itemValue) => setSelectedCharacterId(itemValue)}
+                    style={styles.picker}
+                    dropdownIconColor="#4A90E2"
+                  >
+                    {characters.map(character => (
+                      <Picker.Item 
+                        key={character.id}
+                        label={character.name || '未命名角色'} 
+                        value={character.id} 
+                        color="#fff"
+                      />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+            )}
+            
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>投喂类型</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={feedType}
+                  onValueChange={(itemValue) => setFeedType(itemValue)}
+                  style={styles.picker}
+                  dropdownIconColor="#4A90E2"
+                >
+                  <Picker.Item label="关于我" value={FeedType.ABOUT_ME} color="#fff" />
+                  <Picker.Item label="素材" value={FeedType.MATERIAL} color="#fff" />
+                  <Picker.Item label="知识" value={FeedType.KNOWLEDGE} color="#fff" />
+                </Picker>
+              </View>
             </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </TouchableWithoutFeedback>
+            
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>投喂内容</Text>
+              <TextInput
+                style={styles.textInput}
+                multiline={true}
+                numberOfLines={8}
+                value={feedContent}
+                onChangeText={setFeedContent}
+                placeholder="输入投喂内容..."
+                placeholderTextColor="#888"
+                textAlignVertical="top"
+              />
+            </View>
+            
+            <TouchableOpacity
+              style={[styles.submitButton, !feedContent.trim() && styles.disabledButton]}
+              onPress={handleSubmit}
+              disabled={submitting || !feedContent.trim() || !selectedCharacterId}
+            >
+              {submitting ? (
+                <Text style={styles.submitButtonText}>投喂中...</Text>
+              ) : (
+                <Text style={styles.submitButtonText}>投喂到摇篮</Text>
+              )}
+            </TouchableOpacity>
+            
+            <View style={styles.tipContainer}>
+              <Ionicons name="information-circle-outline" size={16} color="#aaa" />
+              <Text style={styles.tipText}>
+                {feedType === FeedType.ABOUT_ME && "「关于我」类型适合投喂角色的个性、性格、背景故事等内容"}
+                {feedType === FeedType.MATERIAL && "「素材」类型适合投喂各种参考资料、文献、小说片段等内容"}
+                {feedType === FeedType.KNOWLEDGE && "「知识」类型适合投喂角色需要掌握的专业知识、常识等内容"}
+              </Text>
+            </View>
+            
+            {/* Extra space at bottom when keyboard is visible */}
+            {keyboardVisible && <View style={{ height: 150 }} />}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
-  keyboardView: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modal: {
+  modalContent: {
     backgroundColor: '#282828',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    minHeight: '70%',
     maxHeight: '90%',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    padding: 16,
+    backgroundColor: '#333',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#444',
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  headerTitle: {
+  title: {
+    color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#fff',
   },
   closeButton: {
     padding: 4,
   },
-  tabs: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#444',
-    marginBottom: 20,
+  scrollContent: {
+    padding: 16,
   },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
+  inputGroup: {
+    marginBottom: 16,
   },
-  activeTabButton: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#4A90E2',
-  },
-  tabText: {
-    fontSize: 16,
-    color: '#888',
-  },
-  activeTabText: {
-    color: '#4A90E2',
-    fontWeight: 'bold',
-  },
-  feedForm: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  formLabel: {
-    fontSize: 16,
+  label: {
     color: '#ccc',
-    marginBottom: 10,
+    fontSize: 14,
+    marginBottom: 8,
   },
-  typeSelector: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  typeButton: {
-    width: '31%',
+  pickerContainer: {
+    backgroundColor: '#444',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#444',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
+    borderColor: '#555',
   },
-  typeText: {
-    fontSize: 16,
-    color: '#aaa',
-    marginTop: 8,
-    fontWeight: 'bold',
-  },
-  typeDesc: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  input: {
-    backgroundColor: '#333',
-    borderRadius: 8,
+  picker: {
+    height: 50,
     color: '#fff',
+  },
+  textInput: {
+    backgroundColor: '#444',
+    color: '#fff',
+    borderRadius: 8,
     padding: 12,
     height: 150,
     textAlignVertical: 'top',
-    marginBottom: 20,
-    fontSize: 16,
-  },
-  actionButtonsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#555',
   },
   submitButton: {
-    flexDirection: 'row',
     backgroundColor: '#4A90E2',
+    padding: 16,
     borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    marginLeft: 10,
+    marginTop: 16,
+  },
+  disabledButton: {
+    backgroundColor: '#555',
+    opacity: 0.6,
   },
   submitButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  tipContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+  },
+  tipText: {
+    color: '#aaa',
+    fontSize: 12,
     marginLeft: 8,
+    flex: 1,
+    lineHeight: 18,
   },
-  disabledButton: {
-    backgroundColor: '#555',
-    opacity: 0.7,
-  },
-  processButton: {
+  selectedCharacterContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: '#333',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#4A90E2',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 15,
   },
-  processButtonText: {
-    marginLeft: 6,
-    fontSize: 14,
-    fontWeight: 'bold',
+  avatarContainer: {
+    marginRight: 12,
   },
-  historyContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    maxHeight: 500,
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
-  historyItem: {
-    backgroundColor: '#333',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  historyTypeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  historyType: {
-    marginLeft: 6,
-    fontWeight: 'bold',
-  },
-  historyTime: {
-    fontSize: 12,
-    color: '#999',
-  },
-  historyContent: {
-    fontSize: 15,
-    color: '#eee',
-    marginBottom: 12,
-    lineHeight: 22,
-  },
-  historyStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  processedIndicator: {
-    backgroundColor: '#4AE28A',
-  },
-  pendingIndicator: {
-    backgroundColor: '#E2844A',
-  },
-  statusText: {
-    fontSize: 12,
-    color: '#aaa',
-  },
-  emptyHistory: {
-    alignItems: 'center',
+  placeholderAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#444',
     justifyContent: 'center',
-    padding: 40,
+    alignItems: 'center',
   },
-  emptyHistoryText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#999',
+  characterInfo: {
+    flex: 1,
+  },
+  characterName: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  characterMeta: {
+    color: '#aaa',
+    fontSize: 13,
+    marginTop: 4,
   },
 });

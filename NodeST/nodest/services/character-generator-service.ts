@@ -1,73 +1,133 @@
+import { RoleCardJson, WorldBookJson } from '../types/types';
 import { GeminiAdapter } from '../utils/gemini-adapter';
-import { PromptBuilderService, RFrameworkEntry, DEntry } from './prompt-builder-service';
-import { RoleCardJson, WorldBookJson, WorldBookEntry } from '../types/types';
+import { OpenRouterAdapter } from '../utils/openrouter-adapter';
 
 /**
- * 摇篮投喂类型枚举
+ * 投喂数据类型
  */
 export enum FeedType {
-  ABOUT_ME = "aboutMe",     // 关于我的信息
-  MATERIAL = "material",    // 素材信息
-  KNOWLEDGE = "knowledge"   // 知识信息
+  ABOUT_ME = "aboutMe",     // 关于角色自身的信息
+  MATERIAL = "material",    // 角色素材
+  KNOWLEDGE = "knowledge"   // 角色知识
 }
 
 /**
- * 投喂数据结构
+ * 投喂数据
  */
 export interface FeedData {
-  id: string;
-  content: string;
-  type: FeedType;
-  timestamp: number;
-  processed?: boolean;
+  id: string;               // 数据ID
+  content: string;          // 内容
+  type: FeedType;           // 类型
+  timestamp: number;        // 时间戳
+  processed: boolean;       // 是否已处理
 }
 
 /**
- * 角色初始数据
+ * 初始角色数据
  */
 export interface CharacterInitialData {
-  name?: string;
-  description?: string;
-  personality?: string;
-  preferences?: string;
-  appearance?: string; 
-  scenario?: string;
+  name?: string;            // 角色名称
+  description?: string;     // 描述
+  personality?: string;     // 性格特点
+  initialPrompt?: string;   // 初始提示词
 }
 
 /**
  * 角色生成结果
  */
 export interface CharacterGenerationResult {
-  roleCard: RoleCardJson;
-  worldBook: WorldBookJson;
-  success: boolean;
-  errorMessage?: string;
+  success: boolean;         // 是否成功
+  roleCard?: RoleCardJson;  // 角色卡
+  worldBook?: WorldBookJson; // 世界书
+  error?: string;           // 错误信息
 }
 
 /**
- * 角色生成器服务 - 为摇篮系统提供角色生成和更新功能
+ * R框架条目
  */
-export class CharacterGeneratorService {
-  private geminiAdapter: GeminiAdapter;
-  private lastCharacterData?: {
-    roleCard?: RoleCardJson;
-    worldBook?: WorldBookJson;
-  };
+interface RFrameworkEntry {
+  name: string;
+  content: string;
+  role: string;
+  identifier: string;
+}
 
-  constructor(apiKey: string) {
-    this.geminiAdapter = new GeminiAdapter(apiKey);
-    this.lastCharacterData = undefined;
+/**
+ * 提示词构建服务
+ * 处理提示词构建和文本处理
+ */
+export class PromptBuilderService {
+  /**
+   * 创建R框架条目
+   */
+  static createRFrameworkEntry(entry: {
+    name: string;
+    content: string;
+    role: string;
+    identifier: string;
+  }): RFrameworkEntry {
+    return {
+      name: entry.name,
+      content: entry.content,
+      role: entry.role,
+      identifier: entry.identifier
+    };
   }
 
   /**
-   * 初始角色生成
-   * @param initialData 初始数据
-   * @returns 生成的角色数据
+   * 构建提示词
+   */
+  static buildPrompt({
+    rFramework
+  }: {
+    rFramework: RFrameworkEntry[];
+  }): Array<{ role: string; parts: Array<{ text: string }> }> {
+    const messages: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+
+    rFramework.forEach((entry) => {
+      messages.push({
+        role: entry.role,
+        parts: [{ text: entry.content }]
+      });
+    });
+
+    return messages;
+  }
+
+  /**
+   * 消息转文本
+   */
+  static messagesToText(messages: Array<{ role: string; parts: Array<{ text: string }> }>): string {
+    return messages
+      .map((msg) => {
+        const role = msg.role.toUpperCase();
+        const text = msg.parts.map((part) => part.text).join('\n');
+        return `${role}:\n${text}`;
+      })
+      .join('\n\n');
+  }
+}
+
+/**
+ * 角色生成器服务
+ * 负责使用LLM生成角色设定
+ */
+export class CharacterGeneratorService {
+  private llmAdapter: GeminiAdapter | OpenRouterAdapter;
+  private roleCard: RoleCardJson | null = null;
+  private worldBook: WorldBookJson | null = null;
+
+  constructor(adapter: GeminiAdapter | OpenRouterAdapter) {
+    this.llmAdapter = adapter;
+  }
+
+  /**
+   * 生成初始角色
    */
   async generateInitialCharacter(initialData: CharacterInitialData): Promise<CharacterGenerationResult> {
-    console.log("开始生成初始角色...", initialData);
-
     try {
+      console.log("开始生成初始角色...", initialData);
+
       // 构建R框架条目
       const rFramework: RFrameworkEntry[] = [
         PromptBuilderService.createRFrameworkEntry({
@@ -77,7 +137,7 @@ export class CharacterGeneratorService {
           identifier: "task_description"
         }),
         PromptBuilderService.createRFrameworkEntry({
-          name: "Initial Character Data",
+          name: "Character Initial Data",
           content: this.formatInitialData(initialData),
           role: "user",
           identifier: "initial_data"
@@ -85,72 +145,55 @@ export class CharacterGeneratorService {
         PromptBuilderService.createRFrameworkEntry({
           name: "Output Format",
           content: this.getOutputFormatPrompt(),
-          role: "system",
+          role: "user",
           identifier: "output_format"
         })
       ];
 
       // 构建提示词
       const messages = PromptBuilderService.buildPrompt({ rFramework });
-      const prompt = PromptBuilderService.messagesToText(messages);
-      
-      // 发送到Gemini
-      console.log("向Gemini发送初始生成请求...");
-      const response = await this.geminiAdapter.generateContent([{
-        role: "user", 
-        parts: [{ text: prompt }]
-      }]);
+      console.log("构建的提示词:", messages);
+
+      // 发送到LLM
+      const response = await this.llmAdapter.generateContent(messages);
+      console.log("LLM响应:", response);
 
       // 解析响应
       const result = this.parseGeminiResponse(response);
       
-      // 更新最后生成的角色数据
       if (result.success) {
-        this.lastCharacterData = {
-          roleCard: result.roleCard,
-          worldBook: result.worldBook
-        };
-        console.log("初始角色生成成功");
-      } else {
-        console.error("初始角色生成失败:", result.errorMessage);
+        this.roleCard = result.roleCard ?? null;
+        this.worldBook = result.worldBook ?? null;
       }
-
+      
       return result;
     } catch (error) {
-      console.error("角色生成过程中出现错误:", error);
+      console.error("生成角色时出错:", error);
       return {
-        roleCard: this.createEmptyRoleCard(),
-        worldBook: this.createEmptyWorldBook(),
         success: false,
-        errorMessage: `生成过程错误: ${error instanceof Error ? error.message : String(error)}`
+        error: error instanceof Error ? error.message : "未知错误"
       };
     }
   }
 
   /**
-   * 根据投喂数据更新角色
-   * @param feedData 投喂数据批次
-   * @returns 更新后的角色数据
+   * 使用投喂数据更新角色
    */
-  async updateCharacterWithFeeds(feedData: FeedData[]): Promise<CharacterGenerationResult> {
-    if (!this.lastCharacterData) {
-      return {
-        roleCard: this.createEmptyRoleCard(),
-        worldBook: this.createEmptyWorldBook(),
-        success: false,
-        errorMessage: "无法更新角色：缺少初始角色数据"
-      };
-    }
-
-    console.log(`开始处理${feedData.length}条投喂数据...`);
-
+  async updateWithFeeds(feeds: FeedData[]): Promise<CharacterGenerationResult> {
     try {
-      // 按投喂类型分类数据
-      const aboutMeFeeds = feedData.filter(feed => feed.type === FeedType.ABOUT_ME);
-      const materialFeeds = feedData.filter(feed => feed.type === FeedType.MATERIAL);
-      const knowledgeFeeds = feedData.filter(feed => feed.type === FeedType.KNOWLEDGE);
+      if (!this.roleCard) {
+        return {
+          success: false,
+          error: "无法更新角色：未找到基础角色数据"
+        };
+      }
 
-      // 构建R框架
+      console.log(`使用 ${feeds.length} 条投喂数据更新角色`);
+
+      // 按类型分组投喂数据
+      const feedsByType = this.groupFeedsByType(feeds);
+      
+      // 构建R框架条目
       const rFramework: RFrameworkEntry[] = [
         PromptBuilderService.createRFrameworkEntry({
           name: "Task Description",
@@ -159,409 +202,151 @@ export class CharacterGeneratorService {
           identifier: "task_description"
         }),
         PromptBuilderService.createRFrameworkEntry({
-          name: "Previous Character Data",
-          content: this.formatPreviousCharacterData(),
-          role: "system",
-          identifier: "previous_data"
+          name: "Current Character",
+          content: this.formatCurrentCharacter(),
+          role: "user",
+          identifier: "current_character"
+        }),
+        PromptBuilderService.createRFrameworkEntry({
+          name: "New Feeds",
+          content: this.formatFeedData(feedsByType),
+          role: "user",
+          identifier: "new_feeds"
+        }),
+        PromptBuilderService.createRFrameworkEntry({
+          name: "Output Format",
+          content: this.getOutputFormatPrompt(),
+          role: "user",
+          identifier: "output_format"
         })
       ];
 
-      // 添加各类型的投喂内容
-      if (aboutMeFeeds.length > 0) {
-        rFramework.push(PromptBuilderService.createRFrameworkEntry({
-          name: "About Me Input",
-          content: this.formatFeedDataByType(aboutMeFeeds),
-          role: "user",
-          identifier: "about_me_input"
-        }));
-      }
-
-      if (materialFeeds.length > 0) {
-        rFramework.push(PromptBuilderService.createRFrameworkEntry({
-          name: "Material Input",
-          content: this.formatFeedDataByType(materialFeeds),
-          role: "user",
-          identifier: "material_input"
-        }));
-      }
-
-      if (knowledgeFeeds.length > 0) {
-        rFramework.push(PromptBuilderService.createRFrameworkEntry({
-          name: "Knowledge Input",
-          content: this.formatFeedDataByType(knowledgeFeeds),
-          role: "user",
-          identifier: "knowledge_input"
-        }));
-      }
-
-      // 添加输出格式要求
-      rFramework.push(PromptBuilderService.createRFrameworkEntry({
-        name: "Output Format",
-        content: this.getOutputFormatPrompt(),
-        role: "system",
-        identifier: "output_format"
-      }));
-
       // 构建提示词
       const messages = PromptBuilderService.buildPrompt({ rFramework });
-      const prompt = PromptBuilderService.messagesToText(messages);
       
-      // 发送到Gemini
-      console.log("向Gemini发送角色更新请求...");
-      const response = await this.geminiAdapter.generateContent([{
-        role: "user", 
-        parts: [{ text: prompt }]
-      }]);
-
+      // 发送到LLM
+      const response = await this.llmAdapter.generateContent(messages);
+      
       // 解析响应
       const result = this.parseGeminiResponse(response);
       
-      // 更新最后生成的角色数据
       if (result.success) {
-        this.lastCharacterData = {
-          roleCard: result.roleCard,
-          worldBook: result.worldBook
-        };
-        console.log("角色更新成功");
-      } else {
-        console.error("角色更新失败:", result.errorMessage);
+        this.roleCard = result.roleCard ?? this.roleCard;
+        this.worldBook = result.worldBook ?? this.worldBook;
       }
-
+      
       return result;
     } catch (error) {
-      console.error("角色更新过程中出现错误:", error);
+      console.error("更新角色时出错:", error);
       return {
-        roleCard: this.lastCharacterData.roleCard || this.createEmptyRoleCard(),
-        worldBook: this.lastCharacterData.worldBook || this.createEmptyWorldBook(),
         success: false,
-        errorMessage: `更新过程错误: ${error instanceof Error ? error.message : String(error)}`
+        error: error instanceof Error ? error.message : "未知错误"
       };
     }
   }
 
   /**
-   * 解析Gemini的响应
-   * @param response Gemini响应文本
-   * @returns 解析后的角色数据
+   * 获取当前角色数据
+   */
+  getCurrentCharacterData(): { roleCard?: RoleCardJson; worldBook?: WorldBookJson } {
+    return {
+      roleCard: this.roleCard || undefined,
+      worldBook: this.worldBook || undefined
+    };
+  }
+
+  /**
+   * 重置角色生成器状态
+   */
+  reset(): void {
+    this.roleCard = null;
+    this.worldBook = null;
+  }
+
+  /**
+   * 解析Gemini响应
    */
   private parseGeminiResponse(response: string): CharacterGenerationResult {
-    console.log("解析Gemini响应...");
-    
     try {
       // 查找JSON部分
-      const jsonMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) || 
-                        response.match(/(\{[\s\S]*\})/) ||
-                        response.match(/```(\{[\s\S]*?\})```/);
+      const roleCardMatch = response.match(/```json\s*\n*([\s\S]*?)\n*```/);
       
-      if (!jsonMatch || !jsonMatch[1]) {
-        console.error("无法在响应中找到JSON内容");
+      if (!roleCardMatch || !roleCardMatch[1]) {
         return {
-          roleCard: this.lastCharacterData?.roleCard || this.createEmptyRoleCard(),
-          worldBook: this.lastCharacterData?.worldBook || this.createEmptyWorldBook(),
           success: false,
-          errorMessage: "无法解析响应：未找到JSON内容"
+          error: "无法解析LLM响应：未找到有效JSON"
         };
       }
-
-      // 解析JSON字符串
-      const jsonContent = jsonMatch[1].trim();
-      const parsedData = JSON.parse(jsonContent);
-
-      // 验证结果是否符合预期格式
-      if (!parsedData.roleCard || !parsedData.worldBook) {
-        console.error("响应缺少必要的roleCard或worldBook字段");
+      
+      const jsonStr = roleCardMatch[1].trim();
+      const data = JSON.parse(jsonStr);
+      
+      // 检查必要字段
+      if (!data.role_card || !data.world_book) {
         return {
-          roleCard: this.lastCharacterData?.roleCard || this.createEmptyRoleCard(),
-          worldBook: this.lastCharacterData?.worldBook || this.createEmptyWorldBook(),
           success: false,
-          errorMessage: "响应格式错误：缺少roleCard或worldBook字段"
+          error: "无法解析LLM响应：缺少必要字段"
         };
       }
-
-      // 确保生成的字段符合类型要求
-      const roleCard = this.validateRoleCard(parsedData.roleCard);
-      const worldBook = this.validateWorldBook(parsedData.worldBook);
-
+      
       return {
-        roleCard,
-        worldBook,
-        success: true
+        success: true,
+        roleCard: data.role_card,
+        worldBook: data.world_book
       };
     } catch (error) {
-      console.error("解析响应时出错:", error);
+      console.error("解析LLM响应时出错:", error);
       return {
-        roleCard: this.lastCharacterData?.roleCard || this.createEmptyRoleCard(),
-        worldBook: this.lastCharacterData?.worldBook || this.createEmptyWorldBook(),
         success: false,
-        errorMessage: `响应解析错误: ${error instanceof Error ? error.message : String(error)}`
+        error: error instanceof Error ? `解析LLM响应失败: ${error.message}` : "未知解析错误"
       };
     }
   }
 
   /**
-   * 验证并修复RoleCard数据
-   */
-  private validateRoleCard(data: any): RoleCardJson {
-    const roleCard: RoleCardJson = { 
-      name: data.name || "",
-      first_mes: data.first_mes || "你好，很高兴认识你。",
-      description: data.description || "",
-      personality: data.personality || "",
-      scenario: data.scenario || "",
-      mes_example: data.mes_example || ""
-    };
-
-    // 添加可选字段（如果存在）
-    if (data.data?.extensions?.regex_scripts) {
-      roleCard.data = {
-        extensions: {
-          regex_scripts: data.data.extensions.regex_scripts
-        }
-      };
-    }
-
-    return roleCard;
-  }
-
-  /**
-   * 验证并修复WorldBook数据
-   */
-  private validateWorldBook(data: any): WorldBookJson {
-    const worldBook: WorldBookJson = { entries: {} };
-    
-    // 确保entries字段有效
-    if (typeof data.entries !== 'object' || data.entries === null) {
-      console.warn("WorldBook entries无效，创建空对象");
-      return worldBook;
-    }
-    
-    // 处理每个条目
-    Object.keys(data.entries).forEach(key => {
-      const entry = data.entries[key];
-      
-      // 确保每个条目包含必要字段
-      worldBook.entries[key] = {
-        comment: entry.comment || "",
-        content: entry.content || "",
-        disable: entry.disable !== undefined ? entry.disable : false,
-        position: entry.position !== undefined ? entry.position : 4,
-        constant: entry.constant !== undefined ? entry.constant : true,
-        key: Array.isArray(entry.key) ? entry.key : [],
-        order: entry.order !== undefined ? entry.order : 0,
-        depth: entry.depth !== undefined ? entry.depth : 1,
-        vectorized: entry.vectorized || false
-      };
-    });
-    
-    // 确保包含标准的Alist和Plist条目
-    if (!worldBook.entries["Alist"]) {
-      worldBook.entries["Alist"] = this.createDefaultAlistEntry();
-    }
-    
-    if (!worldBook.entries["Plist"]) {
-      worldBook.entries["Plist"] = this.createDefaultPlistEntry();
-    }
-    
-    return worldBook;
-  }
-
-  /**
-   * 创建默认的角色属性列表条目
-   */
-  private createDefaultAlistEntry(): WorldBookEntry {
-    return {
-      comment: "Character Attributes List",
-      content: "<attributes>\n  <personality>友好、开朗</personality>\n  <appearance>未指定</appearance>\n  <likes>未指定</likes>\n  <dislikes>未指定</dislikes>\n</attributes>",
-      disable: false,
-      position: 4,
-      constant: true,
-      key: [],
-      order: 1,
-      depth: 1,
-      vectorized: false
-    };
-  }
-
-  /**
-   * 创建默认的角色对话示例列表条目
-   */
-  private createDefaultPlistEntry(): WorldBookEntry {
-    return {
-      comment: "Character Dialogue Examples",
-      content: "用户: 你好\n角色: 你好！很高兴认识你！",
-      disable: false,
-      position: 4,
-      constant: true,
-      key: [],
-      order: 2,
-      depth: 1,
-      vectorized: false
-    };
-  }
-
-  /**
-   * 创建空的RoleCard对象
-   */
-  private createEmptyRoleCard(): RoleCardJson {
-    return {
-      name: "",
-      first_mes: "你好，很高兴认识你。",
-      description: "这是一个基础角色。",
-      personality: "",
-      scenario: "",
-      mes_example: ""
-    };
-  }
-
-  /**
-   * 创建空的WorldBook对象
-   */
-  private createEmptyWorldBook(): WorldBookJson {
-    return {
-      entries: {
-        "Alist": this.createDefaultAlistEntry(),
-        "Plist": this.createDefaultPlistEntry()
-      }
-    };
-  }
-
-  /**
-   * 格式化初始数据
-   */
-  private formatInitialData(initialData: CharacterInitialData): string {
-    let result = "【初始角色信息】\n\n";
-    
-    if (initialData.name) result += `名称: ${initialData.name}\n`;
-    if (initialData.description) result += `描述: ${initialData.description}\n`;
-    if (initialData.personality) result += `性格: ${initialData.personality}\n`;
-    if (initialData.preferences) result += `偏好: ${initialData.preferences}\n`;
-    if (initialData.appearance) result += `外观: ${initialData.appearance}\n`;
-    if (initialData.scenario) result += `场景: ${initialData.scenario}\n`;
-    
-    return result;
-  }
-
-  /**
-   * 格式化之前的角色数据
-   */
-  private formatPreviousCharacterData(): string {
-    if (!this.lastCharacterData?.roleCard) {
-      return "【当前无可用的角色数据】";
-    }
-    
-    const { roleCard, worldBook } = this.lastCharacterData;
-    
-    let result = "【上一次生成的角色设定】\n\n";
-    result += `描述: ${roleCard.description || "无"}\n`;
-    result += `性格: ${roleCard.personality || "无"}\n`;
-    result += `场景: ${roleCard.scenario || "无"}\n\n`;
-    
-    // 添加Alist信息（如果有）
-    if (worldBook?.entries?.["Alist"]) {
-      result += `【角色属性列表】\n${worldBook.entries["Alist"].content}\n\n`;
-    }
-    
-    // 添加Plist信息（如果有）
-    if (worldBook?.entries?.["Plist"]) {
-      result += `【对话示例列表】\n${worldBook.entries["Plist"].content}\n\n`;
-    }
-    
-    // 添加知识条目（如果有）
-    const knowledgeEntries = Object.entries(worldBook?.entries || {})
-      .filter(([key, entry]) => 
-        key !== "Alist" && key !== "Plist" && !entry.disable);
-    
-    if (knowledgeEntries.length > 0) {
-      result += "【已知的知识条目】\n";
-      knowledgeEntries.forEach(([key, entry]) => {
-        result += `${entry.comment || key}: ${entry.content.substring(0, 100)}${entry.content.length > 100 ? "..." : ""}\n`;
-      });
-    }
-    
-    return result;
-  }
-
-  /**
-   * 格式化按类型分类的投喂数据
-   */
-  private formatFeedDataByType(feedData: FeedData[]): string {
-    if (feedData.length === 0) return "";
-    
-    let typeLabel = "";
-    switch (feedData[0].type) {
-      case FeedType.ABOUT_ME:
-        typeLabel = "关于我";
-        break;
-      case FeedType.MATERIAL:
-        typeLabel = "素材";
-        break;
-      case FeedType.KNOWLEDGE:
-        typeLabel = "知识";
-        break;
-    }
-    
-    let result = `【${typeLabel}投喂内容】\n\n`;
-    
-    // 按时间戳排序并拼接内容
-    const sortedFeeds = [...feedData].sort((a, b) => a.timestamp - b.timestamp);
-    sortedFeeds.forEach((feed, index) => {
-      result += `[${index + 1}] ${feed.content}\n\n`;
-    });
-    
-    return result;
-  }
-
-  /**
-   * 生成器系统提示词
+   * 获取角色生成系统提示词
    */
   private getGeneratorSystemPrompt(): string {
-    return `你是一个角色生成器AI，负责创建有深度的AI角色设定。你的任务是根据初始信息，生成符合以下JSON格式的完整角色设定：
-
-1. 你需要生成两个主要结构：roleCard和worldBook
-2. roleCard包含角色的基本设定，包括first_mes（初次见面的问候语），description（角色描述），personality（性格特点），scenario（场景设定）和mes_example（对话示例）
-3. worldBook包含以下重要条目：
-   - "Alist"：结构化的角色属性列表，使用XML格式，包含personality（性格）、appearance（外观）、likes（喜好）、dislikes（厌恶）等信息
-   - "Plist"：角色对话示例，展示角色如何回应各种问题
-
-请确保生成的内容丰富、有深度，并保持与初始信息的一致性。输出必须是严格的JSON格式，便于系统解析。`;
+    return `你是一个专业的AI角色设计师，能够根据用户提供的初始数据创建独特、有深度的角色档案。
+你的任务是生成一个格式化的角色卡片和相应的世界书，以便AI聊天机器人能够准确扮演这个角色。
+必须为每个角色生成以下内容：
+1. 角色卡片，包含基本信息、个性特征和初始消息
+2. 世界书，包含详细的角色设定，以便AI更好地理解和扮演角色
+请根据提供的初始数据进行创造性扩展，确保角色设定连贯、合理、有深度。`;
   }
 
   /**
-   * 更新器系统提示词
+   * 获取角色更新系统提示词
    */
   private getUpdaterSystemPrompt(): string {
-    return `你是一个角色生成器AI，负责根据新的投喂数据更新现有的角色设定。你的任务是分析新的投喂内容，结合现有角色设定，生成更新后的完整角色设定。
-
-投喂内容分为三类：
-1. "关于我"：用户的个人信息和偏好，用于让角色了解用户并个性化互动
-2. "素材"：角色设定的参考素材，用于塑造角色的性格、外观、言行举止等
-3. "知识"：角色需要记住的特定知识，通常作为独立的worldBook条目保存
-
-请根据不同类型的投喂内容，更新roleCard和worldBook：
-- "关于我"内容应影响角色如何与用户互动的设定
-- "素材"内容应影响角色的基本设定，包括Alist和Plist
-- "知识"内容应创建新的worldBook条目，或更新现有条目
-
-确保输出是严格的JSON格式，包含完整更新后的roleCard和worldBook结构。`;
+    return `你是一个专业的AI角色设计师，能够根据新的投喂数据更新和改进现有角色设定。
+你的任务是分析当前角色设定以及用户提供的新投喂数据，然后生成更新后的角色卡片和世界书。
+在更新过程中，请遵循以下原则：
+1. 保持角色核心特征和一致性
+2. 整合新的投喂数据，丰富角色设定
+3. 确保角色设定连贯、合理、有深度
+4. 优先考虑"关于我"类型的投喂数据，这些通常是角色的核心信息
+请根据新的投喂数据进行创造性扩展，生成更丰富、更有深度的角色设定。`;
   }
 
   /**
-   * 输出格式提示词
+   * 获取输出格式提示词
    */
   private getOutputFormatPrompt(): string {
-    return `请使用以下JSON格式输出你的响应，确保格式严格符合要求：
+    return `请按照以下JSON格式输出你的角色设计结果，使用Markdown代码块包裹:
 
 \`\`\`json
 {
-  "roleCard": {
-    "name": "",
-    "first_mes": "角色的第一句话",
-    "description": "详细的角色描述",
-    "personality": "性格特点描述",
-    "scenario": "角色所在场景描述",
-    "mes_example": "对话示例"
+  "role_card": {
+    "name": "角色名称",
+    "first_mes": "角色的初始消息",
+    "description": "角色简短描述",
+    "personality": "角色性格描述",
+    "scenario": "角色所处的情境/背景",
+    "mes_example": "对话示例",
+    "background": "背景故事（可选）"
   },
-  "worldBook": {
+  "world_book": {
     "entries": {
       "Alist": {
         "comment": "Character Attributes List",
@@ -571,54 +356,145 @@ export class CharacterGeneratorService {
         "constant": true,
         "key": [],
         "order": 1,
-        "depth": 1
+        "depth": 1,
+        "vectorized": false
       },
       "Plist": {
         "comment": "Character Dialogue Examples",
-        "content": "用户: 问题示例\\n角色: 回答示例",
+        "content": "对话示例",
         "disable": false,
         "position": 4,
         "constant": true,
         "key": [],
         "order": 2,
-        "depth": 1
+        "depth": 1,
+        "vectorized": false
+      },
+      "背景": {
+        "comment": "Character Background",
+        "content": "详细的背景故事",
+        "disable": false,
+        "position": 3,
+        "constant": true,
+        "key": [],
+        "order": 3,
+        "depth": 1,
+        "vectorized": false
       }
     }
   }
 }
 \`\`\`
 
-对于知识类投喂内容，请在worldBook.entries中创建额外条目，格式如下：
-
-\`\`\`json
-"条目名称": {
-  "comment": "条目描述",
-  "content": "条目内容",
-  "disable": false,
-  "position": 4,
-  "constant": true,
-  "key": ["关键词1", "关键词2"],
-  "order": 序号,
-  "depth": 1
-}
-\`\`\`
-
-请确保JSON格式完全正确，没有格式错误。`;
+请确保生成的JSON格式正确，避免任何格式错误或缺失字段。`;
+  }
+  
+  /**
+   * 分组投喂数据
+   */
+  private groupFeedsByType(feeds: FeedData[]): Record<FeedType, FeedData[]> {
+    const result: Record<FeedType, FeedData[]> = {
+      [FeedType.ABOUT_ME]: [],
+      [FeedType.MATERIAL]: [],
+      [FeedType.KNOWLEDGE]: []
+    };
+    
+    feeds.forEach(feed => {
+      if (result[feed.type]) {
+        result[feed.type].push(feed);
+      }
+    });
+    
+    return result;
   }
 
   /**
-   * 获取当前生成的角色数据
-   * @returns 当前角色数据
+   * 格式化初始数据
    */
-  getCurrentCharacterData(): { roleCard?: RoleCardJson; worldBook?: WorldBookJson } {
-    return this.lastCharacterData || { roleCard: undefined, worldBook: undefined };
+  private formatInitialData(data: CharacterInitialData): string {
+    const parts = [];
+    
+    if (data.name) {
+      parts.push(`名称: ${data.name}`);
+    }
+    
+    if (data.description) {
+      parts.push(`描述: ${data.description}`);
+    }
+    
+    if (data.personality) {
+      parts.push(`性格: ${data.personality}`);
+    }
+    
+    if (data.initialPrompt) {
+      parts.push(`初始设定: ${data.initialPrompt}`);
+    }
+    
+    return parts.join('\n\n');
   }
 
   /**
-   * 重置角色生成器状态
+   * 格式化当前角色信息
    */
-  reset(): void {
-    this.lastCharacterData = undefined;
-    console.log("角色生成器状态已重置");
+  private formatCurrentCharacter(): string {
+    if (!this.roleCard) {
+      return "当前没有角色数据";
+    }
+    
+    const parts = [
+      `名称: ${this.roleCard.name}`,
+      `描述: ${this.roleCard.description}`,
+      `性格: ${this.roleCard.personality}`,
+      `背景: ${this.roleCard.scenario || this.roleCard.background || "无"}`
+    ];
+    
+    return parts.join('\n\n');
+  }
+
+  /**
+   * 格式化投喂数据
+   */
+  private formatFeedData(feedsByType: Record<FeedType, FeedData[]>): string {
+    const parts = [];
+    
+    // 关于我
+    if (feedsByType[FeedType.ABOUT_ME].length > 0) {
+      parts.push("## 关于角色的信息");
+      feedsByType[FeedType.ABOUT_ME].forEach(feed => {
+        parts.push(feed.content);
+      });
+    }
+    
+    // 素材
+    if (feedsByType[FeedType.MATERIAL].length > 0) {
+      parts.push("## 角色素材");
+      feedsByType[FeedType.MATERIAL].forEach(feed => {
+        parts.push(feed.content);
+      });
+    }
+    
+    // 知识
+    if (feedsByType[FeedType.KNOWLEDGE].length > 0) {
+      parts.push("## 角色知识");
+      feedsByType[FeedType.KNOWLEDGE].forEach(feed => {
+        parts.push(feed.content);
+      });
+    }
+    
+    return parts.join('\n\n');
+  }
+
+  /**
+   * 格式化投喂数据（按类型）
+   */
+  private formatFeedDataByType(feeds: FeedData[], type: FeedType): string {
+    const typeFeeds = feeds.filter(feed => feed.type === type);
+    
+    if (typeFeeds.length === 0) {
+      return "";
+    }
+    
+    const contents = typeFeeds.map(feed => feed.content);
+    return contents.join('\n\n');
   }
 }

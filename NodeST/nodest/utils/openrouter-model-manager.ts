@@ -1,12 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { OpenRouterModel } from '../../../shared/types/api-types';
+import { OpenRouterModel } from '@/shared/types/api-types';
 import { OpenRouterAdapter } from './openrouter-adapter';
 
+/**
+ * OpenRouter模型管理器 - 管理模型缓存和获取
+ */
 export class OpenRouterModelManager {
     private static CACHE_KEY = 'openrouter_models_cache';
     private static CACHE_EXPIRY_KEY = 'openrouter_models_expiry';
     private static CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
 
+    /**
+     * 获取可用模型列表，支持缓存
+     * @param apiKey OpenRouter API Key
+     * @param forceRefresh 是否强制刷新缓存
+     * @returns 模型列表
+     */
     static async getModels(apiKey: string, forceRefresh = false): Promise<OpenRouterModel[]> {
         try {
             if (!apiKey) {

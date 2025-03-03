@@ -5,6 +5,7 @@ export interface RoleCardJson {
     personality: string;
     scenario: string;
     mes_example: string;
+    background?: string;
     data?: {
         extensions?: {
             regex_scripts?: RegexScript[];
@@ -29,9 +30,9 @@ export interface WorldBookEntry {
     comment: string;
     content: string;
     disable: boolean;
-    position: number;
+    position: 0 | 1 | 2 | 3 | 4;
     constant: boolean;
-    key: string[];
+    key?: string[];
     order: number;
     depth: number;
     vectorized?: boolean;

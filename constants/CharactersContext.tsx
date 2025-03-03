@@ -45,6 +45,18 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
   const [cradleCharacters, setCradleCharacters] = useState<CradleCharacter[]>([]);
   
+  // Add state for Cradle API settings
+  const [cradleApiSettings, setCradleApiSettings] = useState<{
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }>({
+    apiProvider: 'gemini'
+  });
+  
   const { user } = useUser();
 
   useEffect(() => {
@@ -55,6 +67,7 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadFavorites();
     loadCradleSettings();
     loadCradleCharacters();
+    loadCradleApiSettings(); // Add loading API settings
   }, []);
 
   const loadMessages = async () => {
@@ -907,6 +920,12 @@ if (!savedCharacter) {
     console.log('[摇篮系统] 添加投喂内容到摇篮系统', type);
     
     try {
+      // Update the cradle service API settings before adding feed
+      if (cradleApiSettings.apiProvider === 'openrouter' && 
+          cradleApiSettings.openrouter?.enabled) {
+        cradleService.updateApiSettings(cradleApiSettings);
+      }
+      
       // Use the cradle service to add the feed
       const feedId = cradleService.addFeed(content, type);
       
@@ -928,6 +947,12 @@ if (!savedCharacter) {
     console.log('[摇篮系统] 手动处理投喂数据');
     
     try {
+      // Update the cradle service API settings before processing
+      if (cradleApiSettings.apiProvider === 'openrouter' && 
+          cradleApiSettings.openrouter?.enabled) {
+        cradleService.updateApiSettings(cradleApiSettings);
+      }
+      
       const result = await cradleService.processFeeds();
       if (!result) {
         console.log('[摇篮系统] 没有需要处理的投喂数据');
@@ -943,6 +968,81 @@ if (!savedCharacter) {
       console.error('[摇篮系统] 处理投喂数据时出错:', error);
       throw error;
     }
+  };
+
+  // Load Cradle API settings
+  const loadCradleApiSettings = async () => {
+    try {
+      console.log('[摇篮系统] 开始加载摇篮API设置');
+      const settingsStr = await FileSystem.readAsStringAsync(
+        FileSystem.documentDirectory + 'cradle_api_settings.json',
+        { encoding: FileSystem.EncodingType.UTF8 }
+      ).catch(() => JSON.stringify({
+        apiProvider: 'gemini'
+      }));
+
+      const settings = JSON.parse(settingsStr);
+      console.log('[摇篮系统] 加载的API设置:', settings);
+      
+      setCradleApiSettings(settings);
+      
+      // Update the cradle service with the loaded settings
+      if (settings.apiProvider === 'openrouter' && 
+          settings.openrouter?.enabled &&
+          settings.openrouter?.apiKey) {
+        cradleService.updateApiSettings(settings);
+      }
+      
+    } catch (error) {
+      console.error('[摇篮系统] 加载摇篮API设置失败:', error);
+      setCradleApiSettings({
+        apiProvider: 'gemini'
+      });
+    }
+  };
+  
+  // Save Cradle API settings
+  const saveCradleApiSettings = async (settings: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }) => {
+    try {
+      console.log('[摇篮系统] 保存摇篮API设置:', settings);
+      await FileSystem.writeAsStringAsync(
+        FileSystem.documentDirectory + 'cradle_api_settings.json',
+        JSON.stringify(settings),
+        { encoding: FileSystem.EncodingType.UTF8 }
+      );
+      
+      // Update the cradle service with the new settings
+      cradleService.updateApiSettings(settings);
+      
+    } catch (error) {
+      console.error('[摇篮系统] 保存摇篮API设置失败:', error);
+    }
+  };
+  
+  // Update Cradle API settings
+  const updateCradleApiSettings = async (settings: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }) => {
+    console.log('[摇篮系统] 更新摇篮API设置:', settings);
+    await saveCradleApiSettings(settings);
+    setCradleApiSettings(settings);
+  };
+  
+  // Get Cradle API settings
+  const getCradleApiSettings = () => {
+    return cradleApiSettings;
   };
 
   return (
@@ -987,6 +1087,10 @@ if (!savedCharacter) {
         addFeedToCradle,
         getFeedHistory,
         processFeedsNow,
+
+        // Add new methods for Cradle API settings
+        getCradleApiSettings,
+        updateCradleApiSettings,
       }}
     >
       {children}
