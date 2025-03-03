@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GeminiAdapter } from '../utils/gemini-adapter';
+import { OpenRouterAdapter } from '../utils/openrouter-adapter';
 import { CharacterUtils } from '../utils/character-utils';
 import { 
     RoleCardJson,
@@ -10,24 +11,72 @@ import {
     ChatHistoryEntity,
     GeminiMessage,
     RegexScript,
-    Character,
+    GlobalSettings
 } from '../../../shared/types';
 
 export class NodeSTCore {
-    private adapter: GeminiAdapter | null = null;
+    private geminiAdapter: GeminiAdapter | null = null;
+    private openRouterAdapter: OpenRouterAdapter | null = null;
     private currentContents: ChatMessage[] | null = null;
+    private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = {
+        apiProvider: 'gemini'
+    };
 
-    constructor(apiKey?: string) {
+    constructor(apiKey?: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
         if (apiKey) {
-            this.initAdapter(apiKey);
+            this.initAdapters(apiKey, apiSettings);
+        }
+        if (apiSettings) {
+            this.apiSettings = apiSettings;
         }
     }
 
-    private initAdapter(apiKey: string) {
+    // 添加方法以更新 API 设置
+    updateApiSettings(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): void {
+        if (apiKey) {
+            this.initAdapters(apiKey, apiSettings);
+        }
+        if (apiSettings) {
+            this.apiSettings = apiSettings;
+        }
+    }
+
+    private initAdapters(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
         if (!apiKey) {
             throw new Error("API key is required");
         }
-        this.adapter = new GeminiAdapter(apiKey);
+
+        // Always initialize Gemini as a fallback
+        this.geminiAdapter = new GeminiAdapter(apiKey);
+        
+        // Initialize OpenRouter if enabled and API key is available
+        if (apiSettings?.apiProvider === 'openrouter' && 
+            apiSettings.openrouter?.enabled && 
+            apiSettings.openrouter?.apiKey) {
+            this.openRouterAdapter = new OpenRouterAdapter(
+                apiSettings.openrouter.apiKey,
+                apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+            );
+            console.log('[NodeSTCore] Initialized OpenRouter adapter with model:', apiSettings.openrouter.model);
+        }
+
+        // Store settings for later use
+        if (apiSettings) {
+            this.apiSettings = apiSettings;
+        }
+    }
+
+    // Get the appropriate adapter based on settings
+    private getActiveAdapter() {
+        if (this.apiSettings.apiProvider === 'openrouter' && 
+            this.apiSettings.openrouter?.enabled && 
+            this.openRouterAdapter) {
+            console.log('[NodeSTCore] Using OpenRouter adapter');
+            return this.openRouterAdapter;
+        }
+        
+        console.log('[NodeSTCore] Using Gemini adapter');
+        return this.geminiAdapter;
     }
 
     private getStorageKey(conversationId: string, suffix: string = ''): string {
@@ -241,15 +290,19 @@ export class NodeSTCore {
         try {
             console.log('[NodeSTCore] Starting continueChat:', {
                 conversationId,
-                messageLength: userMessage.length
+                messageLength: userMessage.length,
+                apiProvider: this.apiSettings.apiProvider
             });
 
             // 确保Adapter已初始化
-            if (!this.adapter && apiKey) {
-                this.initAdapter(apiKey);
+            if ((!this.geminiAdapter || !this.openRouterAdapter) && apiKey) {
+                this.initAdapters(apiKey, this.apiSettings);
             }
 
-            if (!this.adapter) {
+            // 获取正确的 adapter
+            const adapter = this.getActiveAdapter();
+            
+            if (!adapter) {
                 throw new Error("API adapter not initialized - missing API key");
             }
 
@@ -331,7 +384,8 @@ export class NodeSTCore {
                 updatedChatHistory,  
                 dEntries,
                 conversationId,
-                roleCard 
+                roleCard,
+                adapter // 传递正确的适配器
             );
 
             // 如果收到响应，将AI回复也添加到历史记录
@@ -579,7 +633,8 @@ export class NodeSTCore {
         chatHistory: ChatHistoryEntity,
         dEntries: ChatMessage[],
         sessionId: string,
-        roleCard: RoleCardJson
+        roleCard: RoleCardJson,
+        adapter?: GeminiAdapter | OpenRouterAdapter
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChat with:', {
@@ -664,12 +719,15 @@ export class NodeSTCore {
                 throw new Error('No valid messages to send to Gemini API');
             }
 
-            // 发送到Gemini
-            console.log('[NodeSTCore] Sending to Gemini...');
-            if (!this.adapter) {
+            // 使用传入的适配器或获取活跃适配器
+            const activeAdapter = adapter || this.getActiveAdapter();
+            if (!activeAdapter) {
                 throw new Error("API adapter not initialized");
             }
-            const response = await this.adapter.generateContent(cleanedContents);
+
+            // 发送到Gemini
+            console.log('[NodeSTCore] Sending to Gemini...');
+            const response = await activeAdapter.generateContent(cleanedContents);
             console.log('[NodeSTCore] Gemini response received:', {
                 hasResponse: !!response,
                 responseLength: response?.length || 0

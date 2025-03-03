@@ -1,38 +1,6 @@
 import { Character } from '@/shared/types';
 import { generateId } from '@/utils/id-utils';
-// Define relationship types
-export type RelationshipType = 
-  'enemy' | 'rival' | 'stranger' | 'acquaintance' | 'colleague' | 
-  'friend' | 'close_friend' | 'best_friend';
-
-// Define relationship structure
-export interface Relationship {
-  targetId: string;         // Target character ID
-  strength: number;         // Relationship strength (-100 to 100)
-  type: RelationshipType;   // Relationship type
-  description: string;      // Relationship description
-  lastUpdated: number;      // Last update timestamp
-  interactions: number;     // Interaction count
-}
-
-// Define relationship map data structure
-export interface RelationshipMapData {
-  relationships: Record<string, Relationship>;  // Relationship mapping
-  lastReviewed: number;                        // Last review timestamp
-}
-
-// Define message box item structure
-export interface MessageBoxItem {
-  id: string;               // Message ID
-  senderId: string;         // Sender ID
-  senderName?: string;      // Sender name
-  content: string;          // Message content
-  timestamp: number;        // Send timestamp
-  read: boolean;            // Read status
-  type: 'post' | 'comment' | 'like' | 'reply' | 'action';  // Message type
-  contextId?: string;       // Related content ID
-  contextContent?: string;  // Related content summary
-}
+import { Relationship, RelationshipMapData, RelationshipType, MessageBoxItem } from '@/shared/types/relationship-types';
 
 // Define social interaction type for explore page
 export interface SocialInteraction {
@@ -65,17 +33,30 @@ export class RelationshipService {
     'colleague': 30,
     'friend': 50,
     'close_friend': 70,
-    'best_friend': 90
+    'best_friend': 90,
+    // Add other relationship types with their thresholds
+    'family': 85,
+    'crush': 60,
+    'lover': 80,
+    'partner': 90,
+    'ex': -30,
+    'mentor': 70,
+    'student': 60,
+    'admirer': 40,
+    'idol': 50
   };
+  
   static needsRelationshipReview(character: Character): boolean {
     // Add your review logic here
     return character.relationshipEnabled && 
            character.messageBox?.some(msg => !msg.read) || false;
   }
+  
   static updateRelationship(character: Character, interactorId: string, strengthDelta: number, reason: string): Character {
       // Implementation logic here
       return character;
     }
+  
   /**
    * Initialize a relationship map for a character
    */
@@ -88,7 +69,8 @@ export class RelationshipService {
     // Initialize empty relationship map
     const relationshipMap: RelationshipMapData = {
       relationships: {},
-      lastReviewed: Date.now()
+      lastReviewed: Date.now(),
+      lastUpdated: Date.now() // Add this field to match the interface
     };
 
     // Initialize empty message box if not exists
@@ -115,7 +97,7 @@ export class RelationshipService {
     const newMessage: MessageBoxItem = {
       id: generateId(),
       read: false,
-      ...message
+      ...message // Fixed: Move the spread after the fixed properties
     };
     
     // Add to message box (limit size to 50 messages)
@@ -145,7 +127,7 @@ export class RelationshipService {
     }
     
     // Get existing relationship or create new one
-    const relationship = character.relationshipMap.relationships[interactorId] || {
+    const relationship = character.relationshipMap?.relationships?.[interactorId] ?? {
       targetId: interactorId,
       strength: 0,
       type: 'stranger',
@@ -176,16 +158,17 @@ export class RelationshipService {
     // Update relationship type based on strength
     relationship.type = this.getRelationshipTypeFromStrength(relationship.strength);
     
-    // Update the relationship map
+    // Update relationship map
     const updatedRelationshipMap = {
-      ...character.relationshipMap,
+      ...character.relationshipMap!,
       relationships: {
-        ...character.relationshipMap.relationships,
+        ...character.relationshipMap!.relationships,
         [interactorId]: relationship
-      }
+      },
+      lastUpdated: Date.now() // Update the lastUpdated timestamp
     };
     
-    // Add message to message box
+    // Update character with relationship map
     const updatedCharacter = {
       ...character,
       relationshipMap: updatedRelationshipMap
@@ -195,6 +178,7 @@ export class RelationshipService {
     return this.addToMessageBox(updatedCharacter, {
       senderId: interactorId,
       senderName: interactorName,
+      recipientId: character.id,
       content: content,
       timestamp: Date.now(),
       type: interactionType,
@@ -216,14 +200,16 @@ export class RelationshipService {
     if (!character.relationshipMap) {
       character.relationshipMap = {
         lastReviewed: Date.now(),
+        lastUpdated: Date.now(), // Add required field
         relationships: {}
       };
     }
 
     // Get or initialize the relationship
-    let relationship = character.relationshipMap.relationships[targetId];
+    let relationship = character.relationshipMap.relationships[targetId] as Relationship;
     if (!relationship) {
       relationship = {
+        targetId: targetId, // Add required field
         type: 'stranger',
         strength: 0,
         lastUpdated: Date.now(),
@@ -237,7 +223,10 @@ export class RelationshipService {
     
     // Apply new type if provided, otherwise calculate based on strength
     if (newType) {
-      relationship.type = newType;
+      // Safely cast the string to RelationshipType, defaulting to 'stranger' if invalid
+      relationship.type = this.isValidRelationshipType(newType) 
+        ? (newType as RelationshipType)
+        : this.getRelationshipTypeFromStrength(relationship.strength);
     } else {
       relationship.type = this.getRelationshipTypeFromStrength(relationship.strength);
     }
@@ -246,6 +235,7 @@ export class RelationshipService {
     
     // Store the updated relationship
     character.relationshipMap.relationships[targetId] = relationship;
+    character.relationshipMap.lastUpdated = Date.now(); // Update timestamp
     character.relationshipMap.lastReviewed = Date.now();
 
     return character;
@@ -290,5 +280,17 @@ export class RelationshipService {
     
     // Default to stranger
     return 'stranger';
+  }
+
+  /**
+   * Helper method to validate if a string is a valid RelationshipType
+   */
+  private static isValidRelationshipType(type: string): boolean {
+    const validTypes: RelationshipType[] = [
+      'enemy', 'rival', 'stranger', 'acquaintance', 'colleague', 
+      'friend', 'close_friend', 'best_friend', 'family', 'crush', 
+      'lover', 'partner', 'ex', 'mentor', 'student', 'admirer', 'idol'
+    ];
+    return validTypes.includes(type as RelationshipType);
   }
 }

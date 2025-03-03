@@ -39,7 +39,8 @@ const CharacterSettings: React.FC<CharacterSettingsProps> = ({
     if (value && !character.relationshipMap) {
       updatedCharacter.relationshipMap = {
         relationships: {},
-        lastReviewed: Date.now()
+        lastReviewed: Date.now(),
+        lastUpdated: Date.now() // Add lastUpdated field
       };
       updatedCharacter.messageBox = [];
     }

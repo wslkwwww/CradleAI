@@ -1,220 +1,241 @@
-(NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1738930528012
- (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1740821349159
- (NOBRIDGE) LOG  【朋友圈服务】尝试发布测试帖子
- (NOBRIDGE) LOG  【朋友圈服务】选择角色 小刘 作为发帖者
- (NOBRIDGE) LOG  【朋友圈服务】角色 小刘 创建新朋友圈帖子
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小刘 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小刘 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小刘 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】处理互动，类型: newPost，作者ID: 1740662644578，响应者ID: 1740662644578
- (NOBRIDGE) LOG  [PromptBuilderService] Inserting 3 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
-家的经...
- (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
- (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
- (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=3，历史消息数=0
- (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你是义工
+[{
+	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
+	"owner": "typescript",
+	"code": "2345",
+	"severity": 8,
+	"message": "Argument of type '{ relationshipMap: { relationships: {}; lastReviewed: number; }; id: string; name: string; avatar: string | null; backgroundImage: string | null; description: string; personality: string; ... 21 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  Types of property 'relationshipMap' are incompatible.\n    Property 'lastUpdated' is missing in type '{ relationships: {}; lastReviewed: number; }' but required in type 'RelationshipMapData'.",
+	"source": "ts",
+	"startLineNumber": 204,
+	"startColumn": 23,
+	"endLineNumber": 204,
+	"endColumn": 39,
+	"relatedInformation": [
+		{
+			"startLineNumber": 24,
+			"startColumn": 3,
+			"endLineNumber": 24,
+			"endColumn": 14,
+			"message": "'lastUpdated' is declared here.",
+			"resource": "/f:/my-app/shared/types/relationship-types.ts"
+		}
+	]
+},{
+	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
+	"owner": "typescript",
+	"code": "7053",
+	"severity": 8,
+	"message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'.\n  No index signature with a parameter of type 'string' was found on type '{}'.",
+	"source": "ts",
+	"startLineNumber": 221,
+	"startColumn": 9,
+	"endLineNumber": 221,
+	"endColumn": 43
+},{
+	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
+	"owner": "typescript",
+	"code": "2345",
+	"severity": 8,
+	"message": "Argument of type '{ relationshipMap: { relationships: {}; lastReviewed: number; }; id: string; name: string; avatar: string | null; backgroundImage: string | null; description: string; personality: string; ... 21 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  Types of property 'relationshipMap' are incompatible.\n    Property 'lastUpdated' is missing in type '{ relationships: {}; lastReviewed: number; }' but required in type 'RelationshipMapData'.",
+	"source": "ts",
+	"startLineNumber": 249,
+	"startColumn": 23,
+	"endLineNumber": 249,
+	"endColumn": 39,
+	"relatedInformation": [
+		{
+			"startLineNumber": 24,
+			"startColumn": 3,
+			"endLineNumber": 24,
+			"endColumn": 14,
+			"message": "'lastUpdated' is declared here.",
+			"resource": "/f:/my-app/shared/types/relationship-types.ts"
+		}
+	]
+},{
+	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
+	"owner": "typescript",
+	"code": "7053",
+	"severity": 8,
+	"message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'.\n  No index signature with a parameter of type 'string' was found on type '{}'.",
+	"source": "ts",
+	"startLineNumber": 270,
+	"startColumn": 20,
+	"endLineNumber": 270,
+	"endColumn": 71
+},{
+	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
+	"owner": "typescript",
+	"code": "2345",
+	"severity": 8,
+	"message": "Argument of type '{ relationshipMap: { relationships: {}; lastReviewed: number; }; id: string; name: string; avatar: string | null; backgroundImage: string | null; description: string; personality: string; ... 21 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  Types of property 'relationshipMap' are incompatible.\n    Property 'lastUpdated' is missing in type '{ relationships: {}; lastReviewed: number; }' but required in type 'RelationshipMapData'.",
+	"source": "ts",
+	"startLineNumber": 281,
+	"startColumn": 31,
+	"endLineNumber": 281,
+	"endColumn": 47,
+	"relatedInformation": [
+		{
+			"startLineNumber": 24,
+			"startColumn": 3,
+			"endLineNumber": 24,
+			"endColumn": 14,
+			"message": "'lastUpdated' is declared here.",
+			"resource": "/f:/my-app/shared/types/relationship-types.ts"
+		}
+	]
+},{
+	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
+	"owner": "typescript",
+	"code": "7053",
+	"severity": 8,
+	"message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'.\n  No index signature with a parameter of type 'string' was found on type '{}'.",
+	"source": "ts",
+	"startLineNumber": 297,
+	"startColumn": 36,
+	"endLineNumber": 297,
+	"endColumn": 55
+},{
+	"resource": "/f:/my-app/services/relationship-service.ts",
+	"owner": "typescript",
+	"code": "2783",
+	"severity": 8,
+	"message": "'recipientId' is specified more than once, so this usage will be overwritten.",
+	"source": "ts",
+	"startLineNumber": 100,
+	"startColumn": 7,
+	"endLineNumber": 100,
+	"endColumn": 32,
+	"relatedInformation": [
+		{
+			"startLineNumber": 101,
+			"startColumn": 7,
+			"endLineNumber": 101,
+			"endColumn": 17,
+			"message": "This spread always overwrites this property.",
+			"resource": "/f:/my-app/services/relationship-service.ts"
+		}
+	]
+},{
+	"resource": "/f:/my-app/services/relationship-service.ts",
+	"owner": "typescript",
+	"code": "18048",
+	"severity": 8,
+	"message": "'character.relationshipMap' is possibly 'undefined'.",
+	"source": "ts",
+	"startLineNumber": 131,
+	"startColumn": 26,
+	"endLineNumber": 131,
+	"endColumn": 51
+},{
+	"resource": "/f:/my-app/services/relationship-service.ts",
+	"owner": "typescript",
+	"code": "18048",
+	"severity": 8,
+	"message": "'character.relationshipMap' is possibly 'undefined'.",
+	"source": "ts",
+	"startLineNumber": 166,
+	"startColumn": 12,
+	"endLineNumber": 166,
+	"endColumn": 37
+},{
+	"resource": "/f:/my-app/services/relationship-service.ts",
+	"owner": "typescript",
+	"code": "2345",
+	"severity": 8,
+	"message": "Argument of type '{ relationshipMap: { relationships: { [x: string]: Relationship; }; lastUpdated: number; lastReviewed?: number | undefined; }; id: string; name: string; avatar: string | null; ... 24 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  The types of 'relationshipMap.lastReviewed' are incompatible between these types.\n    Type 'number | undefined' is not assignable to type 'number'.\n      Type 'undefined' is not assignable to type 'number'.",
+	"source": "ts",
+	"startLineNumber": 179,
+	"startColumn": 33,
+	"endLineNumber": 179,
+	"endColumn": 49
+},{
+	"resource": "/f:/my-app/services/relationship-service.ts",
+	"owner": "typescript",
+	"code": "2322",
+	"severity": 8,
+	"message": "Type 'string' is not assignable to type 'RelationshipType'.",
+	"source": "ts",
+	"startLineNumber": 227,
+	"startColumn": 7,
+	"endLineNumber": 227,
+	"endColumn": 24
+}]
 
-你的性格容易激动
 
-你正在创建一条新的朋友圈动态。基于你的角色性格，请以JSON格式回应：
-- 决定是否点赞（like: true/false，对自己发的内容通常为false）
-- 提供一条你想发布的内容（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
 
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-   ...
- (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
- (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: ```json
-{
-  "action": {
-    "like": false,
-    "comment": "今天去社区给孤寡老人送温暖，看到他们脸上洋溢的笑容，我真是太激动了！能帮到别人，感觉真好！希望以后能多参加这样的活动！💪
-💪💪"
-  },
-  "emotion": {
-    "type": "positive",
-    "intensity": 0.9
-  }
+
+
+
+
+
+
+
+
+Let's fix the issues in explore.tsx where it's accessing RelationshipData and SocialInteraction types incorrectly:
+
+```typescript
+
+
+Made changes.
+
+// Fix for the relationships.after problem (line ~1071)
+
+// Change this code section:
+const relationshipUpdates: {
+  targetId: string;
+  targetName: string;
+  before: Relationship | null;
+  after: Relationship | null;
+}[] = [];
+
+// Get latest author data
+const updatedAuthor = characters.find(c => c.id === author.id);
+if (!updatedAuthor || !updatedAuthor.relationshipMap) {
+  throw new Error('无法获取更新后的作者数据');
 }
-```...
- (NOBRIDGE) LOG  【朋友圈】开始解析响应
- (NOBRIDGE) LOG  【朋友圈】成功提取JSON: {"action": {"comment": "今天去社区给孤寡老人送温暖，看到他们脸上洋溢的笑容，我真是太激动了！能 
-帮到别人，感觉真好！希望以后能多参加这样的活动！💪💪💪", "like": false}, "emotion": {"intensity": 0.9, "type": "positive"}}
- (NOBRIDGE) LOG  【朋友圈】更新了角色 1740662644578 的朋友圈记忆
- (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"action": {"comment": "今天去社区给孤寡老人送温暖，看到他们脸上洋溢的笑容，我真是太激动 
-了！能帮到别人，感觉真好！希望以后能多参加这样的活动！💪💪💪", "like": false}, "success": true}
- (NOBRIDGE) LOG  【朋友圈服务】成功发布测试帖子: "遇到了一个有趣的人，让我感到很有灵感，想听听大家的经历。..."
- (NOBRIDGE) LOG  【朋友圈测试】开始朋友圈互动测试，帖子内容: 遇到了一个有趣的人，让我感到很有灵感，想听听大家的经历。
- (NOBRIDGE) LOG  【朋友圈测试】找到 5 个启用了朋友圈互动的角色
- (NOBRIDGE) LOG  【朋友圈测试】使用真实API Key进行调用
- (NOBRIDGE) LOG  【朋友圈服务】开始测试互动，共有 5 个启用朋友圈的角色
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小李 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小李 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小李 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小李 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小李 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小李 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】角色 小李 朋友圈初始化成功，开始处理互动
- (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740662574493
- (NOBRIDGE) LOG  [PromptBuilderService] Inserting 1 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
-家的经...
- (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
- (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
- (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=1，历史消息数=0
- (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你是一个老师
 
-性格活泼开朗
+// Compare before and after relationships
+interactors.forEach(interactor => {
+  const beforeRel = beforeRelationships[interactor.id];
+  const afterRel = updatedAuthor.relationshipMap?.relationships[interactor.id] || null;
+  
+  relationshipUpdates.push({
+    targetId: interactor.id,
+    targetName: interactor.name,
+    before: beforeRel,
+    after: afterRel
+  });
+  
+  // ...rest of the code
+});
+```
 
-你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
-- 决定是否点赞（like: true/false）
-- 可选择是否发表评论（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
+### 4. Fix for SocialInteraction and PostInteraction types
 
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-    "like": true/false,...
- (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
- (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，明白！请给我看朋友圈动态的内容，我将根据我的角色性格，以JSON格式回复。
-...
- (NOBRIDGE) LOG  【朋友圈】开始解析响应
- (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
- (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
- (NOBRIDGE) LOG  【朋友圈】更新了角色 1740662574493 的朋友圈记忆
- (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
- (NOBRIDGE) LOG  【朋友圈服务】角色 小李 的互动响应: 失败: 未能从AI回复中提取有效数据
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小王 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小王 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小王 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小王 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小王 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小王 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】角色 小王 朋友圈初始化成功，开始处理互动
- (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740662618894
- (NOBRIDGE) LOG  [PromptBuilderService] Inserting 1 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
-家的经...
- (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
- (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
- (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=1，历史消息数=0
- (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你很好学
+```typescript
 
-你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
-- 决定是否点赞（like: true/false）
-- 可选择是否发表评论（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
 
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-    "like": true/false,
-    "comm...
- (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
- (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，我理解了。请给我一条朋友圈动态，我会根据我的“好学”角色生成JSON格式的回复。     
-...
- (NOBRIDGE) LOG  【朋友圈】开始解析响应
- (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
- (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
- (NOBRIDGE) LOG  【朋友圈】更新了角色 1740662618894 的朋友圈记忆
- (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
- (NOBRIDGE) LOG  【朋友圈服务】角色 小王 的互动响应: 失败: 未能从AI回复中提取有效数据
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小刘 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小刘 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小刘 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】阻止角色 小刘 回复自己的帖子
- (NOBRIDGE) LOG  【朋友圈服务】角色 小刘 的互动响应: 失败: 不允许回复自己的帖子
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小丽 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小丽 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小丽 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小丽 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小丽 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小丽 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】角色 小丽 朋友圈初始化成功，开始处理互动
- (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740819287241
- (NOBRIDGE) LOG  [PromptBuilderService] Inserting 3 D-entries with base message: 【内容】遇到了一个有趣的人，让我感到很有灵感，想听听大 
-家的经...
- (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
- (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
- (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
- (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=3，历史消息数=0
- (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你很好学
+Made changes.
 
-你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
-- 决定是否点赞（like: true/false）
-- 可选择是否发表评论（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
+// Fix for the SocialInteraction and PostInteraction errors (lines ~942 and ~1022)
 
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-    "like": true/false,
-    "comm...
- (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
- (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，明白了。请给我看朋友圈的动态内容，我将根据我的角色性格给出JSON格式的回复。     
-...
- (NOBRIDGE) LOG  【朋友圈】开始解析响应
- (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
- (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
- (NOBRIDGE) LOG  【朋友圈】更新了角色 1740819287241 的朋友圈记忆
- (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
- (NOBRIDGE) LOG  【朋友圈服务】角色 小丽 的互动响应: 失败: 未能从AI回复中提取有效数据
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小那 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小那 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小那 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
- (NOBRIDGE) LOG  【朋友圈】开始初始化角色 小那 的朋友圈框架
- (NOBRIDGE) LOG  【朋友圈】成功加载角色 小那 的角色卡
- (NOBRIDGE) LOG  【朋友圈】成功为角色 小那 初始化朋友圈框架
- (NOBRIDGE) LOG  【朋友圈服务】角色 小那 朋友圈初始化成功，开始处理互动
- (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1740821349159
- (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=0，历史消息数=0
- (NOBRIDGE) LOG  【朋友圈】发送到LLM的完整提示: 你很严谨
+// For SocialInteraction:
+const socialInteractionExample: SocialInteraction = {
+  userId: interactor.id,
+  userName: interactor.name,
+  isCharacter: true,
+  createdAt: new Date().toISOString()
+};
+const relationshipType = RelationshipService.determineRelationshipType(socialInteractionExample);
 
-你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
-- 决定是否点赞（like: true/false）
-- 可选择是否发表评论（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
-
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-    "like": true/false,
-    "comm...
- (NOBRIDGE) LOG  【朋友圈】调用Gemini API...
- (NOBRIDGE) LOG  【朋友圈】Gemini API返回原始响应: 好的，明白了。请给我看朋友圈动态内容。我将根据内容和我的严谨性格生成JSON格式的回复。 
-...
- (NOBRIDGE) LOG  【朋友圈】开始解析响应
- (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
- (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
- (NOBRIDGE) LOG  【朋友圈】更新了角色 1740821349159 的朋友圈记忆
- (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
- (NOBRIDGE) LOG  【朋友圈服务】角色 小那 的互动响应: 失败: 未能从AI回复中提取有效数据
- (NOBRIDGE) LOG  【朋友圈服务】测试互动完成，成功: 0/5
- (NOBRIDGE) LOG  【朋友圈测试】互动测试结果: {"总结果数": 5, "成功数": 0, "点赞数": 0, "评论数": 0}
+// For PostInteraction:
+const postInteractionExample: PostInteraction = {
+  id: testPost.id,
+  userId: interactor.id,
+  userName: interactor.name,
+  content: testPost.content,
+  createdAt: new Date().toISOString(),
+  type: 'post'
+};
+const relationshipType = RelationshipService.determineRelationshipType(postInteractionExample);
+```

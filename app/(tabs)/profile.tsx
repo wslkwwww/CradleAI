@@ -83,6 +83,15 @@ const Profile: React.FC = () => {
           <Ionicons name="settings-outline" size={24} color="#777777" />
           <Text style={styles.itemText}>全局设置</Text>
         </TouchableOpacity>
+        
+        {/* 添加 API 设置入口 */}
+        <TouchableOpacity
+          style={styles.itemCard}
+          onPress={() => router.push('/pages/api-settings')}
+        >
+          <MaterialIcons name="api" size={24} color="#777777" />
+          <Text style={styles.itemText}>API 设置</Text>
+        </TouchableOpacity>
 
         {/* 添加NodeSTCleanupButton */}
         <View style={styles.dangerSection}>

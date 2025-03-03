@@ -34,6 +34,7 @@ const GlobalSettingsScreen = () => {
       characterApiKey: user?.settings?.chat.characterApiKey || '',
       memoryApiKey: user?.settings?.chat.memoryApiKey || '',
       xApiKey: user?.settings?.chat.xApiKey || '',
+      apiProvider: user?.settings?.chat.apiProvider || 'gemini',
     },
   });
 

@@ -4,8 +4,9 @@ import { CircleRFramework, CirclePostOptions, CircleResponse } from '../types/ci
 import { GeminiAdapter } from '../utils/gemini-adapter';
 import { MessageBoxItem, RelationshipMapData } from '../../../shared/types/relationship-types';
 import { PromptBuilderService, DEntry, RFrameworkEntry } from '../services/prompt-builder-service';
-
+export { CirclePostOptions, CircleResponse };
 export class CircleManager {
+    
     private geminiAdapter: GeminiAdapter | null = null;
     
     constructor() {}
@@ -139,7 +140,10 @@ export class CircleManager {
             throw new Error('保存角色社交互动记忆失败');
         }
     }
-
+    async initCharacterCircle(characterId: string): Promise<boolean> {
+        // Implement your circle initialization logic here
+        return true;
+    }    
     // CircleManager specific methods
     async circleInit(character: Character): Promise<boolean> {
         try {

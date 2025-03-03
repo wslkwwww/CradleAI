@@ -1,5 +1,5 @@
 import { NodeST, CirclePostOptions, CircleResponse } from '@/NodeST/nodest';
-import { Character } from '@/shared/types';
+import { Character, GlobalSettings } from '@/shared/types';
 
 export interface NodeSTResponse {
   success: boolean;
@@ -10,12 +10,13 @@ export interface NodeSTResponse {
 export class NodeSTManager {
   private static nodeST = new NodeST();
 
-  // Add more detailed logging to help diagnose issues
+  // 更新参数接口以接受 API 设置
   static async processChatMessage(params: {
     userMessage: string;
     conversationId: string;
     status: '新建角色' | '同一角色继续对话' | '更新人设';
     apiKey: string;
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
     character: Character;
   }): Promise<NodeSTResponse> {
     try {
@@ -25,7 +26,8 @@ export class NodeSTManager {
         hasCharacter: !!params.character,
         characterId: params.character?.id,
         hasJsonData: !!params.character?.jsonData,
-        apiKeyLength: params.apiKey?.length || 0
+        apiKeyLength: params.apiKey?.length || 0,
+        apiProvider: params.apiSettings?.apiProvider || 'gemini'
       });
 
       if (!params.character.jsonData) {
@@ -38,6 +40,7 @@ export class NodeSTManager {
         conversationId: params.conversationId,
         status: params.status,
         apiKey: params.apiKey,
+        apiSettings: params.apiSettings,
         jsonString: params.character.jsonData
       });
 

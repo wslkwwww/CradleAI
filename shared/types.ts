@@ -2,7 +2,7 @@ import { CharacterMetadata } from '../shared/types/circle-types';
 import { RelationshipMapData, MessageBoxItem } from '../shared/types/relationship-types';
 import { RelationshipAction } from '@/services/action-service';
 import { CradleAnimation } from '@/constants/types';
-
+import { OpenRouterSettings } from '@/shared/types/api-types';
 // ============= 基础类型 =============
 export interface User {
     id: string;
@@ -18,10 +18,15 @@ export interface GlobalSettings {
         description: string;
     };
     chat: {
+        // Legacy fields
         serverUrl: string;
         characterApiKey: string;
         memoryApiKey: string;
         xApiKey: string;
+        
+        // New API settings
+        apiProvider: 'gemini' | 'openrouter';
+        openrouter?: OpenRouterSettings;
     };
 }
 

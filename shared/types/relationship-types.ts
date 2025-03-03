@@ -14,11 +14,12 @@ export interface Relationship {
   description: string;      // Relationship description
   lastUpdated: number;      // Last update timestamp
   interactions: number;     // Interaction count
+  lastActionCheck?: number; // Last action check timestamp - add optional property
 }
 
 // Define relationship map data structure
 export interface RelationshipMapData {
-  relationships: Record<string, RelationshipData>;  // Relationship mapping
+  relationships: Record<string, Relationship>;  // Relationship mapping
   lastReviewed: number;                        // Last review timestamp
   lastUpdated: number;                         // Last update timestamp
 }
@@ -37,12 +38,10 @@ export interface MessageBoxItem {
   recipientId: string;      // Recipient ID
 }
 
-export interface RelationshipData {
-  type: string;
-  strength: number;
-  lastUpdated: number;
-  description: string;
-  interactions: number;
+// This interface should be removed to avoid type conflicts
+// But to minimize changes, I'll just make it match the Relationship interface
+export interface RelationshipData extends Relationship {
+  // All fields from Relationship are included
 }
 
 /**
@@ -69,5 +68,8 @@ export function getRelationship(
   character: Character,
   targetId: string
 ): Relationship | undefined {
-  return character.relationshipMap?.relationships[targetId];
+  if (!character.relationshipMap) {
+    return undefined;
+  }
+  return character.relationshipMap.relationships[targetId];
 }

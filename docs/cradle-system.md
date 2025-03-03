@@ -1,6 +1,4 @@
-I'll update the cradle-system.md documentation to reflect the current implementation progress and provide guidance for future developers.
 
-```markdown
 # 摇篮系统 (Cradle System) 开发文档
 
 ## 更新日志
@@ -362,8 +360,3 @@ test('should process new feed type correctly', () => {
 ## 结语
 
 摇篮系统是一个功能丰富的个性化角色培育平台，通过Gemini LLM提供自然语言处理能力。目前系统已实现核心功能，但仍有改进空间。后续开发者应关注多模态支持、用户反馈和性能优化等方面的工作。
-```
-
-The updated documentation provides a comprehensive overview of the current implementation, including the new character generator service and its integration with Gemini LLM. It outlines the file structure, core types, already implemented features, and pending tasks. I've also added sections on developer guidance, troubleshooting, and future plans to help subsequent developers continue the work efficiently.
-
-Made changes.

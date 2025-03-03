@@ -1,28 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  FlatList,
-  Alert,
-  ActivityIndicator,
-  Image,
-  ScrollView,
-  Modal,
-  TextInput
-} from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
+import { RelationshipType, Relationship } from '@/shared/types/relationship-types';
 import { RelationshipService } from '@/services/relationship-service';
-import { 
-  Relationship, 
-  RelationshipType, 
-  RelationshipMapData,
-  createDefaultRelationship 
-} from '../shared/types/relationship-types';
-import {Colors} from '../constants/Colors';
-import { getCharacterById } from '../services/character-service';
-import { RelationshipCanvas } from './RelationshipCanvas';
+
+// Visualization component imports could be here
+// import { ForceGraph } from './ForceGraph';
 
 interface RelationshipGraphProps {
   character: Character;
@@ -30,528 +14,393 @@ interface RelationshipGraphProps {
   allCharacters: Character[];
 }
 
-export const RelationshipGraph: React.FC<RelationshipGraphProps> = ({ 
-  character, 
+export const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
+  character,
   onUpdateCharacter,
-  allCharacters 
+  allCharacters
 }) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [addModalVisible, setAddModalVisible] = useState(false);
-  const [selectedRelationship, setSelectedRelationship] = useState<Relationship | null>(null);
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string>('');
+  // States for the component
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [editingRelationship, setEditingRelationship] = useState<boolean>(false);
   const [relationshipStrength, setRelationshipStrength] = useState<string>('0');
-  const [relationshipType, setRelationshipType] = useState<RelationshipType>('acquaintance');
+  const [relationshipType, setRelationshipType] = useState<RelationshipType>('stranger');
   const [relationshipDescription, setRelationshipDescription] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'list' | 'graph'>('graph');
 
-  // Check if relationship system is enabled for this character
-  const isRelationshipSystemEnabled = !!character.relationshipMap;
-
-  // Function to initialize the relationship system
-  const handleEnableRelationshipSystem = async () => {
-    setIsLoading(true);
-    try {
-      // Initialize relationship map using RelationshipService
-      const updatedCharacter = RelationshipService.initializeRelationshipMap(character);
-      
-      // 修复：明确设置 relationshipEnabled 标志
-      updatedCharacter.relationshipEnabled = true;
-      
-      // Update the character with the newly initialized relationship map
-      await onUpdateCharacter(updatedCharacter);
-      
-      Alert.alert(
-        "关系系统已启用",
-        `成功为${character.name}启用了关系系统！`
-      );
-    } catch (error) {
-      console.error("启用关系系统失败:", error);
-      Alert.alert(
-        "启用失败",
-        "无法为此角色启用关系系统，请稍后再试。"
-      );
-    } finally {
-      setIsLoading(false);
+  // Initialize relationship map if needed
+  useEffect(() => {
+    if (!character.relationshipMap) {
+      const initializedCharacter = RelationshipService.initializeRelationshipMap(character);
+      onUpdateCharacter(initializedCharacter);
     }
-  };
+  }, [character, onUpdateCharacter]);
 
-  // If no relationship system is enabled yet, show activation UI
-  if (!isRelationshipSystemEnabled) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.emptyStateContainer}>
-          <Text style={styles.emptyStateTitle}>关系系统未启用</Text>
-          <Text style={styles.emptyStateDescription}>
-            {character.name}还没有启用关系系统。启用后，角色将能够建立和管理与其他角色的关系，并记忆互动历史。
-          </Text>
-          
-          <TouchableOpacity 
-            style={styles.enableButton}
-            onPress={handleEnableRelationshipSystem}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.enableButtonText}>启用关系系统</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+  // Get relationship data for visualization
+  const relationshipData = useMemo(() => {
+    if (!character.relationshipMap?.relationships) {
+      return [];
+    }
 
-  // Initialize component with proper relationship data
-  const initializedCharacter = RelationshipService.initializeRelationshipMap(character);
-  const relationshipMap = initializedCharacter.relationshipMap || { relationships: {}, lastReviewed: Date.now() };
-  const relationships = relationshipMap.relationships || {};
+    const relationships = Object.entries(character.relationshipMap.relationships)
+      .map(([targetId, relationship]) => {
+        const targetCharacter = allCharacters.find(c => c.id === targetId);
+        return {
+          source: character.id,
+          target: targetId,
+          targetName: targetCharacter?.name || 'Unknown Character',
+          type: relationship.type,
+          strength: relationship.strength
+        };
+      });
 
-  const getRelationshipColor = (strength: number) => {
-    if (strength <= -50) return Colors.negative;
-    if (strength <= -20) return Colors.caution;
-    if (strength <= 20) return Colors.neutral;
-    if (strength <= 60) return Colors.positive;
-    return Colors.veryPositive;
-  };
+    return relationships;
+  }, [character.relationshipMap?.relationships, allCharacters, character.id]);
 
-  // Fix for the width string issue in strengthBar
-  const renderRelationshipItem = (relationship: Relationship, targetChar?: Character) => {
-    const strength = relationship.strength;
-    const barWidth = Math.abs(strength); // Use number instead of string percentage
-    const barColor = getRelationshipColor(strength);
+  // Handle relationship selection
+  const handleSelectRelationship = (targetId: string) => {
+    // Reset form when selecting a different character
+    if (selectedCharacterId !== targetId) {
+      setEditingRelationship(false);
+    }
     
-    return (
-      <TouchableOpacity 
-        key={relationship.targetId}
-        style={styles.relationshipItem}
-        onPress={() => {
-          setSelectedRelationship(relationship);
-          setRelationshipStrength(relationship.strength.toString());
-          setRelationshipType(relationship.type);
-          setRelationshipDescription(relationship.description);
-          setEditModalVisible(true);
-        }}
-      >
-        <View style={styles.characterInfo}>
-          <Image 
-            source={
-              targetChar?.avatar 
-                ? { uri: targetChar.avatar } 
-                : require('../assets/images/default-avatar.png')
-            } 
-            style={styles.avatar}
-          />
-          <View>
-            <Text style={styles.characterName}>
-              {targetChar?.name || `Unknown (${relationship.targetId})`}
-            </Text>
-            <Text style={styles.relationshipType}>
-              {relationship.type}
-            </Text>
-            <View style={styles.strengthIndicator}>
-              <View 
-                style={[
-                  styles.strengthBar, 
-                  { 
-                    width: `${barWidth}%`, // Convert to percentage string
-                    backgroundColor: barColor, 
-                    alignSelf: strength < 0 ? 'flex-start' : 'flex-end' 
-                  }
-                ]}
-              />
-            </View>
-            <Text style={styles.strengthText}>
-              强度: {strength}
-            </Text>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
+    setSelectedCharacterId(targetId);
+    
+    // Populate form with existing relationship data if available
+    if (character.relationshipMap?.relationships[targetId]) {
+      const relationship = character.relationshipMap.relationships[targetId];
+      setRelationshipStrength(relationship.strength.toString());
+      setRelationshipType(relationship.type as RelationshipType);
+      setRelationshipDescription(relationship.description);
+    } else {
+      // Default values for new relationship
+      setRelationshipStrength('0');
+      setRelationshipType('stranger');
+      setRelationshipDescription('');
+    }
   };
 
+  // Handle relationship update
   const handleUpdateRelationship = () => {
-    if (!selectedRelationship) return;
-
-    const strength = parseInt(relationshipStrength);
-    if (isNaN(strength) || strength < -100 || strength > 100) {
-      Alert.alert('错误', '关系强度必须在-100到100之间');
-      return;
-    }
-
+    if (!selectedCharacterId || !character.relationshipMap) return;
+    
+    // Ensure we have a valid relationship map with lastUpdated field
+    const updatedRelationshipMap = {
+      ...character.relationshipMap,
+      lastUpdated: Date.now(),
+      relationships: { ...character.relationshipMap.relationships }
+    };
+    
+    // Create or update the relationship
+    const targetCharacter = allCharacters.find(c => c.id === selectedCharacterId);
+    
     const updatedRelationship: Relationship = {
-      ...selectedRelationship,
-      strength,
+      targetId: selectedCharacterId,
+      strength: parseInt(relationshipStrength, 10) || 0,
       type: relationshipType,
-      description: relationshipDescription,
-      lastUpdated: Date.now()
+      description: relationshipDescription || `${character.name}对${targetCharacter?.name || '此角色'}的关系`,
+      lastUpdated: Date.now(),
+      interactions: character.relationshipMap.relationships[selectedCharacterId]?.interactions || 0
     };
-
-    const updatedRelationships = {
-      ...relationships,
-      [selectedRelationship.targetId]: updatedRelationship
-    };
-
-    // Make sure to include lastReviewed property
+    
+    // Update the relationship in the map
+    updatedRelationshipMap.relationships[selectedCharacterId] = updatedRelationship;
+    
+    // Update the character
     const updatedCharacter = {
       ...character,
-      relationshipMap: {
-        relationships: updatedRelationships,
-        lastReviewed: character.relationshipMap?.lastReviewed || Date.now()
-      }
+      relationshipMap: updatedRelationshipMap
     };
-
+    
     onUpdateCharacter(updatedCharacter);
-    setEditModalVisible(false);
+    setEditingRelationship(false);
   };
 
-  const handleAddRelationship = () => {
-    if (!selectedCharacterId) {
-      Alert.alert('错误', '请选择一个角色');
-      return;
-    }
-
-    const strength = parseInt(relationshipStrength);
-    if (isNaN(strength) || strength < -100 || strength > 100) {
-      Alert.alert('错误', '关系强度必须在-100到100之间');
-      return;
-    }
-
-    // Check if relationship already exists
-    if (relationships[selectedCharacterId]) {
-      Alert.alert('错误', '与该角色的关系已存在');
-      return;
-    }
-
+  // Create new relationship with another character
+  const handleCreateRelationship = (targetId: string) => {
+    if (!character.relationshipMap) return;
+    
+    const targetCharacter = allCharacters.find(c => c.id === targetId);
+    if (!targetCharacter) return;
+    
+    // Initialize the relationship map if needed
+    const updatedCharacter = RelationshipService.initializeRelationshipMap(character);
+    
+    // Ensure the relationship map has all required fields
+    const updatedRelationshipMap = {
+      ...updatedCharacter.relationshipMap,
+      lastUpdated: Date.now(),
+      lastReviewed: Date.now(),
+      relationships: { 
+        ...(updatedCharacter.relationshipMap?.relationships || {}) 
+      }
+    };
+    
+    // Create the default relationship
     const newRelationship: Relationship = {
-      targetId: selectedCharacterId,
-      strength,
-      type: relationshipType,
-      description: relationshipDescription || '新建的关系',
+      targetId: targetId,
+      strength: 0,
+      type: 'stranger',
+      description: `${character.name}对${targetCharacter.name}的初始印象`,
       lastUpdated: Date.now(),
       interactions: 0
     };
-
-    const updatedRelationships = {
-      ...relationships,
-      [selectedCharacterId]: newRelationship
+    
+    // Add the relationship to the map
+    updatedRelationshipMap.relationships[targetId] = newRelationship;
+    
+    // Update the character
+    const characterWithNewRelationship = {
+      ...updatedCharacter,
+      relationshipMap: updatedRelationshipMap
     };
+    
+    onUpdateCharacter(characterWithNewRelationship);
+    setSelectedCharacterId(targetId);
+    handleSelectRelationship(targetId);
+  };
 
-    // Make sure to include lastReviewed property
+  // Delete a relationship
+  const handleDeleteRelationship = (targetId: string) => {
+    if (!character.relationshipMap || !character.relationshipMap.relationships[targetId]) return;
+    
+    // Create a copy of the relationships without the target
+    const { [targetId]: _, ...remainingRelationships } = character.relationshipMap.relationships;
+    
+    // Update the relationship map
+    const updatedRelationshipMap = {
+      ...character.relationshipMap,
+      lastUpdated: Date.now(),
+      relationships: remainingRelationships
+    };
+    
+    // Update the character
     const updatedCharacter = {
-      ...initializedCharacter,
-      relationshipMap: {
-        relationships: updatedRelationships,
-        lastReviewed: initializedCharacter.relationshipMap?.lastReviewed || Date.now()
-      }
+      ...character,
+      relationshipMap: updatedRelationshipMap
     };
-
+    
     onUpdateCharacter(updatedCharacter);
-    setAddModalVisible(false);
-    setSelectedCharacterId('');
-    setRelationshipStrength('0');
-    setRelationshipType('acquaintance');
-    setRelationshipDescription('');
+    setSelectedCharacterId(null);
+    setEditingRelationship(false);
   };
 
-  const handleDeleteRelationship = () => {
-    if (!selectedRelationship) return;
-
-    Alert.alert(
-      '删除关系',
-      `确定要删除与 ${getCharacterById(allCharacters, selectedRelationship.targetId)?.name || 'Unknown'} 的关系吗？`,
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '删除',
-          style: 'destructive',
-          onPress: () => {
-            const updatedRelationships = { ...relationships };
-            delete updatedRelationships[selectedRelationship.targetId];
-
-            // Make sure to include lastReviewed property
-            const updatedCharacter = {
-              ...character,
-              relationshipMap: {
-                relationships: updatedRelationships,
-                lastReviewed: character.relationshipMap?.lastReviewed || Date.now()
-              }
-            };
-
-            onUpdateCharacter(updatedCharacter);
-            setEditModalVisible(false);
-          }
-        }
-      ]
+  // Get available characters for new relationships
+  const availableCharacters = useMemo(() => {
+    const existingRelationshipIds = character.relationshipMap 
+      ? Object.keys(character.relationshipMap.relationships) 
+      : [];
+      
+    return allCharacters.filter(c => 
+      c.id !== character.id && 
+      !existingRelationshipIds.includes(c.id)
     );
-  };
-
-  const relationshipTypes: RelationshipType[] = [
-    'stranger', 'acquaintance', 'friend', 'close_friend', 'best_friend',
-    'family', 'crush', 'lover', 'partner', 'ex', 'rival', 'enemy',
-    'mentor', 'student', 'colleague', 'admirer', 'idol'
-  ];
-
-  // Get list of characters for adding relationships
-  const availableCharacters = allCharacters.filter(
-    c => c.id !== character.id && !relationships[c.id]
-  );
-
-  // Handle selection of relationship from the canvas
-  const handleCanvasRelationshipSelect = (relationship: Relationship) => {
-    setSelectedRelationship(relationship);
-    setRelationshipStrength(relationship.strength.toString());
-    setRelationshipType(relationship.type);
-    setRelationshipDescription(relationship.description);
-    setEditModalVisible(true);
-  };
+  }, [character, allCharacters]);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => onUpdateCharacter(character)}
+        >
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
         <Text style={styles.title}>{character.name}的关系图谱</Text>
-        <Text style={styles.subtitle}>
-          管理角色与其他人的关系强度和类型
+      </View>
+
+      {/* Relationship Visualization would go here */}
+      <View style={styles.visualizationContainer}>
+        <Text style={styles.visualizationPlaceholder}>
+          关系图可视化区域
+          {/* <ForceGraph data={relationshipData} /> */}
         </Text>
       </View>
 
-      <View style={styles.viewToggleContainer}>
-        <TouchableOpacity 
-          style={[styles.viewToggleButton, viewMode === 'graph' && styles.activeViewToggleButton]}
-          onPress={() => setViewMode('graph')}
-        >
-          <Text style={[styles.viewToggleText, viewMode === 'graph' && styles.activeViewToggleText]}>
-            图形视图
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.viewToggleButton, viewMode === 'list' && styles.activeViewToggleButton]}
-          onPress={() => setViewMode('list')}
-        >
-          <Text style={[styles.viewToggleText, viewMode === 'list' && styles.activeViewToggleText]}>
-            列表视图
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <TouchableOpacity 
-        style={styles.button}
-        onPress={() => {
-          setSelectedCharacterId('');
-          setRelationshipStrength('0');
-          setRelationshipType('acquaintance');
-          setRelationshipDescription('');
-          setAddModalVisible(true);
-        }}
-      >
-        <Text style={styles.buttonText}>添加新关系</Text>
-      </TouchableOpacity>
-
-      {viewMode === 'list' ? (
-        <ScrollView style={{ flex: 1 }}>
-          {Object.entries(relationships).length > 0 ? (
-            Object.entries(relationships).map(([id, relationship]) => {
-              const targetChar = getCharacterById(allCharacters, id);
-              return renderRelationshipItem(relationship as Relationship, targetChar);
-            })
+      <ScrollView style={styles.relationshipsContainer}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>现有关系</Text>
+          {relationshipData.length > 0 ? (
+            relationshipData.map(rel => (
+              <TouchableOpacity
+                key={rel.target}
+                style={[
+                  styles.relationshipItem,
+                  selectedCharacterId === rel.target && styles.selectedRelationship
+                ]}
+                onPress={() => handleSelectRelationship(rel.target)}
+              >
+                <Text style={styles.relationshipName}>{rel.targetName}</Text>
+                <Text style={styles.relationshipInfo}>
+                  类型: {rel.type} | 强度: {rel.strength}
+                </Text>
+              </TouchableOpacity>
+            ))
           ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>
-                没有找到关系数据。点击"添加新关系"按钮创建新的关系。
-              </Text>
-            </View>
+            <Text style={styles.emptyText}>暂无关系数据</Text>
           )}
-        </ScrollView>
-      ) : (
-        <RelationshipCanvas 
-          character={character}
-          allCharacters={allCharacters}
-          onSelectRelationship={handleCanvasRelationshipSelect}
-        />
-      )}
+        </View>
 
-      {/* Edit Relationship Modal */} 
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={editModalVisible}
-        onRequestClose={() => setEditModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.title}>编辑关系</Text>
-            <Text style={styles.subtitle}>
-              {getCharacterById(allCharacters, selectedRelationship?.targetId || '')?.name || 'Unknown'}
-            </Text>
+        {availableCharacters.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>添加新关系</Text>
+            {availableCharacters.map(c => (
+              <TouchableOpacity
+                key={c.id}
+                style={styles.availableCharacterItem}
+                onPress={() => handleCreateRelationship(c.id)}
+              >
+                <Text style={styles.availableCharacterName}>{c.name}</Text>
+                <Ionicons name="add-circle-outline" size={20} color="#FF9ECD" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-            <Text>关系强度 (-100 到 100):</Text>
-            <TextInput
-              style={styles.input}
-              value={relationshipStrength}
-              onChangeText={setRelationshipStrength}
-              keyboardType="number-pad"
-            />
-
-            <Text>关系类型:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
-              {relationshipTypes.map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.relationshipBadge,
-                    {
-                      backgroundColor: type === relationshipType 
-                        ? Colors.primary 
-                        : Colors.inputBackground
-                    }
-                  ]}
-                  onPress={() => setRelationshipType(type)}
-                >
-                  <Text
-                    style={[
-                      styles.badgeText,
-                      { color: type === relationshipType ? Colors.white : Colors.text }
-                    ]}
-                  >
-                    {type}
+        {selectedCharacterId && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>关系详情</Text>
+            <View style={styles.relationshipDetail}>
+              {!editingRelationship ? (
+                // View mode
+                <>
+                  <Text style={styles.detailLabel}>角色:</Text>
+                  <Text style={styles.detailValue}>
+                    {allCharacters.find(c => c.id === selectedCharacterId)?.name || '未知角色'}
                   </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <Text>描述:</Text>
-            <TextInput
-              style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-              value={relationshipDescription}
-              onChangeText={setRelationshipDescription}
-              multiline
-              numberOfLines={4}
-            />
-
-            <View style={styles.buttonRow}>
-              <TouchableOpacity 
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => setEditModalVisible(false)}
-              >
-                <Text style={styles.buttonText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.button, styles.deleteButton]}
-                onPress={handleDeleteRelationship}
-              >
-                <Text style={styles.buttonText}>删除</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.button, styles.saveButton]}
-                onPress={handleUpdateRelationship}
-              >
-                <Text style={styles.buttonText}>保存</Text>
-              </TouchableOpacity>
+                  
+                  <Text style={styles.detailLabel}>关系类型:</Text>
+                  <Text style={styles.detailValue}>
+                    {character.relationshipMap?.relationships[selectedCharacterId]?.type || '-'}
+                  </Text>
+                  
+                  <Text style={styles.detailLabel}>关系强度:</Text>
+                  <Text style={styles.detailValue}>
+                    {character.relationshipMap?.relationships[selectedCharacterId]?.strength || 0}
+                  </Text>
+                  
+                  <Text style={styles.detailLabel}>描述:</Text>
+                  <Text style={styles.detailValue}>
+                    {character.relationshipMap?.relationships[selectedCharacterId]?.description || '-'}
+                  </Text>
+                  
+                  <Text style={styles.detailLabel}>互动次数:</Text>
+                  <Text style={styles.detailValue}>
+                    {character.relationshipMap?.relationships[selectedCharacterId]?.interactions || 0}
+                  </Text>
+                  
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={styles.editButton}
+                      onPress={() => setEditingRelationship(true)}
+                    >
+                      <Text style={styles.editButtonText}>编辑关系</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => handleDeleteRelationship(selectedCharacterId)}
+                    >
+                      <Text style={styles.deleteButtonText}>删除关系</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                // Edit mode
+                <>
+                  <Text style={styles.detailLabel}>角色:</Text>
+                  <Text style={styles.detailValue}>
+                    {allCharacters.find(c => c.id === selectedCharacterId)?.name || '未知角色'}
+                  </Text>
+                  
+                  <Text style={styles.detailLabel}>关系类型:</Text>
+                  <View style={styles.pickerContainer}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {['stranger', 'acquaintance', 'colleague', 'friend', 'close_friend', 'best_friend', 
+                       'family', 'lover', 'partner', 'rival', 'enemy', 'ex', 'mentor', 'student'].map(type => (
+                        <TouchableOpacity
+                          key={type}
+                          style={[
+                            styles.typeOption,
+                            relationshipType === type && styles.selectedTypeOption
+                          ]}
+                          onPress={() => setRelationshipType(type as RelationshipType)}
+                        >
+                          <Text style={[
+                            styles.typeOptionText,
+                            relationshipType === type && styles.selectedTypeOptionText
+                          ]}>
+                            {type}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  
+                  <Text style={styles.detailLabel}>关系强度 ({relationshipStrength}):</Text>
+                  <View style={styles.sliderContainer}>
+                    <TouchableOpacity
+                      onPress={() => setRelationshipStrength(
+                        Math.max(-100, parseInt(relationshipStrength) - 10).toString()
+                      )}
+                    >
+                      <Text style={styles.sliderButton}>-</Text>
+                    </TouchableOpacity>
+                    
+                    <View style={styles.slider}>
+                      <View 
+                        style={[
+                          styles.sliderFill,
+                          { 
+                            width: `${(parseInt(relationshipStrength) + 100) / 2}%`,
+                            backgroundColor: parseInt(relationshipStrength) >= 0 ? '#5cb85c' : '#d9534f'
+                          }
+                        ]} 
+                      />
+                    </View>
+                    
+                    <TouchableOpacity
+                      onPress={() => setRelationshipStrength(
+                        Math.min(100, parseInt(relationshipStrength) + 10).toString()
+                      )}
+                    >
+                      <Text style={styles.sliderButton}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <Text style={styles.detailLabel}>描述:</Text>
+                  <TextInput
+                    style={styles.descriptionInput}
+                    value={relationshipDescription}
+                    onChangeText={setRelationshipDescription}
+                    placeholder="输入关系描述"
+                    placeholderTextColor="#888"
+                    multiline
+                    numberOfLines={3}
+                  />
+                  
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={styles.saveButton}
+                      onPress={handleUpdateRelationship}
+                    >
+                      <Text style={styles.saveButtonText}>保存</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={styles.cancelButton}
+                      onPress={() => {
+                        setEditingRelationship(false);
+                        handleSelectRelationship(selectedCharacterId);
+                      }}
+                    >
+                      <Text style={styles.cancelButtonText}>取消</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
           </View>
-        </View>
-      </Modal>
-
-      {/* Add Relationship Modal */} 
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={addModalVisible}
-        onRequestClose={() => setAddModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.title}>添加新关系</Text>
-
-            <Text>选择角色:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
-              {availableCharacters.map((char) => (
-                <TouchableOpacity
-                  key={char.id}
-                  style={[
-                    styles.characterBadge,
-                    {
-                      backgroundColor: char.id === selectedCharacterId 
-                        ? Colors.primary 
-                        : Colors.inputBackground
-                    }
-                  ]}
-                  onPress={() => setSelectedCharacterId(char.id)}
-                >
-                  <Text
-                    style={[
-                      styles.badgeText,
-                      { color: char.id === selectedCharacterId ? Colors.white : Colors.text }
-                    ]}
-                  >
-                    {char.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <Text>关系强度 (-100 到 100):</Text>
-            <TextInput
-              style={styles.input}
-              value={relationshipStrength}
-              onChangeText={setRelationshipStrength}
-              keyboardType="number-pad"
-            />
-
-            <Text>关系类型:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 8 }}>
-              {relationshipTypes.map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.relationshipBadge,
-                    {
-                      backgroundColor: type === relationshipType 
-                        ? Colors.primary 
-                        : Colors.inputBackground
-                    }
-                  ]}
-                  onPress={() => setRelationshipType(type)}
-                >
-                  <Text
-                    style={[
-                      styles.badgeText,
-                      { color: type === relationshipType ? Colors.white : Colors.text }
-                    ]}
-                  >
-                    {type}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <Text>描述:</Text>
-            <TextInput
-              style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-              value={relationshipDescription}
-              onChangeText={setRelationshipDescription}
-              multiline
-              numberOfLines={4}
-            />
-
-            <View style={styles.buttonRow}>
-              <TouchableOpacity 
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => setAddModalVisible(false)}
-              >
-                <Text style={styles.buttonText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.button, styles.saveButton]}
-                onPress={handleAddRelationship}
-              >
-                <Text style={styles.buttonText}>保存</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        )}
+      </ScrollView>
     </View>
   );
 };
@@ -559,223 +408,201 @@ export const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
     backgroundColor: '#282828',
   },
   header: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#444',
+  },
+  backButton: {
+    padding: 8,
+    marginRight: 8,
   },
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'rgb(255, 224, 195)',
-    marginBottom: 8,
-    textAlign: 'center',
-    width: '100%',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#AAAAAA',
-    textAlign: 'center',
-    marginBottom: 12,
-    width: '100%',
-  },
-  emptyStateContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyStateTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: 'rgb(255, 224, 195)',
-    marginBottom: 12,
+    color: '#fff',
   },
-  emptyStateDescription: {
-    fontSize: 16,
-    color: '#AAAAAA',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  enableButton: {
-    backgroundColor: '#1a237e',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 25,
-    minWidth: 150,
+  visualizationContainer: {
+    height: 200,
+    backgroundColor: '#333',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  enableButtonText: {
-    color: '#FFFFFF',
+  visualizationPlaceholder: {
+    color: '#888',
+  },
+  relationshipsContainer: {
+    flex: 1,
+  },
+  section: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#444',
+  },
+  sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
   },
   relationshipItem: {
-    backgroundColor: '#333333',
+    backgroundColor: '#333',
+    padding: 12,
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: 'rgb(255, 224, 195)',
+    marginBottom: 8,
+  },
+  selectedRelationship: {
+    backgroundColor: '#444',
+    borderColor: '#FF9ECD',
+    borderWidth: 1,
   },
   relationshipName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  relationshipDetails: {
-    fontSize: 14,
-    color: '#CCCCCC',
-    marginBottom: 4,
-  },
-  relationshipDescription: {
-    fontSize: 14,
-    color: '#AAAAAA',
-    fontStyle: 'italic',
-    marginTop: 8,
-  },
-  viewToggleContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  viewToggleButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    marginHorizontal: 8,
-    backgroundColor: 'rgba(50, 50, 50, 0.5)',
-  },
-  activeViewToggleButton: {
-    backgroundColor: 'rgba(255, 224, 195, 0.9)',
-  },
-  viewToggleText: {
-    color: '#AAAAAA',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  activeViewToggleText: {
-    color: '#282828',
-    fontWeight: 'bold',
-  },
-  button: {
-    backgroundColor: '#1a237e',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  emptyState: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyStateText: {
-    color: '#AAAAAA',
     fontSize: 16,
-    textAlign: 'center',
+    fontWeight: 'bold',
+    color: '#fff',
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  relationshipInfo: {
+    fontSize: 14,
+    color: '#bbb',
+    marginTop: 4,
   },
-  modalContent: {
-    backgroundColor: '#333',
-    borderRadius: 12,
-    padding: 20,
-    width: '90%',
-    maxHeight: '80%',
-  },
-  input: {
-    backgroundColor: '#444',
-    color: '#FFF',
-    padding: 10,
-    borderRadius: 8,
-    marginVertical: 8,
-  },
-  buttonRow: {
+  availableCharacterItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
-  },
-  cancelButton: {
-    backgroundColor: '#666',
-    flex: 1,
-    marginRight: 8,
-  },
-  deleteButton: {
-    backgroundColor: '#B71C1C',
-    flex: 1,
-    marginHorizontal: 8,
-  },
-  saveButton: {
-    backgroundColor: '#1a237e',
-    flex: 1,
-    marginLeft: 8,
-  },
-  characterInfo: {
-    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#333',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 15,
+  availableCharacterName: {
+    fontSize: 16,
+    color: '#fff',
   },
-  characterName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  relationshipDetail: {
+    backgroundColor: '#333',
+    padding: 16,
+    borderRadius: 8,
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: '#888',
     marginBottom: 4,
   },
-  relationshipType: {
-    fontSize: 14,
-    color: '#CCCCCC',
-    marginBottom: 8,
+  detailValue: {
+    fontSize: 16,
+    color: '#fff',
+    marginBottom: 12,
   },
-  strengthIndicator: {
-    height: 6,
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  editButton: {
+    backgroundColor: '#007bff',
+    padding: 10,
+    borderRadius: 4,
+    flex: 1,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  deleteButton: {
+    backgroundColor: '#dc3545',
+    padding: 10,
+    borderRadius: 4,
+    flex: 1,
+    alignItems: 'center',
+  },
+  editButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  pickerContainer: {
+    marginBottom: 12,
+  },
+  typeOption: {
     backgroundColor: '#444',
-    borderRadius: 3,
-    width: '100%',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    marginRight: 8,
     marginBottom: 8,
   },
-  strengthBar: {
+  selectedTypeOption: {
+    backgroundColor: '#FF9ECD',
+  },
+  typeOptionText: {
+    color: '#fff',
+  },
+  selectedTypeOptionText: {
+    fontWeight: 'bold',
+  },
+  sliderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sliderButton: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    width: 30,
+    textAlign: 'center',
+  },
+  slider: {
+    flex: 1,
+    height: 10,
+    backgroundColor: '#444',
+    borderRadius: 5,
+    marginHorizontal: 8,
+  },
+  sliderFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 5,
   },
-  strengthText: {
-    fontSize: 12,
-    color: '#AAAAAA',
+  descriptionInput: {
+    backgroundColor: '#444',
+    color: '#fff',
+    padding: 10,
+    borderRadius: 4,
+    marginBottom: 16,
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
-  relationshipBadge: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 15,
+  saveButton: {
+    backgroundColor: '#28a745',
+    padding: 10,
+    borderRadius: 4,
+    flex: 1,
     marginRight: 8,
+    alignItems: 'center',
   },
-  characterBadge: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-    marginRight: 8,
+  cancelButton: {
+    backgroundColor: '#6c757d',
+    padding: 10,
+    borderRadius: 4,
+    flex: 1,
+    alignItems: 'center',
   },
-  badgeText: {
-    fontSize: 14,
+  saveButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  cancelButtonText: {
+    color: '#fff',
+  },
+  emptyText: {
+    color: '#888',
+    textAlign: 'center',
+    marginVertical: 16,
   },
 });

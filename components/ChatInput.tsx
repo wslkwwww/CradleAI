@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, TextInput, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
-import { ChatInputProps, Character } from '@/constants/types';
+import { ChatInputProps, Character } from '@/shared/types';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 
@@ -30,11 +30,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
       const loadingMessageId = `loading-${Date.now()}`;
       onSendMessage('', 'bot', true);
 
+      // 添加 API 设置信息传递
       const response = await NodeSTManager.processChatMessage({
         userMessage,
         conversationId: selectedCharacter.id,
         status: "同一角色继续对话",
         apiKey: user?.settings?.chat.characterApiKey || '',
+        apiSettings: {
+          apiProvider: user?.settings?.chat.apiProvider || 'gemini',
+          openrouter: user?.settings?.chat.openrouter
+        },
         character: selectedCharacter
       });
 

@@ -1,5 +1,6 @@
 import { Character } from '../shared/types';
 import { generateUniqueId } from '../utils/id-utils';
+import { Relationship } from '../shared/types/relationship-types';
 
 // Define action types
 export type ActionType = 'gift' | 'invitation' | 'challenge' | 'support' | 'confession';
@@ -39,7 +40,7 @@ export class ActionService {
     const relationships = character.relationshipMap.relationships;
     
     // Check each relationship for potential action triggers
-    Object.entries(relationships).forEach(([targetId, relationship]: [string, any]) => {
+    Object.entries(relationships).forEach(([targetId, relationship]: [string, Relationship]) => {
       // 移除过滤条件或减少限制，让更多行动有机会被触发
       // 如果有上次检查时间则判断是否过了24小时，否则允许触发
       const lastActionCheck = relationship.lastActionCheck || 0;

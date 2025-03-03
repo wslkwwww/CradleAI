@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { Character } from '@/shared/types';
-import { MessageBoxItem } from '@/services/relationship-service';
+import { MessageBoxItem } from '@/shared/types/relationship-types';
 import { Ionicons } from '@expo/vector-icons';
 
 interface MessageBoxProps {

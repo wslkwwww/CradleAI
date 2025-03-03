@@ -18,7 +18,6 @@ import {
   Keyboard,
   ScrollView,
   ImageBackground,
-  Modal,
 } from 'react-native';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
