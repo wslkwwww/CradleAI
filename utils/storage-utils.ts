@@ -12,6 +12,8 @@ export const STORAGE_KEYS = {
  * Utility class for consistent AsyncStorage access across the app
  */
 export class StorageUtils {
+  private static API_SETTINGS_KEY = 'api_settings';
+
   /**
    * Get user settings from AsyncStorage
    * @returns User settings object or null if not found
@@ -51,17 +53,30 @@ export class StorageUtils {
    */
   static async getApiSettings(): Promise<Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> | null> {
     try {
-      const userData = await this.getUserSettings();
-      if (userData?.settings?.chat) {
-        return {
-          apiProvider: userData.settings.chat.apiProvider,
-          openrouter: userData.settings.chat.openrouter
-        };
-      }
-      return null;
+      const data = await AsyncStorage.getItem(this.API_SETTINGS_KEY);
+      if (!data) return null;
+      
+      return JSON.parse(data);
     } catch (error) {
       console.error('[StorageUtils] Error getting API settings:', error);
       return null;
+    }
+  }
+
+  /**
+   * Save API settings to storage
+   * @param settings API settings object
+   */
+  static async saveApiSettings(settings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): Promise<void> {
+    try {
+      await AsyncStorage.setItem(
+        this.API_SETTINGS_KEY, 
+        JSON.stringify(settings)
+      );
+      console.log('[StorageUtils] API settings saved successfully');
+    } catch (error) {
+      console.error('[StorageUtils] Error saving API settings:', error);
+      throw error;
     }
   }
 }

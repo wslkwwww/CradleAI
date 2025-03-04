@@ -503,9 +503,7 @@ const Explore: React.FC = () => {
       // Add user's forward message to chat
       await addMessage(characterId, message);
       
-      // We'll use the regular conversation navigation to handle the bot's reply
-      // This will be processed through ChatInput which is more appropriate for chat messages
-      
+      // ForwardSheet will handle the API call and navigation
       setIsForwardSheetVisible(false);
       setSelectedPost(null);
     } catch (error) {
