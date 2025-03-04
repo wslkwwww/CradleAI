@@ -1,134 +1,88 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Character } from '../../../shared/types';
+import { CircleRFramework, CirclePostOptions, CircleResponse } from '../types/circle-types';
 import { GeminiAdapter } from '../utils/gemini-adapter';
 import { OpenRouterAdapter } from '../utils/openrouter-adapter';
 import { MessageBoxItem, RelationshipMapData } from '../../../shared/types/relationship-types';
 import { PromptBuilderService, DEntry, RFrameworkEntry } from '../services/prompt-builder-service';
-import { GlobalSettings } from '@/shared/types';
-
-// Define CircleRFramework interface
-export interface CircleRFramework {
-    base: {
-        charDescription: string;
-        charPersonality: string;
-    };
-    circle: {
-        scenePrompt: string;
-        responseFormat: {
-            action: {
-                like: boolean;
-                comment?: string;
-            };
-            emotion: {
-                type: string;
-                intensity: number;
-            };
-        };
-    };
-}
-
-// Update CirclePostOptions to match the expected structure
-export interface CirclePostOptions {
-    type: 'newPost' | 'replyToPost' | 'replyToComment';
-    content: {
-        authorId: string;
-        authorName?: string;
-        text: string;
-        context?: string;
-    };
-    responderId: string;
-    characterId: string;
-}
-
-export interface CircleResponse {
-    success: boolean;
-    action?: {
-        like?: boolean;
-        comment?: string;
-    };
-    emotion?: {
-        type: string;
-        intensity: number;
-    };
-    relationshipUpdates?: Array<{
-        targetId: string;
-        strengthDelta: number;
-        newType?: string;
-    }>;
-    error?: string;
-}
-
+export { CirclePostOptions, CircleResponse };
 export class CircleManager {
     
-    private geminiAdapter: GeminiAdapter;
+    private geminiAdapter: GeminiAdapter | null = null;
     private openRouterAdapter: OpenRouterAdapter | null = null;
-    private apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+    private apiKey?: string;
+    private openRouterConfig?: {
+        apiKey?: string;
+        model?: string;
+    };
     
-    constructor(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
-        // Initialize Gemini adapter as default
-        this.geminiAdapter = new GeminiAdapter(apiKey);
-        
-        // Initialize OpenRouter adapter if enabled
-        if (apiSettings?.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled && apiSettings.openrouter?.apiKey) {
-            this.openRouterAdapter = new OpenRouterAdapter(
-                apiSettings.openrouter.apiKey,
-                apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
-            );
+    constructor(
+        apiKey?: string,
+        openRouterConfig?: {
+            apiKey?: string;
+            model?: string;
         }
+    ) {
+        this.apiKey = apiKey || '';
+        this.openRouterConfig = openRouterConfig;
+        console.log(`【CircleManager】创建实例，apiKey存在: ${!!apiKey}, openRouter配置:`, 
+            openRouterConfig ? {
+                hasKey: !!openRouterConfig.apiKey,
+                model: openRouterConfig.model
+            } : 'none'
+        );
         
-        this.apiSettings = apiSettings;
-    }
-
-    /**
-     * Update API settings and adapter if needed
-     */
-    updateApiSettings(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
-        // Log current settings
-        console.log(`[CircleManager] Updating API settings with provider: ${apiSettings?.apiProvider || 'gemini'}`);
-        
-        // Always update Gemini adapter with latest key
-        if (apiKey) {
+        // 初始化适配器
+        if (openRouterConfig?.apiKey) {
+            this.openRouterAdapter = new OpenRouterAdapter(
+                openRouterConfig.apiKey,
+                openRouterConfig.model || 'openai/gpt-3.5-turbo'
+            );
+            console.log('【CircleManager】已初始化 OpenRouter 适配器');
+        } else if (apiKey) {
             this.geminiAdapter = new GeminiAdapter(apiKey);
-            console.log('[CircleManager] Updated Gemini adapter with new API key');
+            console.log('【CircleManager】已初始化 Gemini 适配器');
         }
-        
-        // Create OpenRouter adapter if needed and settings are valid
-        if (apiSettings?.apiProvider === 'openrouter' && 
-            apiSettings.openrouter?.enabled && 
-            apiSettings.openrouter?.apiKey) {
-        
-            const openrouterApiKey = apiSettings.openrouter.apiKey;
-            const openrouterModel = apiSettings.openrouter.model || 'openai/gpt-3.5-turbo';
-        
-            console.log(`[CircleManager] Creating OpenRouter adapter with model: ${openrouterModel}`);
-        
-            this.openRouterAdapter = new OpenRouterAdapter(
-                openrouterApiKey,
-                openrouterModel
-            );
-        } else {
-            // Clear OpenRouter adapter if settings don't apply
-            console.log('[CircleManager] Not using OpenRouter adapter');
-            this.openRouterAdapter = null;
-        }
-        
-        // Store the API settings for later use
-        this.apiSettings = apiSettings;
     }
 
-    /**
-     * Get the appropriate adapter based on API settings
-     */
-    private getActiveAdapter() {
-        if (this.apiSettings?.apiProvider === 'openrouter' && 
-            this.apiSettings.openrouter?.enabled && 
-            this.openRouterAdapter) {
-            console.log('【CircleManager】使用 OpenRouter 适配器');
-            return this.openRouterAdapter;
+    updateApiKey(
+        apiKey: string,
+        openRouterConfig?: {
+            apiKey?: string;
+            model?: string;
         }
+    ): void {
+        console.log(`【CircleManager】更新API Key和配置`, {
+            hasGeminiKey: !!apiKey,
+            hasOpenRouterKey: !!openRouterConfig?.apiKey,
+            openRouterModel: openRouterConfig?.model
+        });
         
-        console.log('【CircleManager】使用 Gemini 适配器');
-        return this.geminiAdapter;
+        this.apiKey = apiKey;
+        
+        // Only update OpenRouter configuration if explicitly provided
+        if (openRouterConfig) {
+            this.openRouterConfig = openRouterConfig;
+            
+            // If OpenRouter config is provided, use it
+            if (openRouterConfig.apiKey) {
+                this.openRouterAdapter = new OpenRouterAdapter(
+                    openRouterConfig.apiKey,
+                    openRouterConfig.model || 'openai/gpt-3.5-turbo'
+                );
+                this.geminiAdapter = null; // Clear Gemini adapter
+                console.log('【CircleManager】已初始化/更新 OpenRouter 适配器，模型:', openRouterConfig.model);
+            }
+        } 
+        // If no OpenRouter config is provided but we already have one, keep using it
+        else if (this.openRouterAdapter && this.openRouterConfig?.apiKey) {
+            console.log('【CircleManager】保留现有 OpenRouter 配置');
+        }
+        // Otherwise, use/update Gemini adapter
+        else {
+            this.geminiAdapter = new GeminiAdapter(apiKey);
+            console.log('【CircleManager】已初始化/更新 Gemini 适配器');
+        }
     }
 
     private getStorageKey(conversationId: string, suffix: string = ''): string {
@@ -155,52 +109,34 @@ export class CircleManager {
     }
 
     // 实现真实的API调用
-    private async getChatResponse(prompt: string, apiKey?: string): Promise<string> {
+    private async getChatResponse(prompt: string): Promise<string> {
         try {
-            console.log('[CircleManager] Getting chat response with API provider:', 
-                this.apiSettings?.apiProvider || 'gemini');
-                
-            // Determine which adapter to use (OpenRouter or Gemini)
-            const useOpenRouter = this.apiSettings?.apiProvider === 'openrouter' && 
-                                this.apiSettings.openrouter?.enabled &&
-                                this.openRouterAdapter !== null;
+            console.log('【朋友圈】发送请求到LLM, 使用适配器:', 
+                this.openRouterAdapter ? 'OpenRouter' : 'Gemini'
+            );
             
-            console.log(`[CircleManager] Using OpenRouter: ${useOpenRouter}`);
+            // 创建消息内容
+            const message = {
+                role: "user",
+                parts: [{ text: prompt }]
+            };
             
-            if (useOpenRouter && this.openRouterAdapter) {
-                console.log(`[CircleManager] Sending request to OpenRouter with model: ${this.apiSettings?.openrouter?.model}`);
-                
-                // Format message for OpenRouter - converting to parts format
-                const message = {
-                    role: "user",
-                    parts: [{ text: prompt }]
-                };
-                
-                console.log('[CircleManager] Calling OpenRouterAdapter.generateContent');
-                const response = await this.openRouterAdapter.generateContent([message]);
-                console.log(`[CircleManager] Got response from OpenRouter, length: ${response.length}`);
-                return response;
+            // 使用正确的适配器
+            if (this.openRouterAdapter) {
+                return await this.openRouterAdapter.generateContent([message]);
+            } else if (this.geminiAdapter) {
+                return await this.geminiAdapter.generateContent([message]);
             } else {
-                console.log('[CircleManager] Sending request to Gemini');
-                
-                // Format message for Gemini
-                const message = {
-                    role: "user",
-                    parts: [{ text: prompt }]
-                };
-                
-                console.log('[CircleManager] Calling GeminiAdapter.generateContent');
-                const response = await this.geminiAdapter.generateContent([message]);
-                console.log(`[CircleManager] Got response from Gemini, length: ${response.length}`);
-                return response;
+                console.log('【朋友圈】没有可用的API适配器，使用模拟数据');
+                return this.getMockResponse();
             }
         } catch (error) {
-            console.error('[CircleManager] Error getting AI response:', error);
-            console.log('[CircleManager] Using mock response as fallback');
+            console.error('【朋友圈】获取AI回复失败:', error);
+            console.log('【朋友圈】API调用失败，使用备用模拟数据');
             return this.getMockResponse();
         }
     }
-
+    
     // 获取模拟响应作为备选方案
     private getMockResponse(): string {
         const mockResponseTypes = [
@@ -272,8 +208,16 @@ export class CircleManager {
         }
     }
     async initCharacterCircle(characterId: string): Promise<boolean> {
-        // Implement your circle initialization logic here
-        return true;
+        try {
+            console.log(`【CircleManager】初始化角色朋友圈: ${characterId}, apiKey存在: ${!!this.apiKey}`);
+            
+            // 这里添加实际初始化逻辑
+            // 暂时返回true模拟成功，实际应根据API调用结果
+            return true;
+        } catch (error) {
+            console.error(`【CircleManager】初始化角色朋友圈失败:`, error);
+            return false;
+        }
     }    
     // CircleManager specific methods
     async circleInit(character: Character): Promise<boolean> {
@@ -451,7 +395,7 @@ export class CircleManager {
             
             // 7. 转换为文本格式并发送请求
             const prompt = PromptBuilderService.messagesToText(messages);
-            const response = await this.getChatResponse(prompt, apiKey);
+            const response = await this.getChatResponse(prompt);
             
             // 8. 解析响应
             const circleResponse = this.parseCircleResponse(response);
@@ -849,7 +793,7 @@ user789-+10-friend
             .slice(0, 15) // 限制显示最近15条消息
             .sort((a, b) => b.timestamp - a.timestamp) // 从新到旧排序
             .map(msg => {
-                return `${msg.senderName} (${msg.type})
+                return `- 来自: ${msg.senderName} (${msg.type})
         内容: ${msg.content}
         时间: ${new Date(msg.timestamp).toLocaleString()}
         ${msg.contextContent ? `上下文: ${msg.contextContent}` : ''}
@@ -1004,5 +948,10 @@ user789-+10-friend
     最后更新: ${new Date(rel.lastUpdated).toLocaleString()}
     互动次数: ${rel.interactions || 0}`;
           }).join('\n\n');
+    }
+
+    // Changed from postInteraction to circlePost to match existing method
+    async processInteraction(options: CirclePostOptions): Promise<CircleResponse> {
+        return this.circlePost(options, this.apiKey);
     }
 }

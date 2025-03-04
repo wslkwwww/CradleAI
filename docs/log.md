@@ -1,36 +1,76 @@
- (NOBRIDGE) WARN  `flexWrap: `wrap`` is not supported with the `VirtualizedList` components.Consider using `numColumns` with `FlatList` instead. [Component Stack]
- (NOBRIDGE) LOG  Loaded cradle settings: {"duration": 7, "enabled": true, "progress": 27, "startDate": "2025-03-02T12:16:20.486Z"}
+ (NOBRIDGE) LOG  Loaded cradle settings: {"duration": 1, "enabled": true, "progress": 100, "startDate": "2025-03-02T12:16:20.486Z"}
  (NOBRIDGE) LOG  Loaded cradle characters: 5
- (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
- (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
- (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
- (NOBRIDGE) LOG  [CircleService] Found user settings from UserContext
- (NOBRIDGE) LOG  [CircleService] Using global API provider from UserContext: openrouter
- (NOBRIDGE) LOG  [NodeSTManager] Processing circle interaction, type: newPost
- (NOBRIDGE) LOG  [NodeSTManager] API Provider: openrouter
- (NOBRIDGE) LOG  [NodeSTManager] OpenRouter Enabled: true
- (NOBRIDGE) LOG  [NodeSTManager] OpenRouter Model: google/gemini-2.0-flash-exp:free
- (NOBRIDGE) LOG  [NodeSTManager] OpenRouter API Key: present
- (NOBRIDGE) LOG  [NodeSTManager] Using API settings: {"openRouterEnabled": true, "openRouterModel": "google/gemini-2.0-flash-exp:free", "provider": "openrouter"}
- (NOBRIDGE) LOG  [NodeSTManager] Creating CircleManager with API provider: openrouter
- (NOBRIDGE) LOG  [NodeSTManager] OpenRouter enabled with model: google/gemini-2.0-flash-exp:free
- (NOBRIDGE) LOG  [NodeSTManager] OpenRouter API key length: 73
- (NOBRIDGE) LOG  [OpenRouterAdapter] Initialized with model: google/gemini-2.0-flash-exp:free
- (NOBRIDGE) LOG  【朋友圈】处理互动，类型: newPost，作者ID: ，响应者ID: 1740821349159
- (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=0，历史消息数=0
- (NOBRIDGE) LOG  [CircleManager] Getting chat response with API provider: openrouter
- (NOBRIDGE) LOG  [CircleManager] Using OpenRouter: true
- (NOBRIDGE) LOG  [CircleManager] Sending request to OpenRouter with model: google/gemini-2.0-flash-exp:free
- (NOBRIDGE) LOG  [CircleManager] Calling OpenRouterAdapter.generateContent
- (NOBRIDGE) LOG  [OpenRouterAdapter] Generating content with model: google/gemini-2.0-flash-exp:free
- (NOBRIDGE) LOG  [OpenRouterAdapter] Request messages count: 1
- (NOBRIDGE) ERROR  [OpenRouterAdapter] Error generating content: [TypeError: Cannot convert undefined value to object]
- (NOBRIDGE) LOG  [OpenRouterAdapter] Returning fallback response due to error
- (NOBRIDGE) LOG  [CircleManager] Got response from OpenRouter, length: 117
- (NOBRIDGE) LOG  【朋友圈】开始解析响应
- (NOBRIDGE) ERROR  【朋友圈】未找到JSON格式内容
- (NOBRIDGE) ERROR  【朋友圈】解析响应失败: [Error: 未能从AI回复中提取有效数据]
- (NOBRIDGE) LOG  【朋友圈】更新了角色 1740821349159 的朋友圈记忆
- (NOBRIDGE) LOG  【朋友圈】成功处理互动，结果: {"error": "未能从AI回复中提取有效数据", "success": false}
- (NOBRIDGE) LOG  [NodeSTManager] Circle interaction response success: false
- 
+ (NOBRIDGE) LOG  【朋友圈测试】测试模式已启用，显示测试帖子
+ (NOBRIDGE) LOG  【朋友圈测试】开始朋友圈互动测试，帖子内容: 刚看完一部超感人的电影，眼泪都止不住了。你们最近看过什么好电影吗？
+ (NOBRIDGE) LOG  【朋友圈测试】找到 5 个启用了朋友圈互动的角色
+ (NOBRIDGE) LOG  【朋友圈测试】使用真实API Key进行调用
+ (NOBRIDGE) LOG  【朋友圈服务】开始测试互动，共有 5 个启用朋友圈的角色
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小李 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) ERROR  【朋友圈服务】角色 小李 朋友圈初始化失败
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小李 的互动响应: 失败: 初始化角色 小李 的朋友圈失败
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小王 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小王 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) ERROR  【朋友圈服务】角色 小王 朋友圈初始化失败
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小王 的互动响应: 失败: 初始化角色 小王 的朋友圈失败
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小刘 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小刘 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) ERROR  【朋友圈服务】角色 小刘 朋友圈初始化失败
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小刘 的互动响应: 失败: 初始化角色 小刘 的朋友圈失败
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小丽 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小丽 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) ERROR  【朋友圈服务】角色 小丽 朋友圈初始化失败
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小丽 的互动响应: 失败: 初始化角色 小丽 的朋友圈失败
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小那 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 对帖子的互动
+ (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
+ (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小那 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
+ (NOBRIDGE) ERROR  【朋友圈服务】角色 小那 朋友圈初始化失败
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小那 的互动响应: 失败: 初始化角色 小那 的朋友圈失败
+ (NOBRIDGE) LOG  【朋友圈服务】测试互动完成，成功: 0/5
+ (NOBRIDGE) LOG  【朋友圈测试】互动测试结果: {"总结果数": 5, "成功数": 0, "点赞数": 0, "评论数": 0}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ [{
+	"resource": "/f:/my-app/NodeST/nodest/index.ts",
+	"owner": "typescript",
+	"code": "2339",
+	"severity": 8,
+	"message": "Property 'postInteraction' does not exist on type 'CircleManager'.",
+	"source": "ts",
+	"startLineNumber": 203,
+	"startColumn": 40,
+	"endLineNumber": 203,
+	"endColumn": 55
+}]

@@ -1,11 +1,9 @@
-import { View, Text, StyleSheet, TouchableOpacity, Platform, StatusBar, Animated, Alert, Image, ScrollView } from 'react-native';
-import React, { useState, useRef, useEffect } from 'react';
-import { SidebarItemProps } from '@/constants/types';
+import { View, Text, StyleSheet, TouchableOpacity, Platform,StatusBar, Animated, Alert, Image, ScrollView } from 'react-native';
+import React, { useState, useRef, useEffect, } from 'react';
+import {  SidebarItemProps,  } from '@/constants/types';
 import { LongPressGestureHandler, GestureHandlerRootView, HandlerStateChangeEvent, LongPressGestureHandlerEventPayload } from 'react-native-gesture-handler';
 import { useCharacters } from '@/constants/CharactersContext';
 import { Character } from '@/shared/types';
-import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SIDEBAR_WIDTH_EXPANDED = 200;
 const SIDEBAR_WIDTH_COLLAPSED = 0;
@@ -21,7 +19,6 @@ interface SideBarProps {
 export default function SideBar({ isVisible, onClose, conversations, selectedConversationId, onSelectConversation }: SideBarProps) {
   const slideAnim = useRef(new Animated.Value(SIDEBAR_WIDTH_EXPANDED)).current;
   const { characters, deleteCharacters } = useCharacters();
-  const router = useRouter();
 
   useEffect(() => {
     Animated.timing(slideAnim, {
@@ -36,60 +33,44 @@ export default function SideBar({ isVisible, onClose, conversations, selectedCon
       "Delete Character",
       "Are you sure you want to delete this character and all associated conversations?",
       [
-        { text: "Cancel", style: "cancel" },
-        { text: "OK", onPress: () => deleteCharacters([id]) }
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "OK",
+          onPress: () => {
+            deleteCharacters([id]);
+          }
+        }
       ],
       { cancelable: false }
     );
   };
 
-  const handleSelectCharacter = async (character: Character) => {
-    try {
-      // Validate character data
-      if (character.jsonData) {
-        try {
-          const data = JSON.parse(character.jsonData);
-          if (!data.roleCard || !data.preset || !data.worldBook) {
-            console.error('[Sidebar] Invalid character data:', {
-              hasRoleCard: !!data.roleCard,
-              hasPreset: !!data.preset,
-              hasWorldBook: !!data.worldBook
-            });
-            Alert.alert('Error', 'Character data is invalid. Please try recreating this character.');
-            return;
-          }
-        } catch (error) {
-          console.error('[Sidebar] Failed to parse character data:', error);
-          Alert.alert('Error', 'Could not parse character data. The character may be corrupted.');
+  const handleSelectCharacter = (character: Character) => {
+    if (character.jsonData) {
+      try {
+        const data = JSON.parse(character.jsonData);
+        if (!data.roleCard || !data.preset || !data.worldBook) {
+          console.error('Invalid character data:', {
+            hasRoleCard: !!data.roleCard,
+            hasPreset: !!data.preset,
+            hasWorldBook: !!data.worldBook
+          });
           return;
         }
+      } catch (error) {
+        console.error('Failed to parse character data:', error);
+        return;
       }
-
-      console.log(`[Sidebar] Selecting character: ${character.id} - ${character.name}`);
-      
-      // First save the conversation ID to AsyncStorage
-      await AsyncStorage.setItem('lastConversationId', character.id);
-      console.log(`[Sidebar] Saved lastConversationId to AsyncStorage: ${character.id}`);
-      
-      // Close sidebar immediately to improve UX
-      onClose();
-      
-      // Directly call the onSelectConversation callback
-      // This will handle all the state updating logic
-      onSelectConversation(character.id);
-      
-      // Don't use router.setParams() here as it can create an infinite loop
-      // The parent component will handle navigation
-      
-    } catch (error) {
-      console.error('[Sidebar] Error selecting character:', error);
-      Alert.alert('Error', 'Failed to switch to this character. Please try again.');
     }
+    onSelectConversation(character.id);
   };
 
   return (
     <>
-      {/* Overlay */}
+      {/* 遮罩层 - 移到最外层并覆盖整个屏幕 */}
       {isVisible && (
         <TouchableOpacity
           style={styles.overlay}
@@ -98,7 +79,6 @@ export default function SideBar({ isVisible, onClose, conversations, selectedCon
         />
       )}
       
-      {/* Sidebar */}
       <Animated.View
         style={[
           styles.sidebar,

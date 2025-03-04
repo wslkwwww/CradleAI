@@ -1,3 +1,5 @@
+# 更新日志
+
 # Circle Interaction System: OpenRouter Integration
 
 本文档描述了朋友圈互动系统如何与 OpenRouter API 集成，实现多模型支持和 API 配置管理。

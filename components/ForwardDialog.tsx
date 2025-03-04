@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity, FlatList, Image } from 'react-native';
-import { ForwardDialogProps, Character } from '@/shared/types';
+import { ForwardDialogProps, Character } from '@/constants/types';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const ForwardDialog: React.FC<ForwardDialogProps> = ({

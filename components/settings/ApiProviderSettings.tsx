@@ -1,641 +1,548 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  ActivityIndicator, 
-  Switch,
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   TextInput,
-  Alert
+  Switch,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
 } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { GlobalSettings } from '@/shared/types';
-import { OpenRouterSettings } from '@/shared/types/api-types';
-import { OpenRouterModelManager } from '@/NodeST/nodest/utils/openrouter-model-manager';
+import { OpenRouterSettings, OpenRouterModel } from '@/shared/types/api-types';
 import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
-import ModelSelector from './ModelSelector';
-import { OpenRouterModel } from '@/shared/types/api-types';
+import { OpenRouterModelManager } from '@/NodeST/nodest/utils/openrouter-model-manager';
+import ModelSelector from '@/components/settings/ModelSelector';
 
 interface ApiProviderSettingsProps {
-  settings?: GlobalSettings;
-  onUpdate: (updatedSettings: GlobalSettings) => void;
-  character?: any; // Allow character prop for backward compatibility
+  settings: GlobalSettings;
+  onUpdate: (settings: GlobalSettings) => void;
 }
 
-// Default settings
-const DEFAULT_OPENROUTER_SETTINGS: OpenRouterSettings = {
-  enabled: false,
-  apiKey: '',
-  model: 'openai/gpt-3.5-turbo',
-  autoRoute: false,
-  useBackupModels: false,
-  backupModels: [],
-  sortingStrategy: 'price',
-  dataCollection: false,
-  ignoredProviders: []
-};
-
-// Default global settings structure
-const DEFAULT_SETTINGS: GlobalSettings = {
-  self: {
-    nickname: '',
-    gender: 'other',
-    description: '',
-  },
-  chat: {
-    serverUrl: '',
-    characterApiKey: '',
-    memoryApiKey: '',
-    xApiKey: '',
-    apiProvider: 'gemini',
-    openrouter: DEFAULT_OPENROUTER_SETTINGS
-  }
-};
-
-const ApiProviderSettings: React.FC<ApiProviderSettingsProps> = ({ settings, onUpdate, character }) => {
-  // Handle undefined settings by using defaults
-  const effectiveSettings = settings || DEFAULT_SETTINGS;
-  
-  // Initialize with defaults or actual values
-  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter'>(
-    effectiveSettings.chat?.apiProvider || character?.apiProvider || 'gemini'
-  );
-  
-  const [openrouterSettings, setOpenrouterSettings] = useState<OpenRouterSettings>(
-    effectiveSettings.chat?.openrouter || character?.openrouter || DEFAULT_OPENROUTER_SETTINGS
-  );
-  
-  const [geminiApiKey, setGeminiApiKey] = useState(
-    effectiveSettings.chat?.characterApiKey || ''
-  );
-  
-  const [models, setModels] = useState<OpenRouterModel[]>([]);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
+const ApiProviderSettings: React.FC<ApiProviderSettingsProps> = ({ settings, onUpdate }) => {
+  const [showGeminiApiKey, setShowGeminiApiKey] = useState(false);
+  const [showOpenRouterApiKey, setShowOpenRouterApiKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
-  const [isApiKeyHidden, setIsApiKeyHidden] = useState(true);
-  const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [models, setModels] = useState<OpenRouterModel[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   
-  // Update settings whenever the input props change
+  // Default OpenRouter settings if not present
+  const openRouterSettings = settings.chat.openrouter || {
+    enabled: false,
+    apiKey: '',
+    model: 'openai/gpt-3.5-turbo',
+    autoRoute: false,
+    useBackupModels: true,
+    backupModels: [],
+    sortingStrategy: 'price' as const,
+    dataCollection: false,
+    ignoredProviders: [],
+  };
+
+  // Initialize settings if needed
   useEffect(() => {
-    // If using character prop (old way)
-    if (character) {
-      setApiProvider(character.apiProvider || 'gemini');
-      setOpenrouterSettings(character.openrouter || DEFAULT_OPENROUTER_SETTINGS);
-      return;
+    if (!settings.chat.apiProvider) {
+      const updatedSettings = {
+        ...settings,
+        chat: {
+          ...settings.chat,
+          apiProvider: 'gemini' as const,
+        }
+      };
+      onUpdate(updatedSettings);
     }
     
-    // If using settings prop (new way)
-    if (settings?.chat) {
-      setApiProvider(settings.chat.apiProvider || 'gemini');
-      setOpenrouterSettings(settings.chat.openrouter || DEFAULT_OPENROUTER_SETTINGS);
-      setGeminiApiKey(settings.chat.characterApiKey || '');
-    }
-  }, [settings, character]);
-  
-  // Load models when API key is available
-  useEffect(() => {
-    if (apiProvider === 'openrouter' && openrouterSettings?.enabled && openrouterSettings?.apiKey) {
+    if (settings.chat.apiProvider === 'openrouter' && 
+        settings.chat.openrouter?.enabled && 
+        settings.chat.openrouter?.apiKey && 
+        !loadingModels && 
+        models.length === 0) {
       loadModels();
     }
-  }, [apiProvider, openrouterSettings?.enabled, openrouterSettings?.apiKey]);
-  
+  }, [settings]);
+
+  // Load OpenRouter models
   const loadModels = async (forceRefresh = false) => {
-    if (!openrouterSettings?.apiKey) {
+    if (!settings.chat.openrouter?.apiKey) {
+      Alert.alert('Error', 'Please enter an OpenRouter API key first');
       return;
     }
-    
-    setIsLoadingModels(true);
-    
+
     try {
-      const fetchedModels = await OpenRouterModelManager.getModels(openrouterSettings.apiKey, forceRefresh);
-      setModels(fetchedModels);
-      
-      // If models loaded successfully, show the model selector
-      if (fetchedModels.length > 0) {
-        setIsModelSelectorVisible(true);
-      }
+      setLoadingModels(true);
+      const modelsList = await OpenRouterModelManager.getModels(
+        settings.chat.openrouter.apiKey, 
+        forceRefresh
+      );
+      setModels(modelsList);
     } catch (error) {
-      console.error('Error loading models:', error);
-      Alert.alert('错误', '加载模型失败，请检查API Key和网络连接');
+      console.error('Failed to load models:', error);
+      Alert.alert('Error', 'Failed to load models. Please check your API key and try again.');
     } finally {
-      setIsLoadingModels(false);
+      setLoadingModels(false);
     }
   };
-  
-  // Update settings with new API settings
-  const handleUpdateSettings = useCallback(() => {
-    // Handle character-based update (old way)
-    if (character) {
-      const updatedCharacter = {
-        ...character,
-        apiProvider,
-        openrouter: openrouterSettings
-      };
-      
-      // @ts-ignore - Handle old API
-      onUpdate(updatedCharacter);
+
+  // Test OpenRouter connection
+  const testOpenRouterConnection = async () => {
+    if (!settings.chat.openrouter?.apiKey) {
+      Alert.alert('Error', 'Please enter an OpenRouter API key first');
       return;
     }
-    
-    // Create updated settings object (new way)
-    const updatedSettings: GlobalSettings = {
-      ...effectiveSettings,
-      chat: {
-        ...(effectiveSettings.chat || {}),
-        apiProvider,
-        characterApiKey: geminiApiKey,
-        openrouter: openrouterSettings
-      }
-    };
-    
-    // Pass to parent component
-    onUpdate(updatedSettings);
-  }, [apiProvider, openrouterSettings, geminiApiKey, character, onUpdate, effectiveSettings]);
-  
-  // Update OpenRouter settings
-  const updateOpenrouterSetting = useCallback(<K extends keyof OpenRouterSettings>(
-    key: K, 
-    value: OpenRouterSettings[K]
-  ) => {
-    console.log(`Updating OpenRouter setting: ${String(key)} = `, value);
-    setOpenrouterSettings(prev => ({
-      ...prev,
-      [key]: value
-    }));
-  }, []);
-  
-  // Handle API provider change
-  const handleApiProviderChange = useCallback((provider: 'gemini' | 'openrouter') => {
-    setApiProvider(provider);
-  }, []);
-  
-  // Test connection
-  const testConnection = useCallback(async () => {
-    if (apiProvider === 'gemini') {
-      if (!geminiApiKey) {
-        Alert.alert('错误', '请先输入Gemini API Key');
-        return;
-      }
-    } else {
-      if (!openrouterSettings?.apiKey) {
-        Alert.alert('错误', '请先输入OpenRouter API Key');
-        return;
-      }
-    }
-    
-    setTestingConnection(true);
-    
+
     try {
-      if (apiProvider === 'gemini') {
-        // Simple validation check for Gemini (basic format)
-        if (!geminiApiKey.startsWith('AI') && !geminiApiKey.startsWith('g-')) {
-          Alert.alert('警告', 'Gemini API Key 格式似乎不正确，请检查');
-          return;
-        }
-        
-        Alert.alert('成功', 'Gemini API Key 格式有效');
+      setTestingConnection(true);
+      const adapter = new OpenRouterAdapter(
+        settings.chat.openrouter.apiKey, 
+        settings.chat.openrouter.model
+      );
+      
+      const response = await adapter.generateContent([
+        { role: 'user', parts: [{ text: 'Hello, can you respond with just the word "Connected" to verify connection?' }] }
+      ]);
+      
+      if (response && response.includes('Connected')) {
+        Alert.alert('Success', 'Successfully connected to OpenRouter!');
+        // Load models after successful connection
+        loadModels(true);
       } else {
-        // For OpenRouter, try to load models as a test
-        await loadModels(true);
-        Alert.alert('成功', '成功连接到 OpenRouter API');
+        Alert.alert('Success', 'Connected to OpenRouter, but received unexpected response.');
       }
     } catch (error) {
-      console.error('API连接测试失败:', error);
-      Alert.alert('错误', `连接测试失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      console.error('OpenRouter connection test failed:', error);
+      Alert.alert('Connection Failed', error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setTestingConnection(false);
     }
-  }, [apiProvider, geminiApiKey, openrouterSettings?.apiKey, loadModels]);
-  
-  // Better model selection handler
-  const handleSelectModel = useCallback((modelId: string) => {
-    if (openrouterSettings.model === modelId) {
-      // Skip if it's already the selected model to prevent duplicate calls
-      return;
-    }
-    
-    console.log(`ApiProviderSettings - setting model to ${modelId}`);
-    updateOpenrouterSetting('model', modelId);
-  }, [openrouterSettings.model, updateOpenrouterSetting]);
-  
-  // Fix sorting strategy buttons to prevent duplicate clicks
-  const handleSortingStrategyChange = useCallback((strategy: 'price' | 'speed' | 'latency') => {
-    if (openrouterSettings.sortingStrategy === strategy) {
-      // Skip if already set to this strategy
-      return;
-    }
-    
-    // Log the change
-    console.log(`ApiProviderSettings - changing sort strategy to ${strategy}`);
-    
-    // Update the setting
-    updateOpenrouterSetting('sortingStrategy', strategy);
-  }, [openrouterSettings.sortingStrategy, updateOpenrouterSetting]);
-  
-  // Save changes when leaving the component
-  useEffect(() => {
-    return () => {
-      handleUpdateSettings();
+  };
+
+  // Update OpenRouter settings
+  const updateOpenRouterSettings = (updates: Partial<OpenRouterSettings>) => {
+    const updatedOpenRouter = {
+      ...openRouterSettings,
+      ...updates
     };
-  }, [handleUpdateSettings]);
+    
+    onUpdate({
+      ...settings,
+      chat: {
+        ...settings.chat,
+        openrouter: updatedOpenRouter
+      }
+    });
+  };
+
+  // Set API provider
+  const setApiProvider = (provider: 'gemini' | 'openrouter') => {
+    onUpdate({
+      ...settings,
+      chat: {
+        ...settings.chat,
+        apiProvider: provider
+      }
+    });
+  };
+
+  // Handle model selection
+  const handleModelSelect = (modelId: string) => {
+    updateOpenRouterSettings({ model: modelId });
+  };
 
   return (
-    <KeyboardAwareScrollView 
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      keyboardShouldPersistTaps="handled" // Important to handle touches properly
-    >
-      <Text style={styles.sectionTitle}>API提供商设置</Text>
+    <ScrollView style={styles.container}>
+      <Text style={styles.sectionTitle}>API Provider</Text>
       
-      {/* API提供商选择 */}
-      <View style={styles.providerContainer}>
-        <TouchableOpacity
+      {/* API Provider Selection */}
+      <View style={styles.providerSelection}>
+        <TouchableOpacity 
           style={[
             styles.providerButton,
-            apiProvider === 'gemini' && styles.activeProviderButton
+            settings.chat.apiProvider === 'gemini' && styles.providerButtonSelected
           ]}
-          onPress={() => handleApiProviderChange('gemini')}
+          onPress={() => setApiProvider('gemini')}
         >
-          <Text style={styles.providerButtonText}>Gemini</Text>
+          <Text style={[
+            styles.providerButtonText,
+            settings.chat.apiProvider === 'gemini' && styles.providerButtonTextSelected
+          ]}>Gemini</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity
+        <TouchableOpacity 
           style={[
             styles.providerButton,
-            apiProvider === 'openrouter' && styles.activeProviderButton
+            settings.chat.apiProvider === 'openrouter' && styles.providerButtonSelected
           ]}
-          onPress={() => handleApiProviderChange('openrouter')}
+          onPress={() => setApiProvider('openrouter')}
         >
-          <Text style={styles.providerButtonText}>OpenRouter</Text>
+          <Text style={[
+            styles.providerButtonText,
+            settings.chat.apiProvider === 'openrouter' && styles.providerButtonTextSelected
+          ]}>OpenRouter</Text>
         </TouchableOpacity>
       </View>
-      
-      {/* Gemini设置 */}
-      {apiProvider === 'gemini' && (
-        <View style={styles.geminiSettings}>
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Gemini API Key</Text>
-            <View style={styles.apiKeyInputContainer}>
-              <TextInput
-                style={styles.input}
-                value={geminiApiKey}
-                onChangeText={setGeminiApiKey}
-                placeholder="输入Gemini API Key"
-                placeholderTextColor="#777"
-                secureTextEntry={isApiKeyHidden}
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setIsApiKeyHidden(!isApiKeyHidden)}
-              >
-                <MaterialIcons 
-                  name={isApiKeyHidden ? "visibility" : "visibility-off"} 
-                  size={24} 
-                  color="#777"
-                />
-              </TouchableOpacity>
-            </View>
+
+      {/* Gemini Settings */}
+      {settings.chat.apiProvider === 'gemini' && (
+        <View style={styles.providerSettings}>
+          <Text style={styles.label}>Gemini API Key</Text>
+          <View style={styles.apiKeyContainer}>
+            <TextInput
+              style={[styles.input, styles.apiKeyInput]}
+              value={showGeminiApiKey ? settings.chat.characterApiKey : '•'.repeat(settings.chat.characterApiKey.length || 10)}
+              onChangeText={(text) => onUpdate({
+                ...settings,
+                chat: { ...settings.chat, characterApiKey: text }
+              })}
+              secureTextEntry={!showGeminiApiKey}
+              placeholder="Enter Gemini API Key"
+            />
             <TouchableOpacity
-              style={styles.testButton}
-              onPress={testConnection}
-              disabled={testingConnection}
+              style={styles.showButton}
+              onPress={() => setShowGeminiApiKey(!showGeminiApiKey)}
             >
-              {testingConnection ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.testButtonText}>测试连接</Text>
-              )}
+              <MaterialIcons
+                name={showGeminiApiKey ? 'visibility-off' : 'visibility'}
+                size={24}
+                color="#666"
+              />
             </TouchableOpacity>
           </View>
         </View>
       )}
-      
-      {/* OpenRouter设置 */}
-      {apiProvider === 'openrouter' && (
-        <View style={styles.openrouterSettings}>
-          <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>启用OpenRouter</Text>
+
+      {/* OpenRouter Settings */}
+      {settings.chat.apiProvider === 'openrouter' && (
+        <View style={styles.providerSettings}>
+          {/* Enable OpenRouter */}
+          <View style={styles.switchContainer}>
+            <Text style={styles.label}>Enable OpenRouter</Text>
             <Switch
-              value={openrouterSettings?.enabled || false}
-              onValueChange={(value) => updateOpenrouterSetting('enabled', value)}
-              trackColor={{ false: '#444', true: '#FF9ECD' }}
+              value={openRouterSettings.enabled}
+              onValueChange={(value) => updateOpenRouterSettings({ enabled: value })}
+              trackColor={{ false: '#767577', true: '#FF9ECD' }}
+              thumbColor="#f4f3f4"
             />
           </View>
-          
-          {openrouterSettings?.enabled && (
+
+          {/* API Key */}
+          <Text style={styles.label}>OpenRouter API Key</Text>
+          <View style={styles.apiKeyContainer}>
+            <TextInput
+              style={[styles.input, styles.apiKeyInput]}
+              value={showOpenRouterApiKey ? openRouterSettings.apiKey : '•'.repeat(openRouterSettings.apiKey.length || 10)}
+              onChangeText={(text) => updateOpenRouterSettings({ apiKey: text })}
+              secureTextEntry={!showOpenRouterApiKey}
+              placeholder="Enter OpenRouter API Key"
+              editable={openRouterSettings.enabled}
+            />
+            <TouchableOpacity
+              style={styles.showButton}
+              onPress={() => setShowOpenRouterApiKey(!showOpenRouterApiKey)}
+              disabled={!openRouterSettings.enabled}
+            >
+              <MaterialIcons
+                name={showOpenRouterApiKey ? 'visibility-off' : 'visibility'}
+                size={24}
+                color={openRouterSettings.enabled ? "#666" : "#aaa"}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Test Connection Button */}
+          <TouchableOpacity
+            style={[styles.button, !openRouterSettings.enabled && styles.disabledButton]}
+            onPress={testOpenRouterConnection}
+            disabled={testingConnection || !openRouterSettings.enabled || !openRouterSettings.apiKey}
+          >
+            {testingConnection ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.buttonText}>Test Connection</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Model Selector */}
+          {openRouterSettings.enabled && (
             <>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>API Key</Text>
-                <View style={styles.apiKeyInputContainer}>
-                  <TextInput
-                    style={styles.input}
-                    value={openrouterSettings?.apiKey || ''}
-                    onChangeText={(value) => updateOpenrouterSetting('apiKey', value)}
-                    placeholder="输入OpenRouter API Key"
-                    placeholderTextColor="#777"
-                    secureTextEntry={isApiKeyHidden}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeButton}
-                    onPress={() => setIsApiKeyHidden(!isApiKeyHidden)}
-                  >
-                    <MaterialIcons 
-                      name={isApiKeyHidden ? "visibility" : "visibility-off"} 
-                      size={24} 
-                      color="#777" 
-                    />
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity
-                  style={styles.testButton}
-                  onPress={testConnection}
-                  disabled={testingConnection || !openrouterSettings?.apiKey}
+              <View style={styles.modelSelectorHeader}>
+                <Text style={styles.label}>Select Model</Text>
+                <TouchableOpacity 
+                  style={styles.refreshButton} 
+                  onPress={() => loadModels(true)}
+                  disabled={loadingModels}
                 >
-                  {testingConnection ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                  {loadingModels ? (
+                    <ActivityIndicator size="small" color="#FF9ECD" />
                   ) : (
-                    <Text style={styles.testButtonText}>测试连接</Text>
+                    <MaterialIcons name="refresh" size={20} color="#FF9ECD" />
                   )}
                 </TouchableOpacity>
               </View>
               
-              {/* 模型选择器 */}
-              <Text style={styles.sectionLabel}>选择模型</Text>
-              {isModelSelectorVisible ? (
-                <ModelSelector
-                  models={models}
-                  selectedModelId={openrouterSettings.model}
-                  onSelectModel={handleSelectModel}
-                  isLoading={isLoadingModels}
+              <ModelSelector 
+                models={models}
+                selectedModelId={openRouterSettings.model}
+                onSelectModel={handleModelSelect}
+                isLoading={loadingModels}
+              />
+
+              {/* Advanced Settings Toggle */}
+              <TouchableOpacity 
+                style={styles.advancedToggle}
+                onPress={() => setShowAdvanced(!showAdvanced)}
+              >
+                <Text style={styles.advancedToggleText}>
+                  {showAdvanced ? "Hide Advanced Settings" : "Show Advanced Settings"}
+                </Text>
+                <MaterialIcons 
+                  name={showAdvanced ? "expand-less" : "expand-more"} 
+                  size={24} 
+                  color="#666" 
                 />
-              ) : (
-                <View style={styles.loadModelsContainer}>
-                  {isLoadingModels ? (
-                    <View style={styles.loadingContainer}>
-                      <ActivityIndicator size="large" color="#FF9ECD" />
-                      <Text style={styles.loadingText}>加载模型中...</Text>
+              </TouchableOpacity>
+
+              {/* Advanced Settings */}
+              {showAdvanced && (
+                <View style={styles.advancedSettings}>
+                  {/* Auto Route */}
+                  <View style={styles.switchContainer}>
+                    <View>
+                      <Text style={styles.label}>Auto Route</Text>
+                      <Text style={styles.description}>
+                        Automatically select the most appropriate model based on your prompt
+                      </Text>
                     </View>
-                  ) : (
-                    <TouchableOpacity 
-                      style={styles.loadModelsButton}
-                      onPress={() => loadModels(true)}
-                    >
-                      <MaterialIcons name="cloud-download" size={24} color="#fff" />
-                      <Text style={styles.loadModelsText}>加载模型列表</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-              
-              {/* 高级设置 */}
-              <View style={styles.advancedSettings}>
-                <Text style={styles.sectionLabel}>高级设置</Text>
-                
-                <View style={styles.settingRow}>
-                  <Text style={styles.settingLabel}>自动路由</Text>
-                  <Switch
-                    value={openrouterSettings?.autoRoute || false}
-                    onValueChange={(value) => updateOpenrouterSetting('autoRoute', value)}
-                    trackColor={{ false: '#444', true: '#FF9ECD' }}
-                  />
-                </View>
-                
-                <View style={styles.settingRow}>
-                  <Text style={styles.settingLabel}>使用备用模型</Text>
-                  <Switch
-                    value={openrouterSettings?.useBackupModels || false}
-                    onValueChange={(value) => updateOpenrouterSetting('useBackupModels', value)}
-                    trackColor={{ false: '#444', true: '#FF9ECD' }}
-                  />
-                </View>
-                
-                <View style={styles.settingRow}>
-                  <Text style={styles.settingLabel}>允许数据收集</Text>
-                  <Switch
-                    value={openrouterSettings?.dataCollection || false}
-                    onValueChange={(value) => updateOpenrouterSetting('dataCollection', value)}
-                    trackColor={{ false: '#444', true: '#FF9ECD' }}
-                  />
-                </View>
-                
-                <View style={styles.settingRow}>
-                  <Text style={styles.settingLabel}>排序策略</Text>
-                  <View style={styles.strategyButtons}>
+                    <Switch
+                      value={openRouterSettings.autoRoute}
+                      onValueChange={(value) => updateOpenRouterSettings({ autoRoute: value })}
+                      trackColor={{ false: '#767577', true: '#FF9ECD' }}
+                      thumbColor="#f4f3f4"
+                    />
+                  </View>
+
+                  {/* Use Backup Models */}
+                  <View style={styles.switchContainer}>
+                    <View>
+                      <Text style={styles.label}>Use Backup Models</Text>
+                      <Text style={styles.description}>
+                        Automatically switch to backup models when the primary model is unavailable
+                      </Text>
+                    </View>
+                    <Switch
+                      value={openRouterSettings.useBackupModels}
+                      onValueChange={(value) => updateOpenRouterSettings({ useBackupModels: value })}
+                      trackColor={{ false: '#767577', true: '#FF9ECD' }}
+                      thumbColor="#f4f3f4"
+                      disabled={openRouterSettings.autoRoute}
+                    />
+                  </View>
+
+                  {/* Sorting Strategy */}
+                  <Text style={styles.label}>Sorting Strategy</Text>
+                  <View style={styles.strategyContainer}>
                     <TouchableOpacity
                       style={[
                         styles.strategyButton,
-                        openrouterSettings?.sortingStrategy === 'price' && styles.activeStrategyButton
+                        openRouterSettings.sortingStrategy === 'price' && styles.strategyButtonSelected
                       ]}
-                      onPress={() => handleSortingStrategyChange('price')}
+                      onPress={() => updateOpenRouterSettings({ sortingStrategy: 'price' })}
                     >
-                      <Text style={styles.strategyButtonText}>价格</Text>
+                      <Text style={[
+                        styles.strategyButtonText,
+                        openRouterSettings.sortingStrategy === 'price' && styles.strategyButtonTextSelected
+                      ]}>Price</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
                         styles.strategyButton,
-                        openrouterSettings?.sortingStrategy === 'speed' && styles.activeStrategyButton
+                        openRouterSettings.sortingStrategy === 'speed' && styles.strategyButtonSelected
                       ]}
-                      onPress={() => handleSortingStrategyChange('speed')}
+                      onPress={() => updateOpenRouterSettings({ sortingStrategy: 'speed' })}
                     >
-                      <Text style={styles.strategyButtonText}>速度</Text>
+                      <Text style={[
+                        styles.strategyButtonText,
+                        openRouterSettings.sortingStrategy === 'speed' && styles.strategyButtonTextSelected
+                      ]}>Speed</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
                         styles.strategyButton,
-                        openrouterSettings?.sortingStrategy === 'latency' && styles.activeStrategyButton
+                        openRouterSettings.sortingStrategy === 'latency' && styles.strategyButtonSelected
                       ]}
-                      onPress={() => handleSortingStrategyChange('latency')}
+                      onPress={() => updateOpenRouterSettings({ sortingStrategy: 'latency' })}
                     >
-                      <Text style={styles.strategyButtonText}>延迟</Text>
+                      <Text style={[
+                        styles.strategyButtonText,
+                        openRouterSettings.sortingStrategy === 'latency' && styles.strategyButtonTextSelected
+                      ]}>Latency</Text>
                     </TouchableOpacity>
                   </View>
+
+                  {/* Data Collection Switch */}
+                  <View style={styles.switchContainer}>
+                    <View>
+                      <Text style={styles.label}>Allow Data Collection</Text>
+                      <Text style={styles.description}>
+                        Allow OpenRouter to collect anonymized data for service improvement
+                      </Text>
+                    </View>
+                    <Switch
+                      value={openRouterSettings.dataCollection}
+                      onValueChange={(value) => updateOpenRouterSettings({ dataCollection: value })}
+                      trackColor={{ false: '#767577', true: '#FF9ECD' }}
+                      thumbColor="#f4f3f4"
+                    />
+                  </View>
                 </View>
-              </View>
+              )}
             </>
           )}
         </View>
       )}
-      
-      {/* 保存按钮 */}
-      <TouchableOpacity
-        style={styles.saveButton}
-        onPress={handleUpdateSettings}
-      >
-        <Text style={styles.saveButtonText}>保存API设置</Text>
-      </TouchableOpacity>
-    </KeyboardAwareScrollView>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-  },
-  contentContainer: {
-    paddingBottom: 20,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#fff',
     marginBottom: 16,
+    color: '#333',
   },
-  providerContainer: {
+  providerSelection: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   providerButton: {
     flex: 1,
-    padding: 10,
-    backgroundColor: '#444',
-    alignItems: 'center',
-    borderRadius: 4,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
     marginHorizontal: 4,
+    alignItems: 'center',
   },
-  activeProviderButton: {
+  providerButtonSelected: {
     backgroundColor: '#FF9ECD',
+    borderColor: '#FF9ECD',
   },
   providerButtonText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  providerButtonTextSelected: {
     color: '#fff',
-    fontWeight: '500',
   },
-  openrouterSettings: {
-    marginTop: 8,
+  providerSettings: {
+    marginTop: 10,
   },
-  geminiSettings: {
-    marginTop: 8,
+  label: {
+    fontSize: 16,
+    marginBottom: 8,
+    color: '#666',
   },
-  settingRow: {
+  apiKeyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  apiKeyInput: {
+    flex: 1,
+    marginRight: 8,
+  },
+  showButton: {
+    padding: 8,
+  },
+  switchContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#444',
-    borderRadius: 4,
+    marginBottom: 16,
   },
-  settingLabel: {
-    fontSize: 16,
-    color: '#fff',
-  },
-  inputContainer: {
-    marginBottom: 12,
-  },
-  inputLabel: {
-    fontSize: 14,
-    color: '#ccc',
-    marginBottom: 4,
-  },
-  input: {
-    backgroundColor: '#444',
-    color: '#fff',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 4,
-    marginBottom: 8,
-  },
-  testButton: {
-    backgroundColor: '#007AFF',
-    padding: 8,
-    borderRadius: 4,
-    alignItems: 'center',
-  },
-  testButtonText: {
-    color: '#fff',
-  },
-  saveButton: {
+  button: {
     backgroundColor: '#FF9ECD',
     padding: 12,
-    borderRadius: 4,
+    borderRadius: 8,
     alignItems: 'center',
-    marginTop: 16,
+    marginBottom: 20,
   },
-  saveButtonText: {
+  disabledButton: {
+    backgroundColor: '#ddd',
+  },
+  buttonText: {
     color: '#fff',
-    fontWeight: 'bold',
-  },
-  sectionLabel: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#fff',
-    marginTop: 12,
+  },
+  modelSelectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  modelSelectorContainer: {
-    marginBottom: 16,
-    maxHeight: 300, // Limit height to avoid overlap
-  },
-  loadingContainer: {
-    padding: 20,
-    alignItems: 'center',
-    backgroundColor: '#333',
-    borderRadius: 8,
-  },
-  loadingText: {
-    marginTop: 10,
-    color: '#fff',
-    fontSize: 14,
-  },
   refreshButton: {
-    flexDirection: 'row',
-    backgroundColor: '#555',
     padding: 8,
-    borderRadius: 4,
+  },
+  advancedToggle: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    marginVertical: 16,
   },
-  refreshButtonText: {
-    color: '#fff',
-    marginLeft: 6,
+  advancedToggleText: {
+    color: '#666',
+    fontSize: 15,
   },
   advancedSettings: {
-    marginTop: 8,
+    padding: 16,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    marginBottom: 20,
   },
-  strategyButtons: {
+  description: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
+  },
+  strategyContainer: {
     flexDirection: 'row',
+    marginBottom: 16,
   },
   strategyButton: {
     flex: 1,
-    padding: 6,
-    backgroundColor: '#555',
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    marginHorizontal: 4,
     alignItems: 'center',
-    borderRadius: 4,
-    marginHorizontal: 2,
   },
-  activeStrategyButton: {
+  strategyButtonSelected: {
     backgroundColor: '#FF9ECD',
+    borderColor: '#FF9ECD',
   },
   strategyButtonText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  strategyButtonTextSelected: {
     color: '#fff',
-    fontSize: 12,
-  },
-  apiKeyInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  eyeButton: {
-    marginLeft: 8,
-  },
-  loadModelsContainer: {
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  loadModelsButton: {
-    flexDirection: 'row',
-    backgroundColor: '#555',
-    padding: 8,
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadModelsText: {
-    color: '#fff',
-    marginLeft: 6,
   },
 });
 

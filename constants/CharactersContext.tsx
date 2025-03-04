@@ -228,19 +228,19 @@ if (!savedCharacter) {
   };
 
   const updateCharacter = async (character: Character) => {
-    // Alert.alert('更新角色',
-    //   `正在更新角色:\n` +
-    //   `ID: ${character.id}\n` +
-    //   `名称: ${character.name}\n` +
-    //   `朋友圈数量: ${character.circlePosts?.length || 0}`
-    // );
+    Alert.alert('更新角色',
+      `正在更新角色:\n` +
+      `ID: ${character.id}\n` +
+      `名称: ${character.name}\n` +
+      `朋友圈数量: ${character.circlePosts?.length || 0}`
+    );
 
     try {
       const updatedCharacters = characters.map(char =>
         char.id === character.id ? character : char
       );
       
-      // Alert.alert('写入存储', '正在保存角色数据到文件系统...');
+      Alert.alert('写入存储', '正在保存角色数据到文件系统...');
       
       await FileSystem.writeAsStringAsync(
         FileSystem.documentDirectory + 'characters.json',
@@ -259,10 +259,10 @@ if (!savedCharacter) {
         throw new Error('Failed to verify character save');
       }
 
-      // Alert.alert('保存成功',
-      //   `成功保存角色 ${character.name} 的数据\n` +
-      //   `朋友圈数量: ${savedCharacter.circlePosts?.length || 0}`
-      // );
+      Alert.alert('保存成功',
+        `成功保存角色 ${character.name} 的数据\n` +
+        `朋友圈数量: ${savedCharacter.circlePosts?.length || 0}`
+      );
 
       setCharacters(updatedCharacters);
     } catch (error) {

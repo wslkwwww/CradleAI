@@ -76,8 +76,7 @@ export interface MessagePart {
 // 基础消息格式
 export interface ChatMessage {
     role: string;
-    parts?: MessagePart[];
-    content?: string;
+    parts: MessagePart[];
     is_first_mes?: boolean;
     is_author_note?: boolean;
     is_d_entry?: boolean;

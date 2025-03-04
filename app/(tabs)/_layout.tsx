@@ -2,8 +2,6 @@ import { Tabs } from 'expo-router';
 import { useColorScheme } from 'react-native';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { useLocalSearchParams } from 'expo-router';
 
 import Colors from '@/constants/Colors';
 import React from 'react';
@@ -30,24 +28,11 @@ export default function TabLayout() {
     tabIconSelected: colorScheme === 'dark' ? '#fff' : '#2f95dc',
   };
 
-  const [hideTabBar, setHideTabBar] = useState(false);
-  const params = useLocalSearchParams();
-  
-  useEffect(() => {
-    // Check if the hideTabBar parameter is set
-    if (params.hideTabBar === 'true') {
-      setHideTabBar(true);
-    } else {
-      setHideTabBar(false);
-    }
-  }, [params.hideTabBar]);
-
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: theme.tabIconSelected,
         tabBarStyle: {
-          display: hideTabBar ? 'none' : 'flex',
           backgroundColor: '#282828',
           borderTopColor: 'rgba(255, 255, 255, 0.1)',
         },

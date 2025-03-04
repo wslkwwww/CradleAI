@@ -1,117 +1,80 @@
-/**
- * API types for various API providers
- */
-
-/**
- * OpenRouter API settings
- */
 export interface OpenRouterSettings {
-    enabled: boolean;          // Whether OpenRouter is enabled
-    apiKey: string;            // OpenRouter API key
-    model: string;             // Selected model ID
-    autoRoute: boolean;        // Whether to use auto-routing
-    useBackupModels: boolean;  // Whether to use backup models
-    backupModels: string[];    // List of backup model IDs
-    sortingStrategy: 'price' | 'speed' | 'latency';  // Model sorting strategy
-    dataCollection: boolean;   // Whether to allow data collection
-    ignoredProviders: string[];  // List of providers to ignore
-    quantizationLevel?: string;  // Optional quantization level
+    enabled: boolean;          // 是否启用 OpenRouter
+    apiKey: string;            // OpenRouter API Key
+    model: string;             // 当前选择的模型 ID
+    autoRoute?: boolean;       // 是否启用自动路由
+    useBackupModels?: boolean; // 在主模型不可用时使用备用模型
+    backupModels?: string[];   // 备用模型列表
+    sortingStrategy?: 'price' | 'speed' | 'latency';  // 排序策略
+    dataCollection?: boolean;  // 是否允许数据收集
+    ignoredProviders?: string[]; // 忽略的提供商列表
+    quantizationLevel?: string;  // 量化级别 (可选)
 }
 
-/**
- * OpenRouter API model information
- */
 export interface OpenRouterModel {
-    id: string;               // Model ID
-    name: string;             // Model display name
-    description?: string;     // Model description
-    context_length?: number;  // Context window size
-    pricing?: {
-        prompt?: number;      // Cost per 1K input tokens
-        completion?: number;  // Cost per 1K output tokens
+    id: string;               // 模型的唯一标识符
+    name: string;             // 模型的显示名称
+    description?: string;     // 模型描述 (可选)
+    context_length?: number;  // 模型的上下文长度 (可选)
+    pricing?: {               // 价格信息 (可选)
+        prompt?: number;      // 每 1K tokens 的输入价格
+        completion?: number;  // 每 1K tokens 的输出价格
     };
-    provider?: {
-        id?: string;          // Provider ID
-        name?: string;        // Provider name
+    provider?: {              // 提供商信息 (可选)
+        id?: string;          // 提供商 ID
+        name?: string;        // 提供商名称
     };
 }
 
-/**
- * API provider settings container
- */
 export interface ApiSettings {
-    provider: 'gemini' | 'openrouter';  // Selected API provider
-    gemini?: {
-        apiKey: string;         // Gemini API key
+    provider: 'gemini' | 'openrouter';
+    gemini: {
+        apiKey: string;
     };
-    openrouter?: OpenRouterSettings;  // OpenRouter settings
+    openrouter: OpenRouterSettings;
 }
 
-/**
- * OpenRouter API request parameters
- */
+// OpenRouter API 请求
 export interface OpenRouterRequest {
-    model: string;
-    messages: Array<{
-      role: "user" | "system" | "assistant";
-      content: string;
+    model: string;           // 模型 ID
+    messages: Array<{        // 消息数组
+        role: "user" | "assistant" | "system";  // 消息角色
+        content: string;       // 消息内容
     }>;
-    temperature: number;
-    max_tokens: number;
-    stream: boolean;
-  }
-  
-
-export interface OpenRouterRequestParams {
-    model: string;
-    messages: Array<{
-        role: "user" | "assistant" | "system";
-        content: string;
-    }>;
-    temperature?: number;
-    max_tokens?: number;
-    top_p?: number;
-    frequency_penalty?: number;
-    presence_penalty?: number;
-    top_k?: number;
-    stop?: string[];
-    tools?: any[];
-    tool_choice?: any;
+    temperature?: number;    // 温度（控制随机性）
+    max_tokens?: number;     // 最大生成的标记数
+    top_p?: number;          // Top P 采样
+    top_k?: number;          // Top K 采样
+    stream?: boolean;        // 是否启用流式响应
+    stop?: string[];         // 停止序列
 }
 
-/**
- * OpenRouter API response format
- */
+// OpenRouter API 响应
 export interface OpenRouterResponse {
-    id: string;
-    choices: Array<{
+    id: string;              // 回复 ID
+    choices: Array<{         // 选择数组
         message: {
-            role: string;
-            content: string;
+            role: "assistant";   // 角色
+            content: string;     // 生成的内容
         };
-        finish_reason: string;
+        finish_reason: string; // 完成原因
     }>;
-    usage: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
+    usage?: {                // 使用情况
+        prompt_tokens: number; // 输入标记数
+        completion_tokens: number; // 输出标记数
+        total_tokens: number;  // 总标记数
     };
-    error?: {
-        message: string;
-    }
+    model: string;           // 实际使用的模型
+    cached?: boolean;        // 是否使用了缓存
 }
 
-/**
- * OpenRouter 流式响应中的 Delta 对象
- */
+// OpenRouter 流式响应中的 Delta 对象
 export interface OpenRouterDelta {
     role?: string;
     content?: string;
 }
 
-/**
- * OpenRouter 错误响应
- */
+// OpenRouter 错误响应
 export interface OpenRouterError {
     error: {
         message: string;
@@ -121,9 +84,7 @@ export interface OpenRouterError {
     };
 }
 
-/**
- * OpenRouter 模型列表响应
- */
+// OpenRouter 模型列表响应
 export interface OpenRouterModelsResponse {
     data: OpenRouterModel[];
 }

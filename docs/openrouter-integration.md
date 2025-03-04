@@ -1,4 +1,6 @@
+# OpenRouter API 集成文件结构
 
+```markdown
 # OpenRouter API 集成文件结构
 
 本文档介绍了 OpenRouter API 集成到应用的文件结构，帮助开发者了解代码组织和关键组件的位置。
@@ -12,6 +14,14 @@
 | `/NodeST/nodest/utils/openrouter-adapter.ts` | OpenRouter API 适配器，处理 API 请求和响应格式化 |
 | `/NodeST/nodest/utils/openrouter-model-manager.ts` | 管理模型列表、缓存和过滤逻辑 |
 | `/shared/types/api-types.ts` | 定义 OpenRouter 相关的类型和接口 |
+
+### 核心功能
+
+| 文件路径 | 描述 |
+|---------|------|
+| `/NodeST/nodest/index.ts` | NodeST 主类，处理 API 提供商路由 |
+| `/NodeST/nodest/core/node-st-core.ts` | 核心逻辑，实现多 API 适配器支持 |
+| `/utils/NodeSTManager.ts` | 包装 NodeST 类，供应用组件调用 |
 
 ## 2. UI 组件
 
@@ -32,6 +42,12 @@
 
 ## 3. 集成点
 
+### 消息处理
+
+| 文件路径 | 描述 |
+|---------|------|
+| `/components/ChatInput.tsx` | 聊天输入组件，调用 NodeSTManager 处理消息 |
+
 ### 用户设置
 
 | 文件路径 | 描述 |
@@ -44,8 +60,9 @@
 |---------|------|
 | `/docs/openrouter-integration.md` | OpenRouter API 集成文档 |
 | `/docs/openrouter-types.md` | OpenRouter 类型定义文档 |
+| `/docs/openrouter-file-structure.md` | 文件结构文档（本文件）|
 
-## 5. 文件间关系图(以聊天组件Chatinput输入聊天消息，调用openrouter为例)
+## 5. 文件间关系图
 
 ```mermaid
 graph TD
@@ -79,12 +96,16 @@ graph TD
 │       └── global-settings.tsx         # 全局设置页面
 │
 ├── components/
+│   ├── ChatInput.tsx                   # 聊天输入组件
 │   └── settings/
 │       ├── ApiProviderSettings.tsx     # API提供商设置组件
 │       └── ModelSelector.tsx           # 模型选择器组件
 │
 ├── NodeST/
 │   └── nodest/
+│       ├── index.ts                    # NodeST主类
+│       ├── core/
+│       │   └── node-st-core.ts         # NodeST核心逻辑
 │       └── utils/
 │           ├── gemini-adapter.ts       # Gemini适配器
 │           ├── openrouter-adapter.ts   # OpenRouter适配器
@@ -98,13 +119,16 @@ graph TD
 │       ├── api-types.ts                # API相关类型定义
 │       └── index.ts                    # 通用类型定义
 │
+├── utils/
+│   └── NodeSTManager.ts                # NodeST管理器
+│
 └── docs/
     ├── openrouter-integration.md       # 集成文档
     ├── openrouter-types.md             # 类型定义文档
-
+    └── openrouter-file-structure.md    # 文件结构文档
 ```
 
-## 7. 模块依赖关系(以聊天组件Chatinput输入聊天消息，调用openrouter为例)
+## 7. 模块依赖关系
 
 ### 数据流
 
@@ -569,7 +593,3 @@ const response = await NodeSTManager.processChatMessage({
   character: selectedCharacter
 });
 ```
-
-
-
-

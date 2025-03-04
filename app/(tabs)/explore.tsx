@@ -196,7 +196,11 @@ const Explore: React.FC = () => {
     try {
       // 获取API Key用于真实调用
       const apiKey = user?.settings?.chat?.characterApiKey;
-      
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
+
       if (!apiKey) {
         console.warn('【朋友圈测试】缺少API Key，将使用模拟数据');
       } else {
@@ -207,7 +211,8 @@ const Explore: React.FC = () => {
       const { updatedPost, results } = await CircleService.processTestInteraction(
         testPost, 
         interactingCharacters,
-        apiKey
+        apiKey,
+        apiSettings
       );
       
       console.log('【朋友圈测试】互动测试结果:', {
@@ -491,26 +496,50 @@ const Explore: React.FC = () => {
   
     const forwardMessage = `${additionalMessage ? additionalMessage + '\n\n' : ''}转发自 ${selectedPost.characterName} 的朋友圈：\n${selectedPost.content}`;
   
+    // 创建消息对象
+    const message: Message = {
+      id: String(Date.now()),
+      text: forwardMessage,
+      sender: 'user',
+      timestamp: Date.now(),
+    };
+  
     try {
-      // Create message object
-      const message: Message = {
-        id: String(Date.now()),
-        text: forwardMessage,
-        sender: 'user',
-        timestamp: Date.now(),
-      };
+      // 获取API Key
+      const apiKey = user?.settings?.chat?.characterApiKey;
       
-      // Add user's forward message to chat
+      // 使用NodeST处理聊天消息，传递API Key
+      const result = await CircleService.processCommentInteraction(
+        character,
+        selectedPost,
+        forwardMessage,
+        apiKey
+      );
+      
+      // 添加用户的转发消息
       await addMessage(characterId, message);
       
-      // ForwardSheet will handle the API call and navigation
-      setIsForwardSheetVisible(false);
-      setSelectedPost(null);
+      if (result.success && result.action?.comment) {
+        // 添加角色的回复消息
+        const botMessage: Message = {
+          id: String(Date.now() + 1),
+          text: result.action.comment,
+          sender: 'bot',
+          timestamp: Date.now(),
+        };
+        await addMessage(characterId, botMessage);
+      } else {
+        // 处理失败情况
+        console.error('Failed to get character response:', result.error);
+      }
     } catch (error) {
       console.error('Error forwarding message:', error);
       Alert.alert('Error', 'Failed to forward message');
     }
-  }, [selectedPost, addMessage]);
+  
+    setIsForwardSheetVisible(false);
+    setSelectedPost(null);
+  }, [selectedPost, addMessage, characters, user?.settings?.chat?.characterApiKey]);
 
   const scrollToPost = useCallback((postId: string) => {
     const postIndex = posts.findIndex(post => post.id === postId);
@@ -566,9 +595,13 @@ const Explore: React.FC = () => {
       
       // 获取API Key
       const apiKey = user?.settings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
       
       // 使用CircleService创建测试帖子
-      const { post, author } = await CircleService.publishTestPost(characters, apiKey);
+      const { post, author } = await CircleService.publishTestPost(characters, apiKey, apiSettings);
       
       if (!post || !author) {
         Alert.alert('发布失败', '没有可用的角色或发布过程中出现错误');

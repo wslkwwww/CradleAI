@@ -178,7 +178,7 @@ graph TD
 `/NodeST/nodest/index.ts`：NodeST API 封装层
 
 ### 5.3 核心层
-`/NodeST/nodest/services/prompt-builder-service`：# 构建 AI 请求体的核心通用服务（新增）
+`/NodeST/nodest/services/prompt-builder-seervice`：# 构建 AI 请求体的核心通用服务（新增）
 
 `/NodeST/nodest/managers/circle-manager.ts`：朋友圈核心处理器
 'circleInit'：初始化角色朋友圈框架

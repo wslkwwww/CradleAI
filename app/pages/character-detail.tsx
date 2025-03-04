@@ -405,9 +405,9 @@ const CharacterDetail: React.FC = () => {
         apiKey: user?.settings?.chat.characterApiKey || '',
         character: updatedCharacter
       });
-
-      if (!updateResult?.success) {
-        throw new Error(updateResult?.error || 'NodeST 更新失败');
+  
+      if (!updateResult.success) {
+        throw new Error(updateResult.error || 'NodeST 更新失败');
       }
   
       await updateCharacter(updatedCharacter);

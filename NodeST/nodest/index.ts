@@ -28,41 +28,92 @@ export { CirclePostOptions, CircleResponse };
 export class NodeST {
     private nodeSTCore: NodeSTCore | null = null;
     private circleManager: CircleManager | null = null;
-    private apiKey: string = '';
-    async initCircle(character: Character): Promise<CircleResponse> {
-        // Implementation details
-        throw new Error("Method not implemented.");
+    private apiKey: string;
+    
+
+    constructor(apiKey?: string) {
+      this.apiKey = apiKey || '';
+      console.log(`【NodeST】创建新实例，apiKey存在: ${!!apiKey}`);
+    }
+  
+    setApiKey(apiKey: string): void {
+      console.log(`【NodeST】设置API Key: ${apiKey ? apiKey.substring(0, 5) + '...' : 'undefined'}`);
+      this.apiKey = apiKey;
+      
+      // 如果已经存在核心实例，也更新它的API Key
+      if (this.nodeSTCore) {
+        this.nodeSTCore.updateApiKey(apiKey);
       }
       
-    constructor(apiKey?: string) { // Make apiKey optional in the constructor
-        if (apiKey) {
-            this.apiKey = apiKey;
+      // 如果已经存在圈子管理器，也更新它的API Key
+      // Note: We maintain any existing OpenRouter config when just setting API key
+      if (this.circleManager) {
+        const existingOpenRouterConfig = this.circleManager['openRouterConfig'];
+        this.circleManager.updateApiKey(apiKey, existingOpenRouterConfig);
+      }
+    }
+
+    // Add new method for updating API settings
+    updateApiSettings(
+        apiKey: string, 
+        apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+    ): void {
+        // Set API key first
+        this.setApiKey(apiKey);
+        
+        // Update NodeSTCore settings if it exists
+        if (this.nodeSTCore) {
+            this.nodeSTCore.updateApiSettings(apiKey, apiSettings);
         }
+
+        // Update CircleManager settings if it exists
+        if (this.circleManager) {
+            const openRouterConfig = apiSettings?.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled
+                ? {
+                    apiKey: apiSettings.openrouter.apiKey,
+                    model: apiSettings.openrouter.model
+                }
+                : undefined;
+                
+            this.circleManager.updateApiKey(apiKey, openRouterConfig);
+        }
+        
+        console.log(`【NodeST】更新API设置:`, {
+            provider: apiSettings?.apiProvider || 'gemini',
+            hasOpenRouter: !!apiSettings?.openrouter?.enabled,
+            model: apiSettings?.openrouter?.model || 'none',
+            apiKeyLength: apiKey?.length || 0
+        });
     }
 
     private getCoreInstance(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): NodeSTCore {
+        // 确保使用最新的API Key
+        const effectiveApiKey = this.apiKey || apiKey;
+        
         // 使用核心 API 设置初始化或更新 NodeSTCore
         if (!this.nodeSTCore) {
             console.log("[NodeST] Creating new NodeSTCore instance with API settings:", {
                 provider: apiSettings?.apiProvider || 'gemini',
-                hasOpenRouter: !!apiSettings?.openrouter
+                hasOpenRouter: !!apiSettings?.openrouter,
+                apiKeyLength: effectiveApiKey?.length || 0
             });
-            this.nodeSTCore = new NodeSTCore(apiKey, apiSettings);
+            this.nodeSTCore = new NodeSTCore(effectiveApiKey, apiSettings);
         } else {
             console.log("[NodeST] Updating existing NodeSTCore with API settings:", {
                 provider: apiSettings?.apiProvider || 'gemini',
                 hasOpenRouter: !!apiSettings?.openrouter
             });
-            this.nodeSTCore.updateApiSettings(apiKey, apiSettings);
+            this.nodeSTCore.updateApiSettings(effectiveApiKey, apiSettings);
         }
         
         return this.nodeSTCore;
     }
 
-    private getCircleManager(apiKey?: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): CircleManager {
-        // Pass the API key to CircleManager constructor if not already initialized
+    private getCircleManager(): CircleManager {
         if (!this.circleManager) {
-            this.circleManager = new CircleManager(apiKey || this.apiKey, apiSettings);
+            // When creating a new instance, respect any existing API settings
+            console.log(`【NodeST】创建新的CircleManager实例，apiKey存在: ${!!this.apiKey}`);
+            this.circleManager = new CircleManager(this.apiKey);
         }
         return this.circleManager;
     }
@@ -192,6 +243,7 @@ export class NodeST {
     async initCharacterCircle(character: Character | string): Promise<boolean> {
         try {
             const characterId = typeof character === 'string' ? character : character.id;
+            console.log(`【NodeST】初始化角色朋友圈: ${characterId}, apiKey存在: ${!!this.apiKey}`);
             const circleManager = this.getCircleManager();
             return await circleManager.initCharacterCircle(characterId);
         } catch (error) {
@@ -200,60 +252,17 @@ export class NodeST {
         }
     }
 
-    // Update the API key
-    setApiKey(apiKey: string): void {
-        this.apiKey = apiKey;
-    }
-
-    /**
-     * Process circle interactions with API provider selection
-     */
-    async processCircleInteraction(params: {
-        characterId: string;
-        postAuthorId?: string;
-        postContent?: string;
-        commentContent?: string;
-        commentAuthor?: string;
-        context?: string;
-        apiKey: string;
-        apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
-        type: 'newPost' | 'replyToPost' | 'replyToComment';
-    }) {
+    async processCircleInteraction(options: CirclePostOptions): Promise<CircleResponse> {
         try {
-            // Update API key if provided
-            if (params.apiKey) {
-                this.apiKey = params.apiKey;
-            }
-            
-            // Initialize circle manager if not already
-            if (!this.circleManager) {
-                // Initialize with API key and API settings
-                this.circleManager = new CircleManager(this.apiKey, params.apiSettings);
-            } else if (params.apiSettings) {
-                // Update API settings for existing manager
-                this.circleManager.updateApiSettings(this.apiKey, params.apiSettings);
-            }
-            
-            // Create the CirclePostOptions object from the parameters
-            const circlePostOptions: CirclePostOptions = {
-                type: params.type,
-                content: {
-                    authorId: params.postAuthorId || '',
-                    text: params.postContent || params.commentContent || '',
-                    context: params.context || ''
-                },
-                responderId: params.characterId,
-                characterId: params.characterId
-            };
-            
-            // Process circle interaction with the appropriate API provider
-            return await this.circleManager.circlePost(circlePostOptions);
-            
+            console.log(`【NodeST】处理朋友圈互动: ${options.type}, apiKey存在: ${!!this.apiKey}`);
+            const circleManager = this.getCircleManager();
+            // Changed postInteraction to circlePost
+            return await circleManager.circlePost(options, this.apiKey);
         } catch (error) {
-            console.error('【NodeST】处理朋友圈互动失败:', error);
+            console.error("[NodeST] Error processing circle interaction:", error);
             return {
                 success: false,
-                error: '处理朋友圈互动失败: ' + (error instanceof Error ? error.message : String(error))
+                error: error instanceof Error ? error.message : "Unknown error"
             };
         }
     }

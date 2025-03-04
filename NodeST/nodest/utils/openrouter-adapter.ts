@@ -1,199 +1,154 @@
-import { OpenRouterRequestParams, OpenRouterResponse } from '@/shared/types/api-types';
+import { ChatMessage } from "@/shared/types";
+import { OpenRouterModel } from "@/shared/types/api-types";
 
 /**
- * OpenRouter API adapter for AI model communication
+ * OpenRouter API Adapter - 处理与OpenRouter API的通信
  */
 export class OpenRouterAdapter {
   private apiKey: string;
   private model: string;
-  private baseUrl = 'https://openrouter.ai/api/v1';
-  private conversationHistory: Array<{role: string, parts: Array<{text: string}>}> = [];
+  private conversationHistory: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+  private baseUrl = "https://openrouter.ai/api/v1";
 
-  constructor(apiKey: string, model: string = 'openai/gpt-3.5-turbo') {
+  constructor(apiKey: string, model: string = "openai/gpt-3.5-turbo") {
     this.apiKey = apiKey;
     this.model = model;
-    console.log(`[OpenRouterAdapter] Initialized with model: ${this.model}`);
+    console.log(`[OpenRouterAdapter] 初始化，使用模型: ${model}`);
   }
 
   /**
-   * Generate content using OpenRouter API
-   * @param messages Array of message objects with role and parts (Gemini format)
-   * @returns Generated content as string
+   * 设置要使用的模型
+   * @param model 模型ID
    */
-  async generateContent(messages: Array<{role: string, parts: Array<{text: string}>}>): Promise<string> {
-    try {
-      console.log(`[OpenRouterAdapter] Generating content with model: ${this.model}`);
-      console.log(`[OpenRouterAdapter] Request messages count: ${messages.length}`);
+  setModel(model: string) {
+    this.model = model;
+    console.log(`[OpenRouterAdapter] 设置模型: ${model}`);
+  }
+
+  /**
+   * 生成内容
+   * @param messages 消息列表
+   * @returns 生成的内容
+   */
+  async generateContent(messages: ChatMessage[]): Promise<string> {
+    if (!this.apiKey) {
+      throw new Error("OpenRouter API Key不能为空");
+    }
+
+    // Convert NodeST messages format to OpenRouter format
+    const openRouterMessages = messages.map(msg => {
+      let role = msg.role === 'model' ? 'assistant' : msg.role;
       
-      if (!this.apiKey) {
-        throw new Error('OpenRouter API key is missing');
+      // Make sure we use valid role values for OpenRouter
+      if (!['user', 'assistant', 'system'].includes(role)) {
+        role = 'user';
       }
 
-      // Store messages in conversation history
-      this.conversationHistory = [...this.conversationHistory, ...messages];
-
-      // Transform Gemini-style messages to OpenRouter format
-      const transformedMessages = messages.map(msg => {
-        // For system messages, use 'system' role
-        if (msg.role === 'system') {
-          return {
-            role: 'system' as const,
-            content: msg.parts[0]?.text || ''
-          };
-        }
-        
-        // For user messages
-        if (msg.role === 'user') {
-          return {
-            role: 'user' as const,
-            content: msg.parts[0]?.text || ''
-          };
-        }
-        
-        // For assistant/model messages
-        if (msg.role === 'model') {
-          return {
-            role: 'assistant' as const,
-            content: msg.parts[0]?.text || ''
-          };
-        }
-        
-        // Default to user if role is unknown
-        return {
-          role: 'user' as const,
-          content: msg.parts[0]?.text || ''
-        };
-      });
-
-      // Ensure we have valid messages
-      if (transformedMessages.length === 0) {
-        throw new Error('No valid messages to send to OpenRouter');
+      // Extract text from parts
+      let content = '';
+      if (msg.parts && msg.parts.length > 0) {
+        // Combine all text parts into one string
+        content = msg.parts
+          .filter(part => part.text)
+          .map(part => part.text)
+          .join('\n');
       }
 
-      // Log the transformed messages
-      console.log(`[OpenRouterAdapter] Transformed messages:`, JSON.stringify(transformedMessages));
+      return { role, content };
+    });
 
-      // Create request body
-      const requestBody: OpenRouterRequestParams = {
+    console.log(`[OpenRouterAdapter] 生成内容，消息数: ${openRouterMessages.length}`);
+    
+    try {
+      // Prepare the request body
+      const body = {
         model: this.model,
-        messages: transformedMessages,
-        temperature: 0.7,
-        max_tokens: 1000
+        messages: openRouterMessages,
       };
 
-      console.log(`[OpenRouterAdapter] Sending request to ${this.baseUrl}/chat/completions`);
-
+      // Make the request to OpenRouter API
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
+          'HTTP-Referer': 'https://myaiapp.com', // Replace with your app's URL
+          'X-Title': 'My AI Character App'      // Replace with your app's name
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(body),
       });
 
-      console.log(`[OpenRouterAdapter] Response status: ${response.status}`);
-
-      // Detailed error handling with response body
       if (!response.ok) {
-        let errorMessage = `OpenRouter API returned ${response.status}`;
-        try {
-          const errorData = await response.text();
-          console.error(`[OpenRouterAdapter] API error details: ${errorData}`);
-          errorMessage += `: ${errorData}`;
-        } catch (e) {
-          console.error('[OpenRouterAdapter] Could not parse error response');
-        }
-        throw new Error(errorMessage);
+        const errorText = await response.text();
+        console.error(`[OpenRouterAdapter] API Error (${response.status}): ${errorText}`);
+        throw new Error(`OpenRouter API返回错误 ${response.status}: ${errorText}`);
       }
 
-      const data: OpenRouterResponse = await response.json();
-      
-      // Log entire response for debugging
-      console.log('[OpenRouterAdapter] Response data:', JSON.stringify(data));
-      
-      // More detailed validation of the response
-      if (!data) {
-        throw new Error('Empty response from OpenRouter API');
-      }
-      
-      if (!data.choices) {
-        console.error('[OpenRouterAdapter] Response missing choices array:', JSON.stringify(data));
-        
-        // Check for error details and provide better error message
-        if (data.error) {
-          throw new Error(`API Error: ${data.error.message || 'Unknown error'}`);
+      const result = await response.json();
+            
+      if (result.choices?.[0]?.message?.content) {
+        const responseText = result.choices[0].message.content;
+        if (responseText) {
+          this.conversationHistory.push({
+            role: "assistant",
+            parts: [{ text: responseText }]
+          });
         }
-        
-        throw new Error('Invalid response format from OpenRouter API');
-      }
-      
-      if (data.choices.length === 0) {
-        console.error('[OpenRouterAdapter] Response has empty choices array:', JSON.stringify(data));
-        throw new Error('No completion choices returned');
-      }
-      
-      if (!data.choices[0].message || !data.choices[0].message.content) {
-        console.error('[OpenRouterAdapter] Response missing message content:', JSON.stringify(data.choices));
-        throw new Error('Missing content in OpenRouter API response');
+        return responseText;
       }
 
-      const responseText = data.choices[0].message.content;
-      
-      // Add assistant response to conversation history
-      this.conversationHistory.push({
-        role: 'model',
-        parts: [{ text: responseText }]
-      });
-      
-      // Log successful response details
-      console.log(`[OpenRouterAdapter] Received response content length: ${responseText.length}`);
-      return responseText;
+      throw new Error("OpenRouter API响应格式错误");
     } catch (error) {
-      console.error('[OpenRouterAdapter] Error generating content:', error);
-      
-      // Return a fallback response instead of throwing
-      console.log('[OpenRouterAdapter] Returning fallback response due to error');
-      return "I apologize, but I encountered an error processing your request. Could you please try again or rephrase your message?";
+      console.error("[OpenRouterAdapter] 生成内容时出错:", error);
+      throw error;
     }
   }
 
   /**
-   * Get chat history for compatibility with other adapters
+   * 获取模型列表
    */
-  getChatHistory(): Array<{ role: string; text: string }> {
-    return this.conversationHistory.map(msg => ({
-      role: msg.role,
-      text: msg.parts[0]?.text || ''
-    }));
-  }
+  async listModels(): Promise<OpenRouterModel[]> {
+    if (!this.apiKey) {
+      throw new Error("OpenRouter API Key不能为空");
+    }
 
-  /**
-   * List available models from OpenRouter
-   * @returns Array of available models
-   */
-  async listModels(): Promise<any[]> {
     try {
-      console.log(`[OpenRouterAdapter] Fetching available models`);
-      
       const response = await fetch(`${this.baseUrl}/models`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
-        }
+          'HTTP-Referer': 'https://myaiapp.com', // Replace with your app's URL
+          'X-Title': 'My AI Character App'      // Replace with your app's name
+        },
       });
 
       if (!response.ok) {
-        const errorData = await response.text();
-        console.error(`[OpenRouterAdapter] Models API error: ${errorData}`);
-        throw new Error(`OpenRouter API returned ${response.status}: ${errorData}`);
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API返回错误 ${response.status}: ${errorText}`);
       }
 
-      const data = await response.json();
-      return data.data;
+      const result = await response.json();
+      return result.data || [];
     } catch (error) {
-      console.error('[OpenRouterAdapter] Error listing models:', error);
+      console.error("[OpenRouterAdapter] 获取模型列表时出错:", error);
       throw error;
     }
+  }
+
+  /**
+   * 获取当前对话历史
+   */
+  getChatHistory(): Array<{ role: string; text: string }> {
+    return this.conversationHistory.map(msg => ({
+      role: msg.role,
+      text: msg.parts.map(part => part.text).join('')
+    }));
+  }
+
+  /**
+   * 清除对话历史
+   */
+  clearChatHistory(): void {
+    this.conversationHistory = [];
   }
 }

@@ -10,19 +10,7 @@ export interface User {
     name?: string;
     settings?: GlobalSettings;
 }
-export interface Character {
-    id: string;
-    name: string;
-    avatar?: string | null;
-  }
-  
-  export interface ForwardDialogProps {
-    isVisible: boolean;
-    onClose: () => void;
-    messages: any[];
-    characters: Character[];
-    onSelectCharacter: (character: Character) => void;
-  }
+
 export interface GlobalSettings {
     self: {
         nickname: string;
@@ -124,7 +112,6 @@ export interface MessagePart {
 export interface ChatMessage {
     role: string;
     parts: MessagePart[]  ;
-    content?: string;
     is_first_mes?: boolean;
     is_author_note?: boolean;
     is_d_entry?: boolean;
@@ -164,7 +151,7 @@ export interface SidebarItemProps {
 export interface Character {
   id: string;
   name: string;
-  avatar?: string | null;
+  avatar: string | null;
   backgroundImage: string | null;
   description: string;
   personality: string;
@@ -179,8 +166,6 @@ export interface Character {
   gender?: string;
   isCradleGenerated?: boolean;
   inCradleSystem?: boolean;
-  apiProvider?: 'gemini' | 'openrouter';
-  openrouter?: OpenRouterSettings;
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
