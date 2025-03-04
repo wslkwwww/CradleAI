@@ -43,10 +43,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
         character: selectedCharacter
       });
 
-      if (response.success && response.text) {
+      if (response && response.success && response.text) {
         onSendMessage(response.text, 'bot');
       } else {
-        throw new Error(response.error || 'No response received');
+        throw new Error((response?.error) || 'No response received');
       }
 
     } catch (error) {

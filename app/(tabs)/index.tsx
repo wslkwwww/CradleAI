@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -94,10 +94,33 @@ const App = () => {
     }
   }, [selectedConversationId, getMessages]);
 
-  const handleSelectConversation = (id: string) => {
-    setSelectedConversationId(id);
-    setIsSidebarVisible(false);
-  };
+  const handleSelectConversation = useCallback((id: string) => {
+    console.log(`[Index] handleSelectConversation called with ID: ${id}`);
+    
+    if (id === selectedConversationId) {
+      console.log(`[Index] Character ${id} is already selected, no change needed`);
+      return; // No need to update if already selected
+    }
+    
+    console.log(`[Index] Switching to character: ${id}`);
+    setSelectedConversationId(id); // Update the state directly
+    setIsSidebarVisible(false); // Close the sidebar
+    
+    // Manually load the messages
+    const characterMessages = getMessages(id);
+    setMessages(characterMessages);
+    
+    // Save to AsyncStorage for persistence
+    AsyncStorage.setItem('lastConversationId', id)
+      .catch(err => console.error('[Index] Failed to save lastConversationId:', err));
+    
+    // Update URL params in a way that doesn't cause a loop
+    // This uses replace instead of setParams
+    router.replace({
+      pathname: "/(tabs)",
+      params: { characterId: id }
+    });
+  }, [selectedConversationId, getMessages]);
 
   const handleResetConversation = async () => {
     if (selectedConversationId) {
@@ -180,9 +203,17 @@ const App = () => {
     }
   }, [selectedConversationId]);
 
+  // Create the ref outside of any effects
+  const hasProcessedCharacterId = useRef(false);
+  
+  // Fix the effect that loads characters from URL parameters
   useEffect(() => {
-    if (characterId) {
-      console.log('[Index] Character ID from params:', characterId);
+    if (characterId && !hasProcessedCharacterId.current) {
+      console.log('[Index] Processing character ID from params:', characterId);
+      
+      // Mark as processed to prevent re-processing
+      hasProcessedCharacterId.current = true;
+      
       // Validate the character exists
       const characterExists = characters.some(char => char.id === characterId);
       console.log('[Index] Character exists in characters array:', characterExists);
@@ -196,21 +227,36 @@ const App = () => {
         const characterMessages = getMessages(characterId);
         console.log('[Index] Loaded messages count:', characterMessages.length);
         setMessages(characterMessages);
+        
+        // Save this as the last conversation
+        AsyncStorage.setItem('lastConversationId', characterId)
+          .catch(err => console.error('[Index] Failed to save lastConversationId:', err));
       } else {
         console.warn('[Index] Character not found in characters array:', characterId);
+        
+        // Try to load a default character
+        if (characters.length > 0) {
+          const defaultCharacter = characters[0];
+          console.log('[Index] Switching to default character:', defaultCharacter.name);
+          setSelectedConversationId(defaultCharacter.id);
+          setMessages(getMessages(defaultCharacter.id));
+          
+          // Update URL without triggering a navigation cycle
+          setTimeout(() => {
+            router.setParams({ characterId: defaultCharacter.id });
+          }, 100);
+        }
       }
       
-      setIsSidebarVisible(false); // Ensure sidebar is closed
+      setIsSidebarVisible(false); // Close the sidebar
     }
-  }, [characterId, characters, getMessages]);
-
+  }, [characterId, characters]); // Note: we removed other dependencies
+  
+  // Reset the ref when characterId changes
   useEffect(() => {
-    if (selectedConversationId) {
-      console.log('[Index] Saving selectedConversationId to AsyncStorage:', selectedConversationId);
-      AsyncStorage.setItem('lastConversationId', selectedConversationId)
-        .catch(err => console.error('[Index] Failed to save lastConversationId:', err));
-    }
-  }, [selectedConversationId]);
+    // When characterId changes, we want to process it again
+    hasProcessedCharacterId.current = false;
+  }, [characterId]);
 
   function getCharacterConversationId(selectedConversationId: string): string | undefined {
     // Since we're already using the character ID as the conversation ID throughout the app,

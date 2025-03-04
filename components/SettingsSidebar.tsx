@@ -11,13 +11,19 @@ import {
   Image,
   ScrollView,
   PanResponder,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
-import { Character } from '@/shared/types';
+import { Character, GlobalSettings } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { theme } from '@/constants/theme';
 import { Picker } from '@react-native-picker/picker';
+import { useUser } from '@/constants/UserContext';
+import { OpenRouterModelManager } from '@/NodeST/nodest/utils/openrouter-model-manager';
+import { OpenRouterModel } from '@/shared/types/api-types';
+import ApiProviderSettings from './settings/ApiProviderSettings';
 
 const SIDEBAR_WIDTH_EXPANDED = 280;
 const SWIPE_THRESHOLD = 50; // 向下滑动超过这个距离时关闭侧边栏
@@ -357,7 +363,19 @@ export default function SettingsSidebar({
         </TouchableOpacity>
 
         {selectedCharacter && (
-          <CircleInteractionSettings character={selectedCharacter} updateCharacter={updateCharacter} />
+          <>
+            <CircleInteractionSettings character={selectedCharacter} updateCharacter={updateCharacter} />
+            
+            {/* Add API Provider Settings */}
+            <View style={styles.apiSettingsContainer}>
+              <ApiProviderSettings 
+                character={selectedCharacter} 
+                onUpdate={(updatedSettings: GlobalSettings) => {
+                  updateCharacter({ ...selectedCharacter, ...updatedSettings });
+                }}
+              />
+            </View>
+          </>
         )}
         
         {/* 添加一些底部间距 */}
@@ -493,5 +511,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingHorizontal: 8,
   },
+  apiSettingsContainer: {
+    marginTop: 20,
+    marginBottom: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.sm,
+  }
 });
 

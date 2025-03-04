@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { Character, CirclePost } from '@/shared/types';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface ForwardSheetProps {
   isVisible: boolean;
@@ -27,44 +29,20 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
   post,
   onForward
 }) => {
-  const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   const [additionalMessage, setAdditionalMessage] = useState('');
+  const router = useRouter();
 
-  const handleCharacterSelect = (characterId: string) => {
-    setSelectedCharacter(prev => prev === characterId ? null : characterId);
+  const handleForward = async (character: Character) => {
+    // Forward the message through callback
+    onForward(character.id, additionalMessage);
+    
+    // Also navigate to the chat with this character
+    await AsyncStorage.setItem('lastConversationId', character.id);
+    router.replace({
+      pathname: "/(tabs)",
+      params: { characterId: character.id }
+    });
   };
-
-  const handleForward = () => {
-    if (selectedCharacter) {
-      onForward(selectedCharacter, additionalMessage);
-    }
-  };
-
-  const renderCharacterItem = ({ item }: { item: Character }) => (
-    <TouchableOpacity 
-      style={[
-        styles.characterItem, 
-        selectedCharacter === item.id && styles.selectedCharacter
-      ]}
-      onPress={() => handleCharacterSelect(item.id)}
-    >
-      <Image 
-        source={item.avatar ? { uri: item.avatar } : require('@/assets/images/default-avatar.png')} 
-        style={styles.characterAvatar} 
-      />
-      <Text style={[
-        styles.characterName,
-        selectedCharacter === item.id && styles.selectedCharacterText
-      ]}>
-        {item.name}
-      </Text>
-      {selectedCharacter === item.id && (
-        <View style={styles.checkIconContainer}>
-          <MaterialIcons name="check-circle" size={24} color="#FF9ECD" />
-        </View>
-      )}
-    </TouchableOpacity>
-  );
 
   return (
     <Modal
@@ -102,22 +80,22 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
           <Text style={styles.sectionTitle}>选择角色</Text>
           <FlatList
             data={characters}
-            renderItem={renderCharacterItem}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.characterItem}
+                onPress={() => handleForward(item)}
+              >
+                <Image
+                  source={item.avatar ? { uri: String(item.avatar) } : require('@/assets/images/default-avatar.png')}
+                  style={styles.characterAvatar}
+                />
+                <Text style={styles.characterName}>{item.name}</Text>
+              </TouchableOpacity>
+            )}
             keyExtractor={(item) => item.id}
             numColumns={3}
             contentContainerStyle={styles.charactersList}
           />
-
-          <TouchableOpacity 
-            style={[
-              styles.forwardButton,
-              !selectedCharacter && styles.disabledButton
-            ]}
-            disabled={!selectedCharacter}
-            onPress={handleForward}
-          >
-            <Text style={styles.forwardButtonText}>转发</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -188,9 +166,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginHorizontal: 5,
     marginBottom: 10,
-  },
-  selectedCharacter: {
-    backgroundColor: 'rgba(255, 158, 205, 0.2)',
   },
   characterAvatar: {
     width: 60,

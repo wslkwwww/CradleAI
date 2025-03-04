@@ -491,50 +491,28 @@ const Explore: React.FC = () => {
   
     const forwardMessage = `${additionalMessage ? additionalMessage + '\n\n' : ''}转发自 ${selectedPost.characterName} 的朋友圈：\n${selectedPost.content}`;
   
-    // 创建消息对象
-    const message: Message = {
-      id: String(Date.now()),
-      text: forwardMessage,
-      sender: 'user',
-      timestamp: Date.now(),
-    };
-  
     try {
-      // 获取API Key
-      const apiKey = user?.settings?.chat?.characterApiKey;
+      // Create message object
+      const message: Message = {
+        id: String(Date.now()),
+        text: forwardMessage,
+        sender: 'user',
+        timestamp: Date.now(),
+      };
       
-      // 使用NodeST处理聊天消息，传递API Key
-      const result = await CircleService.processCommentInteraction(
-        character,
-        selectedPost,
-        forwardMessage,
-        apiKey
-      );
-      
-      // 添加用户的转发消息
+      // Add user's forward message to chat
       await addMessage(characterId, message);
       
-      if (result.success && result.action?.comment) {
-        // 添加角色的回复消息
-        const botMessage: Message = {
-          id: String(Date.now() + 1),
-          text: result.action.comment,
-          sender: 'bot',
-          timestamp: Date.now(),
-        };
-        await addMessage(characterId, botMessage);
-      } else {
-        // 处理失败情况
-        console.error('Failed to get character response:', result.error);
-      }
+      // We'll use the regular conversation navigation to handle the bot's reply
+      // This will be processed through ChatInput which is more appropriate for chat messages
+      
+      setIsForwardSheetVisible(false);
+      setSelectedPost(null);
     } catch (error) {
       console.error('Error forwarding message:', error);
       Alert.alert('Error', 'Failed to forward message');
     }
-  
-    setIsForwardSheetVisible(false);
-    setSelectedPost(null);
-  }, [selectedPost, addMessage, characters, user?.settings?.chat?.characterApiKey]);
+  }, [selectedPost, addMessage]);
 
   const scrollToPost = useCallback((postId: string) => {
     const postIndex = posts.findIndex(post => post.id === postId);

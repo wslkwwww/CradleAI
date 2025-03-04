@@ -74,6 +74,7 @@ export interface CirclePostOptions {
         context?: string;
     };
     responderId: string;  // 响应者ID
+    characterId: string;  // 角色ID
 }
 
 export interface CircleResponse {

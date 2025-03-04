@@ -15,60 +15,48 @@ import {
 } from '../../../shared/types';
 
 export class NodeSTCore {
-    private geminiAdapter: GeminiAdapter | null = null;
+    private geminiAdapter: GeminiAdapter;
     private openRouterAdapter: OpenRouterAdapter | null = null;
-    private currentContents: ChatMessage[] | null = null;
-    private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = {
-        apiProvider: 'gemini'
-    };
+    private apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+    private currentContents: ChatMessage[] = []; // Add this property to fix the error
 
-    constructor(apiKey?: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
-        if (apiKey) {
-            this.initAdapters(apiKey, apiSettings);
-        }
-        if (apiSettings) {
-            this.apiSettings = apiSettings;
-        }
+    constructor(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
+        // Initialize geminiAdapter in the constructor
+        this.geminiAdapter = new GeminiAdapter(apiKey);
+        this.initAdapters(apiKey, apiSettings);
     }
 
-    // 添加方法以更新 API 设置
-    updateApiSettings(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): void {
-        if (apiKey) {
-            this.initAdapters(apiKey, apiSettings);
-        }
-        if (apiSettings) {
-            this.apiSettings = apiSettings;
-        }
-    }
-
+    // Initialize and update adapters based on API settings
     private initAdapters(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
-        if (!apiKey) {
-            throw new Error("API key is required");
-        }
-
-        // Always initialize Gemini as a fallback
+        // Always initialize Gemini adapter as fallback
         this.geminiAdapter = new GeminiAdapter(apiKey);
         
-        // Initialize OpenRouter if enabled and API key is available
+        // Initialize OpenRouter adapter if enabled
         if (apiSettings?.apiProvider === 'openrouter' && 
             apiSettings.openrouter?.enabled && 
             apiSettings.openrouter?.apiKey) {
+            
             this.openRouterAdapter = new OpenRouterAdapter(
                 apiSettings.openrouter.apiKey,
                 apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
             );
-            console.log('[NodeSTCore] Initialized OpenRouter adapter with model:', apiSettings.openrouter.model);
+            
+            console.log('[NodeSTCore] Initialized OpenRouter adapter with model:', 
+                apiSettings.openrouter.model || 'openai/gpt-3.5-turbo');
         }
+        
+        // Store API settings for later use
+        this.apiSettings = apiSettings;
+    }
 
-        // Store settings for later use
-        if (apiSettings) {
-            this.apiSettings = apiSettings;
-        }
+    // Update API settings and reinitialize adapters if needed
+    updateApiSettings(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
+        this.initAdapters(apiKey, apiSettings);
     }
 
     // Get the appropriate adapter based on settings
     private getActiveAdapter() {
-        if (this.apiSettings.apiProvider === 'openrouter' && 
+        if (this.apiSettings?.apiProvider === 'openrouter' && 
             this.apiSettings.openrouter?.enabled && 
             this.openRouterAdapter) {
             console.log('[NodeSTCore] Using OpenRouter adapter');
@@ -291,7 +279,7 @@ export class NodeSTCore {
             console.log('[NodeSTCore] Starting continueChat:', {
                 conversationId,
                 messageLength: userMessage.length,
-                apiProvider: this.apiSettings.apiProvider
+                apiProvider: this.apiSettings?.apiProvider
             });
 
             // 确保Adapter已初始化

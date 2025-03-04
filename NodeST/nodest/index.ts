@@ -28,8 +28,17 @@ export { CirclePostOptions, CircleResponse };
 export class NodeST {
     private nodeSTCore: NodeSTCore | null = null;
     private circleManager: CircleManager | null = null;
-
-    constructor() {}
+    private apiKey: string = '';
+    async initCircle(character: Character): Promise<CircleResponse> {
+        // Implementation details
+        throw new Error("Method not implemented.");
+      }
+      
+    constructor(apiKey?: string) { // Make apiKey optional in the constructor
+        if (apiKey) {
+            this.apiKey = apiKey;
+        }
+    }
 
     private getCoreInstance(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): NodeSTCore {
         // 使用核心 API 设置初始化或更新 NodeSTCore
@@ -50,9 +59,10 @@ export class NodeST {
         return this.nodeSTCore;
     }
 
-    private getCircleManager(): CircleManager {
+    private getCircleManager(apiKey?: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): CircleManager {
+        // Pass the API key to CircleManager constructor if not already initialized
         if (!this.circleManager) {
-            this.circleManager = new CircleManager();
+            this.circleManager = new CircleManager(apiKey || this.apiKey, apiSettings);
         }
         return this.circleManager;
     }
@@ -190,15 +200,60 @@ export class NodeST {
         }
     }
 
-    async processCircleInteraction(options: CirclePostOptions): Promise<CircleResponse> {
+    // Update the API key
+    setApiKey(apiKey: string): void {
+        this.apiKey = apiKey;
+    }
+
+    /**
+     * Process circle interactions with API provider selection
+     */
+    async processCircleInteraction(params: {
+        characterId: string;
+        postAuthorId?: string;
+        postContent?: string;
+        commentContent?: string;
+        commentAuthor?: string;
+        context?: string;
+        apiKey: string;
+        apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+        type: 'newPost' | 'replyToPost' | 'replyToComment';
+    }) {
         try {
-            const circleManager = this.getCircleManager();
-            return await circleManager.postInteraction(options);
+            // Update API key if provided
+            if (params.apiKey) {
+                this.apiKey = params.apiKey;
+            }
+            
+            // Initialize circle manager if not already
+            if (!this.circleManager) {
+                // Initialize with API key and API settings
+                this.circleManager = new CircleManager(this.apiKey, params.apiSettings);
+            } else if (params.apiSettings) {
+                // Update API settings for existing manager
+                this.circleManager.updateApiSettings(this.apiKey, params.apiSettings);
+            }
+            
+            // Create the CirclePostOptions object from the parameters
+            const circlePostOptions: CirclePostOptions = {
+                type: params.type,
+                content: {
+                    authorId: params.postAuthorId || '',
+                    text: params.postContent || params.commentContent || '',
+                    context: params.context || ''
+                },
+                responderId: params.characterId,
+                characterId: params.characterId
+            };
+            
+            // Process circle interaction with the appropriate API provider
+            return await this.circleManager.circlePost(circlePostOptions);
+            
         } catch (error) {
-            console.error("[NodeST] Error processing circle interaction:", error);
+            console.error('【NodeST】处理朋友圈互动失败:', error);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : "Unknown error"
+                error: '处理朋友圈互动失败: ' + (error instanceof Error ? error.message : String(error))
             };
         }
     }

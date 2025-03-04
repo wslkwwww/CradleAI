@@ -1,17 +1,19 @@
+import React, { useEffect, useState } from 'react';
+import { Stack } from 'expo-router';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { UserProvider } from '@/constants/UserContext';
+import { CharactersProvider } from '@/constants/CharactersContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text } from 'react-native';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
 import 'react-native-reanimated';
-import { Animated, useWindowDimensions, Easing, View, StyleSheet } from 'react-native';
+import { useWindowDimensions, Easing, StyleSheet } from 'react-native';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { CharactersProvider } from '@/constants/CharactersContext';
-import { UserProvider } from '@/constants/UserContext';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Colors from '@/constants/Colors';
-
+import { Animated } from 'react-native';
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -20,6 +22,7 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
   const { height: windowHeight } = useWindowDimensions();
+  const [isReady, setIsReady] = useState(false);
 
   // Use the correct theme structure that ReactNavigation expects
   const theme = colorScheme === 'dark' 
@@ -51,6 +54,34 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [loaded]);
+
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // Perform any AsyncStorage operations or other async initialization here
+        await AsyncStorage.getItem('dummy-key'); // Just to test AsyncStorage is ready
+        
+        // Set ready state after a small delay to ensure everything is mounted
+        setTimeout(() => {
+          setIsReady(true);
+        }, 100);
+      } catch (e) {
+        console.warn('Initialization error:', e);
+        setIsReady(true); // Still mark as ready to avoid hanging
+      }
+    }
+    
+    prepare();
+  }, []);
+  
+  // Show a loading state while initializing
+  if (!isReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>Loading...</Text>
+      </View>
+    );
+  }
 
   const MyTransition = {
     gestureDirection: 'vertical' as const,
