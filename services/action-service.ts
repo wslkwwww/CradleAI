@@ -32,7 +32,10 @@ export class ActionService {
    * @returns A list of generated relationship actions
    */
   static checkForPotentialActions(character: Character): RelationshipAction[] {
+    console.log(`【行动服务】检查角色 ${character.name} 的潜在关系行动`);
+    
     if (!character.relationshipMap || !character.relationshipEnabled) {
+      console.log(`【行动服务】角色 ${character.name} 未启用关系系统或没有关系图谱`);
       return [];
     }
     
@@ -50,6 +53,8 @@ export class ActionService {
         return; // 如果最近检查过，跳过此关系
       }
       
+      console.log(`【行动服务】检查 ${character.name} 与 ${targetId} 的关系，类型=${relationship.type}，强度=${relationship.strength}`);
+      
       // 更新最后检查时间
       relationships[targetId].lastActionCheck = Date.now();
       
@@ -57,6 +62,7 @@ export class ActionService {
       // 礼物行动
       if ((relationship.type === 'close_friend' || relationship.type === 'best_friend') && 
           relationship.strength >= 70) {
+        console.log(`【行动服务】触发礼物行动: ${character.name} -> ${targetId}`);
         actions.push({
           id: generateUniqueId(),
           type: 'gift' as ActionType,
@@ -121,8 +127,11 @@ export class ActionService {
     const targetCharacter = updatedCharacters[action.targetCharacterId];
     
     if (!sourceCharacter || !targetCharacter) {
+      console.log(`【行动服务】处理行动响应失败: 找不到源角色或目标角色`);
       return updatedCharacters;
     }
+    
+    console.log(`【行动服务】处理行动响应: ${sourceCharacter.name} -> ${targetCharacter.name}, 响应=${response}, 类型=${action.type}`);
     
     // Update action status
     const updatedAction: RelationshipAction = {
@@ -149,29 +158,114 @@ export class ActionService {
         `接受了${action.type}行动` : 
         `拒绝了${action.type}行动`;
       
+      console.log(`【行动服务】关系强度变化: ${strengthDelta}, 原因: ${reason}`);
+      
       // Update source -> target relationship
       if (sourceCharacter.relationshipMap.relationships[targetCharacter.id]) {
         const sourceRel = sourceCharacter.relationshipMap.relationships[targetCharacter.id];
+        const oldStrength = sourceRel.strength;
+        const newStrength = Math.max(-100, Math.min(100, sourceRel.strength + strengthDelta));
+        
         sourceCharacter.relationshipMap.relationships[targetCharacter.id] = {
           ...sourceRel,
-          strength: Math.max(-100, Math.min(100, sourceRel.strength + strengthDelta)),
+          strength: newStrength,
           lastUpdated: Date.now(),
           interactions: sourceRel.interactions + 1
         };
+        
+        console.log(`【行动服务】${sourceCharacter.name} -> ${targetCharacter.name} 关系强度更新: ${oldStrength} -> ${newStrength}`);
       }
       
       // Update target -> source relationship
       if (targetCharacter.relationshipMap.relationships[sourceCharacter.id]) {
         const targetRel = targetCharacter.relationshipMap.relationships[sourceCharacter.id];
+        const oldStrength = targetRel.strength;
+        const newStrength = Math.max(-100, Math.min(100, targetRel.strength + strengthDelta));
+        
         targetCharacter.relationshipMap.relationships[sourceCharacter.id] = {
           ...targetRel,
-          strength: Math.max(-100, Math.min(100, targetRel.strength + strengthDelta)),
+          strength: newStrength,
           lastUpdated: Date.now(),
           interactions: targetRel.interactions + 1
         };
+        
+        console.log(`【行动服务】${targetCharacter.name} -> ${sourceCharacter.name} 关系强度更新: ${oldStrength} -> ${newStrength}`);
       }
     }
     
+    // Potential API call with OpenRouter for more dynamic response content
+    // This would be an ideal place to integrate with OpenRouter to generate
+    // personalized responses based on the relationship and action type
+    // But for now we'll leave this as a future enhancement
+    
     return updatedCharacters;
+  }
+  
+  /**
+   * Expires old pending actions
+   * @param character The character to check for expired actions
+   * @returns Updated character with expired actions
+   */
+  static expireOldActions(character: Character): Character {
+    if (!character.relationshipActions || character.relationshipActions.length === 0) {
+      return character;
+    }
+    
+    const now = Date.now();
+    let hasExpired = false;
+    
+    // Check each action and mark expired ones
+    const updatedActions = character.relationshipActions.map(action => {
+      if (action.status === 'pending' && action.expiresAt < now) {
+        console.log(`【行动服务】标记过期行动: ${action.type}, ID: ${action.id}`);
+        hasExpired = true;
+        return { ...action, status: 'expired' as ActionStatus };
+      }
+      return action;
+    });
+    
+    // Only update if something changed
+    if (hasExpired) {
+      console.log(`【行动服务】已处理角色 ${character.name} 的过期行动`);
+      return { ...character, relationshipActions: updatedActions };
+    }
+    
+    return character;
+  }
+  
+  /**
+   * Gets pending actions for a character
+   * @param character The character to get pending actions for
+   * @returns List of pending actions
+   */
+  static getPendingActions(character: Character): RelationshipAction[] {
+    if (!character.relationshipActions) {
+      return [];
+    }
+    
+    const now = Date.now();
+    return character.relationshipActions.filter(
+      action => action.status === 'pending' && action.expiresAt > now
+    );
+  }
+  
+  /**
+   * Gets action history for a character
+   * @param character The character to get action history for
+   * @param limit Maximum number of actions to return (optional)
+   * @returns List of past actions (accepted, rejected, expired)
+   */
+  static getActionHistory(character: Character, limit?: number): RelationshipAction[] {
+    if (!character.relationshipActions) {
+      return [];
+    }
+    
+    const actions = character.relationshipActions
+      .filter(action => action.status !== 'pending')
+      .sort((a, b) => 
+        (b.respondedAt || b.expiresAt) - (a.respondedAt || a.expiresAt)
+      );
+    
+    return limit ? actions.slice(0, limit) : actions;
   }
 }

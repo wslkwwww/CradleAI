@@ -1,3 +1,7 @@
+# 更新日志
+
+2025 0305 ：合并了nodest/types下的types文件，到shared/types文件中。
+
 # NodeST Architecture Documentation
 
 ## Overview

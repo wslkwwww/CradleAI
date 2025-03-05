@@ -1,32 +1,60 @@
-export interface Character {
-  // ...existing code...
-  relationshipMap?: {
-    relationships: Record<string, any>;
-    lastReviewed: number;
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  description?: string;
+  context_length?: number;
+  pricing?: {
+    prompt?: number;
+    completion?: number;
   };
-  messageBox?: Array<{
-    id: string;
-    senderId: string;
-    senderName?: string;
-    content: string;
-    timestamp: number;
-    read: boolean;
-    type: string;
-    contextId?: string;
-    contextContent?: string;
-  }>;
-  relationshipActions?: Array<{
-    id: string;
-    type: string;
-    sourceCharacterId: string;
-    targetCharacterId: string;
-    content: string;
-    createdAt: number;
-    expiresAt: number;
-    status: string;
-    respondedAt?: number;
-    responseContent?: string;
-  }>;
-  relationshipEnabled?: boolean;
-  // ...existing code...
+  provider?: {
+    id?: string;
+    name?: string;
+  };
+}
+
+export interface OpenRouterSettings {
+  enabled: boolean;
+  apiKey: string;
+  model: string;
+  useBackupModels: boolean;
+  backupModels: string[];
+  autoRoute?: boolean;
+  sortingStrategy?: 'price' | 'speed' | 'latency';
+  dataCollection?: boolean;
+  ignoredProviders?: string[];
+}
+
+export interface GlobalSettings {
+  app: {
+    darkMode: boolean;
+    autoSave: boolean;
+    notifications: {
+      enabled: boolean;
+    };
+  };
+  chat: {
+    typingDelay: number;
+    serverUrl: string;
+    characterApiKey: string;
+    memoryApiKey: string;
+    xApiKey: string;
+    apiProvider: 'gemini' | 'openrouter';
+    temperature: number;
+    maxTokens: number;
+    maxtokens: number;
+    openrouter?: OpenRouterSettings;
+  };
+  self: {
+    nickname: string;
+    gender: 'female' | 'male' | 'other';
+    description: string;
+  };
+}
+
+export interface User {
+  id: string;
+  name: string;
+  avatar: string | null;
+  settings: GlobalSettings;
 }

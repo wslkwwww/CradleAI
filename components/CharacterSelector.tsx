@@ -1,7 +1,15 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { Character } from '../shared/types';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
+import { Character } from '@/shared/types';
+import { theme } from '@/constants/theme';
 
 interface CharacterSelectorProps {
   characters: Character[];
@@ -19,7 +27,8 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color="#FF9ECD" />
+        <ActivityIndicator color={theme.colors.primary} size="small" />
+        <Text style={styles.loadingText}>加载角色...</Text>
       </View>
     );
   }
@@ -27,97 +36,100 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
   if (characters.length === 0) {
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No characters available</Text>
+        <Text style={styles.emptyText}>没有可用的角色</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <ScrollView 
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {characters.map(character => (
-          <TouchableOpacity
-            key={character.id}
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.container}
+    >
+      {characters.map((character) => (
+        <TouchableOpacity
+          key={character.id}
+          style={[
+            styles.characterItem,
+            selectedCharacterId === character.id && styles.selectedItem
+          ]}
+          onPress={() => onSelectCharacter(character.id)}
+        >
+          <Image
+            source={
+              character.avatar
+                ? { uri: character.avatar }
+                : require('@/assets/images/default-avatar.png')
+            }
+            style={styles.avatar}
+          />
+          <Text 
             style={[
-              styles.characterItem,
-              selectedCharacterId === character.id && styles.selectedItem
+              styles.characterName,
+              selectedCharacterId === character.id && styles.selectedName
             ]}
-            onPress={() => onSelectCharacter(character.id)}
+            numberOfLines={1}
           >
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>{character.name?.charAt(0) || '?'}</Text>
-            </View>
-            <Text 
-              style={[
-                styles.characterName,
-                selectedCharacterId === character.id && styles.selectedText
-              ]}
-              numberOfLines={1}
-            >
-              {character.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </View>
+            {character.name}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 12,
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
+    padding: 12,
   },
   characterItem: {
     alignItems: 'center',
     marginRight: 12,
-    padding: 8,
-    borderRadius: 8,
+    width: 72,
   },
   selectedItem: {
-    backgroundColor: 'rgba(255, 158, 205, 0.2)',
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    borderRadius: 12,
+    padding: 8,
   },
-  avatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 158, 205, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginBottom: 4,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   characterName: {
-    marginTop: 4,
-    fontSize: 14,
-    color: '#EEEEEE',
-    maxWidth: 70,
+    color: '#fff',
+    fontSize: 12,
     textAlign: 'center',
+    width: 60,
   },
-  selectedText: {
-    fontWeight: '600',
-    color: '#FF9ECD',
+  selectedName: {
+    color: theme.colors.primary,
+    fontWeight: 'bold',
   },
   loadingContainer: {
-    padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    color: theme.colors.textSecondary,
+    marginLeft: 8,
+    fontSize: 14,
   },
   emptyContainer: {
-    padding: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
   },
   emptyText: {
-    color: '#9E9E9E',
-    fontStyle: 'italic',
+    color: theme.colors.textSecondary,
+    fontSize: 14,
   },
 });
 

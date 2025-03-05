@@ -1,25 +1,17 @@
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  Modal, 
-  ScrollView, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   Switch,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
-import { Character } from '../shared/types';
-import { RelationshipService } from '../services/relationship-service';
-
-interface RelationshipTestControlsProps {
-  characters: Character[];
-  onRunTest: (options: RelationshipTestOptions) => Promise<void>;
-  onResetRelationships: () => Promise<void>;
-  isRunningTest: boolean;
-}
+import { Character } from '@/shared/types';
+import { useUser } from '@/constants/UserContext';
 
 export interface RelationshipTestOptions {
   strengthModifier: number;
@@ -27,275 +19,270 @@ export interface RelationshipTestOptions {
   showDetailedLogs: boolean;
 }
 
-const RelationshipTestControls: React.FC<RelationshipTestControlsProps> = ({
+interface Props {
+  characters: Character[];
+  onRunTest: (options: RelationshipTestOptions) => void;
+  onResetRelationships: () => void;
+  isRunningTest: boolean;
+}
+
+const RelationshipTestControls: React.FC<Props> = ({
   characters,
   onRunTest,
   onResetRelationships,
   isRunningTest
 }) => {
-  const [showModal, setShowModal] = useState(false);
-  const [strengthModifier, setStrengthModifier] = useState(5);
-  const [accelerateInteractions, setAccelerateInteractions] = useState(true);
-  const [showDetailedLogs, setShowDetailedLogs] = useState(true);
+  const { user } = useUser();
   
-  const handleRunTest = async () => {
-    setShowModal(false);
-    await onRunTest({
-      strengthModifier,
-      accelerateInteractions,
-      showDetailedLogs
-    });
-  };
+  // Test options state
+  const [options, setOptions] = useState<RelationshipTestOptions>({
+    strengthModifier: 5,
+    accelerateInteractions: true,
+    showDetailedLogs: true
+  });
   
-  const handleReset = async () => {
-    setShowModal(false);
-    await onResetRelationships();
+  // Check API configuration
+  const hasApiKey = Boolean(user?.settings?.chat?.characterApiKey);
+  const isOpenRouterEnabled = user?.settings?.chat?.apiProvider === 'openrouter' && 
+                             user?.settings?.chat?.openrouter?.enabled;
+                             
+  // Count characters with relationship system enabled
+  const relationshipEnabledCount = characters.filter(c => c.relationshipEnabled).length;
+  
+  // Determine if we can run tests
+  const canRunTest = relationshipEnabledCount >= 2 && hasApiKey;
+  
+  // Run the test with current options
+  const handleRunTest = () => {
+    if (!canRunTest || isRunningTest) return;
+    onRunTest(options);
   };
   
   return (
-    <>
-      <TouchableOpacity 
-        style={[styles.testButton, isRunningTest && styles.disabledButton]} 
-        onPress={() => setShowModal(true)}
-        disabled={isRunningTest}
-      >
-        {isRunningTest ? (
-          <ActivityIndicator size="small" color="#ffffff" />
-        ) : (
-          <>
-            <Ionicons name="flask-outline" size={16} color="#ffffff" />
-            <Text style={styles.testButtonText}>关系测试</Text>
-          </>
-        )}
-      </TouchableOpacity>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>关系测试控制</Text>
+        
+        {/* API Provider Badge */}
+        <View style={[
+          styles.apiBadge,
+          isOpenRouterEnabled ? styles.openRouterBadge : styles.geminiBadge
+        ]}>
+          <Text style={styles.apiBadgeText}>
+            {isOpenRouterEnabled ? 'OpenRouter' : 'Gemini'}
+          </Text>
+        </View>
+      </View>
       
-      <Modal
-        visible={showModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>关系系统测试设置</Text>
-              <TouchableOpacity onPress={() => setShowModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.modalBody}>
-              <Text style={styles.sectionTitle}>关系强度变化幅度</Text>
-              <View style={styles.sliderContainer}>
-                <Text style={styles.sliderValue}>±{strengthModifier}</Text>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={1}
-                  maximumValue={30}
-                  step={1}
-                  value={strengthModifier}
-                  onValueChange={setStrengthModifier}
-                  minimumTrackTintColor="#FF9ECD"
-                  thumbTintColor="#FF9ECD"
-                />
-                <View style={styles.sliderLabels}>
-                  <Text>较小</Text>
-                  <Text>较大</Text>
-                </View>
-              </View>
-              
-              <View style={styles.optionRow}>
-                <View style={styles.optionTextContainer}>
-                  <Text style={styles.optionTitle}>加速互动计数</Text>
-                  <Text style={styles.optionDescription}>
-                    每次互动增加额外计数，加速行动触发
-                  </Text>
-                </View>
-                <Switch
-                  value={accelerateInteractions}
-                  onValueChange={setAccelerateInteractions}
-                  trackColor={{ false: '#767577', true: '#FF9ECD' }}
-                  thumbColor="#f4f3f4"
-                />
-              </View>
-              
-              <View style={styles.optionRow}>
-                <View style={styles.optionTextContainer}>
-                  <Text style={styles.optionTitle}>显示详细日志</Text>
-                  <Text style={styles.optionDescription}>
-                    输出详细的测试过程日志
-                  </Text>
-                </View>
-                <Switch
-                  value={showDetailedLogs}
-                  onValueChange={setShowDetailedLogs}
-                  trackColor={{ false: '#767577', true: '#FF9ECD' }}
-                  thumbColor="#f4f3f4"
-                />
-              </View>
-              
-              <View style={styles.statusSection}>
-                <Text style={styles.sectionTitle}>系统状态</Text>
-                <Text style={styles.statusText}>
-                  启用关系系统的角色: {characters.filter(c => c.relationshipEnabled).length} / {characters.length}
-                </Text>
-              </View>
-            </ScrollView>
-            
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity 
-                style={[styles.button, styles.resetButton]}
-                onPress={handleReset}
-              >
-                <Text style={styles.buttonText}>重置关系数据</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.button, styles.runButton]}
-                onPress={handleRunTest}
-              >
-                <Text style={styles.buttonText}>运行测试</Text>
-              </TouchableOpacity>
-            </View>
+      {/* Options */}
+      <View style={styles.optionsContainer}>
+        <View style={styles.optionRow}>
+          <Text style={styles.optionLabel}>关系强度修改器:</Text>
+          <View style={styles.sliderContainer}>
+            <Slider
+              style={styles.slider}
+              minimumValue={1}
+              maximumValue={20}
+              step={1}
+              value={options.strengthModifier}
+              onValueChange={(value) => setOptions({...options, strengthModifier: value})}
+              minimumTrackTintColor="#FF9ECD"
+              maximumTrackTintColor="#888"
+              thumbTintColor="#FF9ECD"
+              disabled={isRunningTest}
+            />
+            <Text style={styles.sliderValue}>{options.strengthModifier}</Text>
           </View>
         </View>
-      </Modal>
-    </>
+        
+        <View style={styles.optionRow}>
+          <Text style={styles.optionLabel}>加速互动计数:</Text>
+          <Switch
+            trackColor={{ false: "#767577", true: "#FF9ECD" }}
+            thumbColor={options.accelerateInteractions ? "#fff" : "#f4f3f4"}
+            value={options.accelerateInteractions}
+            onValueChange={(value) => setOptions({...options, accelerateInteractions: value})}
+            disabled={isRunningTest}
+          />
+        </View>
+        
+        <View style={styles.optionRow}>
+          <Text style={styles.optionLabel}>详细日志:</Text>
+          <Switch
+            trackColor={{ false: "#767577", true: "#FF9ECD" }}
+            thumbColor={options.showDetailedLogs ? "#fff" : "#f4f3f4"}
+            value={options.showDetailedLogs}
+            onValueChange={(value) => setOptions({...options, showDetailedLogs: value})}
+            disabled={isRunningTest}
+          />
+        </View>
+      </View>
+      
+      {/* Buttons */}
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity
+          style={[
+            styles.testButton,
+            isRunningTest || !canRunTest ? styles.disabledButton : null
+          ]}
+          onPress={handleRunTest}
+          disabled={isRunningTest || !canRunTest}
+        >
+          {isRunningTest ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="flash-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.buttonText}>运行测试</Text>
+            </>
+          )}
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.resetButton, isRunningTest ? styles.disabledButton : null]}
+          onPress={onResetRelationships}
+          disabled={isRunningTest}
+        >
+          <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+          <Text style={styles.buttonText}>重置关系</Text>
+        </TouchableOpacity>
+      </View>
+      
+      {/* Status Messages */}
+      {relationshipEnabledCount < 2 && (
+        <Text style={styles.warningText}>
+          至少需要两个启用关系系统的角色才能测试
+        </Text>
+      )}
+      
+      {!hasApiKey && (
+        <Text style={styles.warningText}>
+          测试需要有效的API密钥，请在设置中配置
+        </Text>
+      )}
+      
+      {/* API Information */}
+      <View style={styles.apiInfoContainer}>
+        <Text style={styles.apiInfoText}>
+          {hasApiKey ? 
+            `使用${isOpenRouterEnabled ? 'OpenRouter' : 'Gemini'} API进行测试 (${relationshipEnabledCount}个角色可用)` : 
+            '未配置API，请完成设置以启用测试'}
+        </Text>
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  testButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#8653A8',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginLeft: 8,
+  container: {
+    backgroundColor: 'rgba(40, 40, 40, 0.8)',
+    borderRadius: 8,
+    padding: 16,
+    margin: 8,
   },
-  disabledButton: {
-    backgroundColor: '#9E9E9E',
-  },
-  testButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 6,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    width: '90%',
-    maxHeight: '80%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  modalHeader: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  modalBody: {
-    padding: 16,
-    maxHeight: 400,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
     marginBottom: 12,
   },
-  sliderContainer: {
-    marginBottom: 20,
-  },
-  slider: {
-    height: 40,
-    width: '100%',
-  },
-  sliderValue: {
-    textAlign: 'center',
+  title: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#FF9ECD',
-    marginBottom: 4,
+    color: '#fff',
   },
-  sliderLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  apiBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  openRouterBadge: {
+    backgroundColor: '#8E44AD', // Purple for OpenRouter
+  },
+  geminiBadge: {
+    backgroundColor: '#3498DB', // Blue for Gemini
+  },
+  apiBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  optionsContainer: {
+    marginBottom: 16,
   },
   optionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    marginVertical: 8,
   },
-  optionTextContainer: {
+  optionLabel: {
+    color: '#ddd',
+    fontSize: 14,
+  },
+  sliderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
-    paddingRight: 12,
+    marginLeft: 10,
   },
-  optionTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
+  slider: {
+    flex: 1,
+    height: 40,
   },
-  optionDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  statusSection: {
-    marginTop: 8,
-    padding: 12,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-  },
-  statusText: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 8,
+  sliderValue: {
+    width: 25,
+    textAlign: 'center',
+    color: '#fff',
+    marginLeft: 8,
   },
   buttonContainer: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    backgroundColor: '#f9f9f9',
+    justifyContent: 'space-between',
   },
-  button: {
+  testButton: {
+    backgroundColor: '#FF9ECD',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 6,
-    marginLeft: 12,
+    borderRadius: 4,
+    flex: 1,
+    marginRight: 8,
   },
   resetButton: {
-    backgroundColor: '#e57373',
+    backgroundColor: '#FF3B30',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 4,
   },
-  runButton: {
-    backgroundColor: '#5C6BC0',
+  disabledButton: {
+    opacity: 0.5,
   },
   buttonText: {
-    color: '#fff',
-    fontWeight: '500',
-    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  warningText: {
+    color: '#FF9500',
+    fontSize: 12,
+    marginTop: 8,
+  },
+  apiInfoContainer: {
+    marginTop: 12,
+    padding: 8,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 4,
+  },
+  apiInfoText: {
+    color: '#ccc',
+    fontSize: 12,
+    textAlign: 'center',
   },
 });
 

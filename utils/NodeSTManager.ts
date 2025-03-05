@@ -1,72 +1,106 @@
-import { NodeST, CirclePostOptions, CircleResponse } from '@/NodeST/nodest';
+import { NodeST } from '@/NodeST/nodest';
 import { Character, GlobalSettings } from '@/shared/types';
+import { CirclePostOptions, CircleResponse } from '@/NodeST/nodest/managers/circle-manager';
 
-export interface NodeSTResponse {
-  success: boolean;
-  text?: string;
-  error?: string;
-}
+/**
+ * NodeST Manager
+ * 管理与 NodeST 系统的通信
+ */
+class NodeSTManagerClass {
+  private nodeST: NodeST;
 
-export class NodeSTManager {
-  private static nodeST = new NodeST();
+  constructor() {
+    this.nodeST = new NodeST();
+    console.log('[NodeSTManager] NodeST Manager initialized');
+  }
 
-  // 更新参数接口以接受 API 设置
-  static async processChatMessage(params: {
+  // Update API settings with full apiSettings object support
+  updateApiSettings(
+    apiKey: string, 
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): void {
+    console.log('[NodeSTManager] Updating API settings:', {
+      apiKeyLength: apiKey?.length || 0,
+      provider: apiSettings?.apiProvider || 'gemini',
+      hasOpenRouter: !!apiSettings?.openrouter,
+      openRouterEnabled: apiSettings?.openrouter?.enabled
+    });
+    
+    // Pass full apiSettings to NodeST
+    this.nodeST.updateApiSettings(apiKey, apiSettings);
+  }
+
+  /**
+   * Process a chat message
+   */
+  async processChatMessage(params: {
     userMessage: string;
+    status?: "更新人设" | "新建角色" | "同一角色继续对话";
     conversationId: string;
-    status: '新建角色' | '同一角色继续对话' | '更新人设';
     apiKey: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
-    character: Character;
-  }): Promise<NodeSTResponse> {
+    character?: Character;
+  }): Promise<{
+    success: boolean;
+    text?: string;
+    error?: string;
+  }> {
     try {
+      const characterId = params.character?.id || params.conversationId;
+      const jsonString = params.character?.jsonData;
+      
       console.log('[NodeSTManager] Processing request:', {
-        status: params.status,
-        conversationId: params.conversationId,
-        hasCharacter: !!params.character,
-        characterId: params.character?.id,
-        hasJsonData: !!params.character?.jsonData,
         apiKeyLength: params.apiKey?.length || 0,
-        apiProvider: params.apiSettings?.apiProvider || 'gemini'
+        apiProvider: params.apiSettings?.apiProvider || 'gemini',
+        openRouterEnabled: params.apiSettings?.apiProvider === 'openrouter' && params.apiSettings?.openrouter?.enabled,
+        openRouterModel: params.apiSettings?.openrouter?.model,
+        status: params.status || '同一角色继续对话',
+        conversationId: params.conversationId,
+        characterId: characterId,
+        hasCharacter: !!params.character,
+        hasJsonData: !!jsonString
       });
 
-      if (!params.character.jsonData) {
-        throw new Error('Character data (jsonData) is missing');
+      // If OpenRouter is configured, ensure we're using the latest settings
+      if (params.apiSettings?.apiProvider === 'openrouter' && params.apiSettings?.openrouter?.enabled) {
+        // Update settings before processing to ensure correct adapter is used
+        this.nodeST.updateApiSettings(params.apiKey, params.apiSettings);
       }
 
       console.log('[NodeSTManager] Calling NodeST.processChatMessage with conversationId:', params.conversationId);
+      
+      // Call NodeST with all params including apiSettings
       const response = await this.nodeST.processChatMessage({
         userMessage: params.userMessage,
         conversationId: params.conversationId,
-        status: params.status,
+        status: params.status || "同一角色继续对话",
         apiKey: params.apiKey,
         apiSettings: params.apiSettings,
-        jsonString: params.character.jsonData
+        jsonString
       });
 
-      console.log('[NodeSTManager] Received response:', {
-        success: response.success,
-        hasText: !!response.response,
-        errorMessage: response.error,
-        textPreview: response.response?.substring(0, 50)
-      });
-
-      return {
-        success: response.success,
-        text: response.response,
-        error: response.error
-      };
+      if (response.success) {
+        return {
+          success: true,
+          text: response.response
+        };
+      } else {
+        return {
+          success: false,
+          error: response.error || "Unknown error"
+        };
+      }
     } catch (error) {
-      console.error('[NodeSTManager] Processing error:', error);
+      console.error('[NodeSTManager] Error processing chat message:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : "Unknown error"
       };
     }
   }
 
   // Add circle interaction methods
-  static async initCharacterCircle(character: Character): Promise<boolean> {
+  async initCharacterCircle(character: Character): Promise<boolean> {
     try {
       return await this.nodeST.initCharacterCircle(character);
     } catch (error) {
@@ -75,7 +109,7 @@ export class NodeSTManager {
     }
   }
 
-  static async processCircleInteraction(options: CirclePostOptions): Promise<CircleResponse> {
+  async processCircleInteraction(options: CirclePostOptions): Promise<CircleResponse> {
     try {
       return await this.nodeST.processCircleInteraction(options);
     } catch (error) {
@@ -87,3 +121,6 @@ export class NodeSTManager {
     }
   }
 }
+
+// Create and export a singleton instance
+export const NodeSTManager = new NodeSTManagerClass();

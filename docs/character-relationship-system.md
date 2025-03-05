@@ -24,8 +24,7 @@
 /f:/my-app/
 └── shared/
     └── types/
-        ├── relationship-types.ts  # 定义关系类型、结构和接口
-        └── action-types.ts        # 定义关系驱动的行动类型和状态
+        ├── relationship-types.ts  # 定义关系类型、结构和接口，以及关系驱动的行动类型和状态
 ```
 
 ### 服务层
@@ -56,8 +55,6 @@
     └── (tabs)/
         ├── explore.tsx            # 主探索页面，集成动态和关系标签
         ├── Character.tsx          # 角色页面，包含关系图谱入口
-        └── explore/
-            └── relationships.tsx  # 关系详情页面（可选）
 ```
 
 ### 工具和辅助
@@ -77,7 +74,7 @@
         └── services/
             └── prompt-builder-service.ts  # 提示词构建服务
 ```
-
+```
 ## 数据流与业务流程
 
 ### 1. 关系图谱生命周期

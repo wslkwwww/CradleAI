@@ -6,18 +6,20 @@ import {
   Modal, 
   TouchableOpacity, 
   FlatList, 
-  Image 
+  SafeAreaView,
+  Platform
 } from 'react-native';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
-import { useCharacters } from '@/constants/CharactersContext';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
+import { theme } from '@/constants/theme';
 
 interface TestResult {
   characterId: string;
   name: string;
   success: boolean;
   action?: {
-    like?: boolean;
-    comment?: string;
+    type: string;
+    content?: string;
   };
 }
 
@@ -32,198 +34,209 @@ const TestResultsModal: React.FC<TestResultsModalProps> = ({
   onClose,
   results
 }) => {
-  const { characters } = useCharacters();
+  const likeCount = results.filter(r => r.success && r.action?.type === 'like').length;
+  const commentCount = results.filter(r => r.success && r.action?.type === 'comment').length;
+  const skipCount = results.filter(r => r.success && r.action?.type === 'skip').length;
+  const failCount = results.filter(r => !r.success).length;
 
-  const getStatusColor = (success: boolean): string => {
-    return success ? '#4CAF50' : '#FF5252';
-  };
-
-  const getStatusText = (success: boolean): string => {
-    return success ? '成功' : '失败';
-  };
-
-  const renderResultItem = ({ item }: { item: TestResult }) => {
-    const character = characters.find(c => c.id === item.characterId);
-
-    return (
-      <View style={styles.resultItem}>
-        <Image 
-          source={character?.avatar ? { uri: character.avatar } : require('@/assets/images/default-avatar.png')} 
-          style={styles.characterAvatar}
-        />
-        <View style={styles.resultInfo}>
-          <View style={styles.resultHeader}>
-            <Text style={styles.characterName}>{character?.name || item.name}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.success) }]}>
-              <Text style={styles.statusText}>{getStatusText(item.success)}</Text>
-            </View>
+  const renderResultItem = ({ item }: { item: TestResult }) => (
+    <View style={styles.resultItem}>
+      <View style={styles.resultHeader}>
+        <Text style={styles.characterName}>{item.name}</Text>
+        {item.success ? (
+          <View style={styles.successBadge}>
+            <Text style={styles.successText}>成功</Text>
           </View>
-          
-          {item.success && item.action && (
-            <View style={styles.actionInfo}>
-              <View style={styles.actionRow}>
-                <Ionicons 
-                  name={item.action.like ? "heart" : "heart-outline"} 
-                  size={18} 
-                  color={item.action.like ? "#FF9ECD" : "#999"} 
-                />
-                <Text style={styles.actionText}>
-                  {item.action.like ? "点赞" : "未点赞"}
-                </Text>
-              </View>
-              
-              {item.action.comment && (
-                <View style={styles.commentContainer}>
-                  <MaterialIcons name="comment" size={18} color="#999" />
-                  <Text style={styles.commentText} numberOfLines={2}>
-                    {item.action.comment}
-                  </Text>
-                </View>
-              )}
-            </View>
+        ) : (
+          <View style={styles.failBadge}>
+            <Text style={styles.failText}>失败</Text>
+          </View>
+        )}
+      </View>
+      
+      {item.success ? (
+        <View style={styles.actionContainer}>
+          {item.action?.type === 'like' && (
+            <>
+              <Ionicons name="heart" size={16} color={theme.colors.primary} />
+              <Text style={styles.actionText}>点赞了帖子</Text>
+            </>
           )}
           
-          {!item.success && (
-            <Text style={styles.errorText}>未能获取互动响应</Text>
+          {item.action?.type === 'comment' && (
+            <>
+              <Ionicons name="chatbubble" size={16} color={theme.colors.info} />
+              <Text style={styles.actionText}>
+                评论: "{item.action.content}"
+              </Text>
+            </>
+          )}
+          
+          {item.action?.type === 'skip' && (
+            <>
+              <Ionicons name="remove-circle" size={16} color="#999" />
+              <Text style={styles.actionText}>跳过互动</Text>
+            </>
           )}
         </View>
-      </View>
-    );
-  };
-
-  const getSuccessRate = (): string => {
-    const successCount = results.filter(r => r.success).length;
-    const total = results.length;
-    const rate = total > 0 ? Math.round((successCount / total) * 100) : 0;
-    return `${rate}%`;
-  };
+      ) : (
+        <Text style={styles.errorText}>交互处理失败</Text>
+      )}
+    </View>
+  );
 
   return (
     <Modal
       visible={visible}
       transparent={true}
       animationType="slide"
+      statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <View style={styles.header}>
-            <Text style={styles.title}>互动测试结果</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <MaterialIcons name="close" size={24} color="#fff" />
+      <SafeAreaView style={styles.container}>
+        <BlurView intensity={80} tint="dark" style={styles.blurContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>互动测试结果</Text>
+              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.summaryContainer}>
+              <Text style={styles.summaryTitle}>总结</Text>
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{results.length}</Text>
+                  <Text style={styles.statLabel}>角色总数</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{likeCount}</Text>
+                  <Text style={styles.statLabel}>点赞</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{commentCount}</Text>
+                  <Text style={styles.statLabel}>评论</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{failCount}</Text>
+                  <Text style={styles.statLabel}>失败</Text>
+                </View>
+              </View>
+            </View>
+            
+            <Text style={styles.sectionTitle}>详细结果</Text>
+            {results.length > 0 ? (
+              <FlatList
+                data={results}
+                renderItem={renderResultItem}
+                keyExtractor={(item) => item.characterId}
+                style={styles.resultsList}
+                contentContainerStyle={styles.resultsContent}
+              />
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="document-text-outline" size={48} color="#666" />
+                <Text style={styles.emptyStateText}>暂无测试结果</Text>
+              </View>
+            )}
+            
+            <TouchableOpacity style={styles.doneButton} onPress={onClose}>
+              <Text style={styles.doneButtonText}>完成</Text>
             </TouchableOpacity>
           </View>
-          
-          <View style={styles.summaryContainer}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>响应成功率:</Text>
-              <Text style={styles.summaryValue}>{getSuccessRate()}</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>互动角色数:</Text>
-              <Text style={styles.summaryValue}>{results.length}</Text>
-            </View>
-          </View>
-          
-          <Text style={styles.sectionTitle}>角色互动详情</Text>
-          
-          {results.length > 0 ? (
-            <FlatList
-              data={results}
-              renderItem={renderResultItem}
-              keyExtractor={(item) => item.characterId}
-              contentContainerStyle={styles.resultsList}
-            />
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>暂无测试结果</Text>
-            </View>
-          )}
-          
-          <TouchableOpacity style={styles.closeButtonBottom} onPress={onClose}>
-            <Text style={styles.closeButtonText}>关闭</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+        </BlurView>
+      </SafeAreaView>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
-  modalContainer: {
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  blurContainer: {
+    flex: 1,
   },
   modalContent: {
-    width: '90%',
-    maxHeight: '80%',
-    backgroundColor: '#333',
-    borderRadius: 10,
-    overflow: 'hidden',
+    flex: 1,
+    padding: 20,
+    paddingTop: Platform.OS === 'android' ? 40 : 0,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#444',
+    marginBottom: 20,
   },
-  title: {
-    color: '#fff',
-    fontSize: 18,
+  headerTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
+    color: '#fff',
   },
   closeButton: {
-    padding: 5,
+    padding: 8,
   },
   summaryContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#444',
+    backgroundColor: 'rgba(60, 60, 60, 0.6)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  summaryItem: {
-    alignItems: 'center',
-  },
-  summaryLabel: {
-    color: '#999',
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  summaryValue: {
-    color: '#FF9ECD',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  sectionTitle: {
+  summaryTitle: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-    padding: 15,
+    marginBottom: 12,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    color: theme.colors.primary,
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  statLabel: {
+    color: '#aaa',
+    fontSize: 12,
+  },
+  statDivider: {
+    height: 30,
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
   },
   resultsList: {
-    paddingHorizontal: 15,
-    paddingBottom: 15,
+    flex: 1,
+  },
+  resultsContent: {
+    paddingBottom: 20,
   },
   resultItem: {
-    flexDirection: 'row',
-    backgroundColor: '#444',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
-  },
-  characterAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 10,
-  },
-  resultInfo: {
-    flex: 1,
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   resultHeader: {
     flexDirection: 'row',
@@ -236,64 +249,64 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  statusBadge: {
+  successBadge: {
+    backgroundColor: 'rgba(80, 200, 120, 0.3)',
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
-  statusText: {
-    color: '#fff',
+  successText: {
+    color: '#50C878',
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '500',
   },
-  actionInfo: {
-    marginTop: 5,
+  failBadge: {
+    backgroundColor: 'rgba(255, 68, 68, 0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
-  actionRow: {
+  failText: {
+    color: '#FF4444',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  actionContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 5,
   },
   actionText: {
-    color: '#ccc',
-    marginLeft: 5,
+    color: '#ddd',
+    marginLeft: 8,
     fontSize: 14,
-  },
-  commentContainer: {
-    flexDirection: 'row',
-    marginTop: 5,
-    alignItems: 'flex-start',
-  },
-  commentText: {
-    color: '#fff',
     flex: 1,
-    marginLeft: 5,
-    fontSize: 14,
   },
   errorText: {
-    color: '#FF5252',
-    fontSize: 14,
-    fontStyle: 'italic',
-    marginTop: 5,
-  },
-  emptyContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  emptyText: {
     color: '#999',
-    fontSize: 16,
+    fontStyle: 'italic',
   },
-  closeButtonBottom: {
-    backgroundColor: '#FF9ECD',
-    padding: 15,
+  doneButton: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 12,
+    padding: 16,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 20,
   },
-  closeButtonText: {
+  doneButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+  },
+  emptyStateText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 12,
   },
 });
 

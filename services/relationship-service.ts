@@ -1,6 +1,7 @@
 import { Character } from '@/shared/types';
 import { generateId } from '@/utils/id-utils';
 import { Relationship, RelationshipMapData, RelationshipType, MessageBoxItem } from '@/shared/types/relationship-types';
+import { ApiSettings } from '@/shared/types/api-types';
 
 // Define social interaction type for explore page
 export interface SocialInteraction {
@@ -196,6 +197,8 @@ export class RelationshipService {
     strengthDelta: number,
     newType?: string
   ): Character {
+    console.log(`【关系服务】处理关系更新: ${character.name} -> targetId=${targetId}, 强度变化=${strengthDelta}, 新类型=${newType || '无'}`);
+    
     // Ensure we have a relationship map
     if (!character.relationshipMap) {
       character.relationshipMap = {
@@ -203,6 +206,7 @@ export class RelationshipService {
         lastUpdated: Date.now(), // Add required field
         relationships: {}
       };
+      console.log(`【关系服务】为角色 ${character.name} 创建新的关系图谱`);
     }
 
     // Get or initialize the relationship
@@ -216,12 +220,17 @@ export class RelationshipService {
         description: `Relationship with ${targetId}`,
         interactions: 0
       };
+      console.log(`【关系服务】为角色 ${character.name} 创建与 ${targetId} 的新关系`);
     }
 
     // Apply strength delta
+    const oldStrength = relationship.strength;
     relationship.strength = Math.max(-100, Math.min(100, relationship.strength + strengthDelta));
     
+    console.log(`【关系服务】关系强度更新: ${oldStrength} -> ${relationship.strength} (${strengthDelta >= 0 ? '+' : ''}${strengthDelta})`);
+    
     // Apply new type if provided, otherwise calculate based on strength
+    const oldType = relationship.type;
     if (newType) {
       // Safely cast the string to RelationshipType, defaulting to 'stranger' if invalid
       relationship.type = this.isValidRelationshipType(newType) 
@@ -229,6 +238,10 @@ export class RelationshipService {
         : this.getRelationshipTypeFromStrength(relationship.strength);
     } else {
       relationship.type = this.getRelationshipTypeFromStrength(relationship.strength);
+    }
+    
+    if (oldType !== relationship.type) {
+      console.log(`【关系服务】关系类型更新: ${oldType} -> ${relationship.type}`);
     }
     
     relationship.lastUpdated = Date.now();

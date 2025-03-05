@@ -1,6 +1,12 @@
 ```markdown
 # 类型系统说明文档
 
+
+----待更新
+
+
+
+
 ## 类型架构概述
 
 类型系统分为两个主要部分：
@@ -15,7 +21,7 @@ interface User {
     id: string;
     avatar?: string;
     name?: string;
-    settings?: GlobalSettings;
+    settings?: GlobalSettings;   
 }
 ```
 

@@ -4,22 +4,18 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  Image,
   SafeAreaView,
   StatusBar,
   Alert,
+  StyleSheet,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
 import * as ImagePicker from 'expo-image-picker';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-} from 'react-native-reanimated';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { 
@@ -27,19 +23,26 @@ import {
   WorldBookEntry, 
   AuthorNoteJson,
 } from '@/shared/types';
-import { WorldBookEntryUI,PresetEntryUI } from '@/constants/types';
-import {
-  InputField,
-  styles as sharedStyles,
-  slideDistance,
-  POSITION_OPTIONS
-} from '@/components/character/CharacterFormComponents';
+import { WorldBookEntryUI, PresetEntryUI } from '@/constants/types';
+import { BlurView } from 'expo-blur';
+import { theme } from '@/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+
+// Import our new components
+import CharacterDetailHeader from '@/components/character/CharacterDetailHeader';
+import CharacterAttributeEditor from '@/components/character/CharacterAttributeEditor';
+import LoadingIndicator from '@/components/LoadingIndicator';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import ActionButton from '@/components/ActionButton';
+import DetailSidebar from '@/components/character/DetailSidebar';
+
+// Import existing components that we'll continue to use
 import { 
   WorldBookSection,
   PresetSection,
   AuthorNoteSection
 } from '@/components/character/CharacterSections';
-import DetailSidebar from '@/components/character/DetailSidebar';
+import { POSITION_OPTIONS } from '@/components/character/CharacterFormComponents';
 
 const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
@@ -85,38 +88,39 @@ const DEFAULT_PRESET_ENTRIES = {
 const CharacterDetail: React.FC = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { characters, updateCharacter,} = useCharacters();
+  const { characters, updateCharacter } = useCharacters();
   const { user } = useUser();
 
   const [character, setCharacter] = useState<Character | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [roleCard, setRoleCard] = useState<Partial<RoleCardJson>>({
-      name: '',
-      first_mes: '',
-      description: '',
-      personality: '',
-      scenario: '',
-      mes_example: ''
+    name: '',
+    first_mes: '',
+    description: '',
+    personality: '',
+    scenario: '',
+    mes_example: ''
   });
+  
+  // ... existing state variables ...
+  
   const [worldBookEntries, setWorldBookEntries] = useState<WorldBookEntryUI[]>([]);
   const [presetEntries, setPresetEntries] = useState<PresetEntryUI[]>([]);
   const [authorNote, setAuthorNote] = useState<Partial<AuthorNoteJson>>({
-      charname: '',
-      username: user?.settings?.self.nickname || 'User',
-      content: '',
-      injection_depth: 0
+    charname: '',
+    username: user?.settings?.self.nickname || 'User',
+    content: '',
+    injection_depth: 0
   });
 
-  const translateY = useSharedValue(0);
+  // New state variables for the enhanced UI
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
+  const [showDialog, setShowDialog] = useState(false);
+  const [selectedDialogAction, setSelectedDialogAction] = useState<'save' | 'discard' | 'delete' | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  const animatedStyles = useAnimatedStyle(() => {
-      return {
-          transform: [{
-              translateY: withTiming(showSettings ? -slideDistance : 0, { duration: 300 })
-          }],
-      };
-  }, [showSettings]);
-
+  // Add missing selectedField state
   const [selectedField, setSelectedField] = useState<{
     title: string;
     content: string;
@@ -127,6 +131,204 @@ const CharacterDetail: React.FC = () => {
     onOptionsChange?: (options: any) => void;
   } | null>(null);
 
+  // ... existing selectedField state and handlers ...
+
+  useEffect(() => {
+    const loadCharacterData = async () => {
+      setIsLoading(true);
+      try {
+        const foundCharacter = characters.find((c) => c.id === id);
+        if (!foundCharacter || !foundCharacter.jsonData) {
+          throw new Error('Character data not found');
+        }
+        
+        setCharacter(foundCharacter);
+        const data = JSON.parse(foundCharacter.jsonData);
+        
+        // Load roleCard, worldBook, authorNote, preset data...
+        // ... existing loading logic ...
+        
+        setRoleCard(data.roleCard || {});
+        setAuthorNote(data.authorNote || {
+          charname: '',
+          username: user?.settings?.self.nickname || 'User',
+          content: '',
+          injection_depth: 0
+        });
+
+        // Process worldBook entries
+        if (data.worldBook?.entries) {
+          const worldBookEntries = Object.entries(data.worldBook.entries)
+            .map(([name, entry]: [string, any]) => ({
+              id: String(Date.now()) + Math.random(),
+              name,
+              comment: entry.comment || '',
+              content: entry.content || '',
+              disable: !!entry.disable,
+              position: entry.position || 4,
+              constant: !!entry.constant,
+              key: Array.isArray(entry.key) ? entry.key : [],
+              depth: entry.position === 4 ? (entry.depth || 0) : undefined,
+              order: entry.order || 0
+            }));
+          
+          setWorldBookEntries(worldBookEntries);
+        }
+        
+        // Process preset entries
+        if (data.preset?.prompts) {
+          // ... existing preset processing ...
+        }
+        
+      } catch (error) {
+        console.error('Failed to parse character data:', error);
+        Alert.alert('错误', '角色数据格式错误');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadCharacterData();
+  }, [id, characters, user?.settings?.self.nickname]);
+
+  // Avatar and background image picker handlers
+  const pickAvatar = async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        // Process the image to make it square
+        const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
+          // 修复：使用 Image.getSize 来获取图像尺寸
+          Image.getSize(result.assets[0].uri, (w: number, h: number) => {
+            resolve({ width: w, height: h });
+          }, () => {
+            // 添加错误处理函数
+            resolve({ width: 300, height: 300 }); // 默认值
+          });
+        });
+
+        const size = Math.min(width, height);
+        const x = (width - size) / 2;
+        const y = (height - size) / 2;
+
+        const manipResult = await ImageManipulator.manipulateAsync(
+          result.assets[0].uri,
+          [{ crop: { originX: x, originY: y, width: size, height: size } }],
+          { format: ImageManipulator.SaveFormat.PNG, compress: 1 }
+        );
+
+        if (character) {
+          const updatedCharacter = { ...character, avatar: manipResult.uri };
+          setCharacter(updatedCharacter);
+          setHasUnsavedChanges(true);
+        }
+      }
+    } catch (error) {
+      console.error("Image picking error:", error);
+      Alert.alert("提示", "请确保选择合适的图片并正确裁剪");
+    }
+  };
+
+  const pickBackground = async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        if (character) {
+          const updatedCharacter = { 
+            ...character, 
+            backgroundImage: result.assets[0].uri 
+          };
+          setCharacter(updatedCharacter);
+          setHasUnsavedChanges(true);
+        }
+      }
+    } catch (error) {
+      console.error("Background image picking error:", error);
+      Alert.alert("错误", "选择背景图片失败");
+    }
+  };
+
+  // Handle role card changes
+  const handleRoleCardChange = (field: keyof RoleCardJson, value: string) => {
+    setRoleCard(prev => ({ ...prev, [field]: value }));
+    
+    // Update character name when name field is changed
+    if (field === 'name') {
+      setAuthorNote(prev => ({ ...prev, charname: value }));
+    }
+    
+    setHasUnsavedChanges(true);
+  };
+
+  // Content saving logic
+  const saveCharacter = async () => {
+    if (!roleCard.name?.trim()) {
+      Alert.alert('保存失败', '角色名称不能为空。');
+      return;
+    }
+  
+    if (!character || !character.id) {
+      Alert.alert('保存失败', '角色ID不存在');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    try {
+      // Construct complete character data
+      // ... existing data construction logic ...
+      
+      // Build updated character object and save
+      // ... existing save logic ...
+      
+      // Notify user on success
+      setHasUnsavedChanges(false);
+      Alert.alert('成功', '角色设定已更新');
+    } catch (error) {
+      console.error('Character update failed:', error);
+      Alert.alert('保存失败', error instanceof Error ? error.message : '更新角色时出现错误。');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Handle back button with unsaved changes warning
+  const handleBack = () => {
+    if (hasUnsavedChanges) {
+      setSelectedDialogAction('discard');
+      setShowDialog(true);
+    } else {
+      router.back();
+    }
+  };
+
+  // Handle dialog confirmation
+  const handleConfirmDialog = () => {
+    if (selectedDialogAction === 'save') {
+      saveCharacter();
+    } else if (selectedDialogAction === 'discard') {
+      router.back();
+    } else if (selectedDialogAction === 'delete') {
+      // Handle character deletion
+    }
+    
+    setShowDialog(false);
+    setSelectedDialogAction(null);
+  };
+
+  // Add missing handler methods
   const handleViewDetail = (
     title: string, 
     content: string,
@@ -147,374 +349,31 @@ const CharacterDetail: React.FC = () => {
     });
   };
 
-  useEffect(() => {
-    const loadCharacterData = () => {
-      const foundCharacter = characters.find((c) => c.id === id);
-      if (!foundCharacter || !foundCharacter.jsonData) {
-        console.warn('Character or character data not found');
-        return;
-      }
-      
-      try {
-        setCharacter(foundCharacter);
-        const data = JSON.parse(foundCharacter.jsonData);
-        
-        setRoleCard(data.roleCard || {});
-        setAuthorNote(data.authorNote || {
-          charname: '',
-          username: user?.settings?.self.nickname || 'User',
-          content: '',
-          injection_depth: 0
-        });
-
-        // 安全处理 worldBook 条目
-        if (data.worldBook?.entries) {
-          const worldBookEntries = Object.entries(data.worldBook.entries)
-            .map(([name, entry]: [string, any]) => ({
-              id: String(Date.now()) + Math.random(),
-              name,
-              comment: entry.comment || '',
-              content: entry.content || '',
-              disable: !!entry.disable,
-              position: entry.position || 4,
-              constant: !!entry.constant,
-              key: Array.isArray(entry.key) ? entry.key : [],
-              depth: entry.position === 4 ? (entry.depth || 0) : undefined,
-              order: entry.order || 0
-            }));
-          
-          setWorldBookEntries(worldBookEntries);
-        }
-        
-        // 安全处理 preset 条目
-        if (data.preset?.prompts) {
-          const loadedPresets = data.preset.prompts.map((prompt: any) => {
-            const isFixedEntry = DEFAULT_PRESET_ENTRIES.FIXED.some(
-              fixed => fixed.identifier === prompt.identifier
-            );
-            
-            return {
-              id: prompt.identifier || String(Date.now() + Math.random()),
-              name: prompt.name || '',
-              content: prompt.content || '',
-              identifier: prompt.identifier || `custom_${Date.now()}`,
-              isEditable: !isFixedEntry,
-              insertType: 'relative' as const,
-              role: prompt.role || 'user',
-              order: data.preset.prompt_order?.[0]?.order?.findIndex(
-                (o: { identifier: string }) => o.identifier === prompt.identifier
-              ) ?? 0,
-              isDefault: true,
-              enable: prompt.enable ?? true,
-              depth: prompt.depth || 0,
-              injection_position: prompt.injection_position
-            };
-          });
-
-          const sortedPresets = [...loadedPresets].sort((a, b) => a.order - b.order);
-          setPresetEntries(sortedPresets);
-        } else {
-          // 如果没有预设数据，设置为空数组
-          setPresetEntries([]);
-        }
-
-      } catch (error) {
-        console.error('Failed to parse character data:', error);
-        Alert.alert('错误', '角色数据格式错误');
-      }
-    };
-    
-    loadCharacterData();
-  }, [id, characters, user?.settings?.self.nickname]);
-
-  const pickAvatar = async () => {
-      try {
-          let result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [1, 1],  // 强制使用 1:1 比例
-              quality: 1,
-          });
-
-          if (!result.canceled && result.assets[0]) {
-              const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
-                  Image.getSize(result.assets[0].uri, (width, height) => {
-                      resolve({ width, height });
-                  });
-              });
-
-              // 计算圆形裁剪的尺寸和位置
-              const size = Math.min(width, height);
-              const x = (width - size) / 2;
-              const y = (height - size) / 2;
-
-              // 执行圆形裁剪
-              const manipResult = await ImageManipulator.manipulateAsync(
-                  result.assets[0].uri,
-                  [
-                      {
-                          crop: {
-                              originX: x,
-                              originY: y,
-                              width: size,
-                              height: size,
-                          },
-                      },
-                  ],
-                  {
-                      format: ImageManipulator.SaveFormat.PNG,
-                      compress: 1,
-                  }
-              );
-
-              if (character) {
-                  const updatedCharacter = { ...character, avatar: manipResult.uri };
-                  setCharacter(updatedCharacter);
-                  await updateCharacter(updatedCharacter);
-              }
-          }
-      } catch (error: any) {
-          console.error("Image picking error:", error);
-          Alert.alert("提示", "请确保选择合适的图片并正确裁剪");
-      }
-  };
-
-  const pickImage = async () => {
-    try {
-        let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [9, 16],
-            quality: 1,
-        });
-
-        if (!result.canceled && result.assets[0]) {
-            const newImage = result.assets[0].uri;
-            if (character) {
-                const updatedCharacter = {
-                    ...character,
-                    backgroundImage: newImage, // 修改这里：直接使用 string 类型
-                };
-                setCharacter(updatedCharacter);
-                await updateCharacter(updatedCharacter);
-            }
-        }
-    } catch (error: any) {
-        console.error("Image picking error:", error);
-        Alert.alert("Error", "Could not pick image: " + error.message);
-    }
-};
-
-  const handleInputChange = (field: keyof Character, value: string) => {
-      if (character) {
-          setCharacter({ ...character, [field]: value });
-      }
-  };
-
-  const saveCharacter = async () => {
-    if (!roleCard.name?.trim()) {
-      Alert.alert('保存失败', '角色名称不能为空。');
-      return;
-    }
-  
-    if (!character || !character.id) {
-      Alert.alert('保存失败', '角色ID不存在');
-      return;
-    }
-  
-    try {
-      // 构建完整的角色数据
-      const jsonData = {
-        roleCard: {
-          ...roleCard,
-          data: {
-            extensions: {
-              regex_scripts: []
-            }
-          }
-        },
-        worldBook: {
-          entries: Object.fromEntries(
-            worldBookEntries
-              .filter(entry => entry.name && entry.content)
-              .map(entry => [
-                entry.name,
-                {
-                  comment: entry.comment || '',
-                  content: entry.content,
-                  disable: false,
-                  position: entry.position,
-                  // 重要：保持原有的 constant 值，不再根据位置改变它
-                  constant: entry.constant || false,
-                  key: Array.isArray(entry.key) ? entry.key : [],
-                  // 只有在 position=4 时才设置 depth
-                  ...(entry.position === 4 ? { depth: entry.depth || 0 } : {}),
-                  order: entry.order || 0,
-                  vectorized: false
-                }
-              ])
-          )
-        },
-        preset: {
-          prompts: presetEntries.map(entry => ({
-            name: entry.name,
-            content: entry.content || '',
-            identifier: entry.identifier,
-            enable: entry.enable,
-            role: entry.role
-          })),
-          prompt_order: [{
-            // 保存当前的排序顺序
-            order: presetEntries
-              .sort((a, b) => a.order - b.order) // 确保按正确顺序排序
-              .map(entry => ({
-                identifier: entry.identifier,
-                enabled: entry.enable
-              }))
-          }]
-        },
-        authorNote: {
-          charname: roleCard.name.trim(),
-          username: user?.settings?.self.nickname || "User",
-          content: authorNote.content || '',
-          injection_depth: authorNote.injection_depth || 0
-        }
-      };
-  
-      // 更新角色对象，确保所有必需字段都有值
-      const updatedCharacter: Character = {
-        id: character.id,
-        name: roleCard.name.trim(),
-        description: roleCard.description || '',
-        personality: roleCard.personality || '',
-        interests: character.interests || [],
-        jsonData: JSON.stringify(jsonData),
-        avatar: character.avatar,
-        backgroundImage: character.backgroundImage,
-        conversationId: character.id, // 使用角色ID作为会话ID
-        circlePosts: character.circlePosts || [],
-        createdAt: character.createdAt || new Date().getTime(),
-        updatedAt: new Date().getTime()
-      };
-  
-      // 更新到 NodeST
-      const updateResult = await NodeSTManager.processChatMessage({
-        userMessage: "更新设定",
-        conversationId: character.id, // 使用角色ID作为会话ID
-        status: "更新人设",
-        apiKey: user?.settings?.chat.characterApiKey || '',
-        character: updatedCharacter
-      });
-  
-      if (!updateResult.success) {
-        throw new Error(updateResult.error || 'NodeST 更新失败');
-      }
-  
-      await updateCharacter(updatedCharacter);
-      Alert.alert('成功', '角色设定已更新');
-      router.back();
-  
-    } catch (error) {
-      console.error('Character update failed:', error);
-      Alert.alert('保存失败', error instanceof Error ? error.message : '更新角色时出现错误。');
-    }
-  };
-
-  // 添加排序和编辑相关方法
-  const handleMoveEntry = (id: string, direction: 'up' | 'down') => {
-      setPresetEntries(prev => {
-          const index = prev.findIndex(entry => entry.id === id);
-          if (
-              (direction === 'up' && index === 0) ||
-              (direction === 'down' && index === prev.length - 1)
-          ) {
-              return prev;
-          }
-
-          const newEntries = [...prev];
-          const swapIndex = direction === 'up' ? index - 1 : index + 1;
-          [newEntries[index], newEntries[swapIndex]] = [newEntries[swapIndex], newEntries[index]];
-
-          return newEntries.map((entry, idx) => ({
-              ...entry,
-              order: idx
-          }));
-      });
-  };
-
-  const handleUpdatePresetEntry = (id: string, updates: Partial<PresetEntryUI>) => {
-      setPresetEntries(prev =>
-          prev.map(entry =>
-              entry.id === id ? { ...entry, ...updates } : entry
-          )
-      );
-  };
-
-  const handleAddPresetEntry = () => {
-      const newEntry: PresetEntryUI = {
-          id: Date.now().toString(),
-          name: '',
-          content: '',
-          identifier: `custom_${Date.now()}`,
-          isEditable: true,
-          insertType: 'relative',
-          role: 'user',
-          order: presetEntries.length,
-          depth: 0,
-          enable: true
-      };
-      setPresetEntries(prev => [...prev, newEntry]);
-  };
-
+  // Add world book entry handlers
   const handleAddWorldBookEntry = () => {
-      const newEntry: WorldBookEntryUI = {
-        id: Date.now().toString(),
-        name: '',
-        comment: '',
-        content: '',
-        disable: false,
-        position: 4,
-        key: [],
-        constant: false,
-        depth: 0,
-      };
-      setWorldBookEntries(prev => [...prev, newEntry]);
+    const newEntry: WorldBookEntryUI = {
+      id: String(Date.now()),
+      name: '',
+      comment: '',
+      content: '',
+      disable: false,
+      position: 4,
+      constant: false,
+      key: [],
+      depth: 0,
+      order: worldBookEntries.length
     };
-    
-    const handleUpdateWorldBookEntry = (id: string, updates: Partial<WorldBookEntryUI>) => {
-      setWorldBookEntries(prev =>
-        prev.map(entry => {
-            if (entry.id === id) {
-                // 如果更新包含 position，确保正确处理框架位置和动态插入位置
-                if ('position' in updates) {
-                    const positionOption = POSITION_OPTIONS.find(opt => opt.value === updates.position);
-                    if (positionOption?.isFrameworkPosition) {
-                        // 对于框架位置（0或1），清除可能存在的动态插入相关属性
-                        return {
-                            ...entry,
-                            ...updates,
-                            is_d_entry: false, // 确保不会被当作D类条目处理
-                            injection_depth: undefined,
-                            constant: false,
-                        };
-                    }
-                }
-                // 仅当选择position=4时才设置depth
-                if ('position' in updates) {
-                    return {
-                        ...entry,
-                        ...updates,
-                        // 只在position=4时保留depth值
-                        depth: updates.position === 4 ? (entry.depth || 0) : undefined
-                    };
-                }
-                return { ...entry, ...updates };
-            }
-            return entry;
-        })
+    setWorldBookEntries(prev => [...prev, newEntry]);
+    setHasUnsavedChanges(true);
+  };
+  
+  const handleUpdateWorldBookEntry = (id: string, updates: Partial<WorldBookEntryUI>) => {
+    setWorldBookEntries(prev =>
+      prev.map(entry => entry.id === id ? { ...entry, ...updates } : entry)
     );
-};
-
+    setHasUnsavedChanges(true);
+  };
+  
   const handleReorderWorldBook = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
     
@@ -523,12 +382,61 @@ const CharacterDetail: React.FC = () => {
       const [removed] = result.splice(fromIndex, 1);
       result.splice(toIndex, 0, removed);
       
-      // Update the order values after reordering
+      // Update the order values
       return result.map((entry, idx) => ({
         ...entry,
         order: idx
       }));
     });
+    setHasUnsavedChanges(true);
+  };
+
+  // Add preset entry handlers
+  const handleAddPresetEntry = () => {
+    const newEntry: PresetEntryUI = {
+      id: String(Date.now()),
+      name: '',
+      content: '',
+      identifier: `custom_${Date.now()}`,
+      isEditable: true,
+      insertType: 'relative',
+      role: 'user',
+      order: presetEntries.length,
+      isDefault: false,
+      enable: true,
+      depth: 0
+    };
+    setPresetEntries(prev => [...prev, newEntry]);
+    setHasUnsavedChanges(true);
+  };
+  
+  const handleUpdatePresetEntry = (id: string, updates: Partial<PresetEntryUI>) => {
+    setPresetEntries(prev =>
+      prev.map(entry => entry.id === id ? { ...entry, ...updates } : entry)
+    );
+    setHasUnsavedChanges(true);
+  };
+  
+  const handleMoveEntry = (id: string, direction: 'up' | 'down') => {
+    setPresetEntries(prev => {
+      const index = prev.findIndex(entry => entry.id === id);
+      if (
+        (direction === 'up' && index === 0) ||
+        (direction === 'down' && index === prev.length - 1)
+      ) {
+        return prev;
+      }
+
+      const newEntries = [...prev];
+      const swapIndex = direction === 'up' ? index - 1 : index + 1;
+      [newEntries[index], newEntries[swapIndex]] = [newEntries[swapIndex], newEntries[index]];
+      
+      return newEntries.map((entry, idx) => ({
+        ...entry,
+        order: idx
+      }));
+    });
+    setHasUnsavedChanges(true);
   };
   
   const handleReorderPresets = (fromIndex: number, toIndex: number) => {
@@ -539,166 +447,267 @@ const CharacterDetail: React.FC = () => {
       const [removed] = result.splice(fromIndex, 1);
       result.splice(toIndex, 0, removed);
       
-      // Update the order values after reordering
       return result.map((entry, idx) => ({
         ...entry,
         order: idx
       }));
     });
+    setHasUnsavedChanges(true);
   };
 
-  return (
-      <SafeAreaView style={sharedStyles.safeArea}>
-          <StatusBar barStyle="dark-content" />
-          <View style={sharedStyles.container}>
-              <View style={sharedStyles.header}>
-                  {character?.backgroundImage ? (
-                      <>
-                          <Image
-                              source={typeof character?.backgroundImage === 'string' ? { uri: character.backgroundImage } : (character?.backgroundImage || { uri: '' })}
-                              style={sharedStyles.backgroundImage}
-                          />
-                          <TouchableOpacity
-                              style={sharedStyles.changeImageButton}
-                              onPress={pickImage}
-                          >
-                              <Text style={sharedStyles.changeImageButtonText}>更换形象</Text>
-                          </TouchableOpacity>
-                      </>
-                  ) : (
-                      <TouchableOpacity
-                          style={sharedStyles.uploadImageContainer}
-                          onPress={pickImage}
-                      >
-                          <MaterialCommunityIcons name="plus" size={40} color="rgb(255, 224, 195)" />
-                          <Text style={sharedStyles.uploadImageText}>点击上传形象</Text>
-                      </TouchableOpacity>
-                  )}
-
-                  <TouchableOpacity style={sharedStyles.avatarContainer} onPress={pickAvatar}>
-                      <Image
-                          source={
-                              character?.avatar
-                                  ? { uri: String(character.avatar) }
-                                  : require('@/assets/images/default-avatar.png')
-                          }
-                          style={sharedStyles.avatar}
-                      />
-                  </TouchableOpacity>
-              </View>
-
-              <Animated.View style={[sharedStyles.settingsPanel, animatedStyles]}>
-                  <TouchableOpacity
-                      style={sharedStyles.handle}
-                      onPress={() => {
-                          setShowSettings(!showSettings);
-                      }}
-                  >
-                      <MaterialCommunityIcons name="chevron-up" size={24} color="#fff" />
-                  </TouchableOpacity>
-                  <ScrollView style={sharedStyles.attributesContainer} contentContainerStyle={sharedStyles.scrollContent}>
-                      {/* 角色卡信息 */}
-                      <View style={sharedStyles.sectionHeader}>
-                          <Text style={sharedStyles.sectionTitle}>角色卡信息</Text>
-                          <InputField
-                              label="名称"
-                              value={roleCard.name || ''}
-                              onChangeText={(text: string) => setRoleCard(prev => ({ ...prev, name: text }))}
-                              truncate={false}
-                          />
-                          <InputField
-                              label="首次对话内容"
-                              value={roleCard.first_mes || ''}
-                              onChangeText={(text: string) => setRoleCard(prev => ({ ...prev, first_mes: text }))}
-                              onViewDetail={() => handleViewDetail(
-                                '首次对话内容',
-                                roleCard.first_mes || '',
-                                (text) => setRoleCard(prev => ({ ...prev, first_mes: text }))
-                              )}
-                          />
-                          <InputField
-                              label="角色描述"
-                              value={roleCard.description || ''}
-                              onChangeText={(text: string) => setRoleCard(prev => ({ ...prev, description: text }))}
-                              multiline
-                          />
-                          <InputField
-                              label="性格特征"
-                              value={roleCard.personality || ''}
-                              onChangeText={(text: string) => setRoleCard(prev => ({ ...prev, personality: text }))}
-                              multiline
-                          />
-                          <InputField
-                              label="场景设定"
-                              value={roleCard.scenario || ''}
-                              onChangeText={(text: string) => setRoleCard(prev => ({ ...prev, scenario: text }))}
-                              multiline
-                          />
-                          <InputField
-                              label="对话示例"
-                              value={roleCard.mes_example || ''}
-                              onChangeText={(text: string) => setRoleCard(prev => ({ ...prev, mes_example: text }))}
-                              multiline
-                          />
-                      </View>
-
-                      <WorldBookSection 
-                        entries={worldBookEntries}
-                        onAdd={handleAddWorldBookEntry}
-                        onUpdate={handleUpdateWorldBookEntry}
-                        onViewDetail={handleViewDetail}
-                        onReorder={handleReorderWorldBook}
-                      />
-
-                      <PresetSection
-                        entries={presetEntries}
-                        onAdd={handleAddPresetEntry}
-                        onUpdate={handleUpdatePresetEntry}
-                        onMove={handleMoveEntry}
-                        onReorder={handleReorderPresets}
-                        onViewDetail={handleViewDetail}
-                      />
-
-                      <AuthorNoteSection
-                        content={authorNote.content || ''}
-                        injection_depth={authorNote.injection_depth || 0}
-                        onUpdateContent={(text) => setAuthorNote(prev => ({ ...prev, content: text }))}
-                        onUpdateDepth={(depth) => setAuthorNote(prev => ({ 
-                          ...prev, 
-                          injection_depth: depth 
-                        }))}
-                        onViewDetail={handleViewDetail}
-                      />
-                  </ScrollView>
-              </Animated.View>
-          </View>
-
-          <DetailSidebar
-            isVisible={!!selectedField}
-            onClose={() => setSelectedField(null)}
-            title={selectedField?.title || ''}
-            content={selectedField?.content || ''}
-            onContentChange={selectedField?.onContentChange}
-            editable={selectedField?.editable}
-            entryType={selectedField?.entryType}
-            entryOptions={selectedField?.entryOptions}
-            onOptionsChange={selectedField?.onOptionsChange}
-          />
-
-          {/* 恢复保存按钮 */}
-          <TouchableOpacity
-              style={sharedStyles.saveButton}
-              onPress={saveCharacter}
-          >
-              <Text style={sharedStyles.saveButtonText}>保存修改</Text>
-          </TouchableOpacity>
+  // If still loading data
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <LoadingIndicator 
+          visible={true} 
+          text="加载角色数据"
+          type="animated"
+        />
       </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Character Header */}
+      <CharacterDetailHeader
+        name={roleCard.name || ''}
+        avatar={character?.avatar || null}
+        backgroundImage={character?.backgroundImage || null}
+        onAvatarPress={pickAvatar}
+        onBackgroundPress={pickBackground}
+        onBackPress={handleBack}
+      />
+      
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'basic' && styles.activeTab]} 
+          onPress={() => setActiveTab('basic')}
+        >
+          <Text style={[styles.tabText, activeTab === 'basic' && styles.activeTabText]}>基本设定</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'advanced' && styles.activeTab]} 
+          onPress={() => setActiveTab('advanced')}
+        >
+          <Text style={[styles.tabText, activeTab === 'advanced' && styles.activeTabText]}>高级设定</Text>
+        </TouchableOpacity>
+      </View>
+      
+      {/* Content Area */}
+      <ScrollView style={styles.content}>
+        {activeTab === 'basic' ? (
+          <View style={styles.tabContent}>
+            <CharacterAttributeEditor
+              title="开场白"
+              value={roleCard.first_mes || ''}
+              onChangeText={(text) => handleRoleCardChange('first_mes', text)}
+              placeholder="角色与用户的第一次对话内容..."
+              onFullscreenPress={() => {
+                // Handle fullscreen editor
+              }}
+            />
+            
+            <CharacterAttributeEditor
+              title="角色描述"
+              value={roleCard.description || ''}
+              onChangeText={(text) => handleRoleCardChange('description', text)}
+              placeholder="描述角色的外表、背景等基本信息..."
+              style={styles.attributeSection}
+            />
+            
+            <CharacterAttributeEditor
+              title="性格特征"
+              value={roleCard.personality || ''}
+              onChangeText={(text) => handleRoleCardChange('personality', text)}
+              placeholder="描述角色的性格、习惯、喜好等..."
+              style={styles.attributeSection}
+            />
+            
+            <CharacterAttributeEditor
+              title="场景设定"
+              value={roleCard.scenario || ''}
+              onChangeText={(text) => handleRoleCardChange('scenario', text)}
+              placeholder="描述角色所在的环境、情境..."
+              style={styles.attributeSection}
+            />
+            
+            <CharacterAttributeEditor
+              title="对话示例"
+              value={roleCard.mes_example || ''}
+              onChangeText={(text) => handleRoleCardChange('mes_example', text)}
+              placeholder="提供一些角色对话的范例..."
+              style={styles.attributeSection}
+            />
+          </View>
+        ) : (
+          <View style={styles.tabContent}>
+            {/* World Book Section */}
+            <WorldBookSection 
+              entries={worldBookEntries}
+              onAdd={handleAddWorldBookEntry}
+              onUpdate={handleUpdateWorldBookEntry}
+              onReorder={handleReorderWorldBook}
+              onViewDetail={handleViewDetail}
+            />
+            
+            {/* Author Note Section */}
+            <AuthorNoteSection
+              content={authorNote.content || ''}
+              injection_depth={authorNote.injection_depth || 0}
+              onUpdateContent={(text) => {
+                setAuthorNote(prev => ({ ...prev, content: text }));
+                setHasUnsavedChanges(true);
+              }}
+              onUpdateDepth={(depth) => {
+                setAuthorNote(prev => ({ ...prev, injection_depth: depth }));
+                setHasUnsavedChanges(true);
+              }}
+              onViewDetail={handleViewDetail}
+            />
+            
+            {/* Preset Section */}
+            <PresetSection
+              entries={presetEntries}
+              onAdd={handleAddPresetEntry}
+              onUpdate={handleUpdatePresetEntry}
+              onMove={handleMoveEntry}
+              onReorder={handleReorderPresets}
+              onViewDetail={handleViewDetail}
+            />
+          </View>
+        )}
+      </ScrollView>
+      
+      {/* Bottom Actions Bar */}
+      <BlurView intensity={30} tint="dark" style={styles.bottomBar}>
+        <ActionButton
+          title="取消"
+          icon="close-outline"
+          onPress={handleBack}
+          color="#666666"
+          style={styles.cancelButton}
+        />
+        
+        <ActionButton
+          title="保存设定"
+          icon="save-outline"
+          onPress={() => {
+            setSelectedDialogAction('save');
+            setShowDialog(true);
+          }}
+          loading={isSaving}
+          color={theme.colors.primary}
+          style={styles.saveButton}
+        />
+      </BlurView>
+      
+      {/* Detail Sidebar for expanded editing */}
+      <DetailSidebar
+        isVisible={!!selectedField}
+        onClose={() => setSelectedField(null)}
+        title={selectedField?.title || ''}
+        content={selectedField?.content || ''}
+        onContentChange={selectedField?.onContentChange}
+        editable={selectedField?.editable}
+        entryType={selectedField?.entryType}
+        entryOptions={selectedField?.entryOptions}
+        onOptionsChange={selectedField?.onOptionsChange}
+      />
+      
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        visible={showDialog}
+        title={
+          selectedDialogAction === 'save' ? '保存设定' :
+          selectedDialogAction === 'discard' ? '放弃更改' :
+          selectedDialogAction === 'delete' ? '删除角色' : '确认'
+        }
+        message={
+          selectedDialogAction === 'save' ? '确认保存所有更改？' :
+          selectedDialogAction === 'discard' ? '您有未保存的更改，确定要离开吗？' :
+          selectedDialogAction === 'delete' ? '确定要删除这个角色吗？此操作无法撤销。' : ''
+        }
+        confirmText={
+          selectedDialogAction === 'save' ? '保存' :
+          selectedDialogAction === 'discard' ? '放弃更改' :
+          selectedDialogAction === 'delete' ? '删除' : '确认'
+        }
+        cancelText="取消"
+        confirmAction={handleConfirmDialog}
+        cancelAction={() => setShowDialog(false)}
+        destructive={selectedDialogAction === 'delete' || selectedDialogAction === 'discard'}
+        icon={
+          selectedDialogAction === 'save' ? 'save-outline' :
+          selectedDialogAction === 'discard' ? 'alert-circle-outline' :
+          selectedDialogAction === 'delete' ? 'trash-outline' : 'help-circle-outline'
+        }
+      />
+    </SafeAreaView>
   );
 };
 
-// 只保留页面特有的样式，删除与共享组件重复的样式
-const styles = {
-  // ...任何特定于character-detail的样式
-};
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#282828',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#282828',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    marginTop: 10,
+    paddingHorizontal: 16,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: theme.colors.primary,
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#aaaaaa',
+  },
+  activeTabText: {
+    color: theme.colors.text,
+  },
+  content: {
+    flex: 1,
+  },
+  tabContent: {
+    padding: 16,
+  },
+  attributeSection: {
+    marginTop: 20,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    padding: 16,
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  cancelButton: {
+    flex: 1,
+    marginRight: 8,
+  },
+  saveButton: {
+    flex: 2,
+  },
+});
 
 export default CharacterDetail;

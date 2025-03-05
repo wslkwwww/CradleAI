@@ -1,5 +1,7 @@
 // Social circle types for interactions between characters
 
+import { ChatMessage, WorldBookEntry, Character } from '../types';
+
 export interface CirclePost {
   id: string;
   characterId: string;
@@ -66,14 +68,36 @@ export interface CharacterMetadata {
     specialAbilities?: string;
 }
 
+
+export interface CircleRFramework {
+    base: {
+        charDescription: string;
+        charPersonality: string;
+    };
+    circle: {
+        scenePrompt: string;
+        responseFormat: {
+            action: {
+                like: boolean;
+                comment?: string;
+            };
+            emotion: {
+                type: "positive" | "neutral" | "negative";
+                intensity: number; // 0-1
+            };
+        };
+    };
+}
+
 export interface CirclePostOptions {
     type: 'newPost' | 'replyToComment' | 'replyToPost';
     content: {
-        authorId: string;  // 帖子作者ID
+        authorId: string;
+        authorName?: string;  // Add this field
         text: string;
         context?: string;
     };
-    responderId: string;  // 响应者ID
+    responderId: string;  // 添加响应者ID字段，用于加载正确的框架
 }
 
 export interface CircleResponse {
@@ -88,4 +112,34 @@ export interface CircleResponse {
         strengthDelta: number;
         newType?: string;
     }>;
+}
+
+export interface CircleMemorySystem {
+    realtime: ChatMessage[];
+    summary: WorldBookEntry & {
+        key: ['circle_memory'];
+        updateInterval: number;
+    };
+}
+
+export interface CircleMemory extends ChatMessage {
+    timestamp: number;
+    type: 'newPost' | 'replyToComment' | 'replyToPost';
+}
+
+// Add InteractionResult interface for Circle Service
+export interface InteractionResult {
+  characterId: string;
+  success: boolean;
+  error?: string;
+  response?: {
+    action?: {
+      like?: boolean;
+      comment?: string;
+    },
+    emotion?: {
+      type: string;
+      intensity: number;
+    }
+  };
 }

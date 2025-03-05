@@ -17,6 +17,7 @@ export interface UserContextType {
     user: User | null;
     updateUser: (user: User) => Promise<void>;
     updateAvatar: (avatar: string) => Promise<void>;
+    updateSettings: (settings: any) => Promise<void>;
 }
 
 export interface CharactersContextType {
@@ -89,6 +90,15 @@ export interface CharactersContextType {
 export interface SidebarItemProps {
   id: string;
   title: string;
+  name ?: string;
+  avatar?: ImageSourcePropType;
+  backgroundImage?: ImageSourcePropType;
+  description?: string;
+  personality?: string;
+  interests?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  
 }
 
 export interface Conversation {

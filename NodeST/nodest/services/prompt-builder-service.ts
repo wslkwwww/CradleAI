@@ -272,6 +272,11 @@ export class PromptBuilderService {
       if (Array.isArray(msg.parts)) {
         interface MessagePart {
             text: string;
+            role?: string;
+            injection_depth?: number;
+            position?: number;
+            parts?: MessagePart[]; // 递归结构，消息是否包含子消息
+            is_d_entry?: boolean; // 是否是世界书条目
         }
 
         return msg.parts.map((part: MessagePart): string => part.text || "").join("\n");

@@ -1,206 +1,209 @@
-import { View, Text, StyleSheet, TouchableOpacity, Platform,StatusBar, Animated, Alert, Image, ScrollView } from 'react-native';
-import React, { useState, useRef, useEffect, } from 'react';
-import {  SidebarItemProps,  } from '@/constants/types';
-import { LongPressGestureHandler, GestureHandlerRootView, HandlerStateChangeEvent, LongPressGestureHandlerEventPayload } from 'react-native-gesture-handler';
-import { useCharacters } from '@/constants/CharactersContext';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  FlatList,
+  StatusBar,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { Character } from '@/shared/types';
+import { useRouter } from 'expo-router';
+import SearchBar from '@/components/SearchBar';
 
-const SIDEBAR_WIDTH_EXPANDED = 200;
-const SIDEBAR_WIDTH_COLLAPSED = 0;
-
-interface SideBarProps {
+interface SidebarProps {
   isVisible: boolean;
-  onClose: () => void;
-  conversations: SidebarItemProps[];
+  conversations: Character[];
   selectedConversationId: string | null;
   onSelectConversation: (id: string) => void;
+  onClose: () => void;
 }
 
-export default function SideBar({ isVisible, onClose, conversations, selectedConversationId, onSelectConversation }: SideBarProps) {
-  const slideAnim = useRef(new Animated.Value(SIDEBAR_WIDTH_EXPANDED)).current;
-  const { characters, deleteCharacters } = useCharacters();
+const Sidebar: React.FC<SidebarProps> = ({
+  isVisible,
+  conversations,
+  selectedConversationId,
+  onSelectConversation,
+  onClose,
+}) => {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: isVisible ? 0 : SIDEBAR_WIDTH_EXPANDED,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, [isVisible]);
+  // 过滤出搜索结果
+  const filteredConversations = searchQuery 
+    ? conversations.filter(conv => 
+        conv.name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : conversations;
 
-  const handleDeleteConversation = (id: string) => {
-    Alert.alert(
-      "Delete Character",
-      "Are you sure you want to delete this character and all associated conversations?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "OK",
-          onPress: () => {
-            deleteCharacters([id]);
+  return isVisible ? (
+    <View style={styles.overlay}>
+      <BlurView style={styles.sidebar} intensity={30} tint="dark">
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>聊天</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        {/* 用新的SearchBar组件替换旧的搜索功能 */}
+        <View style={styles.searchContainer}>
+          <SearchBar
+            placeholder="搜索角色..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onClear={() => setSearchQuery('')}
+            style={styles.searchBar}
+            blurBackground={true}
+            blurIntensity={15}
+          />
+        </View>
+
+        <FlatList
+          data={filteredConversations}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[
+                styles.conversationItem,
+                selectedConversationId === item.id && styles.selectedConversation,
+              ]}
+              onPress={() => {
+                onSelectConversation(item.id);
+                onClose();
+              }}
+            >
+              <Image
+                source={
+                  item.avatar
+                    ? { uri: item.avatar }
+                    : require('@/assets/images/default-avatar.png')
+                }
+                style={styles.avatar}
+              />
+              <View style={styles.conversationDetails}>
+                <Text style={styles.conversationName}>{item.name}</Text>
+                <Text style={styles.conversationPreview} numberOfLines={1}>
+                  {item.type || "AI角色"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            searchQuery ? (
+              <View style={styles.emptyResult}>
+                <Ionicons name="search-outline" size={32} color="#9e9e9e" />
+                <Text style={styles.emptyResultText}>没有找到匹配的角色</Text>
+              </View>
+            ) : null
           }
-        }
-      ],
-      { cancelable: false }
-    );
-  };
-
-  const handleSelectCharacter = (character: Character) => {
-    if (character.jsonData) {
-      try {
-        const data = JSON.parse(character.jsonData);
-        if (!data.roleCard || !data.preset || !data.worldBook) {
-          console.error('Invalid character data:', {
-            hasRoleCard: !!data.roleCard,
-            hasPreset: !!data.preset,
-            hasWorldBook: !!data.worldBook
-          });
-          return;
-        }
-      } catch (error) {
-        console.error('Failed to parse character data:', error);
-        return;
-      }
-    }
-    onSelectConversation(character.id);
-  };
-
-  return (
-    <>
-      {/* 遮罩层 - 移到最外层并覆盖整个屏幕 */}
-      {isVisible && (
-        <TouchableOpacity
-          style={styles.overlay}
-          activeOpacity={1}
-          onPress={onClose}
         />
-      )}
-      
-      <Animated.View
-        style={[
-          styles.sidebar,
-          {
-            transform: [{ translateX: slideAnim }],
-            width: SIDEBAR_WIDTH_EXPANDED,
-            right: 0,
-            left: 'auto',
-          },
-        ]}
-      >
-        <ScrollView style={styles.scrollView}>
-          {characters.map((character) => (
-            <GestureHandlerRootView key={character.id} style={{marginBottom: 2}}>
-              <LongPressGestureHandler
-                onHandlerStateChange={(event: HandlerStateChangeEvent<LongPressGestureHandlerEventPayload>) => {
-                  if (event.nativeEvent.state === 5) {
-                    handleDeleteConversation(character.id);
-                  }
-                }}
-                minDurationMs={500}
-              >
-                <Animated.View>
-                  <TouchableOpacity
-                    onPress={() => handleSelectCharacter(character)}
-                    style={[
-                      styles.contactItem,
-                      selectedConversationId === character.id && styles.selectedContact
-                    ]}
-                  >
-                    {character.avatar ? (
-                      typeof character.avatar === 'string' ? (
-                        <Image source={{ uri: character.avatar }} style={styles.contactAvatar} />
-                      ) : (
-                        <Image source={character.avatar} style={styles.contactAvatar} />
-                      )
-                    ) : (
-                      <View style={styles.contactAvatarPlaceholder} />
-                    )}
-                    <Text style={styles.contactName} numberOfLines={1} ellipsizeMode="tail">
-                      {character.name}
-                    </Text>
-                  </TouchableOpacity>
-                </Animated.View>
-              </LongPressGestureHandler>
-            </GestureHandlerRootView>
-          ))}
-        </ScrollView>
-      </Animated.View>
-    </>
-  );
-}
+
+        <TouchableOpacity 
+          style={styles.createButton}
+          onPress={() => {
+            router.push('/pages/create_char');
+            onClose();
+          }}
+        >
+          <Ionicons name="add" size={24} color="#fff" />
+          <Text style={styles.createButtonText}>创建新角色</Text>
+        </TouchableOpacity>
+      </BlurView>
+    </View>
+  ) : null;
+};
 
 const styles = StyleSheet.create({
-  sidebar: {
-    flex: 1,
-    position: 'absolute',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 30,
-    top: 0,
-    left: 0,
-    height: '100%',
-    backgroundColor: "rgba(0, 0, 0, 0.66)",
-    padding: 30,
-    zIndex: 200,
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8,
-  },
   overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 100,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
   },
-  contactItem: {
+  sidebar: {
+    width: '80%',
+    height: '100%',
+    backgroundColor: 'rgba(30, 30, 30, 0.9)',
+    paddingTop: StatusBar.currentHeight || 0,
+  },
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
-  selectedContact: {
-    backgroundColor: 'rgb(255, 224, 195)',
-    borderRadius: 15,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0)',
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
   },
-  contactAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 15,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+  closeButton: {
+    padding: 8,
   },
-  contactAvatarPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    marginRight: 15,
-    borderWidth: 2,
-    borderColor: 'rgba(0, 0, 0, 0.3)',
+  searchContainer: {
+    padding: 8,
+    marginBottom: 8,
   },
-  contactName: {
+  searchBar: {
+    height: 40,
+  },
+  conversationItem: {
+    flexDirection: 'row',
+    padding: 12,
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  selectedConversation: {
+    backgroundColor: 'rgba(255, 158, 205, 0.1)',
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  conversationDetails: {
+    flex: 1,
+  },
+  conversationName: {
     fontSize: 16,
-    color: '#4A4A4A',
-    flex: 1,
     fontWeight: '500',
+    color: '#ffffff',
+    marginBottom: 4,
   },
-  scrollView: {
-    flex: 1,
-  }
+  conversationPreview: {
+    fontSize: 14,
+    color: '#9e9e9e',
+  },
+  emptyResult: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyResultText: {
+    marginTop: 8,
+    color: '#9e9e9e',
+    fontSize: 16,
+  },
+  createButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(255, 158, 205, 0.2)',
+    margin: 16,
+    borderRadius: 8,
+  },
+  createButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#ffffff',
+  },
 });
+
+export default Sidebar;

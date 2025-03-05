@@ -1,60 +1,35 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
+import EmptyStateView from '@/components/EmptyStateView';
 
+// 保留兼容性的接口
 interface EmptyStateProps {
   message: string;
+  title?: string;
   icon?: string;
-  actionLabel?: string;
-  onAction?: () => void;
+  action?: () => void;
+  actionText?: string;
 }
 
+// 保留原来的组件名，但内部使用新的 EmptyStateView 组件
 const EmptyState: React.FC<EmptyStateProps> = ({ 
   message, 
-  icon = 'information-circle-outline',
-  actionLabel,
-  onAction
+  title, 
+  icon = 'alert-circle-outline',
+  action,
+  actionText
 }) => {
   return (
-    <View style={styles.container}>
-      <Ionicons name={icon as any} size={60} color="#BDBDBD" />
-      <Text style={styles.message}>{message}</Text>
-      
-      {actionLabel && onAction && (
-        <TouchableOpacity style={styles.actionButton} onPress={onAction}>
-          <Text style={styles.actionText}>{actionLabel}</Text>
-        </TouchableOpacity>
-      )}
+    <View style={{ flex: 1 }}>
+      <EmptyStateView
+        title={title}
+        message={message}
+        icon={icon}
+        buttonText={actionText}
+        onButtonPress={action}
+      />
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#ffffff',
-  },
-  message: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#757575',
-    textAlign: 'center',
-  },
-  actionButton: {
-    marginTop: 24,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    backgroundColor: '#5C6BC0',
-    borderRadius: 4,
-  },
-  actionText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-});
 
 export default EmptyState;

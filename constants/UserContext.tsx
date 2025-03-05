@@ -1,78 +1,139 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { User, UserContextType } from './types';
-import * as FileSystem from 'expo-file-system';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { User, GlobalSettings } from '@/shared/types';
 
-const UserContext = createContext<UserContextType | undefined>(undefined);
+interface UserContextProps {
+  user: User | null;
+  setUser: React.Dispatch<React.SetStateAction<User | null>>;
+  updateSettings: (settings: Partial<GlobalSettings>) => Promise<void>;
+  loading: boolean;
+  updateAvatar: (uri: string) => Promise<void>;
+  
+}
 
-const DEFAULT_USER: User = {
-  id: '1',
-  avatar: undefined,
-  name: undefined,
-  settings: {
-    self: {
-      nickname: '',
-      gender: 'other',
-      description: '',
-    },
-    chat: {
-      serverUrl: 'http://13.229.248.138/',
-      characterApiKey: 'app-MYKZ2djh6FPb0bq7J6L3rCif',
-      memoryApiKey: 'app-S1bQA9cgeKE4RXE4AluzdPUs',
-      xApiKey: 'a1b2c3d4-e5f6-7890-1234-567890abcdef',
-    }
-  }
-};
+const UserContext = createContext<UserContextProps | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(DEFAULT_USER);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Load saved user data on mount
   useEffect(() => {
-    loadUserData();
+    const loadUser = async () => {
+      try {
+        const userData = await AsyncStorage.getItem('user');
+        if (userData) {
+          setUser(JSON.parse(userData));
+        } else {
+          // Initialize with default settings
+          const defaultUser: User = {
+            id: 'user-1',
+            name: 'User',
+            avatar: null as any,
+            settings: {
+              app: {
+                darkMode: true,
+                autoSave: true,
+                notifications: {
+                  enabled: false
+                }
+              },
+              chat: {
+                typingDelay: 300,
+                serverUrl: '',
+                characterApiKey: '',
+                memoryApiKey: '',
+                xApiKey: '',
+                apiProvider: 'gemini',
+                temperature: 0.7,
+                maxTokens: 800,
+                maxtokens: 800,
+                openrouter: {
+                  enabled: false,
+                  apiKey: '',
+                  model: 'openai/gpt-3.5-turbo',
+                  useBackupModels: false,
+                  backupModels: [],
+                  autoRoute: false,
+                  sortingStrategy: 'price',
+                  dataCollection: true,
+                  ignoredProviders: []
+                }
+              },
+              self: {
+                nickname: 'Me',
+                gender: 'other',
+                description: ''
+              }
+            }
+          };
+          setUser(defaultUser);
+          await AsyncStorage.setItem('user', JSON.stringify(defaultUser));
+        }
+      } catch (error) {
+        console.error('Failed to load user:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUser();
   }, []);
 
-  const loadUserData = async () => {
+  const updateAvatar = async (uri: string): Promise<void> => {
+    if (!user) return;
+    
+    const updatedUser = {
+      ...user,
+      avatar: uri
+    };
+    setUser(updatedUser);
+    await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+  };
+
+  const updateSettings = async (settings: Partial<GlobalSettings>) => {
+    if (!user) return;
+
     try {
-      const userDataStr = await FileSystem.readAsStringAsync(
-        FileSystem.documentDirectory + 'user.json',
-        { encoding: FileSystem.EncodingType.UTF8 }
-      ).catch(() => JSON.stringify(DEFAULT_USER));
+      if (!user.settings) throw new Error('User settings not initialized');
+      
+      const updatedUser = {
+        ...user,
+        settings: {
+          ...user.settings,
+          app: {
+            ...user.settings.app,
+            ...settings.app
+          },
+          chat: {
+            ...user.settings.chat,
+            ...settings.chat
+          },
+          self: {
+            ...user.settings.self,
+            ...settings.self
+          }
+        }
+      };
 
-      const userData = JSON.parse(userDataStr);
-      setUser(userData);
-    } catch (error) {
-      console.error('Failed to load user data:', error);
-      setUser(DEFAULT_USER);
-    }
-  };
-
-  const saveUserData = async (userData: User) => {
-    try {
-      await FileSystem.writeAsStringAsync(
-        FileSystem.documentDirectory + 'user.json',
-        JSON.stringify(userData),
-        { encoding: FileSystem.EncodingType.UTF8 }
-      );
-    } catch (error) {
-      console.error('Failed to save user data:', error);
-    }
-  };
-
-  const updateUser = async (newUser: User) => {
-    setUser(newUser);
-    await saveUserData(newUser);
-  };
-
-  const updateAvatar = async (avatar: string) => {
-    if (user) {
-      const updatedUser = { ...user, avatar };
       setUser(updatedUser);
-      await saveUserData(updatedUser);
+      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      console.log('[UserContext] Settings updated successfully, apiProvider:', 
+        updatedUser.settings.chat.apiProvider);
+    } catch (error) {
+      console.error('Failed to update settings:', error);
+      throw new Error('Failed to update settings');
     }
   };
 
   return (
-    <UserContext.Provider value={{ user, updateUser, updateAvatar }}>
+    <UserContext.Provider value={{ 
+      user, 
+      setUser, 
+      updateSettings, 
+      loading,
+      updateAvatar 
+    }}>
       {children}
     </UserContext.Provider>
   );

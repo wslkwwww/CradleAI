@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Switch, useWindowDimensions }
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Character } from '../shared/types';
 import { useCharacters } from '../constants/CharactersContext';
-import { RelationshipGraph } from './RelationshipGraph';
-import { MessageBox } from './MessageBox';
+import  RelationshipGraph  from './RelationshipGraph';
+import  MessageBox  from './MessageBox';
 import { Colors } from '../constants/Colors';
 import { getAllCharacters } from '../services/character-service';
 

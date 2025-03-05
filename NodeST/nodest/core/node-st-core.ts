@@ -19,32 +19,41 @@ export class NodeSTCore {
     private openRouterAdapter: OpenRouterAdapter | null = null;
     private currentContents: ChatMessage[] | null = null;
     private apiKey: string;
-    private apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+    private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = {
+        apiProvider: 'gemini'
+    };
 
     constructor(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
         this.apiKey = apiKey;
-        this.apiSettings = apiSettings;
-        if (apiKey) {
-            this.initAdapters(apiKey, apiSettings);
-        }
-        if (apiSettings) {
-            this.apiSettings = apiSettings;
-        }
+        this.apiSettings = apiSettings || { apiProvider: 'gemini' };
+        this.initAdapters(apiKey, apiSettings);
     }
 
     updateApiKey(apiKey: string): void {
         this.apiKey = apiKey;
+        this.geminiAdapter = new GeminiAdapter(apiKey);
+        if (this.apiSettings?.apiProvider === 'openrouter' && 
+            this.apiSettings.openrouter?.enabled &&
+            this.apiSettings.openrouter?.apiKey) {
+            this.openRouterAdapter = new OpenRouterAdapter(
+                this.apiSettings.openrouter.apiKey,
+                this.apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+            );
+        }
     }
 
     // 添加方法以更新 API 设置
     updateApiSettings(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): void {
         this.apiKey = apiKey;
-        if (apiKey) {
-            this.initAdapters(apiKey, apiSettings);
-        }
         if (apiSettings) {
             this.apiSettings = apiSettings;
+            console.log('[NodeSTCore] Updating API settings:', {
+                provider: apiSettings.apiProvider,
+                openRouterEnabled: apiSettings.openrouter?.enabled,
+                model: apiSettings.openrouter?.model || 'none'
+            });
         }
+        this.initAdapters(apiKey, apiSettings);
     }
 
     private initAdapters(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
@@ -59,11 +68,18 @@ export class NodeSTCore {
         if (apiSettings?.apiProvider === 'openrouter' && 
             apiSettings.openrouter?.enabled && 
             apiSettings.openrouter?.apiKey) {
+            console.log('[NodeSTCore] Initializing OpenRouter adapter with:', {
+                apiKeyLength: apiSettings.openrouter.apiKey.length,
+                model: apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+            });
             this.openRouterAdapter = new OpenRouterAdapter(
                 apiSettings.openrouter.apiKey,
                 apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
             );
-            console.log('[NodeSTCore] Initialized OpenRouter adapter with model:', apiSettings.openrouter.model);
+        } else {
+            // Clear OpenRouter adapter if not enabled
+            this.openRouterAdapter = null;
+            console.log('[NodeSTCore] OpenRouter not enabled, using Gemini adapter only');
         }
 
         // Store settings for later use
@@ -74,10 +90,12 @@ export class NodeSTCore {
 
     // Get the appropriate adapter based on settings
     private getActiveAdapter() {
+        // Check if OpenRouter should be used (explicitly check adapter exists)
         if (this.apiSettings?.apiProvider === 'openrouter' && 
             this.apiSettings.openrouter?.enabled && 
             this.openRouterAdapter) {
-            console.log('[NodeSTCore] Using OpenRouter adapter');
+            console.log('[NodeSTCore] Using OpenRouter adapter with model:', 
+                this.apiSettings.openrouter.model || 'default');
             return this.openRouterAdapter;
         }
         
@@ -650,7 +668,9 @@ export class NodeSTCore {
                     messagesCount: chatHistory?.parts?.length,
                     identifier: chatHistory?.identifier
                 },
-                dEntriesCount: dEntries.length
+                dEntriesCount: dEntries.length,
+                apiProvider: this.apiSettings?.apiProvider,
+                usingExplicitAdapter: !!adapter
             });
 
             // 1. 加载框架内容
@@ -731,10 +751,16 @@ export class NodeSTCore {
                 throw new Error("API adapter not initialized");
             }
 
-            // 发送到Gemini
-            console.log('[NodeSTCore] Sending to Gemini...');
+            // 添加适配器类型日志
+            console.log('[NodeSTCore] Using adapter:', {
+                type: activeAdapter instanceof OpenRouterAdapter ? 'OpenRouter' : 'Gemini',
+                apiProvider: this.apiSettings?.apiProvider
+            });
+
+            // 发送到API
+            console.log('[NodeSTCore] Sending to API...');
             const response = await activeAdapter.generateContent(cleanedContents);
-            console.log('[NodeSTCore] Gemini response received:', {
+            console.log('[NodeSTCore] API response received:', {
                 hasResponse: !!response,
                 responseLength: response?.length || 0
             });

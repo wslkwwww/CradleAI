@@ -26,7 +26,7 @@ import ForwardSheet from '@/components/ForwardSheet';
 import TestResultsModal from '@/components/TestResultsModal';
 import { useUser } from '@/constants/UserContext';
 import { CircleService } from '@/services/circle-service';
-import { RelationshipAction } from '@/shared/types/action-types';
+import { RelationshipAction } from '@/shared/types/relationship-types';
 import RelationshipActions from '@/components/RelationshipActions';
 import { ActionService } from '@/services/action-service';
 import CharacterSelector from '@/components/CharacterSelector';

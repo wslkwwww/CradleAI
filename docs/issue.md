@@ -1,39 +1,41 @@
-## 摇篮系统优化建议
+/////////////业务逻辑修复
 
-### 1. 显示问题
+-openrouter：
+ fix：openrouter测试失败，反馈为API响应格式错误。（openrouter-adapter.ts日志）
 
-*   **角色列表刷新：** 导入角色后，摇篮角色列表没有立即刷新，需要下次导入才会刷新。期望：导入后立即刷新角色列表。
-*   **投喂条数刷新：** 投喂数据后，投喂数据的条数没有及时刷新。期望：投喂后立即刷新投喂条数。
+-角色关系系统与openrouter的集成与错误修复
+ fix： (NOBRIDGE) ERROR  Error: crypto.getRandomValues() not supported. See https://github.com/uuidjs/uuid#getrandomvalues-not-supported
+ 
+-审查其他的潜在错误
 
-### 2. 交互问题
 
-*   **键盘弹起/收回导致页面偏移：** 点击"输入投喂内容"文本框，弹出键盘后，再隐藏键盘，页面会向下过度移动，导致按钮移出了屏幕外。期望：键盘弹出时，页面向上顶起；键盘收回时，页面恢复原位。
+-摇篮系统
+  -摇篮角色生成后未消失
+  -摇篮角色的数据结构和create_char需要填充的结构不匹配
 
-### 3. 页面布局和交互修改
 
-*   **“摇篮培育进行中”区域改造：**
-    *   将“摇篮培育进行中”区域改造为**“摇篮培育详情显示区”**。
-    *   选择摇篮角色列表中任一角色后，在详情区域显示该角色的头像。
-    *   详情区域的背景图应为创建角色时上传的背景图，裁剪框适配“摇篮培育详情显示区”的尺寸。
+/////////////UI修复
 
-*   **凸显“摇篮培育详情”：**
-    *   “摇篮培育详情”区域应该显示培育详情，并使其在页面中更加凸显。
+-角色卡页面：
+ fix：角色关系
+ feat：角色卡页面的卡片展示，支持不同大小的视图，现在的试图是小的视图。大的视图，让角色的背景图片占满卡片，方便观赏。
+ 
+ 
 
-*   **导入角色背景图裁剪：**
-    *   导入常规角色时，也应该允许裁剪和使用角色的背景图，并应用到“摇篮培育详情显示区”。
-
-*   **操作区域限制：**
-    *   只有在“摇篮培育详情显示区”才能进行角色的“暂停培育”和“投喂数据”操作。
-
-### 4. 创建摇篮角色 - “推荐模板”和“设置角色基本信息”
-
-*   **自定义模块支持：**
-    *   除了“性格定位”和“能力属性”之外，允许用户添加自定义的模块。
-*   **自定义二元对立模块：**
-    *   允许添加自定义名称的二元对立类模块，例如“遇事态度”模块。
-    *   在自定义模块下创建自定义名称的滑块，例如“冷静-激动”滑块，“悲伤-快乐”滑块，滑块两端的名称由用户自定义。
-*   **自定义数值类模块：**
-    *   允许添加自定义名称的数值类模块，滑块内容同样由用户自定义。
-*   **推荐模板：**
-    *   本质上是对“设置角色基本信息”页面的上述内容预填充，包括角色名称、图片、滑块数值信息，以及用于填充"其他描述"的文字描述模板。
-    *   应该修改推荐模板，根据现有的推荐模板创作预填充信息，并对预填充功能进行实现。。
+-
+ (NOBRIDGE) LOG  [摇篮系统] 删除摇篮角色: 1740917160663
+ (NOBRIDGE) LOG  [摇篮系统] 保存摇篮角色列表，数量: 4
+ (NOBRIDGE) LOG  [摇篮系统] 摇篮角色删除成功
+ (NOBRIDGE) LOG  [摇篮系统] 成功生成角色: 莉莉丝
+ (NOBRIDGE) LOG  [Index] Character ID from params: 1741182145452
+ (NOBRIDGE) LOG  [Index] Character exists in characters array: true
+ (NOBRIDGE) LOG  [Index] Selected conversation set to: 1741182145452
+ (NOBRIDGE) LOG  [Index] Loaded messages count: 0
+ (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1738930528012
+ (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1741182145452
+ (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1741166137964
+ (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1741182145452
+ (NOBRIDGE) LOG  [摇篮系统] 开始从摇篮生成正式角色 1740917160663
+ (NOBRIDGE) ERROR  [摇篮系统] 未找到目标摇篮角色
+ (NOBRIDGE) ERROR  Failed to generate character: [Error: 未找到目标摇篮角色]
+ (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据

@@ -1,218 +1,312 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
-  FlatList,
+  TextInput,
+  Modal,
+  Animated,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   Alert,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
+import { theme } from '@/constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Memo } from '@/constants/types';
-import { MaterialIcons } from '@expo/vector-icons';
 
 interface MemoOverlayProps {
   isVisible: boolean;
   onClose: () => void;
 }
 
+interface Memo {
+  id: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 const MemoOverlay: React.FC<MemoOverlayProps> = ({ isVisible, onClose }) => {
   const [memos, setMemos] = useState<Memo[]>([]);
   const [currentMemo, setCurrentMemo] = useState<Memo | null>(null);
-  const [showEditor, setShowEditor] = useState(false);
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-
+  const [memoContent, setMemoContent] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(100)).current;
+  
+  useEffect(() => {
+    if (isVisible) {
+      loadMemos();
+      fadeIn();
+      Keyboard.dismiss();
+    } else {
+      fadeOut();
+    }
+  }, [isVisible]);
+  
+  const fadeIn = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+  
+  const fadeOut = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 100,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+  
   const loadMemos = async () => {
     try {
-      const memosString = await AsyncStorage.getItem('memos');
-      if (memosString) {
-        setMemos(JSON.parse(memosString));
+      const memosData = await AsyncStorage.getItem('memos');
+      if (memosData) {
+        const parsedMemos = JSON.parse(memosData) as Memo[];
+        setMemos(parsedMemos.sort((a, b) => b.updatedAt - a.updatedAt));
       }
     } catch (error) {
       console.error('Failed to load memos:', error);
+      Alert.alert('错误', '加载备忘录失败');
     }
   };
-
-  const saveMemos = async (newMemos: Memo[]) => {
+  
+  const saveMemos = async (updatedMemos: Memo[]) => {
     try {
-      await AsyncStorage.setItem('memos', JSON.stringify(newMemos));
-      setMemos(newMemos);
+      await AsyncStorage.setItem('memos', JSON.stringify(updatedMemos));
     } catch (error) {
       console.error('Failed to save memos:', error);
+      Alert.alert('错误', '保存备忘录失败');
     }
   };
-
-  const handleNewMemo = () => {
-    setCurrentMemo(null);
-    setTitle('');
-    setContent('');
-    setShowEditor(true);
+  
+  const handleAddMemo = () => {
+    const newMemo: Memo = {
+      id: Date.now().toString(),
+      content: '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    
+    setCurrentMemo(newMemo);
+    setMemoContent('');
+    setIsEditing(true);
   };
-
+  
   const handleEditMemo = (memo: Memo) => {
     setCurrentMemo(memo);
-    setTitle(memo.title);
-    setContent(memo.content);
-    setShowEditor(true);
+    setMemoContent(memo.content);
+    setIsEditing(true);
   };
-
-  const handleDelete = async (memoId: string) => {
+  
+  const handleSaveMemo = async () => {
+    if (!currentMemo) return;
+    
+    const trimmedContent = memoContent.trim();
+    if (!trimmedContent) {
+      Alert.alert('提示', '备忘录内容不能为空');
+      return;
+    }
+    
+    const updatedMemo: Memo = {
+      ...currentMemo,
+      content: trimmedContent,
+      updatedAt: Date.now(),
+    };
+    
+    const isNewMemo = !memos.some(m => m.id === currentMemo.id);
+    const updatedMemos = isNewMemo
+      ? [updatedMemo, ...memos]
+      : memos.map(m => (m.id === currentMemo.id ? updatedMemo : m));
+    
+    setMemos(updatedMemos.sort((a, b) => b.updatedAt - a.updatedAt));
+    await saveMemos(updatedMemos);
+    
+    setCurrentMemo(null);
+    setMemoContent('');
+    setIsEditing(false);
+  };
+  
+  const handleCancelEdit = () => {
+    setCurrentMemo(null);
+    setMemoContent('');
+    setIsEditing(false);
+  };
+  
+  const handleDeleteMemo = async (memoId: string) => {
     Alert.alert(
-      '删除确认',
-      '确定要删除这个备忘录吗？',
+      '删除备忘录',
+      '确定要删除这条备忘录吗？',
       [
         { text: '取消', style: 'cancel' },
         {
           text: '删除',
           style: 'destructive',
           onPress: async () => {
-            const newMemos = memos.filter(m => m.id !== memoId);
-            await saveMemos(newMemos);
+            const updatedMemos = memos.filter(m => m.id !== memoId);
+            setMemos(updatedMemos);
+            await saveMemos(updatedMemos);
+            
+            if (currentMemo?.id === memoId) {
+              setCurrentMemo(null);
+              setMemoContent('');
+              setIsEditing(false);
+            }
           },
         },
       ]
     );
   };
-
-  const handleSave = async () => {
-    if (!title.trim()) {
-      Alert.alert('提示', '请输入标题');
-      return;
-    }
-
-    const timestamp = new Date().toISOString();
-    const newMemo: Memo = {
-      id: currentMemo?.id || String(Date.now()),
-      title: title.trim(),
-      content: content.trim(),
-      createdAt: currentMemo?.createdAt || timestamp,
-      updatedAt: timestamp,
-    };
-
-    const newMemos = currentMemo
-      ? memos.map(m => (m.id === currentMemo.id ? newMemo : m))
-      : [...memos, newMemo];
-
-    await saveMemos(newMemos);
-    setShowEditor(false);
+  
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp).toLocaleString();
   };
-
-  const renderMemoItem = ({ item }: { item: Memo }) => (
-    <TouchableOpacity
-      style={styles.memoItem}
-      onPress={() => handleEditMemo(item)}
-    >
-      <View style={styles.memoContent}>
-        <Text style={styles.memoTitle}>{item.title}</Text>
-        <Text style={styles.memoDate}>
-          {new Date(item.updatedAt).toLocaleString()}
-        </Text>
-      </View>
-      <TouchableOpacity
-        style={styles.deleteButton}
-        onPress={() => handleDelete(item.id)}
-      >
-        <MaterialIcons name="delete" size={24} color="#FF4444" />
-      </TouchableOpacity>
-    </TouchableOpacity>
-  );
-
-  useEffect(() => {
-    if (isVisible) {
-      loadMemos();
-    }
-  }, [isVisible]);
-
+  
   if (!isVisible) return null;
-
+  
   return (
-    <View style={styles.overlay}>
-      <View style={styles.container}>
-        {!showEditor ? (
-          <>
-            <View style={styles.header}>
-              <Text style={styles.title}>备忘录</Text>
-              <TouchableOpacity onPress={handleNewMemo}>
-                <MaterialIcons name="add" size={24} color="#FF9ECD" />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={memos}
-              renderItem={renderMemoItem}
-              keyExtractor={item => item.id}
-              style={styles.list}
-            />
-            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeButtonText}>关闭</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <View style={styles.editorHeader}>
-              <TouchableOpacity onPress={() => setShowEditor(false)}>
-                <MaterialIcons name="arrow-back" size={24} color="#333" />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleSave}>
-                <Text style={styles.saveButtonText}>保存</Text>
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              style={styles.titleInput}
-              placeholder="输入标题"
-              value={title}
-              onChangeText={setTitle}
-            />
-            <TextInput
-              style={styles.contentInput}
-              multiline
-              placeholder="输入内容..."
-              value={content}
-              onChangeText={setContent}
-              textAlignVertical="top"
-            />
-          </>
-        )}
-      </View>
-    </View>
+    <Modal
+      transparent
+      statusBarTranslucent
+      visible={isVisible}
+      onRequestClose={onClose}
+      animationType="none"
+    >
+      <Animated.View
+        style={[
+          styles.overlay,
+          {
+            opacity: fadeAnim,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.dismissArea}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        
+        <Animated.View
+          style={[
+            styles.contentContainer,
+            {
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
+          <BlurView intensity={15} tint="dark" style={styles.blurContainer}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ flex: 1 }}
+            >
+              <View style={styles.header}>
+                <Text style={styles.title}>备忘录</Text>
+                <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              
+              {isEditing ? (
+                <View style={styles.editorContainer}>
+                  <TextInput
+                    style={styles.editor}
+                    value={memoContent}
+                    onChangeText={setMemoContent}
+                    placeholder="输入备忘录内容..."
+                    placeholderTextColor="#777"
+                    multiline
+                    autoFocus
+                  />
+                  
+                  <View style={styles.editorButtons}>
+                    <TouchableOpacity
+                      style={[styles.editorButton, styles.cancelButton]}
+                      onPress={handleCancelEdit}
+                    >
+                      <Text style={styles.editorButtonText}>取消</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editorButton, styles.saveButton]}
+                      onPress={handleSaveMemo}
+                    >
+                      <Text style={styles.editorButtonText}>保存</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <ScrollView style={styles.memoList}>
+                  {memos.map(memo => (
+                    <TouchableOpacity
+                      key={memo.id}
+                      style={styles.memoItem}
+                      onPress={() => handleEditMemo(memo)}
+                    >
+                      <Text style={styles.memoContent}>{memo.content}</Text>
+                      <Text style={styles.memoDate}>{formatDate(memo.updatedAt)}</Text>
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteMemo(memo.id)}
+                      >
+                        <Ionicons name="trash" size={24} color="#FF4444" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+            </KeyboardAvoidingView>
+          </BlurView>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
   );
 };
 
 const styles = StyleSheet.create({
   overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dismissArea: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 9999,
   },
-  container: {
+  contentContainer: {
     width: '90%',
-    height: '80%',
+    maxHeight: '80%',
     backgroundColor: 'white',
     borderRadius: 15,
+    overflow: 'hidden',
+  },
+  blurContainer: {
+    flex: 1,
     padding: 20,
-    elevation: 9999,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  editorHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -221,8 +315,48 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: 'bold',
+    color: '#fff',
   },
-  list: {
+  closeButton: {
+    padding: 8,
+  },
+  editorContainer: {
+    flex: 1,
+  },
+  editor: {
+    flex: 1,
+    fontSize: 16,
+    color: '#fff',
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  editorButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  editorButton: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  cancelButton: {
+    backgroundColor: '#FF4444',
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50',
+  },
+  editorButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  memoList: {
     flex: 1,
   },
   memoItem: {
@@ -234,10 +368,8 @@ const styles = StyleSheet.create({
   },
   memoContent: {
     flex: 1,
-  },
-  memoTitle: {
     fontSize: 16,
-    fontWeight: '500',
+    color: '#fff',
   },
   memoDate: {
     fontSize: 12,
@@ -246,40 +378,6 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: 8,
-  },
-  titleInput: {
-    fontSize: 18,
-    fontWeight: '500',
-    marginBottom: 15,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-  },
-  contentInput: {
-    flex: 1,
-    fontSize: 16,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-  },
-  closeButton: {
-    marginTop: 20,
-    padding: 15,
-    backgroundColor: '#FF9ECD',
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  closeButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  saveButtonText: {
-    color: '#FF9ECD',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });
 

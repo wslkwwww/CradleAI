@@ -9,11 +9,11 @@ export const settingsPanelHeight = screenHeight * (2 / 3);
 export const slideDistance = headerImageHeight + settingsPanelHeight - screenHeight + 40;
 
 export const POSITION_OPTIONS = [
-  { label: '角色定义之前', value: 0, isFrameworkPosition: true },
-  { label: '角色定义之后', value: 1, isFrameworkPosition: true },
-  { label: '作者注释之前', value: 2, isFrameworkPosition: false },
-  { label: '作者注释之后', value: 3, isFrameworkPosition: false },
-  { label: '按深度插入', value: 4, isFrameworkPosition: false }
+  { label: 'ChatStart', value: 0, isFrameworkPosition: true },
+  { label: 'BeforeChitchat', value: 1, isFrameworkPosition: true },
+  { label: 'AfterChitchat', value: 2, isFrameworkPosition: false },
+  { label: 'BeforeSend', value: 3, isFrameworkPosition: false },
+  { label: 'Dynamic', value: 4, isFrameworkPosition: false }
 ];
 
 export const INSERT_TYPE_OPTIONS = [
@@ -275,15 +275,7 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  addButton: {
-    padding: 8,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 20,
-    height: 40,
-    width: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+
   entryContainer: {
     marginBottom: 8,
     borderWidth: 1,
@@ -377,17 +369,6 @@ export const styles = StyleSheet.create({
     textAlign: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-  },
-  authorNoteContainer: {
-    marginTop: 10,
-  },
-  depthContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(40,40,40,0.5)',
-    borderRadius: theme.borderRadius.sm,
-    padding: 10,
-    marginTop: 10,
   },
   depthLabel: {
     color: theme.colors.textSecondary,
@@ -489,5 +470,164 @@ export const styles = StyleSheet.create({
   },
   inputTextCompact: {
     fontSize: theme.fontSizes.md,
+  },
+  worldBookEntryContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    marginBottom: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  worldBookHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  worldBookTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  worldBookActions: {
+    flexDirection: 'row',
+  },
+  actionIcon: {
+    padding: 5,
+  },
+  worldBookContent: {
+    color: '#ddd',
+    fontSize: 14,
+  },
+  addButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 20,
+    alignItems: 'center',
+    flexDirection: 'row',
+    alignSelf: 'center',
+    marginTop: 10,
+  },
+  addButtonText: {
+    color: 'rgb(255, 224, 195)',
+    marginLeft: 5,
+    fontSize: 16,
+  },
+  pickersContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  pickerWrapper: {
+    backgroundColor: '#444',
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 10,
+    height: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  pickerText: {
+    color: '#fff',
+  },
+  depthContainer: {
+    backgroundColor: '#444',
+    borderRadius: 8,
+    width: 80,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionContainer: {
+    marginTop: 20,
+    marginBottom: 15,
+  },
+  presetItem: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  presetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  presetTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  presetActions: {
+    flexDirection: 'row',
+  },
+  presetContent: {
+    color: '#ddd',
+    fontSize: 14,
+    marginTop: 5,
+  },
+  presetActionButton: {
+    padding: 5,
+  },
+  disabledPreset: {
+    opacity: 0.5,
+  },
+  authorNoteContainer: {
+    backgroundColor: 'rgba(255, 224, 195, 0.1)',
+    borderRadius: 8,
+    padding: 15,
+    marginTop: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 224, 195, 0.3)',
+  },
+  authorNoteHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  authorNoteTitle: {
+    color: 'rgb(255, 224, 195)',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  authorNoteEditButton: {
+    padding: 5,
+  },
+  noteTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  noteInjectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  noteInjectionLabel: {
+    color: '#ddd',
+    marginRight: 10,
+  },
+  noteInjectionInput: {
+    backgroundColor: '#444',
+    width: 50,
+    height: 35,
+    borderRadius: 5,
+    textAlign: 'center',
+    color: '#fff',
+  },
+  noteContentPreview: {
+    color: '#ddd',
+    marginTop: 10,
+  },
+  // Drag and drop related styles
+  dragIndicator: {
+    padding: 5,
   },
 });

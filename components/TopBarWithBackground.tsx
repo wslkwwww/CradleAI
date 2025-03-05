@@ -1,84 +1,143 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  Image,
-  ImageBackground,
-  TouchableOpacity,
   StyleSheet,
+  TouchableOpacity,
+  Image,
   Dimensions,
+  Platform,
+  StatusBar,
+  Animated,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
-
-const windowHeight = Dimensions.get('window').height;
-
-const defaultAvatar = require('@/assets/images/default-avatar.png'); // 添加默认头像
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface TopBarWithBackgroundProps {
-  selectedCharacter: Character | null | undefined;
+  selectedCharacter: Character | undefined | null;
   onAvatarPress: () => void;
   onMemoPress: () => void;
   onSettingsPress: () => void;
   onMenuPress: () => void;
 }
 
-const TopBarWithBackground = ({
+const HEADER_HEIGHT = 90; // Fixed height for consistency
+const { width } = Dimensions.get('window');
+
+const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   selectedCharacter,
   onAvatarPress,
   onMemoPress,
   onSettingsPress,
   onMenuPress,
-}: TopBarWithBackgroundProps) => {
-  // 获取头像源
-  const getAvatarSource = () => {
-    if (typeof selectedCharacter?.avatar === 'string') {
-      return { uri: selectedCharacter.avatar };
+}) => {
+  const [scrollY] = useState(new Animated.Value(0));
+  const [navbarHeight, setNavbarHeight] = useState(
+    Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0
+  );
+
+  // Calculate header opacity based on scroll position
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [0, 50],
+    outputRange: [0.85, 1],
+    extrapolate: 'clamp',
+  });
+
+  // Set up safe area insets
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      // On iOS we can use a fixed value for the status bar
+      setNavbarHeight(44);
     }
-    return defaultAvatar;
-  };
+  }, []);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.backgroundContainer}>
-        <ImageBackground
+    <Animated.View
+      style={[
+        styles.container,
+        {
+          opacity: headerOpacity,
+          height: HEADER_HEIGHT,
+          paddingTop: navbarHeight,
+        },
+      ]}
+    >
+      {/* Background Image or Gradient */}
+      {selectedCharacter?.backgroundImage ? (
+        <Image
           source={
-            selectedCharacter?.backgroundImage
+            typeof selectedCharacter.backgroundImage === 'string'
               ? { uri: selectedCharacter.backgroundImage }
-              : require('@/assets/images/default-background.jpeg')
+              : selectedCharacter.backgroundImage || require('@/assets/images/default-background.jpeg')
           }
           style={styles.backgroundImage}
-          resizeMode="cover"
         />
-      </View>
-      <View style={styles.contentContainer}>
-        <View style={styles.overlay} />
-        <View style={styles.topBar}>
-          <View style={styles.characterInfo}>
-            <TouchableOpacity onPress={onAvatarPress}>
-              <Image
-                source={getAvatarSource()}
-                style={styles.avatar}
-              />
-            </TouchableOpacity>
-            <View style={styles.nameContainer}>
-              <Text style={styles.charName}>{selectedCharacter?.name || "未选择角色"}</Text>
-            </View>
-          </View>
-          <View style={styles.buttons}>
-            <TouchableOpacity style={styles.iconButton} onPress={onMemoPress}>
-              <Icon name="note-add" size={24} color="#4A4A4A" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={onSettingsPress}>
-              <Icon name="settings" size={24} color="#4A4A4A" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={onMenuPress}>
-              <Icon name="menu" size={24} color="#4A4A4A" />
-            </TouchableOpacity>
-          </View>
+      ) : (
+        <LinearGradient
+          colors={['#333', '#282828']}
+          style={styles.backgroundGradient}
+        />
+      )}
+
+      {/* Blur Overlay */}
+      <BlurView intensity={80} style={styles.blurView} tint="dark" />
+      
+      {/* Dark Overlay */}
+      <View style={styles.overlay} />
+
+      {/* Content */}
+      <View style={styles.content}>
+        <TouchableOpacity 
+          style={styles.menuButton} 
+          onPress={onMenuPress}
+        >
+          <Ionicons name="menu" size={26} color="#fff" />
+        </TouchableOpacity>
+
+        <View style={styles.characterInfo}>
+          <TouchableOpacity 
+            style={styles.avatarContainer} 
+            onPress={onAvatarPress}
+          >
+            <Image
+              source={
+                selectedCharacter?.avatar
+                  ? { uri: String(selectedCharacter.avatar) }
+                  : require('@/assets/images/default-avatar.png')
+              }
+              style={styles.avatar}
+            />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.nameContainer}
+            onPress={onAvatarPress}
+          >
+            <Text style={styles.characterName} numberOfLines={1}>
+              {selectedCharacter?.name || '选择角色'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.actions}>
+          <TouchableOpacity 
+            style={styles.actionButton} 
+            onPress={onMemoPress}
+          >
+            <MaterialCommunityIcons name="notebook-outline" size={24} color="#fff" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton} 
+            onPress={onSettingsPress}
+          >
+            <Ionicons name="settings-outline" size={24} color="#fff" />
+          </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -88,79 +147,74 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    zIndex: 0,
-  },
-  backgroundContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: windowHeight, // 使用固定的窗口高度
-    zIndex: -1,
+    zIndex: 100,
   },
   backgroundImage: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  backgroundGradient: {
+    position: 'absolute',
     width: '100%',
     height: '100%',
   },
-  contentContainer: {
+  blurView: {
+    position: 'absolute',
     width: '100%',
     height: '100%',
-    position: 'relative',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)', // Dark overlay
   },
-  topBar: {
+  content: {
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginTop: 40,
-    zIndex: 1,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  menuButton: {
+    padding: 8,
+  },
+  characterInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingHorizontal: 8,
+  },
+  avatarContainer: {
+    marginRight: 12,
   },
   avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
     borderWidth: 2,
-    borderColor: 'white',
-  },
-  titleContainer: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  charName: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    color: 'black',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-
-  },
-  buttons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  iconButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 224, 195, 0.7)',
-    marginHorizontal: 2,
-  },
-  characterInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 224, 195, 0.7)', // 半透明红色背景
-    borderRadius: 25,
-    padding: 4,
-    paddingRight: 16,
+    borderColor: 'rgb(255, 224, 195)',
   },
   nameContainer: {
-    marginLeft: 10,
-    // 移除 flex: 1，避免不必要的拉伸
+    flex: 1,
+  },
+  characterName: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButton: {
+    padding: 8,
+    marginLeft: 4,
   },
 });
 

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Character } from '../../../shared/types';
-import { CircleRFramework, CirclePostOptions, CircleResponse } from '../types/circle-types';
+import { CircleRFramework, CirclePostOptions, CircleResponse } from '@/shared/types/circle-types';
 import { GeminiAdapter } from '../utils/gemini-adapter';
 import { OpenRouterAdapter } from '../utils/openrouter-adapter';
 import { MessageBoxItem, RelationshipMapData } from '../../../shared/types/relationship-types';

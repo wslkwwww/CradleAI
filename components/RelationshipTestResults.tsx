@@ -1,17 +1,42 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Modal,
-  ScrollView,
   TouchableOpacity,
+  ScrollView,
+  SafeAreaView,
+  Platform,
   Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Character } from '../shared/types';
-import { Relationship } from '../shared/types/relationship-types';
-import { RelationshipAction } from '../shared/types/action-types';
+import { BlurView } from 'expo-blur';
+import { theme } from '@/constants/theme';
+import { Relationship } from '@/shared/types/relationship-types';
+import { RelationshipAction } from '@/shared/types/relationship-types';
+
+// Define the type for test results
+export interface RelationshipTestResult {
+  postAuthor: {
+    id: string;
+    name: string;
+  };
+  postContent: string;
+  participants: Array<{
+    id: string;
+    name: string;
+    action: string;
+  }>;
+  relationshipUpdates: Array<{
+    targetId: string;
+    targetName: string;
+    before: Relationship | null;
+    after: Relationship | null;
+  }>;
+  triggeredActions: RelationshipAction[];
+  messages: string[];
+}
 
 interface RelationshipTestResultsProps {
   visible: boolean;
@@ -19,346 +44,531 @@ interface RelationshipTestResultsProps {
   results: RelationshipTestResult | null;
 }
 
-// 关系测试结果类型
-export interface RelationshipTestResult {
-  postAuthor: {
-    id: string;
-    name: string;
-  };
-  postContent: string;
-  participants: {
-    id: string;
-    name: string;
-    action: string;
-  }[];
-  relationshipUpdates: {
-    targetId: string;
-    targetName: string;
-    before: Relationship | null;
-    after: Relationship | null;
-  }[];
-  triggeredActions: RelationshipAction[];
-  messages: string[];
-}
+const { width } = Dimensions.get('window');
 
 const RelationshipTestResults: React.FC<RelationshipTestResultsProps> = ({
   visible,
   onClose,
   results
 }) => {
+  const [activeTab, setActiveTab] = useState<'summary' | 'details' | 'logs'>('summary');
+  
   if (!results) return null;
+  
+  // Get summary statistics
+  const totalParticipants = results.participants.length;
+  const changedRelationships = results.relationshipUpdates.filter(
+    update => JSON.stringify(update.before) !== JSON.stringify(update.after)
+  ).length;
+  const triggeredActions = results.triggeredActions.length;
+  
+  const renderSummaryTab = () => (
+    <ScrollView style={styles.tabContent}>
+      <View style={styles.postCard}>
+        <View style={styles.postHeader}>
+          <Ionicons name="person-circle" size={24} color={theme.colors.primary} />
+          <Text style={styles.postAuthor}>{results.postAuthor.name}</Text>
+        </View>
+        <Text style={styles.postContent}>{results.postContent}</Text>
+      </View>
+      
+      <View style={styles.statsContainer}>
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{totalParticipants}</Text>
+          <Text style={styles.statLabel}>互动角色</Text>
+        </View>
+        
+        <View style={styles.statDivider} />
+        
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{changedRelationships}</Text>
+          <Text style={styles.statLabel}>关系变化</Text>
+        </View>
+        
+        <View style={styles.statDivider} />
+        
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{triggeredActions}</Text>
+          <Text style={styles.statLabel}>触发行动</Text>
+        </View>
+      </View>
+      
+      <Text style={styles.sectionTitle}>参与角色行动</Text>
+      {results.participants.map((participant, index) => (
+        <View key={index} style={styles.participantItem}>
+          <Text style={styles.participantName}>{participant.name}</Text>
+          <Text style={styles.participantAction}>{participant.action}</Text>
+        </View>
+      ))}
+      
+      {triggeredActions > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>触发的行动</Text>
+          {results.triggeredActions.map((action, index) => (
+            <View key={index} style={styles.actionItem}>
+              <View style={styles.actionTypeTag}>
+                <Text style={styles.actionTypeText}>{action.type}</Text>
+              </View>
+              <Text style={styles.actionText}>
+                {action.sourceCharacterId} → {action.targetCharacterId}
+              </Text>
+            </View>
+          ))}
+        </>
+      )}
+    </ScrollView>
+  );
+  
+  const renderDetailsTab = () => (
+    <ScrollView style={styles.tabContent}>
+      <Text style={styles.sectionTitle}>关系变化详情</Text>
+      {results.relationshipUpdates.map((update, index) => {
+        // Calculate strength change if both before and after exist
+        const strengthChange = 
+          update.before && update.after
+            ? update.after.strength - update.before.strength
+            : 0;
+        
+        // Determine if relationship type changed
+        const typeChanged = 
+          update.before && update.after && 
+          update.before.type !== update.after.type;
+        
+        // Determine if this is a new relationship
+        const isNew = !update.before && update.after;
+        
+        return (
+          <View key={index} style={styles.updateItem}>
+            <View style={styles.updateHeader}>
+              <Text style={styles.updateTitle}>
+                {results.postAuthor.name} → {update.targetName}
+              </Text>
+              {isNew && (
+                <View style={styles.newTag}>
+                  <Text style={styles.newTagText}>新关系</Text>
+                </View>
+              )}
+            </View>
+            
+            {isNew ? (
+              <Text style={styles.newRelationshipText}>
+                新建立了类型为 
+                <Text style={styles.highlightText}> {update.after?.type} </Text>
+                的关系，强度为
+                <Text style={styles.highlightText}> {update.after?.strength} </Text>
+              </Text>
+            ) : (
+              <>
+                {strengthChange !== 0 && (
+                  <View style={styles.strengthChange}>
+                    <Text style={styles.strengthChangeLabel}>关系强度:</Text>
+                    <Text style={styles.strengthChangeValue}>
+                      {update.before?.strength || 0}
+                      <Text style={[
+                        styles.changeIndicator,
+                        strengthChange > 0 ? styles.positiveChange : styles.negativeChange
+                      ]}>
+                        {' '}{strengthChange > 0 ? '+' : ''}{strengthChange}
+                      </Text>
+                      → {update.after?.strength || 0}
+                    </Text>
+                  </View>
+                )}
+                
+                {typeChanged && (
+                  <View style={styles.typeChange}>
+                    <Text style={styles.typeChangeLabel}>关系类型:</Text>
+                    <Text style={styles.typeChangeValue}>
+                      {update.before?.type} → 
+                      <Text style={styles.highlightText}> {update.after?.type}</Text>
+                    </Text>
+                  </View>
+                )}
+                
+                {!strengthChange && !typeChanged && (
+                  <Text style={styles.noChangeText}>无变化</Text>
+                )}
+              </>
+            )}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+  
+  const renderLogsTab = () => (
+    <ScrollView style={styles.tabContent}>
+      <View style={styles.logsContainer}>
+        {results.messages.length > 0 ? (
+          results.messages.map((message, index) => (
+            <Text key={index} style={styles.logItem}>
+              • {message}
+            </Text>
+          ))
+        ) : (
+          <Text style={styles.noLogsText}>
+            没有详细日志。要查看详细日志，请在测试选项中启用"显示详细日志"选项。
+          </Text>
+        )}
+      </View>
+    </ScrollView>
+  );
   
   return (
     <Modal
       visible={visible}
-      transparent
       animationType="slide"
+      transparent
+      statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>关系测试结果</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-          
-          <ScrollView style={styles.modalBody}>
-            {/* 发帖信息 */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>测试内容</Text>
-              <View style={styles.card}>
-                <Text style={styles.postAuthor}>{results.postAuthor.name} 发布了：</Text>
-                <Text style={styles.postContent}>{results.postContent}</Text>
-              </View>
-            </View>
-            
-            {/* 互动信息 */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>互动角色</Text>
-              {results.participants.length > 0 ? (
-                <View style={styles.card}>
-                  {results.participants.map((participant, index) => (
-                    <Text key={index} style={styles.participantText}>
-                      • <Text style={styles.highlightText}>{participant.name}</Text>: {participant.action}
-                    </Text>
-                  ))}
-                </View>
-              ) : (
-                <Text style={styles.noDataText}>无角色互动</Text>
-              )}
-            </View>
-            
-            {/* 关系更新 */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>关系变化</Text>
-              {results.relationshipUpdates.length > 0 ? (
-                <View style={styles.card}>
-                  {results.relationshipUpdates.map((update, index) => (
-                    <View key={index} style={styles.updateItem}>
-                      <Text style={styles.updateTitle}>
-                        与 <Text style={styles.highlightText}>{update.targetName}</Text> 的关系:
-                      </Text>
-                      <View style={styles.updateDetails}>
-                        <View style={styles.updateColumn}>
-                          <Text style={styles.updateLabel}>之前</Text>
-                          {update.before ? (
-                            <>
-                              <Text style={styles.updateValue}>类型: {update.before.type}</Text>
-                              <Text style={styles.updateValue}>强度: {update.before.strength}</Text>
-                              <Text style={styles.updateValue}>互动: {update.before.interactions}</Text>
-                            </>
-                          ) : (
-                            <Text style={styles.noDataText}>无关系</Text>
-                          )}
-                        </View>
-                        <Ionicons name="arrow-forward" size={20} color="#999" style={styles.arrow} />
-                        <View style={styles.updateColumn}>
-                          <Text style={styles.updateLabel}>之后</Text>
-                          {update.after ? (
-                            <>
-                              <Text style={[
-                                styles.updateValue,
-                                update.before?.type !== update.after.type && styles.changedValue
-                              ]}>
-                                类型: {update.after.type}
-                                {update.before?.type !== update.after.type && " 🆕"}
-                              </Text>
-                              <Text style={[
-                                styles.updateValue,
-                                update.before?.strength !== update.after.strength && styles.changedValue
-                              ]}>
-                                强度: {update.after.strength}
-                                {update.before && update.after.strength > update.before.strength && " ⬆️"}
-                                {update.before && update.after.strength < update.before.strength && " ⬇️"}
-                              </Text>
-                              <Text style={[
-                                styles.updateValue,
-                                update.before?.interactions !== update.after.interactions && styles.changedValue
-                              ]}>
-                                互动: {update.after.interactions}
-                              </Text>
-                            </>
-                          ) : (
-                            <Text style={styles.noDataText}>关系被删除</Text>
-                          )}
-                        </View>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <Text style={styles.noDataText}>无关系变化</Text>
-              )}
-            </View>
-            
-            {/* 触发的行动 */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>触发的行动</Text>
-              {results.triggeredActions.length > 0 ? (
-                <View style={styles.card}>
-                  {results.triggeredActions.map((action, index) => (
-                    <View key={index} style={styles.actionItem}>
-                      <Text style={styles.actionTitle}>🎯 {action.type}</Text>
-                      <Text style={styles.actionContent}>{action.content}</Text>
-                      <Text style={styles.actionDetails}>
-                        到期时间: {new Date(action.expiresAt).toLocaleString()}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <Text style={styles.noDataText}>无触发行动</Text>
-              )}
-            </View>
-            
-            {/* 测试日志 */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>测试日志</Text>
-              <View style={styles.logCard}>
-                {results.messages.map((message, index) => (
-                  <Text key={index} style={styles.logMessage}>{message}</Text>
-                ))}
-              </View>
-            </View>
-          </ScrollView>
-          
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity 
+      <BlurView intensity={60} tint="dark" style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>关系测试结果</Text>
+            <TouchableOpacity
               style={styles.closeButton}
               onPress={onClose}
             >
-              <Text style={styles.closeButtonText}>关闭</Text>
+              <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
-        </View>
-      </View>
+          
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'summary' && styles.activeTab
+              ]}
+              onPress={() => setActiveTab('summary')}
+            >
+              <Text style={[
+                styles.tabText,
+                activeTab === 'summary' && styles.activeTabText
+              ]}>
+                摘要
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'details' && styles.activeTab
+              ]}
+              onPress={() => setActiveTab('details')}
+            >
+              <Text style={[
+                styles.tabText,
+                activeTab === 'details' && styles.activeTabText
+              ]}>
+                详细变化
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'logs' && styles.activeTab
+              ]}
+              onPress={() => setActiveTab('logs')}
+            >
+              <Text style={[
+                styles.tabText,
+                activeTab === 'logs' && styles.activeTabText
+              ]}>
+                日志
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.contentContainer}>
+            {activeTab === 'summary' && renderSummaryTab()}
+            {activeTab === 'details' && renderDetailsTab()}
+            {activeTab === 'logs' && renderLogsTab()}
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.doneButton}
+            onPress={onClose}
+          >
+            <Text style={styles.doneButtonText}>关闭</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      </BlurView>
     </Modal>
   );
 };
 
-const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
-  modalOverlay: {
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
-  modalContent: {
-    width: width * 0.9,
-    maxHeight: '90%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    overflow: 'hidden',
+  safeArea: {
+    flex: 1,
+    paddingTop: Platform.OS === 'android' ? 30 : 0,
   },
-  modalHeader: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
-  modalTitle: {
+  headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: theme.colors.primary,
   },
-  modalBody: {
+  closeButton: {
+    padding: 8,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(20, 20, 20, 0.8)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.primary,
+  },
+  tabText: {
+    color: '#ccc',
+    fontSize: 15,
+  },
+  activeTabText: {
+    color: theme.colors.primary,
+    fontWeight: '600',
+  },
+  contentContainer: {
+    flex: 1,
+  },
+  tabContent: {
+    flex: 1,
     padding: 16,
-    maxHeight: 500,
   },
-  section: {
+  postCard: {
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  postAuthor: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginLeft: 8,
+  },
+  postContent: {
+    fontSize: 15,
+    color: '#eee',
+    lineHeight: 20,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#ccc',
+    marginTop: 4,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    height: '80%',
+    alignSelf: 'center',
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  participantItem: {
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  participantName: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  participantAction: {
+    fontSize: 14,
+    color: '#ccc',
+    maxWidth: width * 0.6,
+    textAlign: 'right',
+  },
+  actionItem: {
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 224, 195, 0.2)',
+  },
+  actionTypeTag: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+  },
+  actionTypeText: {
+    color: theme.colors.primary,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  actionText: {
+    fontSize: 14,
+    color: '#fff',
+  },
+  updateItem: {
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  updateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  card: {
-    backgroundColor: '#f9f9f9',
+  updateTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  newTag: {
+    backgroundColor: 'rgba(80, 200, 120, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  newTagText: {
+    color: '#50C878',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  strengthChange: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+  strengthChangeLabel: {
+    width: 70,
+    fontSize: 14,
+    color: '#ccc',
+  },
+  strengthChangeValue: {
+    fontSize: 14,
+    color: '#fff',
+  },
+  typeChange: {
+    flexDirection: 'row',
+  },
+  typeChangeLabel: {
+    width: 70,
+    fontSize: 14,
+    color: '#ccc',
+  },
+  typeChangeValue: {
+    fontSize: 14,
+    color: '#fff',
+  },
+  changeIndicator: {
+    fontWeight: 'bold',
+  },
+  positiveChange: {
+    color: '#50C878',
+  },
+  negativeChange: {
+    color: '#FF4444',
+  },
+  highlightText: {
+    color: theme.colors.primary,
+    fontWeight: 'bold',
+  },
+  noChangeText: {
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  newRelationshipText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  logsContainer: {
+    backgroundColor: 'rgba(40, 40, 40, 0.8)',
     borderRadius: 8,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  postAuthor: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  postContent: {
-    fontSize: 16,
-    color: '#444',
-    fontStyle: 'italic',
-  },
-  participantText: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 4,
-    lineHeight: 20,
-  },
-  highlightText: {
-    color: '#5C6BC0',
-    fontWeight: '500',
-  },
-  updateItem: {
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  updateTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  updateDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  updateColumn: {
-    flex: 1,
-  },
-  updateLabel: {
-    fontSize: 12,
-    color: '#777',
-    marginBottom: 4,
-  },
-  updateValue: {
+  logItem: {
+    color: '#ddd',
     fontSize: 13,
-    color: '#555',
-    marginBottom: 2,
+    marginBottom: 10,
+    lineHeight: 18,
   },
-  changedValue: {
-    color: '#FF9ECD',
-    fontWeight: '500',
-  },
-  arrow: {
-    marginHorizontal: 8,
-  },
-  actionItem: {
-    marginBottom: 8,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  actionTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#5C6BC0',
-    marginBottom: 4,
-  },
-  actionContent: {
-    fontSize: 13,
-    color: '#555',
-    marginBottom: 4,
-  },
-  actionDetails: {
-    fontSize: 12,
-    color: '#777',
-  },
-  logCard: {
-    backgroundColor: '#333',
-    borderRadius: 8,
-    padding: 12,
-  },
-  logMessage: {
-    color: '#eee',
-    fontFamily: 'monospace',
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  noDataText: {
+  noLogsText: {
     color: '#999',
     fontStyle: 'italic',
     textAlign: 'center',
-    padding: 8,
+    padding: 20,
   },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    backgroundColor: '#f9f9f9',
+  doneButton: {
+    backgroundColor: theme.colors.primary,
+    margin: 16,
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
   },
-  closeButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    backgroundColor: '#FF9ECD',
-    borderRadius: 20,
-  },
-  closeButtonText: {
-    color: '#fff',
-    fontWeight: '500',
-    fontSize: 14,
+  doneButtonText: {
+    color: '#222',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

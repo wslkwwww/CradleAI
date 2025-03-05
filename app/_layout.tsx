@@ -85,9 +85,6 @@ export default function RootLayout() {
                 <Stack.Screen name="pages/create_char" />
                 <Stack.Screen name="pages/create_char_cradle" />
                 <Stack.Screen name="pages/create_character_tabs" />
-                <Stack.Screen name="pages/settings" />
-                <Stack.Screen name="pages/character-import" />
-                <Stack.Screen name="pages/update-avatar" />
               </Stack>
               <StatusBar style="dark" backgroundColor='black' />
             </ThemeProvider>

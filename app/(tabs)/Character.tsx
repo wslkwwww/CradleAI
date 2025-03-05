@@ -25,8 +25,8 @@ import { CharacterImporter } from '@/utils/CharacterImporter';
 import { useUser } from '@/constants/UserContext';
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { RelationshipGraph } from '@/components/RelationshipGraph';
-import { MessageBox } from '@/components/MessageBox';
+import  RelationshipGraph  from '@/components/RelationshipGraph';
+import  MessageBox  from '@/components/MessageBox';
 import { getCharacterById } from '@/services/character-service';
 
 // ... (CharacterCard 组件和常量) ...

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -9,23 +9,30 @@ import {
   SafeAreaView,
   StatusBar,
   Platform,
-  Alert,
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useUser } from '@/constants/UserContext';
 import { useRouter } from 'expo-router';
 import { NodeSTCleanupButton } from '@/components/settings/NodeSTCleanupButton';
-
+import ListItem from '@/components/ListItem';
+import EmptyStateView from '@/components/EmptyStateView';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadingIndicator from '@/components/LoadingIndicator';
+import ActionButton from '@/components/ActionButton';
+import { theme } from '@/constants/theme';
 const Profile: React.FC = () => {
   const { user, updateAvatar } = useUser();
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const pickImage = useCallback(async () => {
     try {
+      setIsLoading(true);
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant camera roll permissions to change your avatar.');
+        setShowConfirmDialog(true);
         return;
       }
 
@@ -37,11 +44,12 @@ const Profile: React.FC = () => {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        updateAvatar(result.assets[0].uri);
+        await updateAvatar(result.assets[0].uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to pick image');
       console.error(error);
+    } finally {
+      setIsLoading(false);
     }
   }, [updateAvatar]);
 
@@ -52,56 +60,93 @@ const Profile: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-
-
+      <StatusBar barStyle="light-content" backgroundColor={theme.colors.background} />
 
       {/* 用户信息 */}
       <View style={styles.header}>
-       <TouchableOpacity onPress={pickImage}>
-         <Image
-           source={user?.avatar ? { uri: user.avatar } : require('@/assets/images/default-avatar.png')}
-           style={styles.avatar}
-         />
-       </TouchableOpacity>
-     </View>
+        <TouchableOpacity onPress={pickImage}>
+          <Image
+            source={user?.avatar ? { uri: user.avatar } : require('@/assets/images/default-avatar.png')}
+            style={styles.avatar}
+          />
+          <View style={styles.editAvatarButton}>
+            <Ionicons name="camera" size={16} color="#fff" />
+          </View>
+        </TouchableOpacity>
+      </View>
 
-      {/* 项目列表 */}
+      {/* 项目列表 - 使用新的ListItem组件 */}
       <ScrollView style={styles.content}>
-        <TouchableOpacity style={styles.itemCard}>
-          <Ionicons name="person-outline" size={24} color="#777777" />
-          <Text style={styles.itemText}>我的Agent</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.itemCard}>
-          <MaterialIcons name="storefront" size={24} color="#777777" />
-          <Text style={styles.itemText}>Agent集市</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.itemCard}
+        <ListItem
+          title="我的Agent"
+          leftIcon="person-outline"
+          chevron={true}
           onPress={() => router.push('/pages/global-settings')}
-        >
-          <Ionicons name="settings-outline" size={24} color="#777777" />
-          <Text style={styles.itemText}>全局设置</Text>
-        </TouchableOpacity>
+        />
         
-        {/* 添加 API 设置入口 */}
-        <TouchableOpacity
-          style={styles.itemCard}
+        <ListItem
+          title="Agent集市"
+          leftIcon="storefront"
+          leftIconColor="#777777"
+          chevron={true}
+          onPress={() => router.push('/pages/global-settings')}
+        />
+        
+        <ListItem
+          title="全局设置"
+          leftIcon="settings-outline"
+          chevron={true}
+          onPress={() => router.push('/pages/global-settings')}
+        />
+        
+        <ListItem
+          title="API 设置"
+          leftIcon="cloud-outline"
+          chevron={true}
           onPress={() => router.push('/pages/api-settings')}
-        >
-          <MaterialIcons name="api" size={24} color="#777777" />
-          <Text style={styles.itemText}>API 设置</Text>
-        </TouchableOpacity>
+        />
 
-        {/* 添加NodeSTCleanupButton */}
+        {/* 危险区域 - 使用我们的新组件 */}
         <View style={styles.dangerSection}>
           <Text style={styles.dangerSectionTitle}>危险区域</Text>
-          <NodeSTCleanupButton onCleanupComplete={handleCleanupComplete} />
+          <ActionButton 
+            title="清理所有角色数据" 
+            onPress={() => setShowConfirmDialog(true)}
+            color={theme.colors.danger}
+            textColor="#fff"
+            icon="trash-outline"
+            iconPosition="left"
+          />
           <Text style={styles.dangerSectionDescription}>
             清理所有角色数据将删除所有存储在应用中的角色对话历史和设定数据。此操作无法撤销。
           </Text>
         </View>
       </ScrollView>
+
+      {/* 使用新的ConfirmDialog组件 */}
+      <ConfirmDialog
+        visible={showConfirmDialog}
+        title="确认清理数据"
+        message="此操作将永久删除所有角色数据和对话历史。确定要继续吗？"
+        confirmText="确认删除"
+        cancelText="取消"
+        confirmAction={() => {
+          setShowConfirmDialog(false);
+          // 调用清理函数
+          handleCleanupComplete();
+        }}
+        cancelAction={() => setShowConfirmDialog(false)}
+        destructive={true}
+        icon="alert-circle"
+      />
+
+      {/* 使用新的LoadingIndicator组件 */}
+      <LoadingIndicator 
+        visible={isLoading} 
+        text="处理中..."
+        overlay={true}
+        useModal={true}
+      />
     </SafeAreaView>
   );
 };
@@ -109,7 +154,7 @@ const Profile: React.FC = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#282828',
+    backgroundColor: theme.colors.background,
   },
   header: {
     padding: 16,
@@ -121,7 +166,6 @@ const styles = StyleSheet.create({
   avatar: {
     width: 90,
     height: 90,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 45,
     marginBottom: 16,
     borderWidth: 3,
@@ -132,54 +176,25 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
   },
-  loginButton: {
-    backgroundColor: 'rgba(255, 123, 0, 0.3)',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  loginText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    textShadowColor: 'rgba(0, 0, 0, 0.1)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+  editAvatarButton: {
+    position: 'absolute',
+    bottom: 16,
+    right: 0,
+    backgroundColor: theme.colors.primary,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.background,
   },
   content: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
+    flex: 1,
   },
-  itemCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  itemText: {
-    color: '#4A4A4A',
-    fontSize: 16,
-    marginLeft: 16,
-    fontWeight: '500',
-  },
-  // 添加新样式
   dangerSection: {
-    marginTop: 20,
-    marginBottom: 30,
+    margin: 16,
+    marginTop: 32,
     padding: 16,
     backgroundColor: 'rgba(255, 71, 87, 0.05)',
     borderRadius: 16,
@@ -187,38 +202,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 71, 87, 0.3)',
   },
   dangerSectionTitle: {
-    color: '#ff4757',
+    color: theme.colors.danger,
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   dangerSectionDescription: {
-    color: '#fff',
+    color: theme.colors.textSecondary,
     fontSize: 12,
-    marginTop: 8,
+    marginTop: 12,
     lineHeight: 18,
-    opacity: 0.7,
-  },
-});
-
-const headerStyles = StyleSheet.create({
-  header: {
-    padding: 16,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
-    alignItems: 'center',
-    backgroundColor: '#282828',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  headerText: {
-    color: 'rgb(255, 224, 195)',
-    fontSize: 20,
-    fontWeight: 'bold',
   },
 });
 

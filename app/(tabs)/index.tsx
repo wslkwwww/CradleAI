@@ -240,19 +240,21 @@ const App = () => {
         </View>
 
         <View style={styles.inputBar}>
-          <ChatInput
-            onSendMessage={handleSendMessage}
-            selectedConversationId={selectedConversationId}
-            conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) : ''}
-            onResetConversation={handleResetConversation}
-            selectedCharacter={selectedCharacter}
-          />
+          {selectedCharacter && (
+            <ChatInput
+              onSendMessage={handleSendMessage}
+              selectedConversationId={selectedConversationId}
+              conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
+              onResetConversation={handleResetConversation}
+              selectedCharacter={selectedCharacter}
+            />
+          )}
         </View>
 
         {/* Sidebars and overlays */}
         <Sidebar
           isVisible={isSidebarVisible}
-          conversations={conversations}
+          conversations={characters}
           selectedConversationId={selectedConversationId}
           onSelectConversation={handleSelectConversation}
           onClose={toggleSidebar}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,17 +12,19 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { OpenRouterModel } from '@/shared/types/api-types';
 
 interface ModelSelectorProps {
-  models: OpenRouterModel[];
+  models?: OpenRouterModel[];
   selectedModelId: string;
   onSelectModel: (modelId: string) => void;
-  isLoading: boolean;
+  isLoading?: boolean;
+  apiKey: string;
 }
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({
-  models = [],
+  apiKey,
   selectedModelId,
   onSelectModel,
-  isLoading
+  isLoading = false,
+  models = []
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetails, setShowDetails] = useState<Record<string, boolean>>({});

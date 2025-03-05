@@ -1,3 +1,5 @@
+# 更新日志
+
 # 开发规范
 
 为确保系统的一致性和可维护性，我们规定**所有**基于AI对话的扩展工具和功能**必须**使用`PromptBuilderService`构建请求体，并遵循以下规范：
@@ -186,7 +188,7 @@ graph TD
 'getScenePromptByType'：根据互动类型获取场景提示词
 'parseCircleResponse'：解析 AI 返回的 JSON 响应
 
-`/NodeST/nodest/types/circle-types.ts`：相关类型定义
+`/shared/types/circle-types.ts`：相关类型定义
 'CircleRFramework'：朋友圈R框架结构
 'CirclePostOptions'：交互选项参数
 'CircleResponse'：交互响应结构

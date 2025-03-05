@@ -1,14 +1,16 @@
 import { CharacterMetadata } from '../shared/types/circle-types';
-import { RelationshipMapData, MessageBoxItem } from '../shared/types/relationship-types';
+import { RelationshipMapData, } from '../shared/types/relationship-types';
 import { RelationshipAction } from '@/services/action-service';
 import { CradleAnimation } from '@/constants/types';
 import { OpenRouterSettings } from '@/shared/types/api-types';
+import { MessageBoxItem } from '@/shared/types/relationship-types';
 // ============= 基础类型 =============
 export interface User {
     id: string;
     avatar?: string;
     name?: string;
     settings?: GlobalSettings;
+    coverImage? : string | null;
 }
 
 export interface GlobalSettings {
@@ -19,7 +21,7 @@ export interface GlobalSettings {
     };
     chat: {
         // Legacy fields
-        serverUrl: string;
+        serverUrl: string | null | undefined; 
         characterApiKey: string;
         memoryApiKey: string;
         xApiKey: string;
@@ -27,7 +29,18 @@ export interface GlobalSettings {
         // New API settings
         apiProvider: 'gemini' | 'openrouter';
         openrouter?: OpenRouterSettings;
+        typingDelay: number;
+        maxtokens: number;
+        temperature: number;
+        maxTokens: number;
     };
+    app?: {
+        darkMode?: boolean;
+        autoSave?: boolean;
+        notifications?: {
+          enabled?: boolean;
+        };
+    }
 }
 
 // ============= NodeST 核心类型 =============
@@ -125,26 +138,11 @@ export interface ChatMessage {
     timestamp?: number;
 }
 
-export interface ChatHistoryEntity {
-    name: string;
-    role: string;
-    parts: ChatMessage[];
-    identifier?: string;
-}
-
-export interface GeminiMessage {
-    role: "user" | "model";
-    parts: MessagePart[];
-    position?: number;
-    is_d_entry?: boolean;
-    is_author_note?: boolean;
-    injection_depth?: number;
-}
-
-
 export interface SidebarItemProps {
     id: string;
     title: string;
+    avatar: string;
+    description: string;
   }
 
 // ============= 角色类型 =============
@@ -166,6 +164,7 @@ export interface Character {
   gender?: string;
   isCradleGenerated?: boolean;
   inCradleSystem?: boolean;
+  type?: string;
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
@@ -180,6 +179,13 @@ export interface Character {
     repliedToPostsCount: number;
     repliedToCommentsCount: Record<string, number>;
   };
+  messages?: Array<{
+    sender: string;
+    text: string;
+    metadata?: {
+      targetId?: string;
+    };
+  }>;
   
   // Relationship system fields
   relationshipMap?: RelationshipMapData;
@@ -190,9 +196,6 @@ export interface Character {
 
 
 
-
-
-
 export interface Message {
     id: string;
     text: string;
@@ -200,6 +203,11 @@ export interface Message {
     isLoading?: boolean;
     timestamp?: number;
     rating?: number;
+    metadata?: {
+        senderId?: string;
+        type?: 'relationship_request' | 'invitation' | 'alert' | 'message';
+      };
+    read?: boolean;
 }
 
 export interface MessageItemProps {
@@ -324,3 +332,73 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
 
 
 
+export interface RoleCardJson {
+    name: string;
+    first_mes: string;
+    description: string;
+    personality: string;
+    scenario: string;
+    mes_example: string;
+    background?: string;
+    data?: {
+        extensions?: {
+            regex_scripts?: RegexScript[];
+        };
+    };
+}
+
+export interface RegexScript {
+    scriptName: string;
+    findRegex: string;
+    replaceString: string;
+    flags?: string;
+}
+
+export interface WorldBookJson {
+    entries: {
+        [key: string]: WorldBookEntry;
+    };
+}
+
+export interface WorldBookEntry {
+    comment: string;
+    content: string;
+    disable: boolean;
+    position: 0 | 1 | 2 | 3 | 4;
+    constant: boolean;
+    key?: string[];
+    order: number;
+    depth: number;
+    vectorized?: boolean;
+}
+
+
+export interface PresetPrompt {
+    name: string;
+    content: string;
+    enable: boolean;
+    identifier: string;
+    injection_position?: number;
+    injection_depth?: number;
+    role?: string;
+}
+
+
+
+// Chat History专用类型
+export interface ChatHistoryEntity {
+    name: string;
+    role: string;
+    parts: ChatMessage[];  // 存储完整的消息对象
+    identifier?: string;
+}
+
+// Gemini API请求消息格式
+export interface GeminiMessage {
+    role: "user" | "model";
+    parts: MessagePart[];
+    position?: number;
+    is_d_entry?: boolean;
+    is_author_note?: boolean;
+    injection_depth?: number;
+}

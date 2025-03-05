@@ -1,377 +1,359 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
-  Image,
-  ImageSourcePropType,
   TouchableOpacity,
+  Image,
+  Animated,
+  ViewStyle,
   Dimensions,
+  Platform,
 } from 'react-native';
-import { ChatDialogProps } from '@/constants/types';
-import { MaterialIcons } from '@expo/vector-icons';
-import Animated, {
-  useAnimatedStyle,
-  withSpring,
-  withSequence,
-  cancelAnimation,
-  useSharedValue,
-  interpolate,
-} from 'react-native-reanimated';
+import { Message, Character } from '@/shared/types';
+import { Ionicons } from '@expo/vector-icons';
+import { theme } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
 
-// 定义动画效果常量
-const ANIMATION_CONFIGS = {
-  RATING_1: {
-    scale: 1.2,
-    duration: 300,
-  },
-  RATING_2: {
-    scale: 1.4,
-    duration: 400,
-  },
-  RATING_3: {
-    scale: 1.6,
-    duration: 500,
-  },
-};
-
-interface RatingButtonProps {
-  isUpvote: boolean;
-  rating: number;
-  onPress: () => void;
+interface ChatDialogProps {
+  messages: Message[];
+  style?: ViewStyle;
+  selectedCharacter?: Character | null;
+  onRateMessage?: (messageId: string, isUpvote: boolean) => void;
 }
 
-const RatingButton: React.FC<RatingButtonProps> = ({ isUpvote, rating, onPress }) => {
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
-  const translateY = useSharedValue(0);
-  const haloScale = useSharedValue(1); // 新增光晕专用的缩放值
-  const absRating = Math.abs(rating);
-  const config = ANIMATION_CONFIGS[`RATING_${absRating}` as keyof typeof ANIMATION_CONFIGS] 
-                || ANIMATION_CONFIGS.RATING_1;
+const { width } = Dimensions.get('window');
+const MAX_WIDTH = width * 0.8; // Maximum width for chat bubbles
 
-  const animateRating = () => {
-    // 取消之前的动画
-    cancelAnimation(scale);
-    cancelAnimation(opacity);
-    cancelAnimation(translateY);
-    cancelAnimation(haloScale);
-
-    const absRating = Math.abs(rating);
-    const config = ANIMATION_CONFIGS[`RATING_${absRating}` as keyof typeof ANIMATION_CONFIGS] 
-                  || ANIMATION_CONFIGS.RATING_1;
-
-    // 按钮动画
-    scale.value = withSequence(
-      withSpring(config.scale, { damping: 15 }),
-      withSpring(1, { damping: 15 })
-    );
-
-    // 上下浮动动画
-    translateY.value = withSequence(
-      withSpring(isUpvote ? -10 : 10, { damping: 15 }),
-      withSpring(0, { damping: 15 })
-    );
-
-    // 光晕动画 - 使用单独的值控制
-    haloScale.value = withSequence(
-      withSpring(config.scale * 1.5, { damping: 12 }),
-      withSpring(0, { damping: 12 }) // shrink to zero
-    );
-  };
-
-  const handlePress = () => {
-    animateRating();
-    onPress();
-  };
-
-  const buttonStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: scale.value },
-      { translateY: translateY.value }
-    ],
-  }));
-
-  const haloStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: haloScale.value }],
-    opacity: interpolate(
-      haloScale.value,
-      [1, config.scale * 1.5],
-      [0.6, 0]
-    ),
-    zIndex: 9999, // ensure halo is on top
-  }));
-
-  return (
-    <Animated.View style={[styles.rateButtonContainer]}>
-      <TouchableOpacity 
-        style={styles.rateButton} 
-        onPress={handlePress}
-      >
-        <Animated.View style={buttonStyle}>
-          <MaterialIcons 
-            name={isUpvote ? "thumb-up" : "thumb-down"}
-            size={20} 
-            color={rating !== 0 ? (isUpvote ? "#4CAF50" : "#F44336") : "#666"} 
-          />
-        </Animated.View>
-        {rating !== 0 && (
-          <Text style={[
-            styles.ratingText,
-            { color: isUpvote ? "#4CAF50" : "#F44336" }
-          ]}>
-            {isUpvote ? `+${rating}` : rating}
-          </Text>
-        )}
-        {Math.abs(rating) > 0 && (
-          <Animated.View 
-            style={[
-              styles.halo,
-              haloStyle,
-              { 
-                backgroundColor: isUpvote ? 
-                  "rgba(76, 175, 80, 0.1)" : 
-                  "rgba(244, 67, 54, 0.1)"
-              }
-            ]} 
-          />
-        )}
-      </TouchableOpacity>
-    </Animated.View>
-  );
-};
-
-export default function ChatDialog({ messages, style, selectedCharacter, onRateMessage }: ChatDialogProps) {
+const ChatDialog: React.FC<ChatDialogProps> = ({
+  messages,
+  style,
+  selectedCharacter,
+  onRateMessage,
+}) => {
   const scrollViewRef = useRef<ScrollView>(null);
-  const previousMessagesLength = useRef(messages.length);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const translateAnim = useRef(new Animated.Value(20)).current;
 
-  // 检测新消息并滚动
+  // Animate new messages
   useEffect(() => {
-    if (messages.length > previousMessagesLength.current) {
-      const timeoutId = setTimeout(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [messages]);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
-      return () => clearTimeout(timeoutId);
     }
-    previousMessagesLength.current = messages.length;
-  }, [messages.length]); // 只监听消息数量的变化，而不是整个 messages 数组
+  }, [messages]);
 
-  // 添加调试日志
-  // useEffect(() => {
-  //   console.log('ChatDialog messages updated:', messages);
-  // }, [messages]);
-
-  const avatarSource: ImageSourcePropType | undefined =
-    selectedCharacter?.avatar
-      ? typeof selectedCharacter.avatar === 'string'
-        ? { uri: selectedCharacter.avatar }
-        : selectedCharacter.avatar
-      : undefined;
-
-  // 在 ChatDialog 组件中添加一个判断转发消息的函数
-  const isForwardMessage = (text: string) => {
-    return text.includes('转发自') && text.includes('的朋友圈：');
+  const renderEmptyState = () => {
+    return (
+      <View style={styles.emptyStateContainer}>
+        <Image
+          source={
+            selectedCharacter?.avatar
+              ? { uri: String(selectedCharacter.avatar) }
+              : require('@/assets/images/default-avatar.png')
+          }
+          style={styles.emptyStateAvatar}
+        />
+        <Text style={styles.emptyStateTitle}>
+          {selectedCharacter
+            ? `开始与 ${selectedCharacter.name} 的对话`
+            : '选择一个角色开始对话'}
+        </Text>
+        <Text style={styles.emptyStateSubtitle}>
+          {selectedCharacter
+            ? '发送一条消息，开始聊天吧！'
+            : '点击左上角菜单选择角色'}
+        </Text>
+      </View>
+    );
   };
 
-  const handleRateMessage = async (messageId: string, isUpvote: boolean) => {
-    // 移除自动滚动
-    if (onRateMessage) {
-      await onRateMessage(messageId, isUpvote);
-    }
-    // 不要调用 scrollToEnd 或类似的滚动方法
+  const renderTimeGroup = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    
+    return (
+      <View style={styles.timeGroup}>
+        <Text style={styles.timeText}>{`${hours}:${minutes}`}</Text>
+      </View>
+    );
   };
 
   return (
-    <View style={[styles.container, style]}>
-      {selectedCharacter?.backgroundImage && (
-        <Image
-          source={typeof selectedCharacter.backgroundImage === 'string' 
-            ? { uri: selectedCharacter.backgroundImage }
-            : selectedCharacter.backgroundImage}
-        />
-      )}
-      <ScrollView
-        ref={scrollViewRef}
-        contentContainerStyle={styles.scrollViewContent}
-        style={styles.scrollView}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((message) => (
-          <View key={message.id} style={styles.messageWrapper}>
-            <View style={[
-              styles.messageContainer,
-              message.sender === 'bot' ? styles.botMessage : styles.userMessage
-            ]}>
-              {message.sender === 'bot' && avatarSource && (
-                <Image source={avatarSource} style={styles.botAvatar} />
-              )}
-              
-              {message.isLoading ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color="#999" />
-                  <Text style={styles.loadingText}>正在思考...</Text>
-                </View>
-              ) : isForwardMessage(message.text) ? (
-                // 转发消息的特殊渲染
-                <View style={styles.forwardContent}>
-                  <View style={styles.forwardHeader}>
-                    <MaterialIcons name="share" size={16} color="#666" />
-                    <Text style={styles.forwardTitle}>朋友圈转发</Text>
+    <ScrollView
+      ref={scrollViewRef}
+      style={[styles.container, style]}
+      contentContainerStyle={
+        messages.length === 0 ? styles.emptyContent : styles.content
+      }
+      showsVerticalScrollIndicator={false}
+    >
+      {messages.length === 0 ? (
+        renderEmptyState()
+      ) : (
+        <Animated.View
+          style={[
+            styles.messagesContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: translateAnim }],
+            },
+          ]}
+        >
+          {messages.map((message, index) => {
+            const isUser = message.sender === 'user';
+            const showTime = index === 0 || index % 5 === 0; // Show time every 5 messages
+            const isLoading = message.isLoading;
+            
+            return (
+              <View key={message.id} style={styles.messageWrapper}>
+                {showTime && message.timestamp && renderTimeGroup(message.timestamp)}
+                
+                <View
+                  style={[
+                    styles.messageContainer,
+                    isUser ? styles.userMessageContainer : styles.botMessageContainer,
+                  ]}
+                >
+                  {!isUser && (
+                    <View style={styles.avatarContainer}>
+                      <Image
+                        source={
+                          selectedCharacter?.avatar
+                            ? { uri: String(selectedCharacter.avatar) }
+                            : require('@/assets/images/default-avatar.png')
+                        }
+                        style={styles.avatar}
+                      />
+                    </View>
+                  )}
+                  
+                  <View style={[
+                    styles.messageContent,
+                    isUser ? styles.userMessageContent : styles.botMessageContent,
+                    isLoading && styles.loadingMessage
+                  ]}>
+                    {isUser ? (
+                      <LinearGradient
+                        colors={['rgb(255, 224, 195)', 'rgb(255, 200, 170)']}
+                        style={styles.userGradient}
+                      >
+                        <Text style={styles.userMessageText}>
+                          {message.text}
+                        </Text>
+                      </LinearGradient>
+                    ) : (
+                      <View style={styles.botMessageTextContainer}>
+                        {isLoading ? (
+                          <View style={styles.loadingContainer}>
+                            <View style={styles.loadingDot} />
+                            <View style={[styles.loadingDot, { animationDelay: '0.2s' }]} />
+                            <View style={[styles.loadingDot, { animationDelay: '0.4s' }]} />
+                          </View>
+                        ) : (
+                          <Text style={styles.botMessageText}>
+                            {message.text}
+                          </Text>
+                        )}
+                        
+                        {!isLoading && onRateMessage && (
+                          <View style={styles.messageActions}>
+                            <TouchableOpacity
+                              style={styles.rateButton}
+                              onPress={() => onRateMessage(message.id, true)}
+                            >
+                              <Ionicons name="thumbs-up-outline" size={18} color="#999" />
+                            </TouchableOpacity>
+                            
+                            <TouchableOpacity
+                              style={styles.rateButton}
+                              onPress={() => onRateMessage(message.id, false)}
+                            >
+                              <Ionicons name="thumbs-down-outline" size={18} color="#999" />
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.messageText}>{message.text}</Text>
+                  
+                  {isUser && (
+                    <View style={styles.avatarContainer}>
+                      <Image
+                        source={require('@/assets/images/default-user-avatar.png')}
+                        style={styles.avatar}
+                      />
+                    </View>
+                  )}
                 </View>
-              ) : (
-                <Text style={styles.messageText}>{message.text}</Text>
-              )}
-            </View>
-            {message.sender === 'bot' && (
-              <View style={styles.ratingContainer}>
-                <RatingButton
-                  isUpvote={true}
-                  rating={message.rating && message.rating > 0 ? message.rating : 0}
-                  onPress={() => handleRateMessage(message.id, true)}
-                />
-                <RatingButton
-                  isUpvote={false}
-                  rating={message.rating && message.rating < 0 ? message.rating : 0}
-                  onPress={() => handleRateMessage(message.id, false)}
-                />
               </View>
-            )}
-          </View>
-        ))}
-      </ScrollView>
-    </View>
+            );
+          })}
+          
+          <View style={styles.endSpacer} />
+        </Animated.View>
+      )}
+    </ScrollView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
-    width: '100%',
     flex: 1,
-    position: 'relative',
-  },
-
-  scrollView: {
-    flex: 1,
-    paddingBottom: 20,
     backgroundColor: 'transparent',
   },
-  scrollViewContent: {
-    flexGrow: 1,
-    paddingTop: 40,
-    paddingBottom: 20,
+  content: {
+    paddingVertical: 16,
+  },
+  emptyContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  messagesContainer: {
+    paddingHorizontal: 12,
+  },
+  messageWrapper: {
+    marginBottom: 16,
   },
   messageContainer: {
-    marginBottom: 10,
-    padding: 10,
-    borderRadius: 15,
-    maxWidth: '80%',
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: 'rgba(220, 248, 198, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+  userMessageContainer: {
+    justifyContent: 'flex-end',
   },
-  botMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(236, 236, 236, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+  botMessageContainer: {
+    justifyContent: 'flex-start',
   },
-  messageText: {
-    fontSize: 16,
-    flexShrink: 1,
-    color: '#333',
-    // 为转发消息添加特殊文本样式
-    lineHeight: 20,
+  avatarContainer: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  botAvatar: {
+  avatar: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    marginRight: 10,
+    backgroundColor: '#444',
   },
-  forwardMessage: {
-    backgroundColor: 'rgba(250, 250, 250, 0.95)',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    padding: 0, // 移除默认内边距
+  messageContent: {
+    maxWidth: MAX_WIDTH,
+    marginHorizontal: 8,
   },
-  forwardContent: {
-    flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  userMessageContent: {
+    alignSelf: 'flex-end',
   },
-  forwardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e0e0e0',
-    marginBottom: 8,
+  botMessageContent: {
+    alignSelf: 'flex-start',
   },
-  forwardTitle: {
-    fontSize: 12,
-    color: '#666',
-    marginLeft: 4,
+  userGradient: {
+    borderRadius: 18,
+    borderTopRightRadius: 4,
+    padding: 12,
+    paddingHorizontal: 16,
   },
-  ratingContainer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    paddingLeft: 10,
-    marginBottom: 4,
+  userMessageText: {
+    color: '#333',
+    fontSize: 16,
   },
-  rateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 4,
-    marginRight: 8,
+  botMessageTextContainer: {
+    backgroundColor: '#444',
+    borderRadius: 18,
+    borderTopLeftRadius: 4,
+    padding: 12,
+    paddingHorizontal: 16,
   },
-  rateButtonContainer: {
-    position: 'relative',
+  botMessageText: {
+    color: '#fff',
+    fontSize: 16,
   },
-  halo: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    top: -10,
-    left: -10,
-    zIndex: -1,
-  },
-  ratingText: {
-    marginLeft: 4,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  backgroundImage: {  // 这里的backgroundImage是重复的
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  safeArea: {
-    flex: 1,
-    backgroundColor: 'transparent',
+  loadingMessage: {
+    minWidth: 80,
   },
   loadingContainer: {
     flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: 8,
+    height: 24,
   },
-  loadingText: {
-    marginLeft: 8,
-    color: '#666',
-    fontSize: 14,
+  loadingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#999',
+    marginHorizontal: 2,
+    opacity: 0.7,
   },
-  messageWrapper: {
-    marginBottom: 10,
+  messageActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+  },
+  rateButton: {
+    padding: 4,
+    marginLeft: 12,
+  },
+  timeGroup: {
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  timeText: {
+    color: '#999',
+    fontSize: 12,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyStateSubtitle: {
+    color: '#999',
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  endSpacer: {
+    height: 40,
   },
 });
+
+export default ChatDialog;

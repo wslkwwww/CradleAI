@@ -2,11 +2,11 @@ export interface OpenRouterSettings {
     enabled: boolean;          // 是否启用 OpenRouter
     apiKey: string;            // OpenRouter API Key
     model: string;             // 当前选择的模型 ID
-    autoRoute?: boolean;       // 是否启用自动路由
-    useBackupModels?: boolean; // 在主模型不可用时使用备用模型
-    backupModels?: string[];   // 备用模型列表
+    autoRoute?: boolean;        // 是否启用自动路由
+    useBackupModels?: boolean;  // 在主模型不可用时使用备用模型
+    backupModels?: string[];    // 备用模型列表
     sortingStrategy?: 'price' | 'speed' | 'latency';  // 排序策略
-    dataCollection?: boolean;  // 是否允许数据收集
+    dataCollection?: boolean;   // 是否允许数据收集
     ignoredProviders?: string[]; // 忽略的提供商列表
     quantizationLevel?: string;  // 量化级别 (可选)
 }
@@ -27,11 +27,8 @@ export interface OpenRouterModel {
 }
 
 export interface ApiSettings {
-    provider: 'gemini' | 'openrouter';
-    gemini: {
-        apiKey: string;
-    };
-    openrouter: OpenRouterSettings;
+    apiProvider: 'gemini' | 'openrouter';  // 当前选择的API提供商
+    openrouter?: OpenRouterSettings;       // OpenRouter设置
 }
 
 // OpenRouter API 请求
