@@ -196,6 +196,8 @@ export class OpenRouterAdapter {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
+          'HTTP-Referer': 'https://github.com', // Required header
+          'X-Title': 'AI Chat App'  // Add application identifier
         }
       });
 
@@ -206,13 +208,13 @@ export class OpenRouterAdapter {
         let errorMessage = `获取模型列表失败: ${response.statusText}`;
         
         try {
-          // 尝试解析错误JSON
+          // Try to parse error JSON
           const errorData = JSON.parse(text);
           if (errorData.error?.message) {
             errorMessage = `获取模型列表失败: ${errorData.error.message}`;
           }
         } catch (e) {
-          // 保持原始错误信息
+          // Keep original error message
         }
         
         throw new Error(errorMessage);
@@ -220,16 +222,18 @@ export class OpenRouterAdapter {
 
       const data = await response.json();
       
-      // 模型数据结构调试日志
+      // Log model data structure for debugging
       console.log(`【OpenRouterAdapter】获取到 ${data.data?.length || 0} 个模型`);
       if (data.data?.length > 0) {
         console.log(`【OpenRouterAdapter】示例模型: ${data.data[0].id}`);
       }
 
-      return data.data || [];
+      // Ensure we return an array even if the API response is unexpected
+      return Array.isArray(data.data) ? data.data : [];
     } catch (error) {
       console.error('【OpenRouterAdapter】获取模型列表失败:', error);
-      throw error;
+      // Return empty array instead of throwing to make UI more resilient
+      return [];
     }
   }
 }

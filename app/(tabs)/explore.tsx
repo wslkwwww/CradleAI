@@ -1200,6 +1200,52 @@ const Explore: React.FC = () => {
     );
   }
 
+  // Change the CharacterSelector implementation to avoid nesting FlatLists
+  const renderCharacterSelector = () => {
+    if (!charactersArray || charactersArray.length === 0) {
+      return null;
+    }
+    
+    return (
+      <View style={styles.characterSelectorContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.characterSelectorContent}
+        >
+          {charactersArray.filter(c => c.relationshipEnabled).map(character => (
+            <TouchableOpacity
+              key={character.id}
+              style={[
+                styles.characterAvatarContainer,
+                selectedCharacterId === character.id && styles.selectedCharacterContainer
+              ]}
+              onPress={() => setSelectedCharacterId(character.id)}
+            >
+              <Image
+                source={
+                  character.avatar
+                    ? { uri: character.avatar }
+                    : require('@/assets/images/default-avatar.png')
+                }
+                style={styles.characterAvatar}
+              />
+              <Text
+                style={[
+                  styles.characterName,
+                  selectedCharacterId === character.id && styles.selectedCharacterName
+                ]}
+                numberOfLines={1}
+              >
+                {character.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1300,23 +1346,15 @@ const Explore: React.FC = () => {
         {/* Relationships Tab Content */}
         {activeTab === 'relationships' && (
           <View style={styles.relationshipsContainer}>
-            <View style={styles.characterSelectorContainer}>
-              <CharacterSelector
+            {renderCharacterSelector()}
+            
+            <View style={styles.testControlContainer}>
+              <RelationshipTestControls
                 characters={charactersArray}
-                selectedCharacterId={selectedCharacterId}
-                onSelectCharacter={setSelectedCharacterId}
-                loading={false}
+                onRunTest={runRelationshipTest}
+                onResetRelationships={resetAllRelationships}
+                isRunningTest={isRunningRelationshipTest}
               />
-              
-              {/* Add the relationship test controls */}
-              <View style={styles.testControlContainer}>
-                <RelationshipTestControls
-                  characters={charactersArray}
-                  onRunTest={runRelationshipTest}
-                  onResetRelationships={resetAllRelationships}
-                  isRunningTest={isRunningRelationshipTest}
-                />
-              </View>
             </View>
             
             {selectedCharacterId ? (
@@ -1597,9 +1635,40 @@ const styles = StyleSheet.create({
   },
   characterSelectorContainer: {
     backgroundColor: 'rgba(51, 51, 51, 0.95)',
-    paddingBottom: 8,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  characterSelectorContent: {
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  characterAvatarContainer: {
+    alignItems: 'center',
+    marginHorizontal: 8,
+    width: 70,
+    opacity: 0.7,
+  },
+  selectedCharacterContainer: {
+    opacity: 1,
+  },
+  characterAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  characterName: {
+    color: '#fff',
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'center',
+    width: 70,
+  },
+  selectedCharacterName: {
+    fontWeight: 'bold',
+    color: '#FF9ECD',
   },
   relationshipsContent: {
     flex: 1,

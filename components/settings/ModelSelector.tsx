@@ -28,9 +28,55 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetails, setShowDetails] = useState<Record<string, boolean>>({});
+  const [internalModels, setInternalModels] = useState<OpenRouterModel[]>([]);
+  const [internalLoading, setInternalLoading] = useState(false);
+
+  // Fetch models on component mount or when API key changes
+  useEffect(() => {
+    const fetchModels = async () => {
+      if (!apiKey) return;
+      
+      setInternalLoading(true);
+      
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/models', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'HTTP-Referer': 'https://github.com',
+            'X-Title': 'AI Chat App'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.data && Array.isArray(data.data)) {
+          setInternalModels(data.data);
+          console.log(`【ModelSelector】成功获取 ${data.data.length} 个模型`);
+        } else {
+          console.error('【ModelSelector】无效的响应格式:', data);
+          setInternalModels([]);
+        }
+      } catch (error) {
+        console.error('【ModelSelector】获取模型列表失败:', error);
+        setInternalModels([]);
+      } finally {
+        setInternalLoading(false);
+      }
+    };
+    
+    fetchModels();
+  }, [apiKey]);
+
+  // Use either the provided models or internally fetched models
+  const displayModels = models.length > 0 ? models : internalModels;
 
   // 检查模型数组的有效性
-  const validModels = Array.isArray(models) ? models.filter(model => 
+  const validModels = Array.isArray(displayModels) ? displayModels.filter(model => 
     model && typeof model === 'object' && model.id && model.name
   ) : [];
 
@@ -174,7 +220,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         ) : null}
       </View>
 
-      {isLoading ? (
+      {isLoading || internalLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF9ECD" />
           <Text style={styles.loadingText}>Loading models...</Text>
@@ -190,38 +236,41 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           <Text style={styles.emptyText}>No models matching your search.</Text>
         </View>
       ) : (
-        // 替换 FlatList 为 普通的 View 来避免嵌套 VirtualizedList 的问题
-        <View style={styles.modelsListContainer}>
-          {sortedProviders.map(provider => renderProviderSection(provider))}
-        </View>
+        // Use ScrollView with proper height
+        <ScrollView style={styles.modelsScrollContainer}>
+          <View style={styles.modelsListContainer}>
+            {sortedProviders.map(provider => renderProviderSection(provider))}
+          </View>
+        </ScrollView>
       )}
     </View>
   );
 };
 
-// Update styles to handle the new layout
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     marginBottom: 20,
+    paddingHorizontal: 16, // Add padding
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#444', // Change to darker color for dark theme
     borderRadius: 8,
-    marginBottom: 16,
+    marginVertical: 16, // Add more vertical margin
     paddingHorizontal: 12,
     paddingVertical: 8,
+    height: 50, // Fixed height to make it more visible
   },
   searchIcon: {
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    height: 36,
+    height: 40,
     fontSize: 16,
-    color: '#333',
+    color: '#fff', // Change text color for dark theme
   },
   clearSearch: {
     padding: 4,
@@ -247,8 +296,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
+  // Add a proper ScrollView container with height
+  modelsScrollContainer: {
+    height: 400, // Fixed height for the scroll view
+  },
   modelsListContainer: {
-    maxHeight: 400,
+    paddingBottom: 20, // Add padding at bottom for scrolling
   },
   providerSection: {
     marginBottom: 16,

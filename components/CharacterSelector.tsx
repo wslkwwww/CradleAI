@@ -3,9 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   Image,
+  ScrollView,
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -106,14 +106,38 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={eligibleCharacters}
-          renderItem={renderCharacterItem}
-          keyExtractor={item => item.id}
+        <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.charactersList}
-        />
+        >
+          {eligibleCharacters.map((character) => (
+            <TouchableOpacity
+              key={character.id}
+              style={[
+                styles.characterItem,
+                selectedCharacterId === character.id && styles.selectedCharacter
+              ]}
+              onPress={() => onSelectCharacter(character.id)}
+            >
+              <Image
+                source={
+                  character.avatar
+                    ? { uri: character.avatar }
+                    : require('@/assets/images/default-avatar.png')
+                }
+                style={styles.avatar}
+              />
+              <Text style={styles.characterName} numberOfLines={1}>{character.name}</Text>
+              
+              {showRelationshipStatus && character.relationshipEnabled && (
+                <View style={styles.relationshipBadge}>
+                  <Text style={styles.relationshipText}>R</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       )}
     </View>
   );
@@ -201,6 +225,22 @@ const styles = StyleSheet.create({
     color: '#FF9ECD',
     fontWeight: 'bold',
   },
+  relationshipBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 5,
+    backgroundColor: '#FF9ECD',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  relationshipText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  }
 });
 
 export default CharacterSelector;

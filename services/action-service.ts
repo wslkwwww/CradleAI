@@ -1,7 +1,7 @@
 import { Character } from '../shared/types';
 import { generateUniqueId } from '../utils/id-utils';
 import { Relationship } from '../shared/types/relationship-types';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Define action types
 export type ActionType = 'gift' | 'invitation' | 'challenge' | 'support' | 'confession';
 
@@ -42,21 +42,28 @@ export class ActionService {
     const actions: RelationshipAction[] = [];
     const relationships = character.relationshipMap.relationships;
     
-    // Get API settings from global state rather than character object
-    // This will be properly updated from api-settings
-    let userSettings;
-    try {
-      // Try to get settings from localStorage - this is synchronous and may fail
-      const settingsStr = localStorage.getItem('user_settings');
-      if (settingsStr) {
-        userSettings = JSON.parse(settingsStr);
-      }
-    } catch (error) {
-      console.warn('Could not retrieve user settings from local storage');
-    }
+    // Get API settings without using localStorage
+    // Instead, we'll use the character's own context or a more reliable method
+    let apiProvider = 'gemini'; // Default provider
     
-    const apiProvider = userSettings?.chat?.apiProvider || 'gemini';
-    console.log(`【行动服务】当前全局API提供商: ${apiProvider}`);
+    // Try to get settings through AsyncStorage for React Native environment
+    // This won't block the main thread
+    (async () => {
+      try {
+        const settingsStr = await AsyncStorage.getItem('user');
+        if (settingsStr) {
+          const userData = JSON.parse(settingsStr);
+          if (userData?.settings?.chat?.apiProvider) {
+            apiProvider = userData.settings.chat.apiProvider;
+            console.log(`【行动服务】从 AsyncStorage 获取 API 提供商: ${apiProvider}`);
+          }
+        }
+      } catch (error) {
+        console.warn('无法从 AsyncStorage 获取用户设置', error);
+      }
+    })();
+    
+    console.log(`【行动服务】使用 API 提供商: ${apiProvider}`);
     
     // Check each relationship for potential action triggers
     Object.entries(relationships).forEach(([targetId, relationship]: [string, Relationship]) => {

@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,7 +22,7 @@ import { ApiServiceProvider } from '@/services/api-service-provider';
 import ModelSelector from '@/components/settings/ModelSelector';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { GlobalSettings } from '@/shared/types';
-
+import { theme } from '@/constants/theme';
 
 const ApiSettings = () => {
   const router = useRouter();
@@ -45,6 +46,8 @@ const ApiSettings = () => {
   const [useBackupModels, setUseBackupModels] = useState(
     user?.settings?.chat?.openrouter?.useBackupModels || false
   );
+
+  const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
   
   // Handle API provider toggle
   const handleProviderToggle = (value: boolean) => {
@@ -168,36 +171,49 @@ const ApiSettings = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor={theme.colors.background} />
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>API 设置</Text>
+        <View style={styles.headerRight} />
+      </View>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}
       >
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="chevron-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>API 设置</Text>
-          <View style={styles.placeholderButton} />
-        </View>
-
-        <ScrollView style={styles.scrollView}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {/* Gemini API Settings */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Gemini API</Text>
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Gemini API Key</Text>
-              <TextInput
-                style={styles.input}
-                value={geminiKey}
-                onChangeText={setGeminiKey}
-                placeholder="输入 Gemini API Key"
-                placeholderTextColor="#999"
-                secureTextEntry={true}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Gemini API</Text>
+              <Switch
+                value={!openRouterEnabled}
+                onValueChange={(value) => setOpenRouterEnabled(!value)}
+                trackColor={{ false: '#767577', true: 'rgba(255, 158, 205, 0.4)' }}
+                thumbColor={!openRouterEnabled ? theme.colors.primary : '#f4f3f4'}
               />
             </View>
+
+            {!openRouterEnabled && (
+              <View style={styles.contentSection}>
+                <Text style={styles.inputLabel}>Gemini API Key</Text>
+                <TextInput
+                  style={styles.input}
+                  value={geminiKey}
+                  onChangeText={setGeminiKey}
+                  placeholder="输入 Gemini API Key"
+                  placeholderTextColor="#999"
+                  secureTextEntry={true}
+                />
+                <Text style={styles.helperText}>
+                  可从 <Text style={styles.link}>Google AI Studio</Text> 获取免费 API Key
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* OpenRouter API Settings */}
@@ -206,34 +222,37 @@ const ApiSettings = () => {
               <Text style={styles.sectionTitle}>OpenRouter API</Text>
               <Switch
                 value={openRouterEnabled}
-                onValueChange={handleProviderToggle}
-                trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.4)' }}
-                thumbColor={openRouterEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
-                ios_backgroundColor="#3e3e3e"
+                onValueChange={setOpenRouterEnabled}
+                trackColor={{ false: '#767577', true: 'rgba(255, 158, 205, 0.4)' }}
+                thumbColor={openRouterEnabled ? theme.colors.primary : '#f4f3f4'}
               />
             </View>
 
             {openRouterEnabled && (
-              <>
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>OpenRouter API Key</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={openRouterKey}
-                    onChangeText={setOpenRouterKey}
-                    placeholder="输入 OpenRouter API Key"
-                    placeholderTextColor="#999"
-                    secureTextEntry={true}
-                  />
-                </View>
+              <View style={styles.contentSection}>
+                <Text style={styles.inputLabel}>OpenRouter API Key</Text>
+                <TextInput
+                  style={styles.input}
+                  value={openRouterKey}
+                  onChangeText={setOpenRouterKey}
+                  placeholder="输入 OpenRouter API Key"
+                  placeholderTextColor="#999"
+                  secureTextEntry={true}
+                />
+                <Text style={styles.helperText}>
+                  可从 <Text style={styles.link}>OpenRouter</Text> 获取 API Key
+                </Text>
 
-                <View style={styles.modelSelectorContainer}>
-                  <Text style={styles.inputLabel}>选择模型</Text>
-                  <ModelSelector
-                    apiKey={openRouterKey}
-                    selectedModelId={selectedModel}
-                    onSelectModel={setSelectedModel}
-                  />
+                {/* Model Selector Button */}
+                <View style={styles.modelSection}>
+                  <Text style={styles.inputLabel}>当前选定模型</Text>
+                  <TouchableOpacity
+                    style={styles.modelButton}
+                    onPress={() => setIsModelSelectorVisible(true)}
+                  >
+                    <Text style={styles.modelButtonText}>{selectedModel}</Text>
+                    <Ionicons name="chevron-down" size={16} color="#fff" />
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.switchContainer}>
@@ -241,17 +260,16 @@ const ApiSettings = () => {
                   <Switch
                     value={useBackupModels}
                     onValueChange={setUseBackupModels}
-                    trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.4)' }}
-                    thumbColor={useBackupModels ? 'rgb(255, 224, 195)' : '#f4f3f4'}
-                    ios_backgroundColor="#3e3e3e"
+                    trackColor={{ false: '#767577', true: 'rgba(255, 158, 205, 0.4)' }}
+                    thumbColor={useBackupModels ? theme.colors.primary : '#f4f3f4'}
                   />
                 </View>
-              </>
+              </View>
             )}
           </View>
 
-          {/* Test Connection Button */}
-          <View style={styles.buttonContainer}>
+          {/* Action Buttons */}
+          <View style={styles.buttonGroup}>
             <TouchableOpacity
               style={styles.testButton}
               onPress={testConnection}
@@ -260,30 +278,74 @@ const ApiSettings = () => {
               {isTesting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>测试连接</Text>
+                <>
+                  <Ionicons name="flash-outline" size={18} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.buttonText}>测试连接</Text>
+                </>
               )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={saveSettings}
+            >
+              <Ionicons name="save-outline" size={18} color="#fff" style={styles.buttonIcon} />
+              <Text style={styles.buttonText}>保存设置</Text>
             </TouchableOpacity>
           </View>
 
           {/* Notes */}
           <View style={styles.notesContainer}>
-            <Text style={styles.noteTitle}>说明：</Text>
-            <Text style={styles.noteText}>1. Gemini API 密钥可以从 Google AI Studio 免费获取</Text>
-            <Text style={styles.noteText}>2. OpenRouter 支持多种模型，包括 OpenAI、Claude、PaLM 等</Text>
-            <Text style={styles.noteText}>3. 启用 OpenRouter 后，默认使用选定的 OpenRouter 模型</Text>
-            <Text style={styles.noteText}>4. 如果连接测试失败，请检查 API 密钥是否正确</Text>
+            <Text style={styles.noteTitle}>使用说明:</Text>
+            <View style={styles.noteItem}>
+              <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
+              <Text style={styles.noteText}>Gemini API 可免费获取，适合基础对话</Text>
+            </View>
+            <View style={styles.noteItem}>
+              <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
+              <Text style={styles.noteText}>OpenRouter 支持多种高级模型，包括 GPT、Claude 等</Text>
+            </View>
+            <View style={styles.noteItem}>
+              <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
+              <Text style={styles.noteText}>OpenRouter 按使用量收费，请注意控制使用频率</Text>
+            </View>
+            <View style={styles.noteItem}>
+              <Ionicons name="warning-outline" size={16} color="#f0ad4e" style={styles.noteIcon} />
+              <Text style={styles.noteText}>切换 API 提供商后，需要保存设置并重启应用</Text>
+            </View>
           </View>
         </ScrollView>
-
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={saveSettings}
-          >
-            <Text style={styles.buttonText}>保存设置</Text>
-          </TouchableOpacity>
-        </View>
       </KeyboardAvoidingView>
+
+      {/* Model Selector Modal */}
+      <Modal
+        visible={isModelSelectorVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsModelSelectorVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>选择模型</Text>
+              <TouchableOpacity
+                onPress={() => setIsModelSelectorVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <ModelSelector
+              apiKey={openRouterKey}
+              selectedModelId={selectedModel}
+              onSelectModel={(modelId) => {
+                setSelectedModel(modelId);
+                setIsModelSelectorVisible(false);
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -291,122 +353,200 @@ const ApiSettings = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
-  },
-  placeholderButton: {
-    width: 40,
-    height: 40,
-  },
-  container: {
-    flex: 1,
-    padding: 16,
+    backgroundColor: theme.colors.background,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: 16,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    paddingTop: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight || 0,
+    backgroundColor: 'rgba(40, 40, 40, 0.95)',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  backButton: {
-    padding: 8,
+    borderBottomColor: '#444',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center',
+    color: '#fff',
   },
-  saveButton: {
+  backButton: {
     padding: 8,
   },
-  saveButtonText: {
-    color: '#FF9ECD',
-    fontSize: 16,
-    fontWeight: '600',
+  headerRight: {
+    width: 40,
+  },
+  container: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    padding: 16,
+  },
   section: {
     marginBottom: 24,
+    backgroundColor: 'rgba(60, 60, 60, 0.5)',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 8,
+    color: '#fff',
   },
-  inputContainer: {
-    marginBottom: 16,
+  contentSection: {
+    padding: 16,
   },
   inputLabel: {
     fontSize: 14,
-    color: '#333',
-    marginBottom: 4,
+    color: '#ddd',
+    marginBottom: 8,
   },
   input: {
+    backgroundColor: 'rgba(40, 40, 40, 0.8)',
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 4,
-    padding: 8,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 8,
+    padding: 12,
+    color: '#fff',
     fontSize: 16,
-    color: '#333',
   },
-  modelSelectorContainer: {
-    marginBottom: 16,
+  helperText: {
+    fontSize: 12,
+    color: '#aaa',
+    marginTop: 4,
+  },
+  link: {
+    color: theme.colors.primary,
+    textDecorationLine: 'underline',
+  },
+  modelSection: {
+    marginTop: 16,
+  },
+  modelButton: {
+    backgroundColor: 'rgba(40, 40, 40, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modelButtonText: {
+    color: '#fff',
+    fontSize: 16,
   },
   switchContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    alignItems: 'center',
+    marginTop: 16,
   },
   switchLabel: {
     fontSize: 14,
-    color: '#333',
+    color: '#ddd',
   },
-  buttonContainer: {
+  buttonGroup: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 24,
   },
   testButton: {
-    backgroundColor: '#FF9ECD',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 4,
+    flex: 1,
+    backgroundColor: '#666',
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: theme.colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  buttonIcon: {
+    marginRight: 8,
   },
   buttonText: {
     color: '#fff',
+    fontWeight: 'bold',
     fontSize: 16,
-    fontWeight: '600',
   },
   notesContainer: {
+    backgroundColor: 'rgba(60, 60, 60, 0.5)',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 24,
   },
   noteTitle: {
     fontSize: 16,
     fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  noteItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginBottom: 8,
+  },
+  noteIcon: {
+    marginTop: 2,
+    marginRight: 8,
   },
   noteText: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
+    color: '#ddd',
+    flex: 1,
   },
-  footer: {
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#333',
+    width: '90%',
+    height: '70%', // Change maxHeight to fixed height
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    backgroundColor: '#444',
     padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#555',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  modalCloseButton: {
+    padding: 4,
   },
 });
-
 
 export default ApiSettings;
