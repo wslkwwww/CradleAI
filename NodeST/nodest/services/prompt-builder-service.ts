@@ -267,7 +267,11 @@ export class PromptBuilderService {
    * 将完整的消息数组转换为适合API请求的文本格式
    */
   static messagesToText(messages: any[]): string {
-    return messages.map(msg => {
+    // 添加关系系统和朋友圈框架初始化标记
+    let resultText = "【系统框架初始化】请初始化朋友圈和关系系统框架，确保能理解角色互动、关系变化和朋友圈内容。\n\n";
+    
+    // 原有逻辑处理消息
+    resultText += messages.map(msg => {
       // 处理消息数组
       if (Array.isArray(msg.parts)) {
         interface MessagePart {
@@ -295,6 +299,8 @@ export class PromptBuilderService {
       }
       return '';
     }).filter(text => text.trim() !== '').join("\n\n");
+    
+    return resultText;
   }
 
   /**

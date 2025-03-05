@@ -1,418 +1,355 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Dimensions,
   TouchableOpacity,
-  ActivityIndicator,
-  ScrollView
+  TextInput,
+  ScrollView,
+  Alert,
+  Modal
 } from 'react-native';
-import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
+import { Svg, Circle, Line, Text as SvgText } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { Relationship, RelationshipType } from '@/shared/types/relationship-types';
-import { useCharacters } from '@/constants/CharactersContext';
 import { RelationshipService } from '@/services/relationship-service';
-import { ApiServiceProvider } from '@/services/api-service-provider';
-import { useUser } from '@/constants/UserContext';
-import { RelationshipPromptService } from '@/services/relationship-prompt-service';
 
-const { width } = Dimensions.get('window');
-
-interface Props {
+interface RelationshipNodeProps {
+  x: number;
+  y: number;
   character: Character;
-  onUpdateCharacter?: (character: Character) => void;
-  allCharacters: Character[];
+  relationship: Relationship;
+  onPress: () => void;
 }
 
-const RelationshipGraph: React.FC<Props> = ({ character, onUpdateCharacter, allCharacters }) => {
-  const [selectedRelationship, setSelectedRelationship] = useState<string | null>(null);
-  const [relationshipDetails, setRelationshipDetails] = useState<Relationship | null>(null);
-  const [updating, setUpdating] = useState(false);
-  const [strengthDelta, setStrengthDelta] = useState(0);
-  const { updateCharacter } = useCharacters();
-  const { user } = useUser();
-  const [generatingDescription, setGeneratingDescription] = useState(false);
+interface RelationshipGraphProps {
+  character: Character;
+  allCharacters: Character[];
+  onUpdateCharacter: (character: Character) => void;
+}
+
+// Color mapping for relationship types
+const COLOR_MAP: Record<RelationshipType, string> = {
+  'enemy': '#FF4444',
+  'rival': '#FF7744',
+  'stranger': '#AAAAAA',
+  'acquaintance': '#88AAFF',
+  'colleague': '#44AAFF',
+  'friend': '#44DDFF',
+  'close_friend': '#44FFDD',
+  'best_friend': '#44FF88',
+  'family': '#DDFF44',
+  'crush': '#FF88DD',
+  'lover': '#FF44AA',
+  'partner': '#FF4488',
+  'ex': '#FF8888',
+  'mentor': '#DDAA44',
+  'student': '#AA88FF',
+  'admirer': '#FF88AA',
+  'idol': '#FFAA44'
+};
+
+// Node component for each relationship
+const RelationshipNode: React.FC<RelationshipNodeProps> = ({ x, y, character, relationship, onPress }) => {
+  const color = COLOR_MAP[relationship.type] || '#AAAAAA';
+  const radius = 20 + (Math.abs(relationship.strength) / 10);
+  const opacity = 0.6 + (Math.abs(relationship.strength) / 250);
   
-  // Calculate relationships to display
-  const relationships = character.relationshipMap?.relationships || {};
-  const relationshipEntries = Object.entries(relationships);
-  const CENTER_X = width / 2;
-  const CENTER_Y = width / 2;
-  const RADIUS = width * 0.35;
+  return (
+    <>
+      <Circle
+        cx={x}
+        cy={y}
+        r={radius}
+        fill={color}
+        opacity={opacity}
+        onPress={onPress}
+      />
+      <SvgText
+        x={x}
+        y={y + 3}
+        fontSize="12"
+        fontWeight="bold"
+        fill="#282828"
+        textAnchor="middle"
+        onPress={onPress}
+      >
+        {character.name.substring(0, 4)}
+      </SvgText>
+    </>
+  );
+};
 
-  // Define colors for relationship types
-  const typeColors: Record<RelationshipType, string> = {
-    'enemy': '#FF3B30',
-    'rival': '#FF9500',
-    'stranger': '#CCCCCC',
-    'acquaintance': '#B3E5FC',
-    'colleague': '#8BC34A',
-    'friend': '#4CD964',
-    'close_friend': '#34AADC',
-    'best_friend': '#007AFF',
-    'family': '#5856D6',
-    'crush': '#FF2D55',
-    'lover': '#AF52DE',
-    'partner': '#E91E63',
-    'ex': '#9C27B0',
-    'mentor': '#673AB7',
-    'student': '#3F51B5',
-    'admirer': '#FF9ECD',
-    'idol': '#FFC107'
-  };
-
-  // Calculate node positions in a circle
-  const getNodePosition = (index: number, total: number) => {
-    const angle = (index / total) * 2 * Math.PI;
-    const x = CENTER_X + RADIUS * Math.cos(angle);
-    const y = CENTER_Y + RADIUS * Math.sin(angle);
-    return { x, y };
-  };
-
-  // Calculate line color based on relationship type and strength
-  const getLineColor = (type: RelationshipType, strength: number) => {
-    const baseColor = typeColors[type];
-    if (strength < 0) {
-      // For negative relationships, mix with red
-      return baseColor;
-    }
-    return baseColor;
-  };
-
-  // Calculate line width based on relationship strength
-  const getLineWidth = (strength: number) => {
-    const absStrength = Math.abs(strength);
-    return Math.max(1, Math.min(5, absStrength / 20));
-  };
-
-  // Show relationship details when a node is clicked
-  const handleNodeClick = (relationshipId: string) => {
-    const relationship = relationships[relationshipId];
-    setSelectedRelationship(relationshipId);
-    setRelationshipDetails(relationship);
-    setStrengthDelta(0);
-  };
-
-  // Update relationship strength
-  const handleUpdateStrength = async (delta: number) => {
-    if (!selectedRelationship || !relationshipDetails) return;
+const RelationshipGraph: React.FC<RelationshipGraphProps> = ({ 
+  character, 
+  allCharacters, 
+  onUpdateCharacter 
+}) => {
+  const [relationships, setRelationships] = useState<Record<string, { 
+    relationship: Relationship, 
+    character: Character,
+    x: number,
+    y: number
+  }>>({});
+  const [selectedRelationship, setSelectedRelationship] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editedStrength, setEditedStrength] = useState('0');
+  const [editedDescription, setEditedDescription] = useState('');
+  const svgWidth = Dimensions.get('window').width;
+  const svgHeight = 400;
+  const centerX = svgWidth / 2;
+  const centerY = svgHeight / 2;
+  
+  // Position calculation for nodes
+  const calculatePositions = (relationshipMap: Record<string, Relationship>) => {
+    const relationshipCount = Object.keys(relationshipMap).length;
+    const result: Record<string, { 
+      relationship: Relationship, 
+      character: Character,
+      x: number,
+      y: number
+    }> = {};
     
-    try {
-      setUpdating(true);
-      console.log(`【关系图谱】更新关系强度, 角色 ${character.name} 与 ${selectedRelationship}, 变化: ${delta}`);
+    // Calculate positions in a circle around the center
+    Object.entries(relationshipMap).forEach(([targetId, rel], index) => {
+      const targetCharacter = allCharacters.find(c => c.id === targetId);
+      if (!targetCharacter) return;
       
-      // Get target character name
-      const targetCharacter = allCharacters.find(c => c.id === selectedRelationship);
-      if (!targetCharacter) {
-        console.error(`【关系图谱】未找到目标角色: ${selectedRelationship}`);
-        return;
-      }
-      const targetName = targetCharacter.name || "未知角色";
+      // Calculate angle, radius based on relationship strength
+      const angle = (2 * Math.PI * index) / relationshipCount;
+      const radius = 120 + (rel.strength / 2); // Stronger relationships are closer
       
-      // Prepare to use OpenRouter if configured
-      const apiKey = user?.settings?.chat?.characterApiKey;
-      const apiSettings = {
-        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-        openrouter: user?.settings?.chat?.openrouter
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      
+      result[targetId] = {
+        relationship: rel,
+        character: targetCharacter,
+        x,
+        y
       };
-      
-      // Basic relationship update
-      const updatedCharacter = RelationshipService.processRelationshipUpdate(
-        character,
-        selectedRelationship,
-        delta,
-        undefined // Let the service determine the type based on new strength
-      );
-
-      // If OpenRouter is enabled, we could get better relationship descriptions
-      if (apiKey && apiSettings.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled) {
-        setGeneratingDescription(true);
-        try {
-          console.log(`【关系图谱】使用OpenRouter生成关系描述...`);
-          
-          const relationship = updatedCharacter.relationshipMap?.relationships[selectedRelationship];
-          if (!relationship) return;
-          
-          const description = await RelationshipPromptService.generateRelationshipDescription(
-            character,
-            targetCharacter,
-            relationship,
-            apiKey,
-            apiSettings
-          );
-          
-          // Update the relationship description
-          if (description && updatedCharacter.relationshipMap?.relationships[selectedRelationship]) {
-            updatedCharacter.relationshipMap.relationships[selectedRelationship].description = description;
-          }
-        } catch (error) {
-          console.error(`【关系图谱】生成关系描述失败:`, error);
-          // Continue with the update even if description generation fails
-        } finally {
-          setGeneratingDescription(false);
-        }
-      }
-      
-      // Update character relationship
-      if (onUpdateCharacter) {
-        onUpdateCharacter(updatedCharacter);
-      } else {
-        await updateCharacter(updatedCharacter);
-      }
-      
-      // Update local state
-      setRelationshipDetails(updatedCharacter.relationshipMap?.relationships[selectedRelationship] || null);
-      
-    } catch (error) {
-      console.error(`【关系图谱】更新关系失败:`, error);
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const handleRegenerateDescription = async () => {
-    if (!selectedRelationship || !relationshipDetails) return;
+    });
     
-    try {
-      setGeneratingDescription(true);
-      
-      // Get target character
-      const targetCharacter = allCharacters.find(c => c.id === selectedRelationship);
-      if (!targetCharacter) {
-        console.error(`【关系图谱】未找到目标角色: ${selectedRelationship}`);
-        return;
-      }
-      
-      // Prepare API settings
-      const apiKey = user?.settings?.chat?.characterApiKey;
-      const apiSettings = {
-        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-        openrouter: user?.settings?.chat?.openrouter
-      };
-      
-      // Check if API key exists
-      if (!apiKey) {
-        console.error(`【关系图谱】缺少API密钥，无法生成描述`);
-        return;
-      }
-      
-      console.log(`【关系图谱】重新生成${character.name}对${targetCharacter.name}的关系描述...`);
-      
-      // Use the new RelationshipPromptService
-      const description = await RelationshipPromptService.generateRelationshipDescription(
-        character,
-        targetCharacter,
-        relationshipDetails,
-        apiKey,
-        apiSettings
-      );
-      
-      // Update character with new description
-      const updatedCharacter = { ...character };
-      if (updatedCharacter.relationshipMap?.relationships[selectedRelationship]) {
-        updatedCharacter.relationshipMap.relationships[selectedRelationship].description = description;
-        
-        // Update character
-        if (onUpdateCharacter) {
-          onUpdateCharacter(updatedCharacter);
-        } else {
-          await updateCharacter(updatedCharacter);
-        }
-        
-        // Update local state
-        setRelationshipDetails(updatedCharacter.relationshipMap.relationships[selectedRelationship]);
-      }
-    } catch (error) {
-      console.error(`【关系图谱】重新生成描述失败:`, error);
-    } finally {
-      setGeneratingDescription(false);
+    return result;
+  };
+  
+  // Initialize relationships
+  useEffect(() => {
+    if (character.relationshipMap?.relationships) {
+      const positions = calculatePositions(character.relationshipMap.relationships);
+      setRelationships(positions);
+    }
+  }, [character, allCharacters]);
+  
+  // Handle relationship node press
+  const handleNodePress = (targetId: string) => {
+    setSelectedRelationship(targetId);
+    const rel = relationships[targetId]?.relationship;
+    if (rel) {
+      setEditedStrength(rel.strength.toString());
+      setEditedDescription(rel.description);
     }
   };
-
+  
+  // Save edited relationship
+  const handleSaveRelationship = () => {
+    if (!selectedRelationship || !character.relationshipMap) return;
+    
+    const strength = Math.max(-100, Math.min(100, parseInt(editedStrength) || 0));
+    const updatedRelationship = {
+      ...character.relationshipMap.relationships[selectedRelationship],
+      strength,
+      description: editedDescription,
+      lastUpdated: Date.now(),
+      // Update the relationship type based on strength
+      type: RelationshipService.getRelationshipTypeFromStrength(strength)
+    };
+    
+    // Update character's relationship map
+    const updatedRelationships = {
+      ...character.relationshipMap.relationships,
+      [selectedRelationship]: updatedRelationship
+    };
+    
+    const updatedCharacter = {
+      ...character,
+      relationshipMap: {
+        ...character.relationshipMap,
+        relationships: updatedRelationships,
+        lastUpdated: Date.now()
+      }
+    };
+    
+    // Save changes
+    onUpdateCharacter(updatedCharacter);
+    
+    // Update local state
+    setRelationships(calculatePositions(updatedRelationships));
+    setEditMode(false);
+  };
+  
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{character.name}的关系图谱</Text>
+      <Text style={styles.title}>{character.name} 的关系图谱</Text>
       
-      {/* Visualization */}
+      {/* Display number of relationships */}
+      <Text style={styles.subtitle}>
+        共有 {Object.keys(relationships).length} 个角色关系
+      </Text>
+      
+      {/* Relationship Graph Visualization */}
       <View style={styles.graphContainer}>
-        <Svg width={width} height={width}>
-          {/* Draw connecting lines */}
-          {relationshipEntries.map(([id, rel], index) => {
-            const { x, y } = getNodePosition(index, relationshipEntries.length);
-            const lineColor = getLineColor(rel.type, rel.strength);
-            const lineWidth = getLineWidth(rel.strength);
-            
-            return (
-              <Line
-                key={`line-${id}`}
-                x1={CENTER_X}
-                y1={CENTER_Y}
-                x2={x}
-                y2={y}
-                stroke={lineColor}
-                strokeWidth={lineWidth}
-                strokeDasharray={rel.strength < 0 ? "5,5" : "none"}
-              />
-            );
-          })}
-          
-          {/* Draw center node (main character) */}
+        <Svg width={svgWidth} height={svgHeight}>
+          {/* Center node (main character) */}
           <Circle
-            cx={CENTER_X}
-            cy={CENTER_Y}
-            r={20}
+            cx={centerX}
+            cy={centerY}
+            r={35}
             fill="#FF9ECD"
+            opacity={0.9}
           />
+          <SvgText
+            x={centerX}
+            y={centerY + 5}
+            fontSize="14"
+            fontWeight="bold"
+            fill="#282828"
+            textAnchor="middle"
+          >
+            {character.name.substring(0, 5)}
+          </SvgText>
           
-          {/* Draw outer nodes (relationships) */}
-          {relationshipEntries.map(([id, rel], index) => {
-            const { x, y } = getNodePosition(index, relationshipEntries.length);
-            const targetChar = allCharacters.find(c => c.id === id);
-            const isSelected = id === selectedRelationship;
-            
-            return (
-              <React.Fragment key={`node-${id}`}>
-                <Circle
-                  cx={x}
-                  cy={y}
-                  r={15}
-                  fill={typeColors[rel.type]}
-                  stroke={isSelected ? "white" : "transparent"}
-                  strokeWidth={2}
-                  onPress={() => handleNodeClick(id)}
-                />
-                <SvgText
-                  x={x}
-                  y={y + 25}
-                  textAnchor="middle"
-                  fill="white"
-                  fontSize="12"
-                >
-                  {targetChar?.name || id.substring(0, 5)}
-                </SvgText>
-              </React.Fragment>
-            );
-          })}
+          {/* Relationship connections */}
+          {Object.entries(relationships).map(([targetId, data]) => (
+            <React.Fragment key={`line-${targetId}`}>
+              <Line
+                x1={centerX}
+                y1={centerY}
+                x2={data.x}
+                y2={data.y}
+                stroke={COLOR_MAP[data.relationship.type]}
+                strokeWidth={Math.abs(data.relationship.strength) / 20 + 1}
+                opacity={0.6}
+              />
+            </React.Fragment>
+          ))}
+          
+          {/* Relationship nodes */}
+          {Object.entries(relationships).map(([targetId, data]) => (
+            <RelationshipNode
+              key={`node-${targetId}`}
+              x={data.x}
+              y={data.y}
+              character={data.character}
+              relationship={data.relationship}
+              onPress={() => handleNodePress(targetId)}
+            />
+          ))}
         </Svg>
       </View>
       
-      {/* Relationship Details */}
-      {relationshipDetails && (
-        <ScrollView style={styles.detailsContainer}>
-          <Text style={styles.detailsTitle}>
-            关系详情: {
-              allCharacters.find(c => c.id === selectedRelationship)?.name || 
-              selectedRelationship?.substring(0, 8)
-            }
-          </Text>
+      {/* Relationship Legend */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.legendContainer}>
+        {Object.entries(COLOR_MAP).map(([type, color]) => (
+          <View key={type} style={styles.legendItem}>
+            <View style={[styles.legendColor, { backgroundColor: color }]} />
+            <Text style={styles.legendText}>{type}</Text>
+          </View>
+        ))}
+      </ScrollView>
+      
+      {/* Selected Relationship Details */}
+      {selectedRelationship && relationships[selectedRelationship] && (
+        <View style={styles.detailsContainer}>
+          <View style={styles.detailsHeader}>
+            <Text style={styles.detailsTitle}>
+              与 {relationships[selectedRelationship].character.name} 的关系
+            </Text>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => setEditMode(!editMode)}
+            >
+              <Ionicons 
+                name={editMode ? "close-outline" : "create-outline"} 
+                size={20} 
+                color="#fff" 
+              />
+            </TouchableOpacity>
+          </View>
           
-          <View style={styles.detailsRow}>
-            <Text style={styles.detailsLabel}>关系类型:</Text>
-            <View style={[
-              styles.typeTag, 
-              { backgroundColor: typeColors[relationshipDetails.type] }
-            ]}>
-              <Text style={styles.typeText}>
-                {relationshipDetails.type}
+          {editMode ? (
+            <View style={styles.editContainer}>
+              <Text style={styles.editLabel}>关系强度 (-100 到 100):</Text>
+              <TextInput
+                style={styles.editInput}
+                value={editedStrength}
+                onChangeText={setEditedStrength}
+                keyboardType="number-pad"
+                maxLength={4}
+              />
+              
+              <Text style={styles.editLabel}>关系描述:</Text>
+              <TextInput
+                style={[styles.editInput, styles.editTextArea]}
+                value={editedDescription}
+                onChangeText={setEditedDescription}
+                multiline={true}
+                numberOfLines={3}
+              />
+              
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleSaveRelationship}
+              >
+                <Text style={styles.saveButtonText}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.relationshipInfo}>
+              <Text style={styles.infoText}>
+                <Text style={styles.infoLabel}>类型: </Text>
+                <Text style={{
+                  color: COLOR_MAP[relationships[selectedRelationship].relationship.type]
+                }}>
+                  {relationships[selectedRelationship].relationship.type}
+                </Text>
+              </Text>
+              
+              <Text style={styles.infoText}>
+                <Text style={styles.infoLabel}>强度: </Text>
+                {relationships[selectedRelationship].relationship.strength}
+              </Text>
+              
+              <Text style={styles.infoText}>
+                <Text style={styles.infoLabel}>互动次数: </Text>
+                {relationships[selectedRelationship].relationship.interactions}
+              </Text>
+              
+              <Text style={styles.infoText}>
+                <Text style={styles.infoLabel}>描述: </Text>
+                {relationships[selectedRelationship].relationship.description}
+              </Text>
+              
+              <Text style={styles.infoText}>
+                <Text style={styles.infoLabel}>上次更新: </Text>
+                {new Date(relationships[selectedRelationship].relationship.lastUpdated).toLocaleString()}
               </Text>
             </View>
-          </View>
-          
-          <View style={styles.detailsRow}>
-            <Text style={styles.detailsLabel}>关系强度:</Text>
-            <Text style={[
-              styles.strengthValue,
-              relationshipDetails.strength > 0 ? styles.positiveStrength : 
-              relationshipDetails.strength < 0 ? styles.negativeStrength :
-              styles.neutralStrength
-            ]}>
-              {relationshipDetails.strength}
-            </Text>
-          </View>
-          
-          <View style={styles.detailsRow}>
-            <Text style={styles.detailsLabel}>互动次数:</Text>
-            <Text style={styles.detailsValue}>{relationshipDetails.interactions}</Text>
-          </View>
-          
-          <View style={styles.detailsRow}>
-            <Text style={styles.detailsLabel}>上次更新:</Text>
-            <Text style={styles.detailsValue}>
-              {new Date(relationshipDetails.lastUpdated).toLocaleString()}
-            </Text>
-          </View>
-          
-          <View style={styles.descriptionContainer}>
-            <Text style={styles.descriptionLabel}>描述:</Text>
-            <Text style={styles.descriptionText}>{relationshipDetails.description}</Text>
-            <TouchableOpacity 
-              style={styles.regenerateButton} 
-              onPress={handleRegenerateDescription}
-              disabled={generatingDescription}
-            >
-              <Text style={styles.buttonText}>重新生成描述</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {/* Relationship Strength Controls */}
-          <View style={styles.strengthControls}>
-            <TouchableOpacity 
-              style={[styles.strengthButton, styles.decreaseButton]} 
-              onPress={() => handleUpdateStrength(-10)}
-              disabled={updating}
-            >
-              <Text style={styles.buttonText}>-10</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.strengthButton, styles.decreaseButton]} 
-              onPress={() => handleUpdateStrength(-5)}
-              disabled={updating}
-            >
-              <Text style={styles.buttonText}>-5</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.strengthButton, styles.increaseButton]} 
-              onPress={() => handleUpdateStrength(5)}
-              disabled={updating}
-            >
-              <Text style={styles.buttonText}>+5</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.strengthButton, styles.increaseButton]} 
-              onPress={() => handleUpdateStrength(10)}
-              disabled={updating}
-            >
-              <Text style={styles.buttonText}>+10</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {updating && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#FF9ECD" />
-              <Text style={styles.loadingText}>更新中...</Text>
-            </View>
           )}
-        </ScrollView>
-      )}
-      
-      {/* No relationship selected state */}
-      {!relationshipDetails && relationshipEntries.length > 0 && (
-        <View style={styles.instructionsContainer}>
-          <Text style={styles.instructionsText}>
-            点击一个角色节点查看详细关系信息
-          </Text>
         </View>
       )}
       
-      {/* No relationships state */}
-      {relationshipEntries.length === 0 && (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>
-            暂无关系数据，前往探索页面的朋友圈互动或使用关系测试功能来建立关系
+      {/* No Relationships Message */}
+      {Object.keys(relationships).length === 0 && (
+        <View style={styles.emptyState}>
+          <Ionicons name="people-outline" size={48} color="#888" />
+          <Text style={styles.emptyStateText}>
+            {character.name} 还没有建立任何关系
+          </Text>
+          <Text style={styles.emptyStateSubtext}>
+            通过朋友圈互动或聊天来建立关系
           </Text>
         </View>
       )}
@@ -423,146 +360,125 @@ const RelationshipGraph: React.FC<Props> = ({ character, onUpdateCharacter, allC
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#222',
+    backgroundColor: '#282828',
   },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 16,
+    color: '#fff',
     textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#aaa',
+    textAlign: 'center',
+    marginBottom: 16,
   },
   graphContainer: {
-    aspectRatio: 1,
+    height: 400,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  legendContainer: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 4,
+  },
+  legendText: {
+    color: '#eee',
+    fontSize: 12,
+  },
   detailsContainer: {
-    backgroundColor: '#333',
-    borderRadius: 8,
     padding: 16,
-    marginTop: 16,
-    maxHeight: 300,
+    backgroundColor: '#333',
+    borderTopWidth: 1,
+    borderTopColor: '#444',
+  },
+  detailsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   detailsTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 8,
+    color: '#fff',
   },
-  detailsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+  editButton: {
+    padding: 8,
+    backgroundColor: '#444',
+    borderRadius: 16,
   },
-  detailsLabel: {
-    color: '#ccc',
-    fontSize: 14,
+  relationshipInfo: {
+    padding: 8,
   },
-  detailsValue: {
-    color: 'white',
-    fontSize: 14,
-  },
-  typeTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  typeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  strengthValue: {
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  positiveStrength: {
-    color: '#4CD964',
-  },
-  negativeStrength: {
-    color: '#FF3B30',
-  },
-  neutralStrength: {
-    color: '#CCCCCC',
-  },
-  descriptionContainer: {
-    marginTop: 8,
-  },
-  descriptionLabel: {
-    color: '#ccc',
-    fontSize: 14,
+  infoText: {
+    color: '#fff',
     marginBottom: 4,
   },
-  descriptionText: {
-    color: 'white',
-    fontSize: 14,
-    lineHeight: 20,
+  infoLabel: {
+    fontWeight: 'bold',
+    color: '#aaa',
   },
-  regenerateButton: {
-    marginTop: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  editContainer: {
+    padding: 8,
+  },
+  editLabel: {
+    color: '#aaa',
+    marginBottom: 4,
+  },
+  editInput: {
+    backgroundColor: '#444',
     borderRadius: 4,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 8,
+    color: '#fff',
+    marginBottom: 12,
   },
-  strengthControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
+  editTextArea: {
+    height: 80,
+    textAlignVertical: 'top',
   },
-  strengthButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  saveButton: {
+    backgroundColor: '#FF9ECD',
+    padding: 12,
     borderRadius: 4,
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  decreaseButton: {
-    backgroundColor: '#FF3B30',
-  },
-  increaseButton: {
-    backgroundColor: '#4CD964',
-  },
-  buttonText: {
-    color: 'white',
+  saveButtonText: {
+    color: '#282828',
     fontWeight: 'bold',
   },
-  loadingContainer: {
-    flexDirection: 'row',
+  emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
+    padding: 24,
   },
-  loadingText: {
-    color: '#ccc',
-    marginLeft: 8,
-  },
-  instructionsContainer: {
-    marginTop: 16,
-    padding: 16,
-    backgroundColor: '#333',
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  instructionsText: {
-    color: '#ccc',
+  emptyStateText: {
+    color: '#fff',
+    fontSize: 16,
+    marginTop: 12,
     textAlign: 'center',
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyText: {
-    color: '#999',
+  emptyStateSubtext: {
+    color: '#888',
+    fontSize: 14,
+    marginTop: 8,
     textAlign: 'center',
-    lineHeight: 22,
   }
 });
 

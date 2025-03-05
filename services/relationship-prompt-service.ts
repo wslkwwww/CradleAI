@@ -3,6 +3,12 @@ import { Relationship, RelationshipType } from '@/shared/types/relationship-type
 import { ApiServiceProvider } from './api-service-provider';
 import { ApiSettings } from '@/shared/types/api-types';
 import { PromptBuilderService, DEntry, RFrameworkEntry } from '@/NodeST/nodest/services/prompt-builder-service';
+import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
+
+interface InteractionScenario {
+  scenario: string;  // 'gift' | 'invitation' | 'challenge' | 'support' | 'confession' | 'meeting'
+  detail?: string;   // Detailed description of the scenario
+}
 
 /**
  * 关系提示词服务
@@ -219,234 +225,271 @@ export class RelationshipPromptService {
    * 根据两个角色的关系生成特定场景下的互动回应
    */
   static async generateInteractionResponse(
-    sourceCharacter: Character,
-    targetCharacter: Character,
-    context: {
-      scenario: 'gift' | 'invitation' | 'challenge' | 'support' | 'confession' | 'meeting',
-      detail?: string
-    },
-    apiKey?: string,
+    respondingCharacter: Character,
+    initiatingCharacter: Character,
+    scenario: InteractionScenario,
+    apiKey: string,
     apiSettings?: ApiSettings
   ): Promise<string> {
-    if (!apiKey) {
-      return this.getDefaultInteractionResponse(sourceCharacter, targetCharacter, context);
-    }
+    console.log(`【关系提示服务】生成互动响应: ${respondingCharacter.name} 回应 ${initiatingCharacter.name} 的 ${scenario.scenario}`);
+    console.log(`【关系提示服务】API提供商: ${apiSettings?.apiProvider || 'default'}`);
     
     try {
-      console.log(`【关系提示词服务】生成互动回应：${sourceCharacter.name} -> ${targetCharacter.name}, 场景=${context.scenario}`);
+      // Get relationship data if exists
+      const relationship = respondingCharacter.relationshipMap?.relationships[initiatingCharacter.id];
       
-      // 获取关系数据
-      const relationship = sourceCharacter.relationshipMap?.relationships[targetCharacter.id];
-      if (!relationship) {
-        return this.getDefaultInteractionResponse(sourceCharacter, targetCharacter, context);
-      }
-      
-      // 构建R框架
-      const rFramework: RFrameworkEntry[] = [
-        PromptBuilderService.createRFrameworkEntry({
-          name: "Source Character",
-          content: `你是${sourceCharacter.name}，${sourceCharacter.description || '一个虚拟角色'}。`,
-          identifier: "sourceChar"
-        }),
-        PromptBuilderService.createRFrameworkEntry({
-          name: "Target Character",
-          content: `${targetCharacter.name}是${targetCharacter.description || '一个虚拟角色'}。`,
-          identifier: "targetChar"
-        }),
-        PromptBuilderService.createRFrameworkEntry({
-          name: "Relationship Context",
-          content: `你与${targetCharacter.name}的关系类型是"${relationship.type}"，关系强度为${relationship.strength}（范围从-100到100），你们已有${relationship.interactions}次互动。`,
-          identifier: "relationContext"
-        })
-      ];
-      
-      // 构建D类条目
-      const dEntries: DEntry[] = [];
-      
-      // 添加关系描述
-      if (relationship.description) {
-        dEntries.push(PromptBuilderService.createDEntry({
-          name: "Relationship Description",
-          content: `你对${targetCharacter.name}的印象: "${relationship.description}"`,
-          depth: 1
-        }));
-      }
-      
-      // 添加情境指导
-      dEntries.push(PromptBuilderService.createDEntry({
-        name: "Scenario Guidance",
-        content: this.getScenarioGuidance(context.scenario, relationship.type),
-        depth: 0
-      }));
-      
-      // 构建用户消息，基于具体情境
-      let userMessage = '';
-      switch (context.scenario) {
-        case 'gift':
-          userMessage = `${targetCharacter.name}送了你一件礼物${context.detail ? `：${context.detail}` : ''}。请以第一人称回应这个礼物，表达你的感受。`;
-          break;
-        case 'invitation':
-          userMessage = `${targetCharacter.name}邀请你${context.detail ? context.detail : '参加一个活动'}。请以第一人称回应这个邀请，表达你的感受和决定。`;
-          break;
-        case 'challenge':
-          userMessage = `${targetCharacter.name}向你发起了挑战${context.detail ? `：${context.detail}` : ''}。请以第一人称回应这个挑战，表达你的态度。`;
-          break;
-        case 'support':
-          userMessage = `${targetCharacter.name}在你需要帮助的时候给予了支持${context.detail ? `：${context.detail}` : ''}。请以第一人称表达你的感谢和感受。`;
-          break;
-        case 'confession':
-          userMessage = `${targetCharacter.name}向你表达了爱意或特别的感情。请以第一人称回应这个表白，表达你的真实感受。`;
-          break;
-        case 'meeting':
-          userMessage = `你偶然遇到了${targetCharacter.name}${context.detail ? `在${context.detail}` : ''}。请以第一人称描述你的反应和你们的简短对话。`;
-          break;
-        default:
-          userMessage = `${targetCharacter.name}与你互动。请以第一人称回应，表达你的感受。`;
-      }
-      
-      // 构建提示词
-      const messages = PromptBuilderService.buildPrompt({
-        rFramework,
-        dEntries,
-        userMessage
-      });
-      
-      const prompt = PromptBuilderService.messagesToText(messages);
-      
-      // 使用当前设置的API服务生成内容
-      const response = await ApiServiceProvider.generateContent(
-        [{role: 'user', parts: [{text: prompt}]}],
-        apiKey,
-        apiSettings
+      // Construct a prompt based on relationship status
+      const prompt = this.constructInteractionPrompt(
+        respondingCharacter,
+        initiatingCharacter,
+        scenario,
+        relationship?.type,
+        relationship?.strength
       );
       
-      // 简单处理响应
-      let finalResponse = response.trim();
-      
-      // 确保响应是第一人称
-      if (!finalResponse.includes('我') && !finalResponse.includes('你')) {
-        finalResponse = `我${finalResponse}`;
+      // Skip API call if no key provided (for testing)
+      if (!apiKey) {
+        console.log(`【关系提示服务】无API密钥，返回默认响应`);
+        return `${respondingCharacter.name}默认回应了${initiatingCharacter.name}的${scenario.scenario}。`;
       }
       
-      return finalResponse;
+      // Choose API provider
+      const isOpenRouter = apiSettings?.apiProvider === 'openrouter' && 
+                          apiSettings.openrouter?.enabled;
       
+      console.log(`【关系提示服务】使用 ${isOpenRouter ? 'OpenRouter' : 'Gemini'} API生成响应`);
+      
+      if (isOpenRouter) {
+        // Use OpenRouter for generation
+        const adapter = new OpenRouterAdapter(
+          apiKey,
+          apiSettings?.openrouter?.model || 'openai/gpt-3.5-turbo'
+        );
+        
+        console.log(`【关系提示服务】OpenRouter模型: ${apiSettings?.openrouter?.model || 'openai/gpt-3.5-turbo'}`);
+        
+        const content = await adapter.generateContent([
+          { role: 'user', content: prompt }
+        ]);
+        
+        console.log(`【关系提示服务】成功生成响应，长度: ${content.length}`);
+        return this.processApiResponse(content);
+      } else {
+        // For Gemini API
+        console.log(`【关系提示服务】使用Gemini API生成响应`);
+        
+        const response = await ApiServiceProvider.generateContent(
+          [{ role: 'user', parts: [{ text: prompt }] }],
+          apiKey
+        );
+        
+        return this.processApiResponse(response);
+      }
     } catch (error) {
-      console.error('【关系提示词服务】生成互动回应失败:', error);
-      return this.getDefaultInteractionResponse(sourceCharacter, targetCharacter, context);
+      console.error(`【关系提示服务】生成互动响应失败:`, error);
+      return `${respondingCharacter.name}回应了${initiatingCharacter.name}。`;
     }
   }
   
   /**
-   * 获取默认互动回应
-   * 当API调用失败时使用
+   * Construct a prompt for generating personalized interaction response
    */
-  private static getDefaultInteractionResponse(
-    sourceCharacter: Character,
-    targetCharacter: Character,
-    context: {
-      scenario: 'gift' | 'invitation' | 'challenge' | 'support' | 'confession' | 'meeting',
-      detail?: string
-    }
+  private static constructInteractionPrompt(
+    respondingCharacter: Character,
+    initiatingCharacter: Character,
+    scenario: InteractionScenario,
+    relationshipType?: RelationshipType,
+    relationshipStrength?: number
   ): string {
-    // 获取关系数据，如果没有则假设是陌生人
-    const relationship = sourceCharacter.relationshipMap?.relationships[targetCharacter.id];
-    const relType = relationship?.type || 'stranger';
-    const relStrength = relationship?.strength || 0;
-    const isPositive = relStrength >= 0;
+    // Default values if relationship not defined
+    const type = relationshipType || 'stranger';
+    const strength = relationshipStrength || 0;
     
-    // 根据关系类型和情境返回默认回应
-    switch (context.scenario) {
+    // Build the detailed context
+    let relationshipContext = '';
+    if (type === 'stranger' || !relationshipStrength) {
+      relationshipContext = `你们互相不太了解，是陌生人关系。`;
+    } else if (strength < -50) {
+      relationshipContext = `你们关系非常紧张，有很强的敌对情绪。`;
+    } else if (strength < 0) {
+      relationshipContext = `你们关系不太好，有些互相排斥。`;
+    } else if (strength < 30) {
+      relationshipContext = `你们彼此认识，但关系一般。`;
+    } else if (strength < 60) {
+      relationshipContext = `你们关系还不错，有一定友谊基础。`;
+    } else if (strength < 80) {
+      relationshipContext = `你们关系很好，是不错的朋友。`;
+    } else {
+      relationshipContext = `你们关系非常亲密，互相信任和支持。`;
+    }
+    
+    // Get scenario description
+    let scenarioDescription = '';
+    switch (scenario.scenario) {
       case 'gift':
-        if (isPositive) {
-          return `谢谢你的礼物，${targetCharacter.name}。这真是太贴心了。`;
-        } else {
-          return `我没想到你会给我礼物，${targetCharacter.name}。我不知道该说什么。`;
-        }
+        scenarioDescription = `${initiatingCharacter.name}送给你一件礼物`;
+        break;
       case 'invitation':
-        if (isPositive) {
-          return `好的，我很乐意接受你的邀请，${targetCharacter.name}。期待与你共度时光。`;
-        } else {
-          return `抱歉，${targetCharacter.name}，我这段时间恐怕没有空。`;
-        }
+        scenarioDescription = `${initiatingCharacter.name}邀请你参加活动`;
+        break;
       case 'challenge':
-        if (isPositive) {
-          return `我接受你的挑战，${targetCharacter.name}！这会很有趣。`;
-        } else {
-          return `我对这种挑战不感兴趣，${targetCharacter.name}。`;
-        }
+        scenarioDescription = `${initiatingCharacter.name}向你发起挑战`;
+        break;
       case 'support':
-        if (isPositive) {
-          return `谢谢你的帮助，${targetCharacter.name}。你的支持对我来说意义重大。`;
-        } else {
-          return `我没想到你会帮我，${targetCharacter.name}。谢谢。`;
-        }
+        scenarioDescription = `${initiatingCharacter.name}向你表达支持`;
+        break;
       case 'confession':
-        if (relType === 'lover' || relType === 'crush' || relType === 'partner') {
-          return `我也有同样的感受，${targetCharacter.name}。你对我来说很特别。`;
-        } else if (isPositive) {
-          return `我很感动，${targetCharacter.name}。我需要一些时间来思考我的感受。`;
-        } else {
-          return `抱歉，${targetCharacter.name}，我不认为我有同样的感觉。`;
-        }
+        scenarioDescription = `${initiatingCharacter.name}向你表白心意`;
+        break;
       case 'meeting':
-        if (isPositive) {
-          return `嘿，${targetCharacter.name}！好巧在这里遇到你。最近怎么样？`;
-        } else {
-          return `${targetCharacter.name}。没想到会在这里见到你。`;
-        }
+        scenarioDescription = `${initiatingCharacter.name}与你偶遇`;
+        break;
       default:
-        if (isPositive) {
-          return `很高兴与你交流，${targetCharacter.name}。`;
-        } else {
-          return `${targetCharacter.name}。`;
-        }
+        scenarioDescription = `${initiatingCharacter.name}与你互动`;
+    }
+    
+    // Add custom detail if provided
+    if (scenario.detail) {
+      scenarioDescription += `，具体情况是：${scenario.detail}`;
+    }
+    
+    // Construct the full prompt
+    return `
+你现在扮演角色"${respondingCharacter.name}"，请根据以下信息生成一段对话响应：
+
+角色设定：
+${respondingCharacter.description || ''}
+${respondingCharacter.personality || ''}
+
+互动对象：
+${initiatingCharacter.name}
+${initiatingCharacter.description || ''}
+
+关系状态：
+${relationshipContext}
+关系类型: ${type}
+关系强度: ${strength} (-100到100之间)
+
+互动场景：
+${scenarioDescription}
+
+请以第一人称的方式，生成"${respondingCharacter.name}"对这个场景的自然、符合角色个性的回应。回应应当体现出角色间的关系状态。
+只需要生成对话内容，不要加任何旁白或说明，不要使用引号。回应长度应在30-100字之间，语气自然。
+`;
+  }
+  
+  /**
+   * Process API response to extract just the character's reply
+   */
+  private static processApiResponse(response: string): string {
+    // Remove any quotes that might be in the response
+    response = response.replace(/^["']|["']$/g, '');
+    
+    // Remove any narrative elements like "Character: " prefixes
+    response = response.replace(/^[^:]*:\s*/i, '');
+    
+    // Limit length
+    if (response.length > 200) {
+      response = response.substring(0, 197) + '...';
+    }
+    
+    return response;
+  }
+  
+  /**
+   * Generate a relationship review prompt for a character
+   * to assess their relationships based on recent interactions
+   */
+  static generateRelationshipReviewPrompt(
+    character: Character,
+    unreadMessages: number = 5
+  ): string {
+    if (!character.messageBox || character.messageBox.length === 0) {
+      return '';
+    }
+    
+    // Get unread messages
+    const messages = character.messageBox
+      .filter(msg => !msg.read)
+      .slice(0, unreadMessages);
+    
+    if (messages.length === 0) return '';
+    
+    const messageList = messages.map((msg, index) => {
+      return `${index + 1}. ${msg.senderName || '某人'}${this.getInteractionVerb(msg.type)}：${msg.content}`;
+    }).join('\n');
+    
+    return `
+【关系状态检查】
+我是${character.name}，以下是我最近收到的一些互动消息，请我分析这些消息，并针对每个互动者更新我对他们的印象和关系强度。
+
+消息列表:
+${messageList}
+
+请根据这些消息，分析我应该如何调整与这些角色的关系。
+按照以下格式给出回应:
+
+关系更新:
+角色ID-强度变化[-100到100之间]-新关系类型(可选)
+`;
+  }
+  
+  /**
+   * Get verb for interaction type
+   */
+  private static getInteractionVerb(type: string): string {
+    switch (type) {
+      case 'like': return '点赞了我的内容';
+      case 'comment': return '评论了我的内容';
+      case 'reply': return '回复了我的评论';
+      case 'relationship_request': return '发来了关系请求';
+      case 'invitation': return '向我发出邀请';
+      case 'alert': return '向我发出提醒';
+      case 'message': return '向我发送消息';
+      default: return '与我互动';
     }
   }
   
   /**
-   * 获取情境指导
-   * 为不同的互动情境提供特定的提示指导
+   * Parse relationship review response
    */
-  private static getScenarioGuidance(scenario: string, relationType: RelationshipType): string {
-    switch (scenario) {
-      case 'gift':
-        return `这是一个收到礼物的场景。根据你们的关系(${relationType})，表达适当的感谢和情感反应。
-          - 如果是正面关系：表达真诚的感谢、惊喜或感动
-          - 如果是负面关系：表达疑惑、怀疑或有保留的感谢
-          - 如果是中立关系：表达礼貌的感谢但不过分热情`;
-          
-      case 'invitation':
-        return `这是一个收到邀请的场景。根据你们的关系(${relationType})，表达你的决定和感受。
-          - 如果是亲密关系：可以热情接受并表达期待
-          - 如果是敌对关系：可以礼貌拒绝或表达怀疑
-          - 如果是普通关系：可以根据自己的兴趣程度决定`;
-          
-      case 'challenge':
-        return `这是一个被挑战的场景。根据你们的关系(${relationType})，表达你面对挑战的态度。
-          - 如果是竞争关系：表达接受挑战的决心和自信
-          - 如果是友好关系：可以幽默地接受或表达这会很有趣
-          - 如果是敌对关系：可以冷淡接受或直接拒绝`;
-          
-      case 'support':
-        return `这是一个接受帮助的场景。根据你们的关系(${relationType})，表达你的感谢和感受。
-          - 如果是亲密关系：表达深刻的感谢和情感联系
-          - 如果是意外的支持：可以表达惊讶和重新评估
-          - 如果是敌对关系：可以表达谨慎的感谢和轻微的怀疑`;
-          
-      case 'confession':
-        return `这是一个情感告白的场景。根据你们的关系(${relationType})，表达你的真实感受。
-          - 如果已有浪漫关系：可以表达更深的感情和确认
-          - 如果有好感但未确认：可以表达惊喜和正面回应
-          - 如果没有这方面感情：委婉但明确地表达你的真实感受`;
-          
-      case 'meeting':
-        return `这是一个偶遇的场景。根据你们的关系(${relationType})，描述你的反应和简短对话。
-          - 如果是亲密关系：表达惊喜和喜悦
-          - 如果是尴尬关系：可以描述短暂的寒暄和借口离开
-          - 如果是敌对关系：可以表达冷淡或警惕的态度`;
-          
-      default:
-        return `根据你们的关系(${relationType})，用自然的方式回应这个互动，保持角色性格的一致性。考虑你们之间的历史互动，以及当前的情境。`;
-    }
+  static parseRelationshipReviewResponse(response: string): Array<{
+    targetId: string;
+    strengthDelta: number;
+    newType?: string;
+  }> {
+    const results: Array<{
+      targetId: string;
+      strengthDelta: number;
+      newType?: string;
+    }> = [];
+    
+    // Extract the lines that contain relationship updates
+    const updateSection = response.split('关系更新:').pop();
+    if (!updateSection) return results;
+    
+    // Extract update lines with regex
+    const updateLines = updateSection.match(/[a-zA-Z0-9]+-[+-]?\d+(-\w+)?/g);
+    if (!updateLines) return results;
+    
+    // Parse each line
+    updateLines.forEach(line => {
+      const parts = line.split('-');
+      if (parts.length < 2) return;
+      
+      const targetId = parts[0];
+      const strengthDelta = parseInt(parts[1]);
+      const newType = parts.length > 2 ? parts[2] : undefined;
+      
+      if (isNaN(strengthDelta)) return;
+      
+      results.push({
+        targetId,
+        strengthDelta,
+        newType
+      });
+    });
+    
+    return results;
   }
 }

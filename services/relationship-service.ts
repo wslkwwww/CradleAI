@@ -64,8 +64,11 @@ export class RelationshipService {
   public static initializeRelationshipMap(character: Character): Character {
     // Check if relationship map already exists
     if (character.relationshipMap) {
+      console.log(`【关系服务】角色 ${character.name} 已有关系图谱，跳过初始化`);
       return character;
     }
+
+    console.log(`【关系服务】为角色 ${character.name} 初始化新的关系图谱`);
 
     // Initialize empty relationship map
     const relationshipMap: RelationshipMapData = {
@@ -122,8 +125,12 @@ export class RelationshipService {
     postId: string,
     postContent: string
   ): Character {
+    // Add extensive logging
+    console.log(`【关系服务】处理朋友圈互动: ${character.name} <- ${interactorName}(${interactorId}), 类型: ${interactionType}`);
+    
     // Ensure character has a relationship map
     if (!character.relationshipMap) {
+      console.log(`【关系服务】角色 ${character.name} 缺少关系图谱，进行初始化`);
       character = this.initializeRelationshipMap(character);
     }
     
@@ -150,6 +157,9 @@ export class RelationshipService {
         strengthDelta = 3;
         break;
     }
+    
+    // Log relationship changes
+    console.log(`【关系服务】${character.name} 与 ${interactorName} 的关系变化: 强度 ${relationship.strength} -> ${relationship.strength + strengthDelta}`);
     
     // Update relationship strength (ensure within -100 to 100 range)
     relationship.strength = Math.min(100, Math.max(-100, relationship.strength + strengthDelta));

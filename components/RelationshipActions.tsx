@@ -9,7 +9,7 @@ import {
   Modal,
   Alert
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { RelationshipAction, ActionType, ActionStatus } from '@/services/action-service';
 import { ActionService } from '@/services/action-service';
@@ -35,7 +35,9 @@ const RelationshipActions: React.FC<Props> = ({
   const [isResponseModalVisible, setIsResponseModalVisible] = useState(false);
   const [processingResponse, setProcessingResponse] = useState(false);
   const [generatedResponse, setGeneratedResponse] = useState('');
-  
+  const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
+  const [isProcessing, setIsProcessing] = useState<Record<string, boolean>>({});
+
   const { user } = useUser();
   
   // Check for expired actions and load initial data

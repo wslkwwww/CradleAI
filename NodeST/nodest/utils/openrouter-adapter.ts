@@ -49,10 +49,19 @@ export class OpenRouterAdapter {
    */
   async generateContent(contents: ChatMessage[]): Promise<string> {
     console.log(`【OpenRouterAdapter】开始生成内容，使用模型: ${this.model}`);
+    console.log(`【OpenRouterAdapter】本次调用可能涉及角色关系更新`);
     
     try {
       // 添加到历史记录
       contents.forEach(content => {
+        // 检查消息内容是否包含关系相关关键词
+        const messageText = content.parts?.[0]?.text || content.content || "";
+        if (messageText.includes("关系") || 
+            messageText.includes("互动") || 
+            messageText.includes("朋友圈")) {
+          console.log(`【OpenRouterAdapter】检测到关系系统相关请求: ${messageText.substring(0, 50)}...`);
+        }
+        
         // 如果消息使用的是Gemini格式，则转换为OpenRouter格式
         if (content.parts && !content.content) {
           this.conversationHistory.push({
@@ -142,6 +151,14 @@ export class OpenRouterAdapter {
       });
       
       console.log(`【OpenRouterAdapter】成功生成回复，长度: ${responseText.length}`);
+      
+      // 检查响应是否包含关系操作指令
+      if (responseText.includes("关系更新") || 
+          responseText.includes("互动") || 
+          responseText.includes("关系强度")) {
+        console.log(`【OpenRouterAdapter】检测到响应包含关系系统指令: ${responseText.substring(0, 100).replace(/\n/g, ' ')}...`);
+      }
+      
       return responseText;
 
     } catch (error) {

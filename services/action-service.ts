@@ -42,6 +42,22 @@ export class ActionService {
     const actions: RelationshipAction[] = [];
     const relationships = character.relationshipMap.relationships;
     
+    // Get API settings from global state rather than character object
+    // This will be properly updated from api-settings
+    let userSettings;
+    try {
+      // Try to get settings from localStorage - this is synchronous and may fail
+      const settingsStr = localStorage.getItem('user_settings');
+      if (settingsStr) {
+        userSettings = JSON.parse(settingsStr);
+      }
+    } catch (error) {
+      console.warn('Could not retrieve user settings from local storage');
+    }
+    
+    const apiProvider = userSettings?.chat?.apiProvider || 'gemini';
+    console.log(`【行动服务】当前全局API提供商: ${apiProvider}`);
+    
     // Check each relationship for potential action triggers
     Object.entries(relationships).forEach(([targetId, relationship]: [string, Relationship]) => {
       // 移除过滤条件或减少限制，让更多行动有机会被触发
@@ -106,6 +122,15 @@ export class ActionService {
       
       // 其他行动条件...
     });
+    
+    if (actions.length > 0) {
+      console.log(`【行动服务】为角色 ${character.name} 生成了 ${actions.length} 个行动`);
+      actions.forEach(action => {
+        console.log(`【行动服务】行动详情: 类型=${action.type}, 目标=${action.targetCharacterId}, 内容=${action.content}`);
+      });
+    } else {
+      console.log(`【行动服务】未能为角色 ${character.name} 生成任何行动`);
+    }
     
     return actions;
   }

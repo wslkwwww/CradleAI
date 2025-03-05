@@ -14,6 +14,44 @@ export function getCharacterById(
 }
 
 /**
+ * Initialize the relationship system for a character
+ * @param character The character to initialize
+ * @returns The updated character with relationship system enabled
+ */
+export function initializeRelationshipSystem(character: Character): Character {
+  return {
+    ...character,
+    relationshipEnabled: true,
+    relationshipMap: character.relationshipMap || {
+      relationships: {},
+      lastReviewed: Date.now(),
+      lastUpdated: Date.now()
+    },
+    messageBox: character.messageBox || []
+  };
+}
+
+/**
+ * Check if a character has relationship with another character
+ * @param character The character to check
+ * @param targetId The target character ID
+ * @returns True if relationship exists
+ */
+export function hasRelationship(character: Character, targetId: string): boolean {
+  return Boolean(character.relationshipMap?.relationships[targetId]);
+}
+
+/**
+ * Get relationship strength between two characters
+ * @param character The source character
+ * @param targetId The target character ID
+ * @returns The strength value or 0 if no relationship
+ */
+export function getRelationshipStrength(character: Character, targetId: string): number {
+  return character.relationshipMap?.relationships[targetId]?.strength || 0;
+}
+
+/**
  * Save all characters to AsyncStorage
  */
 export const saveCharacters = async (characters: Character[]): Promise<void> => {
