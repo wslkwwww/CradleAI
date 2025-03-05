@@ -1,4 +1,4 @@
-
+Let me continue with the character relationship system documentation from section 4.1:
 
 ```markdown
 # 角色关系系统开发文档
@@ -6,6 +6,15 @@
 ## 系统概述
 
 角色关系系统是一个跟踪、管理和可视化角色之间关系的综合框架。它允许每个角色维护一个关系图谱，记录与其他角色的互动历史，并根据这些互动动态调整关系强度和类型。此系统还驱动基于关系的行动触发，增强角色互动的真实感和深度。
+
+## 最新更新（2023-03）
+
+1. 修复了探索页面中的重复键错误，确保ActionCard组件在渲染时有唯一键
+2. 改进了MessageBoxContent组件的可视化，解决了消息列表不可见的问题
+3. 增强了ForwardSheet组件，添加了朋友圈未初始化时的用户友好提示
+4. 添加了角色关系系统的启用开关到SettingsSidebar
+5. 更新了SettingsSidebar的UI风格，与应用其他部分保持一致
+6. 优化了ActionCard组件的条件渲染逻辑，只有目标角色才能看到操作按钮
 
 ## 核心功能
 
@@ -42,10 +51,11 @@
     ├── RelationshipActions.tsx    # 关系行动展示和处理组件
     ├── RelationshipGraph.tsx      # 关系图谱组件
     ├── RelationshipCanvas.tsx     # 关系可视化绘制组件
-    ├── MessageBox.tsx             # 消息盒子组件
+    ├── MessageBoxContent.tsx      # 消息盒子组件
     ├── RelationshipTestControls.tsx # 关系测试控制组件
     ├── RelationshipTestResults.tsx  # 关系测试结果展示组件
-    └── CharacterSelector.tsx      # 角色选择组件
+    ├── CharacterSelector.tsx      # 角色选择组件
+    └── ActionCard.tsx             # 关系行动卡片组件（新增）
 ```
 
 ### 页面层
@@ -74,7 +84,7 @@
         └── services/
             └── prompt-builder-service.ts  # 提示词构建服务
 ```
-```
+
 ## 数据流与业务流程
 
 ### 1. 关系图谱生命周期
@@ -148,7 +158,7 @@ const updatedCharacter = RelationshipService.addToMessageBox(character, {
 
 **执行流程**：
 1. `CircleManager.generateRelationshipStateReviewPrompt` 生成检视提示词
-2. 提示词作为D类条目插入到AI请求中
+2. 提示词作为D类条目插入到角色进行朋友圈互动行为时的AI请求中。（参考circle-interaction-system.md了解朋友圈互动行为）
 3. AI响应中包含关系更新指令
 4. `CircleManager.parseRelationshipReviewResponse` 解析更新指令
 5. 系统根据指令更新关系数据
@@ -218,484 +228,312 @@ const updatedCharacters = ActionService.processActionResponse(
 );
 ```
 
-### 4. 关系测试功能
+### 4. 朋友圈集成增强
 
-#### 4.1 测试概念和功能
+#### 4.1 转发检测和初始化
 
-**测试目的**：
-1. 快速验证关系系统的正常运行
-2. 加速关系发展，无需等待自然互动
-3. 模拟多种互动场景以测试关系变化和行动触发
-4. 收集详细日志用于排查问题
-
-**测试类型**：
-1. **单次互动测试**：模拟朋友圈中的单次点赞或评论
-2. **批量关系测试**：同时测试多个角色之间的关系更新
-3. **加速互动测试**：通过高频互动快速提升关系强度和互动次数
-
-#### 4.2 测试控制组件
-
-**核心功能**：
-1. 强度修改器：控制每次互动对关系强度的影响
-2. 互动加速：模拟多次互动，快速累积互动计数
-3. 详细日志：记录和显示关系变化的全过程
-
-```tsx
-// 测试控制示例
-<RelationshipTestControls
-  characters={charactersArray}
-  onRunTest={runRelationshipTest}
-  onResetRelationships={resetAllRelationships}
-  isRunningTest={isRunningRelationshipTest}
-/>
-```
-
-#### 4.3 测试执行流程
-
-**测试步骤**：
-1. 选择带有启用关系系统的角色作为帖子作者
-2. 找出所有可以互动的角色
-3. 记录测试前的关系状态
-4. 随机生成测试帖子内容
-5. 为每个互动角色随机生成互动类型（点赞/评论）
-6. 处理每个角色的互动并更新关系
-7. 比较测试前后的关系变化
-8. 检查是否触发了新的关系行动
-9. 显示详细测试结果
+**执行流程**：
+1. 用户选择转发朋友圈内容到角色
+2. 系统检查角色是否启用了朋友圈互动
+3. 如果未启用，向用户展示选项：
+   - 启用朋友圈并继续转发
+   - 仅转发内容（不启用朋友圈）
+   - 取消操作
+4. 如果选择启用，系统初始化朋友圈框架并继续转发
 
 ```typescript
-// 测试执行示例
-const runRelationshipTest = async (options: RelationshipTestOptions) => {
-  // 选择测试角色
+// 检查朋友圈状态并处理转发示例
+if (!character.circleInteraction) {
+  Alert.alert(
+    '朋友圈未启用',
+    `${character.name} 未启用朋友圈功能。希望转发朋友圈内容需要启用此功能。是否现在启用？`,
+    [
+      { text: '取消', style: 'cancel' },
+      { 
+        text: '仍然转发', 
+        onPress: async () => {
+          await onForward(characterId, message);
+        }
+      },
+      { 
+        text: '启用并转发', 
+        onPress: async () => {
+          // 初始化朋友圈
+          await circleManager.circleInit(character);
+          const updatedCharacter = {
+            ...character,
+            circleInteraction: true
+          };
+          await updateCharacter(updatedCharacter);
+          await onForward(characterId, message);
+        }
+      }
+    ]
+  );
+}
+```
+
+#### 4.2 关系数据整合
+
+**实现方式**：
+1. 朋友圈互动触发关系服务更新
+2. 关系更新基于互动类型（点赞、评论、回复评论等）调整关系强度
+3. 互动次数增加，可能触发新的关系行动
+4. 转发内容作为独立消息处理，AI会使用角色基于关系的记忆回应
+
+```typescript
+// CircleManager中集成关系状态检视
+if (characterData.relationshipEnabled && characterData.messageBox) {
+  const unreadMessages = characterData.messageBox.filter(msg => !msg.read);
+  if (unreadMessages.length > 0) {
+    relationshipReviewPrompt = await this.generateRelationshipStateReviewPrompt(characterData);
+    if (relationshipReviewPrompt) {
+      dEntries.push(PromptBuilderService.createDEntry({
+        name: "Relationship State Review",
+        content: relationshipReviewPrompt,
+        depth: 1,
+        constant: true
+      }));
+    }
+  }
+}
+```
+
+### 5. 关系测试系统
+
+#### 5.1 测试模式界面
+
+**功能说明**：
+1. RelationshipTestControls组件提供测试参数配置
+   - 互动类型选择（点赞/评论）
+   - 关系强度调节器：控制互动产生的强度变化
+   - 互动加速：加快互动累积速度，更快触发行动
+   - 详细日志开关：查看完整测试过程
+
+2. RelationshipTestResults组件展示测试结果
+   - 测试参与角色和互动列表
+   - 关系变化前后对比
+   - 触发的关系行动总结
+   - 详细操作记录
+
+```typescript
+// 关系测试执行示例
+const runRelationshipTest = async (options) => {
+  // 选择帖子作者
   const author = eligibleAuthors[Math.floor(Math.random() * eligibleAuthors.length)];
   
-  // 生成测试帖子
-  const postContent = postTemplates[Math.floor(Math.random() * postTemplates.length)];
+  // 找到可互动角色
+  const interactors = characters.filter(c => 
+    c.relationshipEnabled && c.id !== author.id
+  );
   
-  // 模拟互动和处理关系更新
+  // 记录互动前关系
+  const beforeRelationships = {...};
+  
+  // 执行互动
   for (const interactor of interactors) {
     // 随机选择互动类型
     const interactionType = Math.random() > 0.4 ? 'comment' : 'like';
     
     // 处理互动
-    let updatedAuthor = RelationshipService.processPostInteraction(
-      author,
-      interactor.id,
-      interactor.name,
-      interactionType as any,
-      interactionType === 'like' ? '点赞' : '评论内容',
-      'test-post-id',
-      postContent
-    );
+    let updatedAuthor = RelationshipService.processPostInteraction(...);
     
-    // 应用关系强度修改
-    // 检查关系类型变化
-    // 更新互动计数
+    // 调整关系强度
+    // 更新互动次数
+    
+    // 更新角色数据
+    await updateCharacter(updatedAuthor);
   }
   
-  // 检查是否触发新行动
+  // 检查行动触发
   const newActions = ActionService.checkForPotentialActions(updatedAuthor);
   
-  // 显示测试结果
-}
-```
-
-#### 4.4 测试结果展示
-
-**结果包含**：
-1. 帖子作者信息和内容
-2. 参与互动的角色及其行为
-3. 所有关系的前后对比
-4. 触发的关系行动列表
-5. 详细的操作日志
-
-```tsx
-// 测试结果展示示例
-<RelationshipTestResults
-  visible={showRelationshipTestResults}
-  onClose={() => setShowRelationshipTestResults(false)}
-  results={relationshipTestResults}
-/>
-```
-
-### 5. 页面集成与 UI 交互
-
-#### 5.1 探索页面集成
-
-**UI 结构**：
-1. 顶部标签栏：切换"动态"和"关系"视图
-2. 关系视图包含：
-   - 角色选择器
-   - 行动生成按钮
-   - 关系测试控制面板
-   - 待处理和历史行动列表
-
-**数据流**：
-1. 切换到"关系"标签时加载选定角色的关系数据
-2. 用户可查看和处理关系行动
-3. 用户可生成新的行动建议
-4. 用户可执行关系测试
-
-```tsx
-// 页面集成示例
-{activeTab === 'relationships' && (
-  <View style={styles.relationshipsContainer}>
-    <CharacterSelector
-      characters={charactersArray}
-      selectedCharacterId={selectedCharacterId}
-      onSelectCharacter={setSelectedCharacterId}
-    />
-    
-    <View style={styles.testControlContainer}>
-      <RelationshipTestControls {...testControlProps} />
-    </View>
-    
-    <RelationshipActions
-      character={selectedCharacter}
-      allCharacters={allCharactersMap}
-      onUpdateCharacters={handleUpdateCharacters}
-    />
-  </View>
-)}
-```
-
-#### 5.2 角色页面集成
-
-**关系入口**：
-1. 从角色页面访问关系图谱
-2. 切换视图：图形关系图和消息盒子
-3. 编辑关系：强度、类型和描述
-
-```tsx
-// 角色页面集成示例
-{showRelationshipModal && selectedCharacterId && (
-  <Modal>
-    <View style={styles.modalContainer}>
-      {/* Tab for switching between Graph and Messages */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity onPress={() => setRelationshipView('graph')}>
-          <Text>关系图谱</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setRelationshipView('messages')}>
-          <Text>消息盒子</Text>
-        </TouchableOpacity>
-      </View>
-      
-      {/* Content based on selected view */}
-      {relationshipView === 'graph' ? (
-        <RelationshipGraph
-          character={getCharacterById(characters, selectedCharacterId)!}
-          onUpdateCharacter={handleCharacterUpdate}
-          allCharacters={characters}
-        />
-      ) : (
-        <MessageBox
-          character={getCharacterById(characters, selectedCharacterId)!}
-          onUpdateCharacter={handleCharacterUpdate}
-        />
-      )}
-    </View>
-  </Modal>
-)}
-```
-
-## 关键接口定义
-
-### 1. 关系数据结构
-
-```typescript
-// 关系类型
-export type RelationshipType = 
-  'enemy' | 'rival' | 'stranger' | 'acquaintance' | 'colleague' | 
-  'friend' | 'close_friend' | 'best_friend' | /* 其他类型 */;
-
-// 关系结构
-export interface Relationship {
-  targetId: string;         // 目标角色ID
-  strength: number;         // 关系强度 (-100到100)
-  type: RelationshipType;   // 关系类型
-  description: string;      // 关系描述
-  lastUpdated: number;      // 最后更新时间
-  interactions: number;     // 互动次数
-  lastActionCheck?: number; // 最后行动检查时间
-}
-
-// 关系图谱数据
-export interface RelationshipMapData {
-  relationships: Record<string, Relationship>;  // 关系映射表
-  lastReviewed: number;                        // 最后检视时间
-}
-
-// 消息盒子项目
-export interface MessageBoxItem {
-  id: string;               // 消息ID
-  senderId: string;         // 发送者ID
-  senderName?: string;      // 发送者名称
-  content: string;          // 消息内容
-  timestamp: number;        // 发送时间
-  read: boolean;            // 是否已读
-  type: 'post' | 'comment' | 'like' | 'reply' | 'action';  // 消息类型
-  contextId?: string;       // 相关内容ID
-  contextContent?: string;  // 相关内容摘要
-}
-```
-
-### 2. 行动数据结构
-
-```typescript
-// 行动类型
-export type ActionType = 'gift' | 'invitation' | 'challenge' | 'support' | 'confession';
-
-// 行动状态
-export type ActionStatus = 'pending' | 'accepted' | 'rejected' | 'expired';
-
-// 关系行动结构
-export interface RelationshipAction {
-  id: string;               // 行动ID
-  type: ActionType;         // 行动类型
-  sourceCharacterId: string;// 发起角色ID
-  targetCharacterId: string;// 目标角色ID
-  content: string;          // 行动描述
-  createdAt: number;        // 创建时间
-  expiresAt: number;        // 过期时间
-  status: ActionStatus;     // 行动状态
-  respondedAt?: number;     // 响应时间
-  responseContent?: string; // 响应内容
-}
-
-// 关系测试选项
-export interface RelationshipTestOptions {
-  strengthModifier: number;       // 关系强度修改器
-  accelerateInteractions: boolean; // 是否加速互动次数
-  showDetailedLogs: boolean;       // 是否显示详细日志
-}
-
-// 关系测试结果
-export interface RelationshipTestResult {
-  postAuthor: { id: string; name: string };
-  postContent: string;
-  participants: { id: string; name: string; action: string }[];
-  relationshipUpdates: {
-    targetId: string;
-    targetName: string;
-    before: Relationship | null;
-    after: Relationship | null;
-  }[];
-  triggeredActions: RelationshipAction[];
-  messages: string[];
-}
-```
-
-### 3. 关系与朋友圈集成接口
-
-```typescript
-// CircleManager 中添加的关系处理方法
-async generateRelationshipStateReviewPrompt(character: Character): Promise<string>;
-parseRelationshipReviewResponse(response: string): { targetId: string, strengthDelta: number, newType?: string }[];
-
-// RelationshipService 中朋友圈互动处理方法
-processPostInteraction(
-  character: Character,
-  interactorId: string,
-  interactorName: string,
-  interactionType: 'like' | 'comment' | 'reply',
-  content: string,
-  postId: string,
-  postContent: string
-): Character
-```
-
-## 系统状态和进度
-
-目前系统已实现以下功能：
-
-- ✅ 关系数据结构和类型定义
-- ✅ 关系服务层核心功能
-- ✅ 消息盒子实现
-- ✅ 关系行动触发和处理机制
-- ✅ 关系状态检视提示词生成和处理
-- ✅ 探索页面中的关系标签页集成
-- ✅ 角色选择组件
-- ✅ 关系行动展示和处理组件
-- ✅ 关系测试功能
-- ✅ 图形化关系可视化
-
-## 待实现功能
-
-1. **关系测试功能增强**
-   - 添加更多测试场景
-   - 提供更丰富的参数控制
-   - 保存测试结果历史
-
-2. **高级关系过滤和搜索**
-   - 按关系类型筛选
-   - 按关系强度过滤
-   - 搜索特定角色关系
-
-3. **关系历史记录**
-   - 跟踪并显示关系变化历史
-   - 提供关系演变时间线
-   - 关系变化原因记录
-
-4. **更复杂的关系行动**
-   - 添加更多行动类型（团队合作、冒险邀请等）
-   - 连锁行动系统
-   - 基于关系网络的群组行动
-
-## 开发指南
-
-### 如何添加新的关系类型
-
-1. 在 `relationship-types.ts` 中扩展 `RelationshipType` 类型
-2. 在 `RelationshipService.RELATIONSHIP_TYPE_THRESHOLDS` 中添加新类型的阈值
-3. 更新状态检视提示词以考虑新的关系类型
-
-```typescript
-// 添加新关系类型示例
-export type RelationshipType = 
-  | 'enemy' 
-  | 'rival'
-  | 'new_type' // 添加新类型
-  // ...现有类型
-
-// 添加阈值
-private static RELATIONSHIP_TYPE_THRESHOLDS: Record<RelationshipType, number> = {
-  'enemy': -80,
-  'rival': -40,
-  'new_type': 35, // 添加新类型阈值
-  // ...现有阈值
+  // 返回测试结果
+  setRelationshipTestResults({
+    postAuthor: author,
+    participants,
+    relationshipUpdates,
+    triggeredActions: newActions
+  });
 };
 ```
 
-### 如何添加新的行动类型
+#### 5.2 自动化批量测试
 
-1. 在 `action-types.ts` 中扩展 `ActionType` 类型
-2. 在 `ActionService.checkForPotentialActions` 方法中添加新行动的触发逻辑
-3. 更新 `RelationshipActions` 组件以适当显示新行动类型
+**实现方法**：
+1. 系统可以设置为执行多轮互动测试
+2. 每轮批量处理多个角色之间的互动
+3. 统计实验数据，分析关系系统的演化特征
+4. 提供数据可视化，帮助调优关系变化参数
+
+### 6. ActionCard组件
+
+#### 6.1 组件特性
+
+1. 显示行动基本信息：类型、发起者、接收者、内容、状态
+2. 状态颜色区分：待处理、已接受、已拒绝、已过期
+3. 条件渲染接受/拒绝按钮（仅目标角色可见）
+4. 显示剩余有效时间倒计时
+5. 显示行动响应内容（如果已响应）
 
 ```typescript
-// 添加新行动类型
-export type ActionType = 
-  | 'gift' 
-  | 'invitation'
-  | 'new_action_type' // 添加新行动
-  // ...现有行动类型
+// ActionCard使用示例
+<FlatList
+  data={character?.relationshipActions?.sort((a, b) => b.createdAt - a.createdAt) || []}
+  renderItem={({ item }) => (
+    <ActionCard
+      key={`action-${item.id}`}
+      action={item}
+      sourceCharacter={characters.find(c => c.id === item.sourceCharacterId)}
+      targetCharacter={characters.find(c => c.id === item.targetCharacterId)}
+      currentCharacterId={selectedCharacterId}
+      onRespond={(response) => {
+        const updatedCharacters = ActionService.processActionResponse(
+          item,
+          response,
+          charactersObject
+        );
+        handleUpdateCharacters(Object.values(updatedCharacters));
+      }}
+    />
+  )}
+  keyExtractor={item => `action-${item.id}`}
+/>
+```
 
-// 添加触发逻辑
-if (relationship.type === 'close_friend' && relationship.strength >= 65) {
-  actions.push({
-    id: generateActionId(character.id, targetId, 'new_action_type'),
-    type: 'new_action_type',
-    sourceCharacterId: character.id,
-    targetCharacterId: targetId,
-    content: `${character.name}想要与你进行新行动。`,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 5 * 24 * 60 * 60 * 1000, // 5天有效期
-    status: 'pending'
+#### 6.2 行动类型处理
+
+**支持的行动类型**：
+- gift：礼物赠送，提升友谊关系
+- invitation：邀请参与活动，增强互动机会
+- challenge：挑战提议，测试角色间竞争关系
+- support：提供支持，强化信任和依赖关系
+- confession：表达心意，可能形成亲密关系
+
+## 7. 系统优势与未来改进
+
+### 7.1 当前系统优势
+
+1. **深度整合**：无缝集成到朋友圈系统，实现社交互动带动关系发展
+2. **自然演化**：关系随互动自然发展，而非简单预设
+3. **积极反馈**：关系变化触发新行动，形成良性循环
+4. **可测试性**：提供全面的测试工具，便于验证和调优
+5. **用户友好**：直观的UI设计，非专业用户也能轻松理解和操作
+
+### 7.2 未来改进方向
+
+1. **情感引擎**：引入更复杂的情感因素，使关系变化更加多维
+2. **记忆深度**：增强互动记忆系统，实现长期记忆影响关系
+3. **AI生成冲突**：基于角色个性，生成潜在冲突和误解，增加故事张力
+4. **关系网络可视化**：提供图形化的角色关系网络浏览和编辑工具
+5. **多维度关系**：扩展现有模型，支持更多元的关系维度（信任、亲密、依赖等）
+
+## 8. 使用说明
+
+### 8.1 基本设置流程
+
+1. 在角色设置中启用"关系系统"开关
+2. 至少为两个角色开启此功能，确保互动可以进行
+3. 在朋友圈或聊天窗口中进行互动，开始建立关系
+4. 在"关系"标签页查看和管理所有关系互动
+
+### 8.2 进阶功能
+
+1. **消息盒子**：点击工具栏的"消息盒子"按钮查看未读消息和互动记录
+2. **关系测试**：使用"关系测试"工具加速关系发展，观察行动触发
+3. **转发内容**：在朋友圈中转发内容到角色聊天，系统会根据关系生成个性化回应
+4. **行动响应**：接受或拒绝角色发起的关系行动，观察关系变化
+
+## 9. 技术实现细节
+
+### 9.1 关系数据结构
+
+```typescript
+// 关系结构
+interface Relationship {
+  type: RelationshipType; // 关系类型
+  strength: number;       // 关系强度 (-100 to 100)
+  description: string;    // 关系描述
+  lastUpdated: number;    // 最后更新时间
+  interactions: number;   // 互动次数
+  lastActionCheck?: number; // 上次检查行动时间
+}
+
+// 关系类型
+type RelationshipType = 
+  | 'stranger'     // 陌生人 (0-20)
+  | 'acquaintance' // 熟人 (21-40) 
+  | 'friend'       // 朋友 (41-60)
+  | 'close_friend' // 密友 (61-80)
+  | 'best_friend'  // 挚友 (81-100)
+  | 'rival'        // 对手 (-40 to -1)
+  | 'enemy';       // 敌人 (-100 to -41)
+```
+
+### 9.2 关系映射策略
+
+```typescript
+// 根据关系强度确定关系类型
+function getRelationshipTypeFromStrength(strength: number): RelationshipType {
+  if (strength <= -41) return 'enemy';
+  if (strength <= -1) return 'rival';
+  if (strength <= 20) return 'stranger';
+  if (strength <= 40) return 'acquaintance';
+  if (strength <= 60) return 'friend';
+  if (strength <= 80) return 'close_friend';
+  return 'best_friend';
+}
+```
+
+### 9.3 行动生成算法
+
+```typescript
+function checkForPotentialActions(character: Character): RelationshipAction[] {
+  const newActions: RelationshipAction[] = [];
+  const now = Date.now();
+  
+  // 遍历角色的所有关系
+  Object.entries(character.relationshipMap?.relationships || {}).forEach(([targetId, rel]) => {
+    // 检查是否满足触发条件
+    const shouldCheckForAction = 
+      (rel.interactions >= 5) && // 至少5次互动
+      (!rel.lastActionCheck || (now - rel.lastActionCheck > 24 * 60 * 60 * 1000)) && // 24小时内未检查
+      Math.random() < 0.7; // 70%几率考虑生成行动
+
+    if (!shouldCheckForAction) return;
+    
+    // 更新上次检查时间戳
+    rel.lastActionCheck = now;
+    
+    // 根据关系类型和强度确定可能的行动类型
+    const possibleActionTypes: ActionType[] = getPossibleActionTypes(rel);
+    
+    // 随机选择一种行动类型
+    if (possibleActionTypes.length > 0) {
+      const actionType = possibleActionTypes[Math.floor(Math.random() * possibleActionTypes.length)];
+      
+      // 生成行动内容
+      const actionContent = generateActionContent(character, targetId, actionType, rel);
+      
+      // 创建新行动
+      const newAction: RelationshipAction = {
+        id: `action-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+        type: actionType,
+        sourceCharacterId: character.id,
+        targetCharacterId: targetId,
+        content: actionContent,
+        status: 'pending',
+        createdAt: now,
+        expiresAt: now + 7 * 24 * 60 * 60 * 1000, // 7天过期
+      };
+      
+      newActions.push(newAction);
+    }
   });
-}
-```
-
-### 如何添加新的测试类型
-
-1. 在 `RelationshipTestControls.tsx` 中添加新的测试选项
-2. 在 `explore.tsx` 中的 `runRelationshipTest` 函数中实现新测试逻辑
-3. 更新 `RelationshipTestResults.tsx` 以展示新的测试结果
-
-```typescript
-// 添加新测试选项
-export interface RelationshipTestOptions {
-  // ...现有选项
-  newTestMode: boolean; // 新测试模式
-  customParameter: number; // 自定义参数
-}
-
-// 添加UI控制
-<View style={styles.optionRow}>
-  <Text style={styles.optionLabel}>新测试模式</Text>
-  <Switch
-    value={options.newTestMode}
-    onValueChange={(value) => setOptions({...options, newTestMode: value})}
-  />
-</View>
-```
-
-### 如何定制关系检视提示词
-
-要调整关系状态检视提示词的生成逻辑，修改 `CircleManager.generateRelationshipStateReviewPrompt` 方法：
-
-```typescript
-// 自定义关系检视提示词
-async generateRelationshipStateReviewPrompt(character: Character): Promise<string> {
-  // ...现有逻辑
   
-  // 添加自定义指令
-  const customInstructions = `
-  额外分析指令：
-  1. 特别注意情感词汇，积极词汇增强关系，消极词汇削弱关系
-  2. 考虑互动频率，频繁互动的角色关系应更快发展
-  3. 新增指令...
-  `;
-  
-  return `${basePrompt}\n${customInstructions}`;
+  return newActions;
 }
 ```
 
-## 最佳实践与开发建议
-
-1. **保持关系数据结构的一致性**
-   - 始终通过 `RelationshipService` 方法修改关系数据
-   - 不要直接操作关系对象，以确保数据完整性
-
-2. **关系阈值调优**
-   - 根据用户体验调整关系阈值，使关系变化感觉自然
-   - 对于特殊关系类型可以设定更高的阈值门槛
-
-3. **状态检视优化**
-   - 确保状态检视提示词简洁明确
-   - 限制每次检视处理的消息数量，避免过长提示词
-
-4. **行动生成平衡**
-   - 避免过于频繁地生成行动，防止用户疲劳
-   - 设置合理的行动冷却期，如同一关系一周最多触发一次行动
-   - 使用 `lastActionCheck` 属性跟踪上次检查时间
-
-5. **UI/UX 设计考量**
-   - 使关系系统的UI与应用其他部分保持一致性
-   - 为用户提供关系系统功能的清晰引导和提示
-   - 提供适当的反馈，让用户了解自己行为如何影响角色关系
-
-## 测试与调试提示
-
-1. **关系测试功能**
-   - 使用探索页中的"关系测试"快速验证关系更新
-   - 使用不同的强度修改器值，验证关系阈值调整效果
-   - 启用详细日志帮助排查复杂问题
-
-2. **常见问题解决**
-   - 如果角色关系不更新，检查 `relationshipEnabled` 是否设置为 true
-   - 如果行动不触发，检查 `lastActionCheck` 时间是否正确更新
-   - 如果关系类型不变化，验证 `getRelationshipTypeFromStrength` 阈值设置
-
-3. **性能注意事项**
-   - 在处理大量角色关系时，避免使用嵌套的 FlatList
-   - 对于大量关系行动，考虑分页加载
-   - 使用 React.memo 减少不必要的组件重渲染
-
-## 未来发展方向
-
-1. **关系影响角色对话**：让角色聊天内容受关系状态影响
-2. **子关系系统**：支持多种不同维度的关系（如信任度、熟悉度）
-3. **关系网络分析**：提供关系群组、社交圈的分析和可视化
-4. **角色自主行动**：基于关系的自主互动和内容生成
-5. **关系记忆优化**：改进关系历史记录和状态追踪
-6. **高级测试场景**：添加多角色互动混合测试场景
-
-## 总结
-
-角色关系系统为应用提供了一个丰富的社交层次，使角色之间的互动更加自然和有意义。通过关系图谱、消息盒子、状态检视和行动触发机制，系统能够模拟逼真的社交关系发展。关系测试功能使开发者和用户能够快速验证和调整关系系统的行为，提升整体体验。
-
-当前的实现支持关系数据的存储、更新和图形化可视化，与朋友圈系统的深度集成，以及通过测试功能快速验证系统行为。未来的开发重点将是完善和扩展测试场景、增强行动系统和提供更多关系分析功能。
+通过以上详细的技术设计和实现，角色关系系统为应用提供了一个丰富、动态的社交互动网络，让角色之间的互动更加真实和有意义。
 ```
-
-Made changes.

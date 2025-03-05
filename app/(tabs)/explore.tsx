@@ -18,8 +18,9 @@ import {
   Keyboard,
   ScrollView,
   ImageBackground,
+  Modal,
 } from 'react-native';
-import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome, FontAwesome5 } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
 import { CirclePost, CircleComment, CircleLike, Character, Message } from '@/shared/types';
 import ForwardSheet from '@/components/ForwardSheet';
@@ -35,6 +36,11 @@ import RelationshipTestControls, { RelationshipTestOptions } from '@/components/
 import RelationshipTestResults, { RelationshipTestResult } from '@/components/RelationshipTestResults';
 import { RelationshipService, SocialInteraction, PostInteraction } from '@/services/relationship-service';
 import { Relationship } from '@/shared/types/relationship-types';
+import { format } from 'date-fns';
+import { ActionType } from '@/shared/types/relationship-types';
+import MessageBoxContent from '@/components/MessageBoxContent';
+import ActionCard from '@/components/ActionCard';
+
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
 const AVATAR_SIZE = 48;
@@ -105,6 +111,10 @@ const Explore: React.FC = () => {
   const [isRunningRelationshipTest, setIsRunningRelationshipTest] = useState(false);
   const [relationshipTestResults, setRelationshipTestResults] = useState<RelationshipTestResult | null>(null);
   const [showRelationshipTestResults, setShowRelationshipTestResults] = useState(false);
+
+  // Add state for message box modal
+  const [showMessageBoxModal, setShowMessageBoxModal] = useState(false);
+  const [showTestControlsModal, setShowTestControlsModal] = useState(false);
 
   // Select first character as default when characters are loaded
   useEffect(() => {
@@ -1228,7 +1238,10 @@ const Explore: React.FC = () => {
                     ? { uri: character.avatar }
                     : require('@/assets/images/default-avatar.png')
                 }
-                style={styles.characterAvatar}
+                style={[
+                  styles.characterAvatar, 
+                  selectedCharacterId === character.id && styles.selectedCharacterAvatar
+                ]}
               />
               <Text
                 style={[
@@ -1346,51 +1359,213 @@ const Explore: React.FC = () => {
         {/* Relationships Tab Content */}
         {activeTab === 'relationships' && (
           <View style={styles.relationshipsContainer}>
-            {renderCharacterSelector()}
-            
-            <View style={styles.testControlContainer}>
-              <RelationshipTestControls
-                characters={charactersArray}
-                onRunTest={runRelationshipTest}
-                onResetRelationships={resetAllRelationships}
-                isRunningTest={isRunningRelationshipTest}
-              />
+            {/* Character selector row with avatars */}
+            <View style={styles.characterSelectorContainer}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.characterSelectorContent}
+              >
+                {charactersArray.filter(c => c.relationshipEnabled).map(character => (
+                  <TouchableOpacity
+                    key={character.id}
+                    style={[
+                      styles.characterAvatarContainer,
+                      selectedCharacterId === character.id && styles.selectedCharacterContainer
+                    ]}
+                    onPress={() => setSelectedCharacterId(character.id)}
+                  >
+                    <Image
+                      source={
+                        character.avatar
+                          ? { uri: character.avatar }
+                          : require('@/assets/images/default-avatar.png')
+                      }
+                      style={[
+                        styles.characterAvatar, 
+                        selectedCharacterId === character.id && styles.selectedCharacterAvatar
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.characterName,
+                        selectedCharacterId === character.id && styles.selectedCharacterName
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {character.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
             
             {selectedCharacterId ? (
-              <ScrollView style={styles.relationshipsContent}>
-                <View style={styles.actionsHeader}>
-                  <Text style={styles.sectionTitle}>角色关系行动</Text>
-                  <TouchableOpacity 
-                    style={styles.generateButton}
-                    onPress={handleGenerateActions}
-                    disabled={isGeneratingActions}
-                  >
-                    {isGeneratingActions ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <>
-                        <Ionicons name="refresh-outline" size={16} color="#ffffff" />
-                        <Text style={styles.generateButtonText}>生成行动</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+              <View style={styles.relationshipActionsContainer}>
+                {/* Action buttons toolbar */}
+                <View style={styles.actionToolbar}>
+                  <View style={styles.toolbarTitle}>
+                    <Text style={styles.toolbarTitleText}>角色关系互动</Text>
+                    {isGeneratingActions && <ActivityIndicator size="small" color="#FF9ECD" style={{marginLeft: 10}} />}
+                  </View>
+                  
+                  <View style={styles.toolbarButtons}>
+                    <TouchableOpacity 
+                      style={styles.toolbarButton}
+                      onPress={handleGenerateActions}
+                      disabled={isGeneratingActions}
+                    >
+                      <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.toolbarButtonText}>生成行动</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={styles.toolbarButton}
+                      onPress={() => setShowMessageBoxModal(true)}
+                    >
+                      <Ionicons name="mail-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.toolbarButtonText}>消息盒子</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={styles.toolbarButton}
+                      onPress={() => setShowTestControlsModal(true)}
+                    >
+                      <FontAwesome5 name="flask" size={16} color="#FFFFFF" />
+                      <Text style={styles.toolbarButtonText}>关系测试</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
                 
-                {selectedCharacterId && (
-                  <RelationshipActions
-                      character={characters.find(c => c.id === selectedCharacterId)!}
-                      allCharacters={Object.fromEntries(charactersArray.map(c => [c.id, c]))}
-                      onUpdateCharacters={handleUpdateCharacters}
+                {/* Main content - Relationship Actions */}
+                {characters.find(c => c.id === selectedCharacterId)?.relationshipActions?.length === 0 ? (
+                  <View style={styles.emptyActionsContainer}>
+                    <Ionicons name="people-outline" size={64} color="#555" />
+                    <Text style={styles.emptyActionsText}>暂无关系互动</Text>
+                    <Text style={styles.emptyActionsSubtext}>
+                      角色之间的互动会在此处显示，点击"生成行动"按钮尝试创建新的互动
+                    </Text>
+                  </View>
+                ) : (
+                  <FlatList
+                    data={
+                      characters
+                        .find(c => c.id === selectedCharacterId)
+                        ?.relationshipActions?.sort((a, b) => b.createdAt - a.createdAt) || []
+                    }
+                    renderItem={({ item }) => (
+                      <ActionCard
+                        key={`action-${item.id}`} // Add explicit key here
+                        action={item}
+                        sourceCharacter={characters.find(c => c.id === item.sourceCharacterId)}
+                        targetCharacter={characters.find(c => c.id === item.targetCharacterId)}
+                        currentCharacterId={selectedCharacterId} // Pass the current character ID
+                        onRespond={(response) => {
+                          // Use the ActionService approach like in RelationshipActions
+                          const updatedCharacters = ActionService.processActionResponse(
+                            item,
+                            response,
+                            Object.fromEntries(charactersArray.map(c => [c.id, c]))
+                          );
+                          handleUpdateCharacters(Object.values(updatedCharacters));
+                        }}
+                      />
+                    )}
+                    keyExtractor={item => `action-${item.id}`} // Ensure unique keys in FlatList
+                    contentContainerStyle={styles.actionsList}
+                    ItemSeparatorComponent={() => <View style={styles.actionSeparator} />}
+                    ListEmptyComponent={
+                      <View style={styles.emptyActionsContainer}>
+                        <Ionicons name="people-outline" size={64} color="#555" />
+                        <Text style={styles.emptyActionsText}>暂无关系互动</Text>
+                        <Text style={styles.emptyActionsSubtext}>
+                          角色之间的互动会在此处显示，点击"生成行动"按钮尝试创建新的互动
+                        </Text>
+                      </View>
+                    }
                   />
                 )}
-              </ScrollView>
+              </View>
             ) : (
-              <EmptyState
-                message="请选择一个角色"
-                icon="person-outline"
-              />
+              <View style={styles.noCharacterContainer}>
+                <Ionicons name="person-circle-outline" size={80} color="#555" />
+                <Text style={styles.noCharacterText}>请选择一个角色</Text>
+                <Text style={styles.noCharacterSubtext}>点击上方的角色头像以查看其关系互动</Text>
+              </View>
             )}
+            
+            {/* Message Box Modal */}
+            <Modal
+              visible={showMessageBoxModal}
+              transparent={true}
+              animationType="slide"
+              onRequestClose={() => setShowMessageBoxModal(false)}
+            >
+              <View style={styles.modalContainer}>
+                <View style={styles.modalContent}>
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>消息盒子</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowMessageBoxModal(false)}
+                      style={styles.modalCloseButton}
+                    >
+                      <Ionicons name="close" size={24} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {selectedCharacterId && (
+                    <MessageBoxContent
+                      character={characters.find(c => c.id === selectedCharacterId)!}
+                      onUpdateCharacter={updateCharacter}
+                    />
+                  )}
+                </View>
+              </View>
+            </Modal>
+            
+            {/* Test Controls Modal */}
+            <Modal
+              visible={showTestControlsModal}
+              transparent={true}
+              animationType="slide"
+              onRequestClose={() => setShowTestControlsModal(false)}
+            >
+              <View style={styles.modalContainer}>
+                <View style={styles.modalContent}>
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>关系测试</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowTestControlsModal(false)}
+                      style={styles.modalCloseButton}
+                    >
+                      <Ionicons name="close" size={24} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={styles.modalBody}>
+                    <RelationshipTestControls
+                      characters={charactersArray}
+                      onRunTest={(options) => {
+                        runRelationshipTest(options);
+                        setShowTestControlsModal(false);
+                      }}
+                      onResetRelationships={() => {
+                        resetAllRelationships();
+                        setShowTestControlsModal(false);
+                      }}
+                      isRunningTest={isRunningRelationshipTest}
+                    />
+                  </View>
+                </View>
+              </View>
+            </Modal>
+
+            {/* Keep the existing RelationshipTestResults modal */}
+            <RelationshipTestResults
+              visible={showRelationshipTestResults}
+              onClose={() => setShowRelationshipTestResults(false)}
+              results={relationshipTestResults}
+            />
           </View>
         )}
         
@@ -1473,10 +1648,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginBottom: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   actionText: {
     color: '#FFFFFF',
@@ -1628,48 +1799,6 @@ const styles = StyleSheet.create({
     color: '#FF9ECD',
     fontWeight: '500',
   },
-  
-  // Relationship tab styles
-  relationshipsContainer: {
-    flex: 1,
-  },
-  characterSelectorContainer: {
-    backgroundColor: 'rgba(51, 51, 51, 0.95)',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  characterSelectorContent: {
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  characterAvatarContainer: {
-    alignItems: 'center',
-    marginHorizontal: 8,
-    width: 70,
-    opacity: 0.7,
-  },
-  selectedCharacterContainer: {
-    opacity: 1,
-  },
-  characterAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  characterName: {
-    color: '#fff',
-    fontSize: 12,
-    marginTop: 4,
-    textAlign: 'center',
-    width: 70,
-  },
-  selectedCharacterName: {
-    fontWeight: 'bold',
-    color: '#FF9ECD',
-  },
   relationshipsContent: {
     flex: 1,
     backgroundColor: 'rgba(40, 40, 40, 0.7)',
@@ -1790,7 +1919,348 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     flexDirection: 'row',
     justifyContent: 'flex-end',
-  }
+  },
+  
+  // Updated relationship container styles
+  relationshipsContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(40, 40, 40, 0.7)',
+  },
+  
+  // Character selector styles
+  characterSelectorContainer: {
+    backgroundColor: 'rgba(51, 51, 51, 0.95)',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  characterSelectorContent: {
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  characterAvatarContainer: {
+    alignItems: 'center',
+    marginHorizontal: 8,
+    width: 70,
+    opacity: 0.7,
+  },
+  selectedCharacterContainer: {
+    opacity: 1,
+  },
+  characterAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  selectedCharacterAvatar: {
+    borderColor: '#FF9ECD',
+    borderWidth: 3,
+  },
+  characterName: {
+    color: '#fff',
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
+    width: 70,
+  },
+  selectedCharacterName: {
+    fontWeight: 'bold',
+    color: '#FF9ECD',
+  },
+  
+  // Action toolbar styles
+  actionToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(40, 40, 40, 0.8)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  toolbarTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  toolbarTitleText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  toolbarButtons: {
+    flexDirection: 'row',
+  },
+  toolbarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(150, 150, 150, 0.3)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    marginLeft: 8,
+  },
+  toolbarButtonText: {
+    color: '#FFFFFF',
+    marginLeft: 6,
+    fontSize: 14,
+  },
+  
+  // Relationship actions container
+  relationshipActionsContainer: {
+    flex: 1,
+  },
+  actionsList: {
+    padding: 16,
+  },
+  actionSeparator: {
+    height: 16,
+  },
+  
+  // Action card styles
+  actionCard: {
+    backgroundColor: 'rgba(51, 51, 51, 0.95)',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.22,
+    shadowRadius: 2.22,
+    elevation: 3,
+  },
+  actionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  actionCharacters: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  actionAvatarPlaceholder: {
+    backgroundColor: '#555',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarInitial: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  actionArrow: {
+    marginHorizontal: 8,
+  },
+  actionStatus: {
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  actionStatusText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  actionTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  actionTypeIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 156, 205, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  actionType: {
+    color: '#FF9ECD',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  actionContent: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  actionTime: {
+    color: '#999',
+    fontSize: 12,
+  },
+  responseContainer: {
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  responseLabel: {
+    color: '#999',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  responseContent: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    marginTop: 16,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  acceptButton: {
+    backgroundColor: '#4CAF50', // Green
+  },
+  rejectButton: {
+    backgroundColor: '#F44336', // Red
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontWeight: '500',
+  },
+  
+  // Empty states
+  noCharacterContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  noCharacterText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '500',
+    marginTop: 16,
+  },
+  noCharacterSubtext: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  emptyActionsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    minHeight: 300,
+  },
+  emptyActionsText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '500',
+    marginTop: 16,
+  },
+  emptyActionsSubtext: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    maxWidth: 300,
+  },
+  
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#333',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(255, 156, 205, 0.2)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalBody: {
+    padding: 16,
+  },
+  
+  // Message Box styles
+  emptyMessagesContainer: {
+    padding: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyMessagesText: {
+    color: '#999',
+    marginTop: 16,
+    fontSize: 16,
+  },
+  messagesList: {
+    padding: 16,
+  },
+  messageItem: {
+    backgroundColor: 'rgba(40, 40, 40, 0.7)',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  messageSender: {
+    color: '#FF9ECD',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  messageTime: {
+    color: '#999',
+    fontSize: 12,
+  },
+  messageContent: {
+    color: '#fff',
+    fontSize: 15,
+  },
+  messageContext: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+  },
+  contextLabel: {
+    color: '#999',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  contextContent: {
+    color: '#ddd',
+    fontSize: 14,
+  },
 });
 
 export default Explore;

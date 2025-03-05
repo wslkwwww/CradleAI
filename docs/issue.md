@@ -1,18 +1,44 @@
 /////////////业务逻辑修复
 
--explore页面
 
- -确认explore页面运行关系测试，调用的api是openrouterapi
- -确认关系行动发生后，详情能够显示在关系页面
+
+-explore页面
+ -转发问题
+
+```
+  (NOBRIDGE) LOG  【朋友圈服务】初始化角色 温棠 的朋友圈
+ (NOBRIDGE) LOG  【朋友圈服务】获取NodeST实例，apiKey存在: true，provider: gemini no openrouter config
+ (NOBRIDGE) LOG  【NodeST】设置API Key: AIzaS...
+ (NOBRIDGE) LOG  【CircleManager】更新API Key和配置 {"hasGeminiKey": true, "hasOpenRouterKey": false, "openRouterModel": undefined}
+ (NOBRIDGE) LOG  【CircleManager】已初始化/更新 Gemini 适配器
+ (NOBRIDGE) LOG  【NodeST】初始化角色朋友圈: 1741193734137, apiKey存在: true
+ (NOBRIDGE) LOG  【CircleManager】初始化角色朋友圈: 1741193734137, apiKey存在: true
+ (NOBRIDGE) LOG  【朋友圈服务】获取NodeST实例，apiKey存在: true，provider: gemini no openrouter config
+ (NOBRIDGE) LOG  【NodeST】设置API Key: AIzaS...
+ (NOBRIDGE) LOG  【CircleManager】更新API Key和配置 {"hasGeminiKey": true, "hasOpenRouterKey": false, "openRouterModel": undefined}
+ (NOBRIDGE) LOG  【CircleManager】已初始化/更新 Gemini 适配器
+ (NOBRIDGE) LOG  【NodeST】处理朋友圈互动: replyToPost, apiKey存在: true
+ (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1741193734137
+ (NOBRIDGE) ERROR  【朋友圈】未找到角色框架，响应者ID: 1741193734137
+ (NOBRIDGE) ERROR  【朋友圈】处理朋友圈互动失败: [Error: 朋友圈框架未初始化]
+ (NOBRIDGE) ERROR  Failed to get character response: 朋友圈框架未初始化
+ (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
+```
+ -切换头像报错： (NOBRIDGE) ERROR  Warning: Encountered two children with the same key, `.$action-action-1741160579305-kje06i2m`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+
 
 
 -角色关系系统
- -确认在调用openrouter api的情况下关系测试和行动生成能够正常发生
- -确认在调用openrouter api的情况下消息盒子能够正确更新
- -角色关系图谱功能应该在index页面的侧边栏中设置开启
- -确认存在详细的中文日志，能够追溯调用openrouter api的情况下，关系系统的工作情况
- -修改原character.tsx页面的关系图谱按钮交互，使得进入后可以直接选中一位角色，查看/编辑其关系图谱的内容，关系图谱用画布的形式呈现；详情通过点击画布来进行更改，使用character-relationship-system.md文档中已经定义的组件。
- -原Character.tsx页面的角色卡片展示，支持不同大小的视图，现在的试图是小的视图。大的视图，让角色的背景图片占满卡片，方便观赏。
+ -确认消息盒子中的消息列表，能够正确更新并且显示出来
+ -角色对行动的接受和拒绝逻辑，应该允许用户干预/角色自行判断的双重逻辑。
+
+ 另外
+    1.状态检视提示词能够插入到AI请求中
+    2.AI请求包含消息盒子，且消息盒子的刷新正常
+    3.AI响应包含关系更新指令
+    4.系统根据AI响应更新数据
+    5.行动能够正常显示在关系页面
 
 
 
@@ -20,15 +46,21 @@
 
 
 ////////////////////////其他
--上下文
-transforms: ["middle-out"]
 
--模型健康监控
+-chatdialog页面允许html改变字体颜色。
+
+-允许酒馆UI美化的兼容
+
+-副ai！！！！！！！！！！！副AI功能用pbs构建，定期触发，插入聊天作为D类条目，作为第一个agent集市的agnet。。
+
+-上下文建剪裁功能
+transforms: ["middle-out"]
 
 -图转文
 
-
 -摇篮系统
+
+  -摇篮系统集成openrouter的跟踪和debug
   -摇篮角色生成后，虽然日志显示删除了摇篮角色，但是角色未从列表中消失
   -摇篮角色的数据结构和create_char需要填充的结构不匹配
  (NOBRIDGE) LOG  [摇篮系统] 删除摇篮角色: 1740917160663
@@ -51,4 +83,8 @@ transforms: ["middle-out"]
 
 /////////////UI修复
 
- -摇篮系统
+-摇篮系统顶部栏和其他页面的统一
+-
+
+
+

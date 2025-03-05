@@ -12,13 +12,15 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Character, CirclePost } from '@/shared/types';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '@/constants/theme';
+import { CircleManager } from '@/NodeST/nodest/managers/circle-manager';
 
 const { height } = Dimensions.get('window');
 
@@ -27,7 +29,7 @@ interface ForwardSheetProps {
   onClose: () => void;
   characters: Character[];
   post: CirclePost;
-  onForward: (characterId: string, message: string) => void;
+  onForward: (characterId: string, message: string) => Promise<void>;
 }
 
 const ForwardSheet: React.FC<ForwardSheetProps> = ({
@@ -40,6 +42,7 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   const [additionalMessage, setAdditionalMessage] = useState('');
   const [isForwarding, setIsForwarding] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Animation values
   const slideAnim = useRef(new Animated.Value(height)).current;
@@ -74,6 +77,13 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
           useNativeDriver: true,
         }),
       ]).start();
+
+      // Reset state when closing
+      if (!isVisible) {
+        setSelectedCharacter(null);
+        setAdditionalMessage('');
+        setSearchQuery('');
+      }
     }
   }, [isVisible, slideAnim, fadeAnim]);
 
@@ -82,20 +92,99 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
   };
 
   const handleForward = async () => {
-    if (selectedCharacter) {
-      setIsForwarding(true);
-      try {
-        await onForward(selectedCharacter, additionalMessage);
-        // Reset state after forwarding
-        setAdditionalMessage('');
-        setSelectedCharacter(null);
-      } catch (error) {
-        console.error('Error forwarding message:', error);
-      } finally {
-        setIsForwarding(false);
+    if (!selectedCharacter) return;
+    
+    setIsForwarding(true);
+    
+    try {
+      // Get the selected character
+      const character = characters.find(c => c.id === selectedCharacter);
+      
+      if (!character) {
+        Alert.alert('错误', '无法找到所选角色');
+        return;
       }
+      
+      // Check if circle interaction is enabled
+      if (!character.circleInteraction) {
+        // Show dialog asking if the user wants to enable circle interaction
+        Alert.alert(
+          '朋友圈未启用',
+          `${character.name} 未启用朋友圈功能。希望转发朋友圈内容需要启用此功能。是否现在启用？`,
+          [
+            {
+              text: '取消',
+              style: 'cancel',
+              onPress: () => setIsForwarding(false),
+            },
+            {
+              text: '仍然转发',
+              onPress: async () => {
+                try {
+                  await onForward(selectedCharacter, additionalMessage);
+                  onClose();
+                  setAdditionalMessage('');
+                  setSelectedCharacter(null);
+                } catch (error) {
+                  console.error('转发失败:', error);
+                  Alert.alert('转发失败', '请重试或检查网络连接');
+                } finally {
+                  setIsForwarding(false);
+                }
+              }
+            },
+            {
+              text: '启用并转发',
+              onPress: async () => {
+                try {
+                  // Initialize circle interaction for this character
+                  const circleManager = new CircleManager();
+                  await circleManager.circleInit(character);
+                  
+                  // Update character with circle interaction enabled
+                  const updatedCharacter = {
+                    ...character,
+                    circleInteraction: true,
+                    circlePostFrequency: 'medium',
+                    circleInteractionFrequency: 'medium',
+                  };
+                  
+                  // Forward the message
+                  await onForward(selectedCharacter, additionalMessage);
+                  onClose();
+                  setAdditionalMessage('');
+                  setSelectedCharacter(null);
+                } catch (error) {
+                  console.error('启用朋友圈并转发失败:', error);
+                  Alert.alert('操作失败', '无法启用朋友圈或转发消息');
+                } finally {
+                  setIsForwarding(false);
+                }
+              }
+            }
+          ]
+        );
+        return;
+      }
+      
+      // Normal forwarding if circle interaction is enabled
+      await onForward(selectedCharacter, additionalMessage);
+      onClose();
+      setAdditionalMessage('');
+      setSelectedCharacter(null);
+      
+    } catch (error) {
+      console.error('转发失败:', error);
+      Alert.alert('转发失败', '请重试或检查网络连接');
+    } finally {
+      setIsForwarding(false);
     }
   };
+
+  // Filter characters based on search query
+  const filteredCharacters = characters.filter(character => 
+    character.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const renderCharacterItem = ({ item }: { item: Character }) => (
     <TouchableOpacity 
@@ -119,6 +208,11 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
             >
               <Ionicons name="checkmark" size={14} color="#FFF" />
             </LinearGradient>
+          </View>
+        )}
+        {!item.circleInteraction && (
+          <View style={styles.warningIconContainer}>
+            <MaterialIcons name="warning" size={16} color="#FFC107" />
           </View>
         )}
       </View>
@@ -221,6 +315,23 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
                 />
               </View>
               
+              {/* Search Bar */}
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={18} color="#999" />
+                <TextInput 
+                  style={styles.searchInput}
+                  placeholder="搜索角色..."
+                  placeholderTextColor="#999"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <Ionicons name="close-circle" size={18} color="#999" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              
               {/* Character Selection */}
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>选择角色</Text>
@@ -229,8 +340,15 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
                 </Text>
               </View>
               
+              <View style={styles.legendContainer}>
+                <View style={styles.legendItem}>
+                  <MaterialIcons name="warning" size={12} color="#FFC107" />
+                  <Text style={styles.legendText}>朋友圈未启用</Text>
+                </View>
+              </View>
+              
               <FlatList
-                data={characters}
+                data={filteredCharacters}
                 renderItem={renderCharacterItem}
                 keyExtractor={(item) => item.id}
                 numColumns={4}
@@ -240,7 +358,9 @@ const ForwardSheet: React.FC<ForwardSheetProps> = ({
                   <View style={styles.emptyState}>
                     <Ionicons name="people-outline" size={42} color="#666" />
                     <Text style={styles.emptyStateText}>
-                      暂无可用角色
+                      {searchQuery.length > 0 ? 
+                        '未找到匹配的角色' : 
+                        '暂无可用角色'}
                     </Text>
                   </View>
                 }
@@ -483,6 +603,51 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 8,
     fontSize: 14,
+  },
+  warningIconContainer: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#333',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FFC107',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(60, 60, 60, 0.6)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    marginLeft: 8,
+    padding: 4,
+  },
+  legendContainer: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  legendText: {
+    color: '#999',
+    fontSize: 12,
+    marginLeft: 4,
   },
 });
 

@@ -49,6 +49,9 @@ export default function SettingsSidebar({
   const [isCircleInteractionEnabled, setIsCircleInteractionEnabled] = useState(
     selectedCharacter?.circleInteraction || false
   );
+  const [isRelationshipEnabled, setIsRelationshipEnabled] = useState(
+    selectedCharacter?.relationshipEnabled || false
+  );
 
   // 处理滑动手势
   const panResponder = useRef(
@@ -91,6 +94,7 @@ export default function SettingsSidebar({
     setIsPermanentMemoryEnabled(selectedCharacter?.memX === 1);
     setIsAutoMessageEnabled(selectedCharacter?.autoMessage || false);
     setIsCircleInteractionEnabled(selectedCharacter?.circleInteraction || false);
+    setIsRelationshipEnabled(selectedCharacter?.relationshipEnabled || false);
   }, [selectedCharacter]);
 
   // Handle sidebar animation
@@ -137,6 +141,35 @@ export default function SettingsSidebar({
       };
       await updateCharacter(updatedCharacter);
       setIsCircleInteractionEnabled(!isCircleInteractionEnabled);
+      
+      // Show a hint if enabling circle interaction
+      if (!isCircleInteractionEnabled) {
+        Alert.alert(
+          '提示', 
+          '已启用朋友圈互动功能，角色将能够发布、点赞和评论朋友圈内容。',
+          [{ text: '确定', style: 'default' }]
+        );
+      }
+    }
+  };
+  
+  const handleRelationshipToggle = async () => {
+    if (selectedCharacter) {
+      const updatedCharacter = {
+        ...selectedCharacter,
+        relationshipEnabled: !isRelationshipEnabled
+      };
+      await updateCharacter(updatedCharacter);
+      setIsRelationshipEnabled(!isRelationshipEnabled);
+      
+      // Show a hint if enabling relationship system
+      if (!isRelationshipEnabled) {
+        Alert.alert(
+          '提示', 
+          '已启用关系系统功能，角色将能够与其他角色建立和发展关系。',
+          [{ text: '确定', style: 'default' }]
+        );
+      }
     }
   };
 
@@ -220,60 +253,46 @@ export default function SettingsSidebar({
         <Text style={styles.settingSectionTitle}>朋友圈互动设置</Text>
         
         <View style={styles.settingRow}>
-          <Text style={styles.settingLabel}>启用朋友圈互动</Text>
-          <Switch
-            value={character.circleInteraction || false}
-            onValueChange={handleToggleCircleInteraction}
-            trackColor={{ false: '#767577', true: '#FF9ECD' }}
-            thumbColor={character.circleInteraction ? '#FF9ECD' : '#f4f3f4'}
-          />
+          <View style={styles.pickerContainer}>
+            <Text style={styles.settingLabel}>发布频率</Text>
+            <Picker
+              selectedValue={character.circlePostFrequency || 'medium'}
+              style={styles.picker}
+              onValueChange={(value) => handleFrequencyChange('circlePostFrequency', value as 'low' | 'medium' | 'high')}
+              dropdownIconColor="#fff"
+            >
+              <Picker.Item label="低 (1次/天)" value="low" />
+              <Picker.Item label="中 (3次/天)" value="medium" />
+              <Picker.Item label="高 (5次/天)" value="high" />
+            </Picker>
+          </View>
         </View>
         
-        {character.circleInteraction && (
-          <>
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>发布频率</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={character.circlePostFrequency || 'medium'}
-                  style={styles.picker}
-                  onValueChange={(value) => handleFrequencyChange('circlePostFrequency', value as 'low' | 'medium' | 'high')}
-                  dropdownIconColor="#fff"
-                >
-                  <Picker.Item label="低 (1次/天)" value="low" />
-                  <Picker.Item label="中 (3次/天)" value="medium" />
-                  <Picker.Item label="高 (5次/天)" value="high" />
-                </Picker>
-              </View>
-            </View>
-            
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>互动频率</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={character.circleInteractionFrequency || 'medium'}
-                  style={styles.picker}
-                  onValueChange={(value) => handleFrequencyChange('circleInteractionFrequency', value as 'low' | 'medium' | 'high')}
-                  dropdownIconColor="#fff"
-                >
-                  <Picker.Item label="低" value="low" />
-                  <Picker.Item label="中" value="medium" />
-                  <Picker.Item label="高" value="high" />
-                </Picker>
-              </View>
-            </View>
-            
-            <Text style={styles.settingDescription}>
-              {`互动频率 ${getFrequencyDescription('circleInteractionFrequency', character.circleInteractionFrequency || 'medium')} 表示：\n`}
-              {character.circleInteractionFrequency === 'low' 
-                ? '- 最多回复同一角色的朋友圈1次\n- 最多回复5个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论1次' 
-                : character.circleInteractionFrequency === 'medium'
-                  ? '- 最多回复同一角色的朋友圈3次\n- 最多回复5个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论3次'
-                  : '- 最多回复同一角色的朋友圈5次\n- 最多回复7个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论5次'
-              }
-            </Text>
-          </>
-        )}
+        <View style={styles.settingRow}>
+          <View style={styles.pickerContainer}>
+            <Text style={styles.settingLabel}>互动频率</Text>
+            <Picker
+              selectedValue={character.circleInteractionFrequency || 'medium'}
+              style={styles.picker}
+              onValueChange={(value) => handleFrequencyChange('circleInteractionFrequency', value as 'low' | 'medium' | 'high')}
+              dropdownIconColor="#fff"
+            >
+              <Picker.Item label="低" value="low" />
+              <Picker.Item label="中" value="medium" />
+              <Picker.Item label="高" value="high" />
+            </Picker>
+          </View>
+        </View>
+        
+        <Text style={styles.settingDescription}>
+          {`互动频率 ${getFrequencyDescription('circleInteractionFrequency', character.circleInteractionFrequency || 'medium')} 表示：\n`}
+          {character.circleInteractionFrequency === 'low' 
+            ? '- 最多回复同一角色的朋友圈1次\n- 最多回复5个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论1次' 
+            : character.circleInteractionFrequency === 'medium'
+              ? '- 最多回复同一角色的朋友圈3次\n- 最多回复5个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论3次'
+              : '- 最多回复同一角色的朋友圈5次\n- 最多回复7个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论5次'
+          }
+        </Text>
       </View>
     );
   };
@@ -348,6 +367,16 @@ export default function SettingsSidebar({
           />
         </View>
 
+        <View style={styles.settingItem}>
+          <Text style={styles.settingLabel}>关系系统</Text>
+          <Switch
+            value={isRelationshipEnabled}
+            onValueChange={handleRelationshipToggle}
+            trackColor={{ false: '#767577', true: '#FFD1DC' }}
+            thumbColor={isRelationshipEnabled ? '#FF9ECD' : '#f4f3f4'}
+          />
+        </View>
+
         <TouchableOpacity
           style={styles.backgroundButton}
           onPress={handleBackgroundChange}
@@ -379,7 +408,7 @@ const styles = StyleSheet.create({
   sidebar: {
     flex: 1,
     position: 'absolute',
-    backgroundColor: "rgba(0, 0, 0, 0.66)",
+    backgroundColor: "rgba(40, 40, 40, 0.9)", // Darker background to match app theme
     zIndex: 1000,
     height: '100%',
     ...theme.shadows.medium,
@@ -410,7 +439,7 @@ const styles = StyleSheet.create({
   },
   settingLabel: {
     fontSize: 16,
-    color: "black",
+    color: "#fff", // White text for better contrast
     fontWeight: '500',
   },
   overlay: {
@@ -423,7 +452,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: theme.colors.text,
+    color: "#FF9ECD", // Pink title to match app theme
     marginBottom: theme.spacing.md,
     textAlign: 'center',
   },
@@ -433,7 +462,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.white,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)', // Darker item background
     borderRadius: theme.borderRadius.md,
     ...theme.shadows.small,
     marginBottom: theme.spacing.sm,
@@ -442,7 +471,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(60, 60, 60, 0.8)', // Darker button background
     padding: 15,
     borderRadius: 15,
     shadowColor: '#000',
@@ -455,7 +484,7 @@ const styles = StyleSheet.create({
   },
   backgroundButtonText: {
     fontSize: 16,
-    color: '#4A4A4A',
+    color: '#fff', // White text for better contrast
     fontWeight: '500',
   },
   settingSection: {
@@ -464,7 +493,7 @@ const styles = StyleSheet.create({
   settingSectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: theme.colors.text,
+    color: "#FF9ECD", // Pink title to match app theme
     marginBottom: theme.spacing.sm,
   },
   settingRow: {
@@ -473,7 +502,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.white,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)', // Darker row background
     borderRadius: theme.borderRadius.md,
     ...theme.shadows.small,
     marginBottom: theme.spacing.sm,
@@ -484,10 +513,10 @@ const styles = StyleSheet.create({
   },
   picker: {
     height: 40,
-    color: theme.colors.text,
+    color: "#fff", // White text for better contrast
   },
   settingDescription: {
-    color: '#999',
+    color: '#ccc', // Lighter text for better visibility
     fontSize: 12,
     marginTop: 8,
     marginBottom: 8,
