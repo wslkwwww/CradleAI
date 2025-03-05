@@ -17,8 +17,11 @@ interface CharacterSettingsProps {
 const CharacterSettings: React.FC<CharacterSettingsProps> = ({ 
   character, 
   onClose,
-  onUpdateCharacter
+  onUpdateCharacter: baseOnUpdateCharacter
 }) => {
+  const onUpdateCharacter = async (character: Character) => {
+    await baseOnUpdateCharacter(character);
+  };
   // State for components
   const [showRelationshipGraph, setShowRelationshipGraph] = useState(false);
   const [showMessageBox, setShowMessageBox] = useState(false);
@@ -54,7 +57,8 @@ const CharacterSettings: React.FC<CharacterSettingsProps> = ({
       <RelationshipGraph 
         character={character} 
         onUpdateCharacter={onUpdateCharacter}
-        allCharacters={allCharacters} 
+        allCharacters={allCharacters}
+        onSelectRelationship={() => {}} 
       />
     );
   }

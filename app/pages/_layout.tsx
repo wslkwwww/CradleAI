@@ -20,6 +20,13 @@ export default function PagesLayout() {
           headerShown: false,
         }}
       />
+            <Stack.Screen
+        name="relationship-graph"
+        options={{
+          presentation: 'modal',
+          headerShown: false,
+        }}
+      />
 
       <Stack.Screen
         name="global-settings"

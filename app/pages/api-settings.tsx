@@ -130,6 +130,18 @@ const ApiSettings = () => {
       
       await updateSettings(apiSettings);
       
+      // Also save to localStorage for services that need synchronous access
+      try {
+        const fullSettings = {
+          ...user?.settings,
+          ...apiSettings
+        };
+        localStorage.setItem('user_settings', JSON.stringify(fullSettings));
+        console.log('API settings saved to localStorage');
+      } catch (error) {
+        console.warn('Could not save settings to localStorage', error);
+      }
+      
       // Update NodeSTManager with new settings
       NodeSTManager.updateApiSettings(
         openRouterEnabled ? openRouterKey : geminiKey,

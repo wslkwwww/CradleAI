@@ -24,10 +24,11 @@ interface RelationshipNodeProps {
   onPress: () => void;
 }
 
-interface RelationshipGraphProps {
+export interface RelationshipGraphProps {
   character: Character;
   allCharacters: Character[];
-  onUpdateCharacter: (character: Character) => void;
+  onUpdateCharacter: (character: Character) => Promise<void>;
+  onSelectRelationship: (relationshipId: string) => void;
 }
 
 // Color mapping for relationship types
@@ -85,7 +86,8 @@ const RelationshipNode: React.FC<RelationshipNodeProps> = ({ x, y, character, re
 const RelationshipGraph: React.FC<RelationshipGraphProps> = ({ 
   character, 
   allCharacters, 
-  onUpdateCharacter 
+  onUpdateCharacter,
+  onSelectRelationship
 }) => {
   const [relationships, setRelationships] = useState<Record<string, { 
     relationship: Relationship, 
@@ -151,6 +153,7 @@ const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
       setEditedStrength(rel.strength.toString());
       setEditedDescription(rel.description);
     }
+    onSelectRelationship(targetId);
   };
   
   // Save edited relationship

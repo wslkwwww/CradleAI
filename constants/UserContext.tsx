@@ -23,6 +23,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userData = await AsyncStorage.getItem('user');
         if (userData) {
           setUser(JSON.parse(userData));
+          
+          // Also store to localStorage for web compatibility
+          try {
+            localStorage.setItem('user_settings', JSON.stringify(JSON.parse(userData).settings));
+          } catch (error) {
+            console.warn('Could not save to localStorage', error);
+          }
         } else {
           // Initialize with default settings
           const defaultUser: User = {
@@ -117,6 +124,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(updatedUser);
       await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      // Also update localStorage for direct access by services
+      try {
+        localStorage.setItem('user_settings', JSON.stringify(updatedUser.settings));
+      } catch (error) {
+        console.warn('Could not save to localStorage', error);
+      }
       
       console.log('[UserContext] Settings updated successfully, apiProvider:', 
         updatedUser.settings.chat.apiProvider);
