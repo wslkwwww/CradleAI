@@ -1,76 +1,60 @@
- (NOBRIDGE) LOG  Loaded cradle settings: {"duration": 1, "enabled": true, "progress": 100, "startDate": "2025-03-02T12:16:20.486Z"}
- (NOBRIDGE) LOG  Loaded cradle characters: 5
- (NOBRIDGE) LOG  【朋友圈测试】测试模式已启用，显示测试帖子
- (NOBRIDGE) LOG  【朋友圈测试】开始朋友圈互动测试，帖子内容: 刚看完一部超感人的电影，眼泪都止不住了。你们最近看过什么好电影吗？
- (NOBRIDGE) LOG  【朋友圈测试】找到 5 个启用了朋友圈互动的角色
- (NOBRIDGE) LOG  【朋友圈测试】使用真实API Key进行调用
- (NOBRIDGE) LOG  【朋友圈服务】开始测试互动，共有 5 个启用朋友圈的角色
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小李 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小李 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小李 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) ERROR  【朋友圈服务】角色 小李 朋友圈初始化失败
- (NOBRIDGE) LOG  【朋友圈服务】角色 小李 的互动响应: 失败: 初始化角色 小李 的朋友圈失败
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小王 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小王 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小王 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小王 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) ERROR  【朋友圈服务】角色 小王 朋友圈初始化失败
- (NOBRIDGE) LOG  【朋友圈服务】角色 小王 的互动响应: 失败: 初始化角色 小王 的朋友圈失败
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小刘 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小刘 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小刘 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小刘 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) ERROR  【朋友圈服务】角色 小刘 朋友圈初始化失败
- (NOBRIDGE) LOG  【朋友圈服务】角色 小刘 的互动响应: 失败: 初始化角色 小刘 的朋友圈失败
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 的测试互动
+ (NOBRIDGE) LOG  【朋友圈服务】尝试发布测试帖子
+ (NOBRIDGE) LOG  【朋友圈服务】选择角色 小丽 作为发帖者
+ (NOBRIDGE) LOG  【朋友圈服务】角色 小丽 创建新朋友圈帖子
  (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小丽 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小丽 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小丽 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小丽 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) ERROR  【朋友圈服务】角色 小丽 朋友圈初始化失败
- (NOBRIDGE) LOG  【朋友圈服务】角色 小丽 的互动响应: 失败: 初始化角色 小丽 的朋友圈失败
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 的测试互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小那 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) LOG  【朋友圈服务】处理角色 小那 对帖子的互动
- (NOBRIDGE) LOG  【朋友圈服务】初始化角色 小那 的朋友圈
- (NOBRIDGE) ERROR  【朋友圈服务】初始化角色 小那 的朋友圈失败: [TypeError: nodeST.setApiKey is not a function (it is undefined)]
- (NOBRIDGE) ERROR  【朋友圈服务】角色 小那 朋友圈初始化失败
- (NOBRIDGE) LOG  【朋友圈服务】角色 小那 的互动响应: 失败: 初始化角色 小那 的朋友圈失败
- (NOBRIDGE) LOG  【朋友圈服务】测试互动完成，成功: 0/5
- (NOBRIDGE) LOG  【朋友圈测试】互动测试结果: {"总结果数": 5, "成功数": 0, "点赞数": 0, "评论数": 0}
+ (NOBRIDGE) LOG  【朋友圈服务】获取NodeST实例，apiKey存在: true，provider: gemini no openrouter config
+ (NOBRIDGE) LOG  【NodeST】设置API Key: AIzaS...
+ (NOBRIDGE) LOG  【CircleManager】更新API Key和配置 {"hasGeminiKey": true, "hasOpenRouterKey": false, "openRouterModel": undefined}
+ (NOBRIDGE) LOG  【CircleManager】已初始化/更新 Gemini 适配器
+ (NOBRIDGE) LOG  【NodeST】初始化角色朋友圈: 1740819287241, apiKey存在: true
+ (NOBRIDGE) LOG  【CircleManager】初始化角色朋友圈: 1740819287241, apiKey存在: true
+ (NOBRIDGE) LOG  【朋友圈服务】获取NodeST实例，apiKey存在: true，provider: gemini no openrouter config
+ (NOBRIDGE) LOG  【NodeST】设置API Key: AIzaS...
+ (NOBRIDGE) LOG  【CircleManager】更新API Key和配置 {"hasGeminiKey": true, "hasOpenRouterKey": false, "openRouterModel": undefined}
+ (NOBRIDGE) LOG  【CircleManager】已初始化/更新 Gemini 适配器
+ (NOBRIDGE) LOG  【NodeST】处理朋友圈互动: newPost, apiKey存在: true
+ (NOBRIDGE) LOG  【朋友圈】处理互动，类型: newPost，作者ID: 1740819287241，响应者ID: 1740819287241
+ (NOBRIDGE) LOG  【角色关系】为角色 小丽 添加消息盒子D类条目，包含 20 条消息
+ (NOBRIDGE) LOG  【角色关系】为角色 小丽 添加关系图谱D类条目，包含 1 个关系
+ (NOBRIDGE) LOG  【角色关系】检查角色 小丽 是否需要关系状态检视，关系系统已启用: true
+ (NOBRIDGE) LOG  【角色关系】角色 小丽 有 20 条未读消息，生成关系状态检视提示词
+ (NOBRIDGE) LOG  【角色关系】成功为角色 小丽 添加关系状态检视D类条目，长度: 893
+ (NOBRIDGE) LOG  [PromptBuilderService] Inserting 3 D-entries with base message: 【内容】突然想到一个问题，如果可以拥有一种超能力，你们会选择...
+ (NOBRIDGE) LOG  [PromptBuilderService] Base message found at index 0 of 1
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries available at depths: 1
+ (NOBRIDGE) LOG  [PromptBuilderService] Final history structure: 1 total entries
+ (NOBRIDGE) LOG  [PromptBuilderService] D-entries inserted: 0
+ (NOBRIDGE) LOG  [PromptBuilderService] 构建完成：R框架条目数=4，D类条目数=3，历史消息数=0
+ (NOBRIDGE) LOG  【朋友圈】角色 小丽 的请求构建完成，R框架条目数: 4, D类条目数: 3
+ (NOBRIDGE) LOG  【朋友圈】角色 小丽 的完整请求体:
+--------------------------------------------------------------------------------
+【系统框架初始化】请初始化朋友圈和关系系统框架，确保能理解角色互动、关系变化和朋友圈内容。
 
+你很好学
 
+作为一个角色，你正在创建一条新的朋友圈动态。以下是准备发布的内容：
 
+【内容】突然想到一个问题，如果可以拥有一种超能力，你们会选择什么？
+【上下文】这是小丽发布的新朋友圈
 
+基于你的角色性格，请以JSON格式回应：
+- 决定是否点赞（like: true/false，对自己发的内容通常为false）
+- 提供一条你想发布的内容（comment字段）
+- 包含你的情感反应（emotion对象，含type和intensity）
 
-
-
-
-
-
-
-
-
-
-
-
- [{
-	"resource": "/f:/my-app/NodeST/nodest/index.ts",
-	"owner": "typescript",
-	"code": "2339",
-	"severity": 8,
-	"message": "Property 'postInteraction' does not exist on type 'CircleManager'.",
-	"source": "ts",
-	"startLineNumber": 203,
-	"startColumn": 40,
-	"endLineNumber": 203,
-	"endColumn": 55
-}]
+严格按以下格式回复，不要包含任何其他文字：
+{
+  "action": {
+    "like": false,
+    "comment": "你想发布的朋友圈内容"
+  },
+  "emotion": {
+    "type": "positive/neutral/negative",
+    "intensity": 0.0-1.0
+}
+--------------------------------------------------------------------------------
+ (NOBRIDGE) LOG  【朋友圈】角色 小丽 的最终提示词长度: 440
+ (NOBRIDGE) LOG  【朋友圈】发送请求到LLM, 使用适配器: Gemini
+ (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
+ (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
+ (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据

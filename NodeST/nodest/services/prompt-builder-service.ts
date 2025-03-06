@@ -143,6 +143,11 @@ export class PromptBuilderService {
     }
 
     console.log(`[PromptBuilderService] Inserting ${dEntries.length} D-entries with base message: ${baseMessage.substring(0, 30)}...`);
+    
+    // Log each D-entry being processed
+    dEntries.forEach((entry, index) => {
+      console.log(`[PromptBuilderService] D-entry #${index + 1}: ${entry.name}, depth=${entry.depth}, content length=${entry.content.length}`);
+    });
 
     // 1. Filter out existing D-entries from history to avoid duplication
     const chatMessages = history.filter(msg => !msg.is_d_entry);
@@ -203,7 +208,7 @@ export class PromptBuilderService {
 
       // Insert D-entries before current message if depth matches
       if (position4Entries[depthFromBase]) {
-        console.log(`[PromptBuilderService] Inserting ${position4Entries[depthFromBase].length} entries at depth=${depthFromBase}`);
+        console.log(`[PromptBuilderService] Inserting ${position4Entries[depthFromBase].length} entries at depth=${depthFromBase} before message at index ${i}`);
         finalHistory.push(...position4Entries[depthFromBase]);
       }
 
@@ -212,7 +217,7 @@ export class PromptBuilderService {
 
       // If this is the base message, insert depth=0 entries after it
       if (i === effectiveBaseIndex && position4Entries[0]) {
-        console.log(`[PromptBuilderService] Inserting ${position4Entries[0].length} entries at depth=0 (after base message)`);
+        console.log(`[PromptBuilderService] Inserting ${position4Entries[0].length} entries at depth=0 (after base message at index ${i})`);
         finalHistory.push(...position4Entries[0]);
       }
     }
@@ -234,9 +239,17 @@ export class PromptBuilderService {
       }
     }
     
-    // Log the structure of the final history
-    console.log(`[PromptBuilderService] Final history structure: ${finalHistory.length} total entries`);
-    console.log(`[PromptBuilderService] D-entries inserted: ${finalHistory.filter(msg => msg.is_d_entry).length}`);
+    // Check if D-entries were actually inserted
+    const insertedDEntries = finalHistory.filter(msg => msg.is_d_entry);
+    console.log(`[PromptBuilderService] Final history structure: ${finalHistory.length} total entries (${insertedDEntries.length} D-entries)`);
+    if (insertedDEntries.length === 0) {
+      console.error(`[PromptBuilderService] WARNING: No D-entries were inserted into the final history!`);
+    } else {
+      // List all inserted D-entries
+      insertedDEntries.forEach((entry, index) => {
+        console.log(`[PromptBuilderService] Inserted D-entry #${index + 1}: ${entry.name}`);
+      });
+    }
     
     // Return the history with inserted D-entries
     return finalHistory;
@@ -270,35 +283,98 @@ export class PromptBuilderService {
     // 添加关系系统和朋友圈框架初始化标记
     let resultText = "【系统框架初始化】请初始化朋友圈和关系系统框架，确保能理解角色互动、关系变化和朋友圈内容。\n\n";
     
-    // 原有逻辑处理消息
+    // Add tracking flags for important content
+    let hasIncludedDEntries = false;
+    let hasIncludedRelationshipReview = false;
+    
+    // Original logic for processing messages
     resultText += messages.map(msg => {
-      // 处理消息数组
+      // Handle message array
       if (Array.isArray(msg.parts)) {
-        interface MessagePart {
-            text: string;
-            role?: string;
-            injection_depth?: number;
-            position?: number;
-            parts?: MessagePart[]; // 递归结构，消息是否包含子消息
-            is_d_entry?: boolean; // 是否是世界书条目
-        }
-
-        return msg.parts.map((part: MessagePart): string => part.text || "").join("\n");
+        // Track D-entries
+        msg.parts.forEach((part: any) => {
+          if (part.is_d_entry) {
+            hasIncludedDEntries = true;
+            if (part.name === "Relationship State Review") {
+              hasIncludedRelationshipReview = true;
+            }
+          }
+        });
+        
+        return msg.parts.map((part: any): string => {
+          // Track if any D-entries are actually included in the text
+          if (part.text && part.is_d_entry) {
+            hasIncludedDEntries = true;
+            if (part.name === "Relationship State Review" || part.text.includes("关系状态检查")) {
+              hasIncludedRelationshipReview = true;
+            }
+          }
+          return part.text || "";
+        }).join("\n");
       } 
-      // 处理单一文本消息
+      // Handle single text message
       else if (typeof msg.parts?.[0]?.text === 'string') {
         return msg.parts[0].text;
       }
-      // 处理聊天历史
+      // Handle chat history
       else if (msg.name === "Chat History" && Array.isArray(msg.parts)) {
-        return msg.parts.map((historyMsg: any) => {
+        let historyText = "";
+        let hasFoundDEntries = false;
+        let hasFoundRelationshipReview = false;
+        
+        for (const historyMsg of msg.parts) {
+          // Check for D-entries in history
+          if (historyMsg.is_d_entry) {
+            hasFoundDEntries = true;
+            hasIncludedDEntries = true;
+            
+            if (historyMsg.name === "Relationship State Review" || 
+                (typeof historyMsg.parts?.[0]?.text === 'string' && 
+                 historyMsg.parts[0].text.includes("关系状态检查"))) {
+              hasFoundRelationshipReview = true;
+              hasIncludedRelationshipReview = true;
+            }
+          }
+          
           const prefix = historyMsg.role === "user" ? "用户: " : "AI: ";
           const text = historyMsg.parts?.[0]?.text || "";
-          return `${prefix}${text}`;
-        }).join("\n\n");
+          historyText += `${prefix}${text}\n\n`;
+        }
+        
+        console.log(`[PromptBuilderService] Chat history contains D-entries: ${hasFoundDEntries}, contains relationship review: ${hasFoundRelationshipReview}`);
+        return historyText;
       }
       return '';
     }).filter(text => text.trim() !== '').join("\n\n");
+    
+    // Log important information about the constructed prompt
+    console.log(`[PromptBuilderService] Final prompt includes D-entries: ${hasIncludedDEntries}, includes relationship review: ${hasIncludedRelationshipReview}`);
+    
+    // If relationship review should be present but isn't, add a diagnostic message
+    if (!hasIncludedRelationshipReview) {
+      // Look for the review in original messages
+      interface MessagePart {
+        name?: string;
+        text?: string;
+      }
+
+      interface Message {
+        name?: string;
+        parts?: MessagePart[];
+      }
+
+      const hasReviewInOriginal = messages.some((msg: Message) => 
+        msg.name === "Relationship State Review" || 
+        (Array.isArray(msg.parts) && msg.parts.some((part: MessagePart) => 
+          part.name === "Relationship State Review" || 
+          (typeof part.text === 'string' && part.text.includes("关系状态检查"))
+        ))
+      );
+      
+      if (hasReviewInOriginal) {
+        console.error("[PromptBuilderService] WARNING: Relationship State Review was present in original messages but not included in final text!");
+      }
+    }
     
     return resultText;
   }

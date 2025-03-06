@@ -343,43 +343,60 @@ export class CircleManager {
             
             // 4. 构建D类条目
             const dEntries: DEntry[] = [];
+            let relationshipReviewPrompt = '';
             
             // 消息盒子D类条目
             if (characterData.messageBox?.length) {
               const messagesText = this.formatMessageBoxForPrompt(characterData.messageBox);
+              console.log(`【角色关系】为角色 ${characterData.name} 添加消息盒子D类条目，包含 ${characterData.messageBox.length} 条消息`);
               dEntries.push(PromptBuilderService.createDEntry({
                 name: "Message Box",
                 content: `【消息盒子】\n以下是你最近收到的互动消息:\n${messagesText}`,
                 depth: 1,
                 constant: true
               }));
+            } else {
+              console.log(`【角色关系】角色 ${characterData.name} 没有消息或消息盒子为空，跳过添加消息盒子D类条目`);
             }
             
             // 关系图谱D类条目
             if (characterData.relationshipMap?.relationships) {
               const relationshipsText = this.formatRelationshipMapForPrompt(characterData.relationshipMap);
+              console.log(`【角色关系】为角色 ${characterData.name} 添加关系图谱D类条目，包含 ${Object.keys(characterData.relationshipMap.relationships).length} 个关系`);
               dEntries.push(PromptBuilderService.createDEntry({
                 name: "Relationship Map",
                 content: `【关系图谱数据】\n你与其他角色的当前关系:\n${relationshipsText}`,
                 depth: 1,
                 constant: true
               }));
+            } else {
+              console.log(`【角色关系】角色 ${characterData.name} 没有关系图谱或关系为空，跳过添加关系图谱D类条目`);
             }
             
             // 状态检视提示词D类条目
-            let relationshipReviewPrompt = '';
             if (characterData.relationshipEnabled && characterData.messageBox) {
+              console.log(`【角色关系】检查角色 ${characterData.name} 是否需要关系状态检视，关系系统已启用: ${characterData.relationshipEnabled}`);
               const unreadMessages = characterData.messageBox.filter(msg => !msg.read);
               if (unreadMessages.length > 0) {
+                console.log(`【角色关系】角色 ${characterData.name} 有 ${unreadMessages.length} 条未读消息，生成关系状态检视提示词`);
                 relationshipReviewPrompt = await this.generateRelationshipStateReviewPrompt(characterData);
                 if (relationshipReviewPrompt) {
-                  dEntries.push(PromptBuilderService.createDEntry({
+                  console.log(`【角色关系】成功为角色 ${characterData.name} 添加关系状态检视D类条目，长度: ${relationshipReviewPrompt.length}`);
+                  
+                  // 修改：直接添加到文本中，而不是作为D类条目 - 这是临时解决方案
+                  const reviewEntry = PromptBuilderService.createDEntry({
                     name: "Relationship State Review",
                     content: relationshipReviewPrompt,
                     depth: 1,
                     constant: true
-                  }));
+                  });
+                  dEntries.push(reviewEntry);
+                  
+                  // 添加诊断日志
+                  console.log(`【角色关系】关系状态检视D类条目已创建，名称: ${reviewEntry.name}, 深度: ${reviewEntry.depth}, 内容长度: ${reviewEntry.content.length}`);
                 }
+              } else {
+                console.log(`【角色关系】角色 ${characterData.name} 没有未读消息，跳过关系状态检视`);
               }
             }
             
@@ -393,32 +410,83 @@ export class CircleManager {
               userMessage
             });
             
+            console.log(`【朋友圈】角色 ${characterData.name} 的请求构建完成，R框架条目数: ${rFramework.length}, D类条目数: ${dEntries.length}`);
+            
             // 7. 转换为文本格式并发送请求
             const prompt = PromptBuilderService.messagesToText(messages);
-            const response = await this.getChatResponse(prompt);
-            
-            // 8. 解析响应
-            const circleResponse = this.parseCircleResponse(response);
-            
-            // 9. 如果包含关系状态检查，则解析关系更新
-            if (relationshipReviewPrompt && characterData && circleResponse.success) {
-              const relationshipUpdates = this.parseRelationshipReviewResponse(response);
-              
-              // 存储关系更新以便稍后应用
-              if (relationshipUpdates.length > 0) {
-                circleResponse.relationshipUpdates = relationshipUpdates;
-              }
+
+            // 如果日志中没有检测到状态检视提示词，但我们确实创建了它，那么手动添加它
+            if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
+                console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
+                const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
+                
+                // 新增日志：打印完整的请求体内容
+                console.log(`【朋友圈】角色 ${characterData.name} 的完整请求体(手动添加了关系状态检视):\n${'-'.repeat(80)}\n${modifiedPrompt}\n${'-'.repeat(80)}`);
+                console.log(`【朋友圈】角色 ${characterData.name} 的最终提示词长度: ${modifiedPrompt.length}`);
+                
+                // 使用修改后的提示词
+                const response = await this.getChatResponse(modifiedPrompt);
+                
+                // 8. 解析响应
+                const circleResponse = this.parseCircleResponse(response);
+                
+                // 9. 如果包含关系状态检查，则解析关系更新
+                if (relationshipReviewPrompt && characterData && circleResponse.success) {
+                  console.log(`【角色关系】角色 ${characterData.name} 检测到关系状态检视提示词，开始解析关系更新`);
+                  const relationshipUpdates = this.parseRelationshipReviewResponse(response);
+                  
+                  // 存储关系更新以便稍后应用
+                  if (relationshipUpdates.length > 0) {
+                    console.log(`【角色关系】角色 ${characterData.name} 解析出 ${relationshipUpdates.length} 条关系更新，将添加到响应中`);
+                    circleResponse.relationshipUpdates = relationshipUpdates;
+                  } else {
+                    console.log(`【角色关系】角色 ${characterData.name} 未解析到关系更新或解析失败`);
+                  }
+                }
+
+                // 10. 更新记忆
+                await this.updateCircleMemory(
+                  options.responderId,
+                  options,
+                  circleResponse
+                );
+
+                console.log(`【朋友圈】成功处理互动，结果:`, circleResponse);
+                return circleResponse;
+            } else {
+                // 原来的流程
+                // 新增日志：打印完整的请求体内容
+                console.log(`【朋友圈】角色 ${characterData.name} 的完整请求体:\n${'-'.repeat(80)}\n${prompt}\n${'-'.repeat(80)}`);
+                console.log(`【朋友圈】角色 ${characterData.name} 的最终提示词长度: ${prompt.length}`);
+                const response = await this.getChatResponse(prompt);
+                
+                // 8. 解析响应
+                const circleResponse = this.parseCircleResponse(response);
+                
+                // 9. 如果包含关系状态检查，则解析关系更新
+                if (relationshipReviewPrompt && characterData && circleResponse.success) {
+                  console.log(`【角色关系】角色 ${characterData.name} 检测到关系状态检视提示词，开始解析关系更新`);
+                  const relationshipUpdates = this.parseRelationshipReviewResponse(response);
+                  
+                  // 存储关系更新以便稍后应用
+                  if (relationshipUpdates.length > 0) {
+                    console.log(`【角色关系】角色 ${characterData.name} 解析出 ${relationshipUpdates.length} 条关系更新，将添加到响应中`);
+                    circleResponse.relationshipUpdates = relationshipUpdates;
+                  } else {
+                    console.log(`【角色关系】角色 ${characterData.name} 未解析到关系更新或解析失败`);
+                  }
+                }
+
+                // 10. 更新记忆
+                await this.updateCircleMemory(
+                  options.responderId,
+                  options,
+                  circleResponse
+                );
+
+                console.log(`【朋友圈】成功处理互动，结果:`, circleResponse);
+                return circleResponse;
             }
-
-            // 10. 更新记忆
-            await this.updateCircleMemory(
-              options.responderId,
-              options,
-              circleResponse
-            );
-
-            console.log(`【朋友圈】成功处理互动，结果:`, circleResponse);
-            return circleResponse;
         } catch (error) {
             console.error('【朋友圈】处理朋友圈互动失败:', error);
             return {
