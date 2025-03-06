@@ -18,10 +18,6 @@ import { useRouter } from 'expo-router';
 import { Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
-import Animated, {
-  useAnimatedStyle,
-  withTiming,
-} from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeSTManager } from '@/utils/NodeSTManager';
@@ -32,18 +28,22 @@ import {
   WorldBookEntry,
 } from '@/shared/types';
 import { WorldBookEntryUI, PresetEntryUI } from '@/constants/types';
-import {
-  styles as sharedStyles,
-  headerImageHeight,
-  slideDistance
-} from '@/components/character/CharacterFormComponents';
+import { BlurView } from 'expo-blur';
+import { theme } from '@/constants/theme';
+
+// Import shared components that we're now using in both pages
 import { 
   WorldBookSection,
   PresetSection,
   AuthorNoteSection
 } from '@/components/character/CharacterSections';
 import DetailSidebar from '@/components/character/DetailSidebar';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import ActionButton from '@/components/ActionButton';
+import CharacterAttributeEditor from '@/components/character/CharacterAttributeEditor';
+import CharacterDetailHeader from '@/components/character/CharacterDetailHeader';
 
+// Default preset entries
 export const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
   EDITABLE: [
@@ -109,22 +109,22 @@ const CreateChar: React.FC = () => {
   const router = useRouter();
   const { addCharacter, addConversation,} = useCharacters();
   const { user } = useUser();
-  const [showSettings, setShowSettings] = useState(false);
-  const [image, setImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  
+  // Character and role card state
   const [character, setCharacter] = useState<Character>({
     id: '',
     name: '',
     avatar: null,
     backgroundImage: null,
-    conversationId: '',  // 将在保存时设置为与id相同的值
+    conversationId: '',
     description: '',
     personality: '',
     interests: [],
     createdAt: Date.now(),
     updatedAt: Date.now()
   });
-  const [loading, setLoading] = useState(false);
-
+  
   const [roleCard, setRoleCard] = useState<Partial<RoleCardJson>>({
     name: '',
     first_mes: '',
@@ -132,13 +132,14 @@ const CreateChar: React.FC = () => {
     personality: '',
     scenario: '',
     mes_example: '',
-    data: {  // 添加data字段
+    data: {
       extensions: {
         regex_scripts: []
       }
     }
   });
 
+  // World book and author note state
   const [worldBook, setWorldBook] = useState<Partial<WorldBookJson>>({
     entries: {}
   });
@@ -151,8 +152,8 @@ const CreateChar: React.FC = () => {
   });
 
   const [worldBookEntries, setWorldBookEntries] = useState<WorldBookEntryUI[]>([]);
-  const [showPresetPanel, setShowPresetPanel] = useState(false);
   const [presetEntries, setPresetEntries] = useState<PresetEntryUI[]>(() => {
+    // ...existing preset entries initialization...
     // 合并所有默认条目
     const defaultEntries = [
       ...DEFAULT_PRESET_ENTRIES.EDITABLE.map(entry => ({
@@ -188,6 +189,12 @@ const CreateChar: React.FC = () => {
       });
   });
 
+  // UI state variables - match character-detail page
+  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
   const [selectedField, setSelectedField] = useState<{
     title: string;
     content: string;
@@ -196,8 +203,11 @@ const CreateChar: React.FC = () => {
     entryType?: 'worldbook' | 'preset' | 'author_note';
     entryOptions?: any;
     onOptionsChange?: (options: any) => void;
+    name?: string;
+    onNameChange?: (text: string) => void;
   } | null>(null);
 
+  // Handle detail view for world book, preset, and author note entries
   const handleViewDetail = (
     title: string, 
     content: string,
@@ -205,7 +215,9 @@ const CreateChar: React.FC = () => {
     editable: boolean = true,
     entryType?: 'worldbook' | 'preset' | 'author_note',
     entryOptions?: any,
-    onOptionsChange?: (options: any) => void
+    onOptionsChange?: (options: any) => void,
+    name?: string,
+    onNameChange?: (text: string) => void
   ) => {
     setSelectedField({ 
       title, 
@@ -214,17 +226,13 @@ const CreateChar: React.FC = () => {
       editable,
       entryType,
       entryOptions,
-      onOptionsChange
+      onOptionsChange,
+      name,
+      onNameChange
     });
   };
 
-  const handleInputChange = useCallback(
-    (field: keyof Character, value: string) => {
-      setCharacter((prevCharacter) => ({ ...prevCharacter, [field]: value }));
-    },
-    []
-  );
-
+  // Handle role card field changes
   const handleRoleCardChange = (field: keyof RoleCardJson, value: string) => {
     setRoleCard(prev => ({ ...prev, [field]: value }));
     // 同步更新角色基本信息
@@ -232,28 +240,20 @@ const CreateChar: React.FC = () => {
       setCharacter(prev => ({ ...prev, name: value }));
       setAuthorNote(prev => ({ ...prev, charname: value }));
     }
+    
+    // Basic character properties syncing
+    if (field === 'description') {
+      setCharacter(prev => ({ ...prev, description: value }));
+    }
+    
+    if (field === 'personality') {
+      setCharacter(prev => ({ ...prev, personality: value }));
+    }
+    
+    setHasUnsavedChanges(true);
   };
 
-  const handleWorldBookEntry = (key: string, entry: Partial<WorldBookEntry>) => {
-    setWorldBook(prev => ({
-      ...prev,
-      entries: {
-        ...prev.entries,
-        [key]: {
-          comment: entry.comment || '',
-          content: entry.content || '',
-          disable: false,
-          position: entry.position || 0,
-          constant: entry.constant || false,
-          order: entry.order || 0,
-          vectorized: entry.vectorized || false,
-          key: entry.key || [],
-          depth: entry.depth || 0
-        }
-      }
-    }));
-  };
-
+  // World Book handling functions
   const handleAddWorldBookEntry = () => {
     const newEntry: WorldBookEntryUI = {
       id: Date.now().toString(),
@@ -265,8 +265,10 @@ const CreateChar: React.FC = () => {
       key: [],
       constant: false,
       depth: 0,
+      order: worldBookEntries.length
     };
     setWorldBookEntries(prev => [...prev, newEntry]);
+    setHasUnsavedChanges(true);
   };
 
   const handleUpdateWorldBookEntry = (id: string, updates: Partial<WorldBookEntryUI>) => {
@@ -275,8 +277,10 @@ const CreateChar: React.FC = () => {
         entry.id === id ? { ...entry, ...updates } : entry
       )
     );
+    setHasUnsavedChanges(true);
   };
-
+  
+  // Preset handling functions
   const handleAddPresetEntry = () => {
     const newEntry: PresetEntryUI = {
       id: Date.now().toString(),
@@ -292,6 +296,7 @@ const CreateChar: React.FC = () => {
       depth: 0
     };
     setPresetEntries(prev => [...prev, newEntry]);
+    setHasUnsavedChanges(true);
   };
 
   const handleUpdatePresetEntry = (id: string, updates: Partial<PresetEntryUI>) => {
@@ -300,6 +305,7 @@ const CreateChar: React.FC = () => {
         entry.id === id ? { ...entry, ...updates } : entry
       )
     );
+    setHasUnsavedChanges(true);
   };
 
   // 处理条目排序
@@ -323,8 +329,10 @@ const CreateChar: React.FC = () => {
         order: idx
       }));
     });
+    setHasUnsavedChanges(true);
   };
 
+  // 重新排序函数
   const handleReorderPresets = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
     
@@ -339,6 +347,7 @@ const CreateChar: React.FC = () => {
         order: idx
       }));
     });
+    setHasUnsavedChanges(true);
   };
   
   const handleReorderWorldBook = (fromIndex: number, toIndex: number) => {
@@ -355,8 +364,10 @@ const CreateChar: React.FC = () => {
         order: idx
       }));
     });
+    setHasUnsavedChanges(true);
   };
 
+  // Image handling functions
   const pickAvatar = async () => {
     try {
       // 首先选择图片
@@ -371,6 +382,8 @@ const CreateChar: React.FC = () => {
         const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
           Image.getSize(result.assets[0].uri, (width, height) => {
             resolve({ width, height });
+          }, () => {
+            resolve({ width: 300, height: 300 }); // Default fallback values
           });
         });
 
@@ -402,6 +415,7 @@ const CreateChar: React.FC = () => {
           ...prev,
           avatar: manipResult.uri
         }));
+        setHasUnsavedChanges(true);
       }
     } catch (error: any) {
       console.error("Image picking error:", error);
@@ -409,44 +423,45 @@ const CreateChar: React.FC = () => {
     }
   };
 
-  const pickImage = async () => {
+  const pickBackgroundImage = async () => {
     try {
       let result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [9, 16],
+        aspect: [16, 9],
         quality: 1,
       });
 
       if (!result.canceled && result.assets[0]) {
-        const newImage = result.assets[0].uri;
         setCharacter(prev => ({
           ...prev,
-          backgroundImage: newImage  // 形象图
+          backgroundImage: result.assets[0].uri
         }));
+        setHasUnsavedChanges(true);
       }
     } catch (error: any) {
-      console.error("Image picking error:", error);
+      console.error("Background image picking error:", error);
       Alert.alert("Error", "Could not pick image: " + error.message);
     }
   };
 
-  const validateCharacter = (): boolean => {
-    if (!character.name.trim()) {
-      Alert.alert('保存失败', '角色名称不能为空。');
-      return false;
+  // Navigation handling
+  const handleBackPress = () => {
+    if (hasUnsavedChanges) {
+      setShowConfirmDialog(true);
+    } else {
+      router.back();
     }
-
-    return true;
   };
 
+  // Saving character
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
       Alert.alert('保存失败', '角色名称不能为空。');
       return;
     }
   
-    setLoading(true);
+    setIsSaving(true);
     const characterId = String(Date.now());
     
     try {
@@ -474,12 +489,10 @@ const CreateChar: React.FC = () => {
                 {
                   comment: entry.comment || '',
                   content: entry.content,
-                  disable: false,
+                  disable: entry.disable,
                   position: entry.position,
-                  // 保持 constant 值，不受位置影响
                   constant: entry.constant || false,
                   key: Array.isArray(entry.key) ? entry.key : [],
-                  // 只在 position=4 时设置 depth
                   ...(entry.position === 4 ? { depth: entry.depth || 0 } : {}),
                   order: entry.order || 0,
                   vectorized: false
@@ -493,7 +506,12 @@ const CreateChar: React.FC = () => {
             content: entry.content || '',
             identifier: entry.identifier,
             enable: entry.enable,
-            role: entry.role
+            role: entry.role,
+            // Properly handle insertion type and depth
+            ...(entry.insertType === 'chat' ? { 
+              injection_position: 1,
+              injection_depth: entry.depth || 0
+            } : {})
           })),
           prompt_order: [{
             order: presetEntries
@@ -562,11 +580,11 @@ const CreateChar: React.FC = () => {
         '保存失败', 
         `创建角色时出现错误：\n${error instanceof Error ? error.message : String(error)}`
       );
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
-  // 从 AsyncStorage 加载导入的数据
+  // Load imported data if available
   useEffect(() => {
     const loadImportedData = async () => {
       try {
@@ -574,7 +592,7 @@ const CreateChar: React.FC = () => {
         if (importData) {
           const data = JSON.parse(importData);
           
-          // 填充角色数据
+          // Fill character data
           if (data.roleCard) {
             setRoleCard(data.roleCard);
             setCharacter(prev => ({
@@ -584,14 +602,11 @@ const CreateChar: React.FC = () => {
             }));
           }
 
-          // 填充世界书数据，修正 position 和 constant 的映射
+          // Handle world book entries
           if (data.worldBook?.entries) {
+            // ...existing world book processing...
             setWorldBook(data.worldBook);
-            console.log('[WorldBook 导入] 原始数据:');
-            Object.entries(data.worldBook.entries).forEach(([key, entry]: [string, any]) => {
-              console.log(`条目: ${key}, position: ${entry.position}`);
-            });
-
+            
             const entries = Object.entries(data.worldBook.entries).map(([key, entry]: [string, any]) => {
               // 确保 position 是有效值（0-4），默认为 4
               const rawPosition = Number(entry.position);
@@ -611,28 +626,15 @@ const CreateChar: React.FC = () => {
                 depth: position === 4 ? (entry.depth || 0) : undefined
               };
 
-              console.log('[WorldBook 导入] 转换后:', {
-                name: newEntry.name,
-                position: newEntry.position,
-                constant: newEntry.constant,
-                depth: newEntry.depth
-              });
-
               return newEntry;
             });
             
             setWorldBookEntries(entries);
           }
 
-          // 简化预设数据填充逻辑
+          // Handle preset entries
           if (data.preset?.prompts) {
-            console.log('[创建角色] 开始处理预设数据:', 
-              data.preset.prompts.map((p: any) => ({
-                name: p.name,
-                injection_position: p.injection_position,
-                injection_depth: p.injection_depth
-            })));
-  
+            // ...existing preset processing...  
             const importedEntries = data.preset.prompts.map((prompt: any, index: number) => ({
               id: `imported_${index}`,
               name: prompt.name || '',
@@ -646,13 +648,18 @@ const CreateChar: React.FC = () => {
               order: index,
               isDefault: false,
               enable: prompt.enabled ?? true,
-              depth: prompt.injection_depth // 直接使用原始值，不做任何处理或转换
+              depth: prompt.injection_depth 
             }));
             
             setPresetEntries(importedEntries);
           }
 
-          // 清除临时存储的导入数据
+          // Handle author note
+          if (data.authorNote) {
+            setAuthorNote(data.authorNote);
+          }
+
+          // Clear temporarily stored import data
           await AsyncStorage.removeItem('temp_import_data');
         }
       } catch (error) {
@@ -664,246 +671,249 @@ const CreateChar: React.FC = () => {
     loadImportedData();
   }, []);
 
-  const animatedStyles = useAnimatedStyle(() => {
-    return {
-      transform: [{
-        translateY: withTiming(showSettings ? -slideDistance : 0, { duration: 300 })
-      }],
-    };
-  }, [showSettings]);
+  // Track changes to set hasUnsavedChanges flag
+  useEffect(() => {
+    const hasContent = roleCard.name || roleCard.first_mes || roleCard.description || 
+                      roleCard.personality || roleCard.scenario || roleCard.mes_example ||
+                      worldBookEntries.length > 0 || authorNote.content;
+    
+    // Only consider it unsaved if there's actual content
+    setHasUnsavedChanges(!!hasContent);
+  }, [
+    roleCard.name, roleCard.first_mes, roleCard.description, roleCard.personality,
+    roleCard.scenario, roleCard.mes_example, worldBookEntries, authorNote.content,
+    character.avatar, character.backgroundImage
+  ]);
 
   return (
-    <SafeAreaView style={sharedStyles.safeArea}>
-      <StatusBar barStyle="dark-content" />
-        <View style={sharedStyles.container}>
-          <View style={sharedStyles.header}>
-            {character.backgroundImage ? (
-              <>
-                <Image
-                  source={{ uri: String(character.backgroundImage) }}
-                  style={sharedStyles.backgroundImage}
-                />
-                <TouchableOpacity 
-                  style={sharedStyles.changeImageButton}
-                  onPress={pickImage}
-                >
-                  <Text style={sharedStyles.changeImageButtonText}>更换形象</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <TouchableOpacity 
-                style={sharedStyles.uploadImageContainer}
-                onPress={pickImage}
-              >
-                <MaterialCommunityIcons name="plus" size={40} color="rgb(255, 224, 195)" />
-                <Text style={sharedStyles.uploadImageText}>点击上传形象</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity style={sharedStyles.avatarContainer} onPress={pickAvatar}>
-              <Image
-                source={
-                  character.avatar 
-                    ? { uri: String(character.avatar) }
-                    : require('@/assets/images/default-avatar.png')
-                }
-                style={sharedStyles.avatar}
-              />
-            </TouchableOpacity>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Character Header - now using the shared CharacterDetailHeader component */}
+      <CharacterDetailHeader
+        name={roleCard.name || '新建角色'}
+        avatar={character.avatar || null}
+        backgroundImage={character.backgroundImage || null}
+        onAvatarPress={pickAvatar}
+        onBackgroundPress={pickBackgroundImage}
+        onBackPress={handleBackPress}
+      />
+      
+      {/* Tab Navigation - match character-detail */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'basic' && styles.activeTab]} 
+          onPress={() => setActiveTab('basic')}
+        >
+          <Text style={[styles.tabText, activeTab === 'basic' && styles.activeTabText]}>
+            基本设定
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'advanced' && styles.activeTab]} 
+          onPress={() => setActiveTab('advanced')}
+        >
+          <Text style={[styles.tabText, activeTab === 'advanced' && styles.activeTabText]}>
+            高级设定
+          </Text>
+        </TouchableOpacity>
+      </View>
+      
+      {/* Content Area */}
+      <ScrollView style={styles.content}>
+        {activeTab === 'basic' ? (
+          <View style={styles.tabContent}>
+            <CharacterAttributeEditor
+              title="名称"
+              value={roleCard.name || ''}
+              onChangeText={(text) => handleRoleCardChange('name', text)}
+              placeholder="角色名称..."
+            />
+            
+            <CharacterAttributeEditor
+              title="开场白"
+              value={roleCard.first_mes || ''}
+              onChangeText={(text) => handleRoleCardChange('first_mes', text)}
+              placeholder="角色与用户的第一次对话内容..."
+              style={styles.attributeSection}
+            />
+            
+            <CharacterAttributeEditor
+              title="角色描述"
+              value={roleCard.description || ''}
+              onChangeText={(text) => handleRoleCardChange('description', text)}
+              placeholder="描述角色的外表、背景等基本信息..."
+              style={styles.attributeSection}
+            />
+            
+            <CharacterAttributeEditor
+              title="性格特征"
+              value={roleCard.personality || ''}
+              onChangeText={(text) => handleRoleCardChange('personality', text)}
+              placeholder="描述角色的性格、习惯、喜好等..."
+              style={styles.attributeSection}
+            />
+            
+            <CharacterAttributeEditor
+              title="场景设定"
+              value={roleCard.scenario || ''}
+              onChangeText={(text) => handleRoleCardChange('scenario', text)}
+              placeholder="描述角色所在的环境、情境..."
+              style={styles.attributeSection}
+            />
+            
+            <CharacterAttributeEditor
+              title="对话示例"
+              value={roleCard.mes_example || ''}
+              onChangeText={(text) => handleRoleCardChange('mes_example', text)}
+              placeholder="提供一些角色对话的范例..."
+              style={styles.attributeSection}
+            />
           </View>
-
-          <Animated.View style={[sharedStyles.settingsPanel, animatedStyles]}>
-            <TouchableOpacity
-              style={sharedStyles.handle}
-              onPress={() => setShowSettings(!showSettings)}
-              accessibilityLabel={showSettings ? "收起设置" : "展开设置"}
-            >
-              <MaterialCommunityIcons
-                name={showSettings ? "chevron-down" : "chevron-up"}
-                size={24}
-                color="white"
-              />
-            </TouchableOpacity>
-
-            <ScrollView style={sharedStyles.settingsContent} contentContainerStyle={sharedStyles.scrollContent}>
-              <View style={sharedStyles.attributesContainer}>
-                <View style={sharedStyles.sectionHeader}>
-                  <Text style={sharedStyles.sectionTitle}>角色卡信息</Text>
-                </View>
-                
-                <View style={sharedStyles.inputContainer}>
-                  <Text style={sharedStyles.inputLabel}>名称</Text>
-                  <TextInput
-                    style={sharedStyles.input}
-                    value={roleCard.name}
-                    onChangeText={(text) => handleRoleCardChange('name', text)}
-                    placeholder="角色名称"
-                    placeholderTextColor="#999" 
-                  />
-                </View>
-    
-                <View style={sharedStyles.inputContainer}>
-                  <Text style={sharedStyles.inputLabel}>首次对话内容</Text>
-                  <TextInput
-                    style={[sharedStyles.input, sharedStyles.multilineInput]}
-                    value={roleCard.first_mes}
-                    onChangeText={(text) => handleRoleCardChange('first_mes', text)}
-                    placeholder="角色的第一句话"
-                    placeholderTextColor="#999"
-                    multiline
-                  />
-                </View>
-  
-                <View style={sharedStyles.inputContainer}>
-                  <Text style={sharedStyles.inputLabel}>角色描述</Text>
-                  <TextInput
-                    style={[sharedStyles.input, sharedStyles.multilineInput]}
-                    value={roleCard.description}
-                    onChangeText={(text) => handleRoleCardChange('description', text)}
-                    placeholder="角色的基本描述"
-                    placeholderTextColor="#999"
-                    multiline
-                  />
-                </View>
-    
-                <View style={sharedStyles.inputContainer}>
-                  <Text style={sharedStyles.inputLabel}>性格特征</Text>
-                  <TextInput
-                    style={[sharedStyles.input, sharedStyles.multilineInput]}
-                    value={roleCard.personality}
-                    onChangeText={(text) => handleRoleCardChange('personality', text)}
-                    placeholder="角色的性格特点"
-                    placeholderTextColor="#999"
-                    multiline
-                  />
-                </View>
-    
-                <View style={sharedStyles.inputContainer}>
-                  <Text style={sharedStyles.inputLabel}>场景设定</Text>
-                  <TextInput
-                    style={[sharedStyles.input, sharedStyles.multilineInput]}
-                    value={roleCard.scenario}
-                    onChangeText={(text) => handleRoleCardChange('scenario', text)}
-                    placeholder="角色的场景设定"
-                    placeholderTextColor="#999"
-                    multiline
-                  />
-                </View>
-    
-                <View style={sharedStyles.inputContainer}>
-                  <Text style={sharedStyles.inputLabel}>对话示例</Text>
-                  <TextInput
-                    style={[sharedStyles.input, sharedStyles.multilineInput]}
-                    value={roleCard.mes_example}
-                    onChangeText={(text) => handleRoleCardChange('mes_example', text)}
-                    placeholder="角色的对话示例"
-                    placeholderTextColor="#999"
-                    multiline
-                  />
-                </View>
-
-                {/* 世界书部分 */}
-                <WorldBookSection 
-                  entries={worldBookEntries}
-                  onAdd={handleAddWorldBookEntry}
-                  onUpdate={handleUpdateWorldBookEntry}
-                  onReorder={handleReorderWorldBook}
-                  onViewDetail={handleViewDetail} // Add this
-                />
-    
-                {/* 作者注释部分 */}
-                <AuthorNoteSection
-                  content={authorNote.content || ''}
-                  injection_depth={authorNote.injection_depth || 0}
-                  onUpdateContent={(text) => setAuthorNote(prev => ({ ...prev, content: text }))}
-                  onUpdateDepth={(depth) => setAuthorNote(prev => ({ 
-                    ...prev, 
-                    injection_depth: depth 
-                  }))}
-                  onViewDetail={handleViewDetail} // Add this
-                />
-
-                {/* 预设信息部分 */}
-                <PresetSection
-                  entries={presetEntries}
-                  onAdd={handleAddPresetEntry}
-                  onUpdate={handleUpdatePresetEntry}
-                  onMove={handleMoveEntry}
-                  onReorder={handleReorderPresets}
-                  onViewDetail={handleViewDetail} // Add this
-                />
-              </View>
-            </ScrollView>
-
-            <TouchableOpacity style={sharedStyles.saveButton} onPress={saveCharacter} disabled={loading} accessibilityLabel="保存设定">
-              {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={sharedStyles.saveButtonText}>保存设定</Text>
-              )}
-            </TouchableOpacity>
-          </Animated.View>
-          <DetailSidebar
-            isVisible={!!selectedField}
-            onClose={() => setSelectedField(null)}
-            title={selectedField?.title || ''}
-            content={selectedField?.content || ''}
-            onContentChange={selectedField?.onContentChange}
-            editable={selectedField?.editable}
-            entryType={selectedField?.entryType}
-            entryOptions={selectedField?.entryOptions}
-            onOptionsChange={selectedField?.onOptionsChange}
-          />
-        </View>
+        ) : (
+          <View style={styles.tabContent}>
+            {/* World Book Section */}
+            <WorldBookSection 
+              entries={worldBookEntries}
+              onAdd={handleAddWorldBookEntry}
+              onUpdate={handleUpdateWorldBookEntry}
+              onReorder={handleReorderWorldBook}
+              onViewDetail={handleViewDetail}
+            />
+            
+            {/* Author Note Section */}
+            <AuthorNoteSection
+              content={authorNote.content || ''}
+              injection_depth={authorNote.injection_depth || 0}
+              onUpdateContent={(text) => {
+                setAuthorNote(prev => ({ ...prev, content: text }));
+                setHasUnsavedChanges(true);
+              }}
+              onUpdateDepth={(depth) => {
+                setAuthorNote(prev => ({ ...prev, injection_depth: depth }));
+                setHasUnsavedChanges(true);
+              }}
+              onViewDetail={handleViewDetail}
+            />
+            
+            {/* Preset Section */}
+            <PresetSection
+              entries={presetEntries}
+              onAdd={handleAddPresetEntry}
+              onUpdate={handleUpdatePresetEntry}
+              onMove={handleMoveEntry}
+              onReorder={handleReorderPresets}
+              onViewDetail={handleViewDetail}
+            />
+          </View>
+        )}
+      </ScrollView>
+      
+      {/* Bottom Actions Bar - match character-detail */}
+      <BlurView intensity={30} tint="dark" style={styles.bottomBar}>
+        <ActionButton
+          title="取消"
+          icon="close-outline"
+          onPress={handleBackPress}
+          color="#666666"
+          style={styles.cancelButton}
+        />
+        
+        <ActionButton
+          title="创建角色"
+          icon="save-outline"
+          onPress={saveCharacter}
+          loading={isSaving}
+          color={theme.colors.primary}
+          style={styles.saveButton}
+        />
+      </BlurView>
+      
+      {/* Detail Sidebar for expanded editing */}
+      <DetailSidebar
+        isVisible={!!selectedField}
+        onClose={() => setSelectedField(null)}
+        title={selectedField?.title || ''}
+        content={selectedField?.content || ''}
+        onContentChange={selectedField?.onContentChange}
+        editable={selectedField?.editable}
+        entryType={selectedField?.entryType}
+        entryOptions={selectedField?.entryOptions}
+        onOptionsChange={selectedField?.onOptionsChange}
+        name={selectedField?.name}
+        onNameChange={selectedField?.onNameChange}
+      />
+      
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        visible={showConfirmDialog}
+        title="放弃更改"
+        message="您有未保存的更改，确定要离开吗？"
+        confirmText="放弃更改"
+        cancelText="继续编辑"
+        confirmAction={() => {
+          setShowConfirmDialog(false);
+          router.back();
+        }}
+        cancelAction={() => setShowConfirmDialog(false)}
+        destructive={true}
+        icon="alert-circle-outline"
+      />
     </SafeAreaView>
   );
 };
 
-// 删除重复的样式定义,只保留特定于 create_char 的独特样式
 const styles = StyleSheet.create({
-  // 继承共用样式
-  ...sharedStyles,
-  
-  // 只保留 create_char 特有的或需要覆盖的样式
-  profileInfo: {
-    padding: 10,
-    borderRadius: 10,
-    marginTop: headerImageHeight - 40,
-    marginLeft: 20
+  container: {
+    flex: 1,
+    backgroundColor: '#282828',
   },
-  editButton: {
-    backgroundColor: 'rgb(255, 224, 195)',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    marginTop: 2,
-    marginLeft: 0,
-    marginRight: 0,
+  tabContainer: {
+    flexDirection: 'row',
+    marginTop: 10,
+    paddingHorizontal: 16,
   },
-  editButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
-    fontSize: 12,
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
   },
-  zipper: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#777',
-    borderRadius: 5
+  activeTab: {
+    borderBottomColor: theme.colors.primary,
   },
-  handleArea: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: 40,
-    height: 40,
-  },
-  loadingText: {
-    color: '#fff',
+  tabText: {
     fontSize: 16,
-  }
+    fontWeight: '500',
+    color: '#aaaaaa',
+  },
+  activeTabText: {
+    color: theme.colors.text,
+  },
+  content: {
+    flex: 1,
+  },
+  tabContent: {
+    padding: 16,
+  },
+  attributeSection: {
+    marginTop: 20,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    padding: 16,
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  cancelButton: {
+    flex: 1,
+    marginRight: 8,
+  },
+  saveButton: {
+    flex: 2,
+  },
 });
 
 export default CreateChar;

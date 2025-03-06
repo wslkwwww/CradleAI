@@ -182,6 +182,50 @@ const reviewPrompt = await circleManager.generateRelationshipStateReviewPrompt(c
 // charB--2
 // charC-+10-close_friend
 ```
+**日志追踪**：
+
+关系解析过程现在提供了更详细的日志，包括成功率统计和匹配失败原因：
+
+```typescript
+// 解析每一行
+const lines = updateSection[1].trim().split('\n');
+console.log(`【角色关系】发现 ${lines.length} 行待解析内容`);
+
+// ...解析处理...
+
+console.log(`【角色关系】成功解析 ${results.length}/${lines.length} 条关系更新`);
+GitHub Copilot
+I'll provide you with the updates needed for both the character-relationship-system and circle-interaction-system documentation based on the recent changes. Here are the sections that should be added or modified:
+
+Updates for circle-interaction-system.md
+Add to Section 2 (System Architecture)
+Add to Section 6.3 (场景提示词设计)
+作为一个角色，请基于你的性格和背景，创作一条适合发布在朋友圈的内容。
+
+这次发布可能的主题是：${contentText} ${options.content.context ? 【上下文】${options.content.context} : ''}
+
+请以JSON格式提供你的朋友圈帖子： { "post": "你要发布的朋友圈内容", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
+
+确保内容符合你的角色人设，展现出你独特的性格和表达方式。
+
+这是你自己发布的朋友圈动态，现在你正在查看别人对你帖子的反应：
+
+【你发布的内容】${contentText} 【上下文】${options.content.context || '无'}
+
+基于你的角色性格，请以JSON格式回应：
+
+你对自己发布的这条内容的感受
+你希望获得什么样的评论或互动
+包含你的情感状态
+严格按以下格式回复： { "reflection": "对自己帖子的反思或补充想法", "expectation": "期待获得的互动类型", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
+
+Add to Section 9 (Technical Implementation Details)
+
+```
+
+#### 2.2.1 关系状态检视调试增强
+系统现在提供了更详细的关系状态检视解析日志，以便更好地调试和理解关系更新过程：
+
 
 ### 3. 关系驱动的行动触发
 
@@ -410,6 +454,28 @@ const runRelationshipTest = async (options) => {
 - support：提供支持，强化信任和依赖关系
 - confession：表达心意，可能形成亲密关系
 
+#### 6.3 D类条目可靠性改进
+系统现在能够检测关键D类条目（如关系状态检视）是否被成功包含在最终提示中：
+
+```typescript
+// Log important information about the constructed prompt
+console.log(`[PromptBuilderService] Final prompt includes D-entries: ${hasIncludedDEntries}, includes relationship review: ${hasIncludedRelationshipReview}`);
+
+// If relationship review should be present but isn't, add a diagnostic message
+if (!hasIncludedRelationshipReview && hasReviewInOriginal) {
+  console.error("[PromptBuilderService] WARNING: Relationship State Review was present in original messages but not included in final text!");
+}
+
+当系统检测到关系状态检视未被包含时，会实施备用策略：
+
+// 如果日志中没有检测到状态检视提示词，但我们确实创建了它，那么手动添加它
+if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
+  console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
+  const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
+  // ...使用修改后的提示词
+}
+
+
 ## 7. 系统优势与未来改进
 
 ### 7.1 当前系统优势
@@ -534,6 +600,9 @@ function checkForPotentialActions(character: Character): RelationshipAction[] {
   return newActions;
 }
 ```
+
+
+
 
 通过以上详细的技术设计和实现，角色关系系统为应用提供了一个丰富、动态的社交互动网络，让角色之间的互动更加真实和有意义。
 ```

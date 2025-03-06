@@ -9,11 +9,11 @@ export const settingsPanelHeight = screenHeight * (2 / 3);
 export const slideDistance = headerImageHeight + settingsPanelHeight - screenHeight + 40;
 
 export const POSITION_OPTIONS = [
-  { label: 'ChatStart', value: 0, isFrameworkPosition: true },
-  { label: 'BeforeChitchat', value: 1, isFrameworkPosition: true },
-  { label: 'AfterChitchat', value: 2, isFrameworkPosition: false },
-  { label: 'BeforeSend', value: 3, isFrameworkPosition: false },
-  { label: 'Dynamic', value: 4, isFrameworkPosition: false }
+  { label: '角色定义之前', value: 0, isFrameworkPosition: true },
+  { label: '角色定义之后', value: 1, isFrameworkPosition: true },
+  { label: '作者注释之前', value: 2, isFrameworkPosition: false },
+  { label: '作者注释之后', value: 3, isFrameworkPosition: false },
+  { label: '按深度插入', value: 4, isFrameworkPosition: false }
 ];
 
 export const INSERT_TYPE_OPTIONS = [

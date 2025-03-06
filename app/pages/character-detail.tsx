@@ -129,6 +129,8 @@ const CharacterDetail: React.FC = () => {
     entryType?: 'worldbook' | 'preset' | 'author_note';
     entryOptions?: any;
     onOptionsChange?: (options: any) => void;
+    name?: string;
+    onNameChange?: (text: string) => void;
   } | null>(null);
 
   // ... existing selectedField state and handlers ...
@@ -287,11 +289,104 @@ const CharacterDetail: React.FC = () => {
     setIsSaving(true);
     
     try {
-      // Construct complete character data
-      // ... existing data construction logic ...
+      // Construct worldBook from worldBookEntries
+      const worldBookData = {
+        entries: Object.fromEntries(
+          worldBookEntries
+            .filter(entry => entry.name && entry.content)
+            .map(entry => [
+              entry.name,
+              {
+                comment: entry.comment || '',
+                content: entry.content,
+                disable: entry.disable,
+                position: entry.position,
+                constant: entry.constant || false,
+                key: Array.isArray(entry.key) ? entry.key : [],
+                ...(entry.position === 4 ? { depth: entry.depth || 0 } : {}),
+                order: entry.order || 0,
+                vectorized: false
+              }
+            ])
+        )
+      };
       
-      // Build updated character object and save
-      // ... existing save logic ...
+      // Construct presetData with proper handling of insertion types and depths
+      const presetData = {
+        prompts: presetEntries.map(entry => ({
+          name: entry.name,
+          content: entry.content || '',
+          identifier: entry.identifier,
+          enable: entry.enable,
+          role: entry.role,
+          // Handle insertion type and depth correctly
+          ...(entry.insertType === 'chat' ? { 
+            injection_position: 1,
+            injection_depth: entry.depth || 0
+          } : {})
+        })),
+        prompt_order: [{
+          order: presetEntries
+            .sort((a, b) => a.order - b.order)
+            .map(entry => ({
+              identifier: entry.identifier,
+              enabled: entry.enable
+            }))
+        }]
+      };
+      
+      // Construct authorNote data
+      const authorNoteData = {
+        charname: roleCard.name.trim(),
+        username: user?.settings?.self.nickname || "User",
+        content: authorNote.content || '',
+        injection_depth: authorNote.injection_depth || 0
+      };
+      
+      // Complete JSON data to be saved
+      const jsonData = {
+        roleCard: {
+          ...roleCard,
+          name: roleCard.name.trim()
+        },
+        worldBook: worldBookData,
+        preset: presetData,
+        authorNote: authorNoteData
+      };
+      
+      // Build updated character object
+      const updatedCharacter: Character = {
+        ...character,
+        name: roleCard.name.trim(),
+        description: roleCard.description || '',
+        personality: roleCard.personality || '',
+        updatedAt: Date.now(),
+        jsonData: JSON.stringify(jsonData)
+      };
+      
+      console.log("[CharacterDetail] Saving character with ID:", updatedCharacter.id);
+      
+      // Save updated character
+      await updateCharacter(updatedCharacter);
+      
+      // Send update to NodeST
+      const apiKey = user?.settings?.chat?.characterApiKey || '';
+      const apiSettings = user?.settings?.chat;
+      
+      if (apiKey) {
+        console.log("[CharacterDetail] Updating character in NodeST");
+        await NodeSTManager.processChatMessage({
+          userMessage: "",
+          status: "更新人设",
+          conversationId: character.id,
+          apiKey: apiKey,
+          apiSettings: {
+            apiProvider: apiSettings?.apiProvider || 'gemini',
+            openrouter: apiSettings?.openrouter
+          },
+          character: updatedCharacter
+        });
+      }
       
       // Notify user on success
       setHasUnsavedChanges(false);
@@ -336,7 +431,9 @@ const CharacterDetail: React.FC = () => {
     editable: boolean = true,
     entryType?: 'worldbook' | 'preset' | 'author_note',
     entryOptions?: any,
-    onOptionsChange?: (options: any) => void
+    onOptionsChange?: (options: any) => void,
+    name?: string,
+    onNameChange?: (text: string) => void
   ) => {
     setSelectedField({ 
       title, 
@@ -345,7 +442,9 @@ const CharacterDetail: React.FC = () => {
       editable,
       entryType,
       entryOptions,
-      onOptionsChange
+      onOptionsChange,
+      name,
+      onNameChange
     });
   };
 
@@ -617,6 +716,8 @@ const CharacterDetail: React.FC = () => {
         entryType={selectedField?.entryType}
         entryOptions={selectedField?.entryOptions}
         onOptionsChange={selectedField?.onOptionsChange}
+        name={selectedField?.name}
+        onNameChange={selectedField?.onNameChange}
       />
       
       {/* Confirm Dialog */}

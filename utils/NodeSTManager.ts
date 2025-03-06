@@ -58,7 +58,8 @@ class NodeSTManagerClass {
         conversationId: params.conversationId,
         characterId: characterId,
         hasCharacter: !!params.character,
-        hasJsonData: !!jsonString
+        hasJsonData: !!jsonString,
+        action: params.status === "更新人设" ? "更新人设" : (params.status === "新建角色" ? "新建角色" : "继续对话")
       });
 
       // If OpenRouter is configured, ensure we're using the latest settings
@@ -68,6 +69,11 @@ class NodeSTManagerClass {
       }
 
       console.log('[NodeSTManager] Calling NodeST.processChatMessage with conversationId:', params.conversationId);
+      
+      // For character updates, log that we're updating character data
+      if (params.status === "更新人设" && jsonString) {
+        console.log('[NodeSTManager] Updating character data for:', characterId);
+      }
       
       // Call NodeST with all params including apiSettings
       const response = await this.nodeST.processChatMessage({
@@ -85,6 +91,7 @@ class NodeSTManagerClass {
           text: response.response
         };
       } else {
+        console.error('[NodeSTManager] Error from NodeST:', response.error);
         return {
           success: false,
           error: response.error || "Unknown error"

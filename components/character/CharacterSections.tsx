@@ -7,7 +7,8 @@ import {
   StyleSheet,
   Animated,
   PanResponder,
-  LayoutChangeEvent
+  LayoutChangeEvent,
+  Alert
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
@@ -362,7 +363,7 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                 {isDropArea && sortMode && <View style={styles.dropArea} />}
                 
                 <View onLayout={(event) => handleEntryLayout(entry.id, event)}>
-                  <TouchableOpacity
+                  <View
                     style={[
                       styles.entryItemCompact,
                       entry.disable && styles.disabledEntry,
@@ -370,24 +371,6 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                       isDragging && styles.draggingItem,
                       sortMode && styles.sortModeItem
                     ]}
-                    onPress={() => {
-                      if (!sortMode && onViewDetail) {
-                        onViewDetail(
-                          `世界观 - ${entry.name || '未命名'}`,
-                          entry.content || '',
-                          (text) => onUpdate(entry.id, { content: text }),
-                          true,
-                          'worldbook',
-                          {
-                            position: entry.position,
-                            depth: entry.depth,
-                            key: entry.key
-                          },
-                          (options) => onUpdate(entry.id, options)
-                        );
-                      }
-                    }}
-                    disabled={sortMode}
                   >
                     {sortMode && (
                       <View style={styles.dragHandle}>
@@ -395,12 +378,64 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                       </View>
                     )}
                     
-                    <InputField
-                      label="名称"
-                      value={entry.name || ''}
-                      onChangeText={(text) => onUpdate(entry.id, { name: text })}
-                      compact
-                    />
+                    {/* Name editing field with edit button */}
+                    <View style={styles.nameEditContainer}>
+                      <Text style={styles.entryName} numberOfLines={1}>
+                        {entry.name || '未命名条目'}
+                      </Text>
+                      
+                      {!sortMode && (
+                        <TouchableOpacity 
+                          style={styles.nameEditButton}
+                          onPress={() => {
+                            // Open name edit dialog or inline editing
+                            Alert.prompt(
+                              "编辑名称",
+                              "请输入条目名称",
+                              [
+                                {
+                                  text: "取消",
+                                  style: "cancel"
+                                },
+                                {
+                                  text: "确定",
+                                  onPress: name => name && onUpdate(entry.id, { name })
+                                }
+                              ],
+                              "plain-text",
+                              entry.name
+                            );
+                          }}
+                        >
+                          <MaterialIcons name="edit" size={16} color={theme.colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    
+                    {/* Content view button */}
+                    <TouchableOpacity
+                      style={styles.contentViewButton}
+                      onPress={() => {
+                        if (!sortMode && onViewDetail) {
+                          onViewDetail(
+                            `世界观 - ${entry.name || '未命名'}`,
+                            entry.content || '',
+                            (text) => onUpdate(entry.id, { content: text }),
+                            true,
+                            'worldbook',
+                            {
+                              position: entry.position,
+                              depth: entry.depth,
+                              key: entry.key
+                            },
+                            (options) => onUpdate(entry.id, options)
+                          );
+                        }
+                      }}
+                      disabled={sortMode}
+                    >
+                      <MaterialIcons name="visibility" size={20} color={theme.colors.text} />
+                    </TouchableOpacity>
                     
                     <View style={styles.buttonGroup}>
                       <ToggleButton
@@ -422,7 +457,7 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                         />
                       </TouchableOpacity>
                     </View>
-                  </TouchableOpacity>
+                  </View>
                 </View>
                 
                 {index === entries.length - 1 && dropAreaIndex === entries.length && sortMode && (
@@ -555,6 +590,20 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
     entryLayoutsRef.current[id] = { y, height };
   };
 
+  // Add this new function to handle the drag/drop more effectively
+  const handleMoveButtonPress = (id: string, direction: 'up' | 'down') => {
+    const index = entries.findIndex(entry => entry.id === id);
+    if (index === -1) return;
+    
+    // If we're trying to move the first item up or last item down, do nothing
+    if ((direction === 'up' && index === 0) || 
+        (direction === 'down' && index === entries.length - 1)) {
+      return;
+    }
+    
+    onMove(id, direction);
+  };
+
   return (
     <View 
       style={styles.sectionHeader} 
@@ -610,7 +659,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                 {isDropArea && sortMode && <View style={styles.dropArea} />}
                 
                 <View onLayout={(event) => handleEntryLayout(entry.id, event)}>
-                  <TouchableOpacity
+                  <View
                     style={[
                       styles.entryItemCompact,
                       !entry.enable && styles.disabledEntry,
@@ -618,38 +667,98 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                       isDragging && styles.draggingItem,
                       sortMode && styles.sortModeItem
                     ]}
-                    onPress={() => {
-                      if (!sortMode && onViewDetail) {
-                        onViewDetail(
-                          `预设 - ${entry.name || '未命名'}`,
-                          entry.content || '',
-                          (text) => onUpdate(entry.id, { content: text }),
-                          entry.isEditable,
-                          'preset',
-                          {
-                            insertType: entry.insertType,
-                            role: entry.role,
-                            depth: entry.depth
-                          },
-                          (options) => onUpdate(entry.id, options)
-                        );
-                      }
-                    }}
-                    disabled={sortMode}
                   >
-                    {sortMode && (
+                    {sortMode ? (
                       <View style={styles.dragHandle}>
                         <MaterialCommunityIcons name="drag" size={20} color={theme.colors.textSecondary} />
                       </View>
+                    ) : (
+                      <View style={styles.moveButtonsContainer}>
+                        <TouchableOpacity 
+                          style={styles.moveButton}
+                          onPress={() => handleMoveButtonPress(entry.id, 'up')}
+                          disabled={index === 0}
+                        >
+                          <MaterialCommunityIcons 
+                            name="chevron-up" 
+                            size={20} 
+                            color={index === 0 ? theme.colors.textSecondary : theme.colors.white} 
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={styles.moveButton}
+                          onPress={() => handleMoveButtonPress(entry.id, 'down')}
+                          disabled={index === entries.length - 1}
+                        >
+                          <MaterialCommunityIcons 
+                            name="chevron-down" 
+                            size={20} 
+                            color={index === entries.length - 1 ? theme.colors.textSecondary : theme.colors.white} 
+                          />
+                        </TouchableOpacity>
+                      </View>
                     )}
                     
-                    <InputField
-                      label="名称"
-                      value={entry.name || ''}
-                      onChangeText={(text) => onUpdate(entry.id, { name: text })}
-                      editable={entry.isEditable}
-                      compact
-                    />
+                    {/* Name editing field with edit button */}
+                    <View style={styles.nameEditContainer}>
+                      <Text style={[
+                        styles.entryName, 
+                        !entry.isEditable && styles.fixedEntryName
+                      ]} numberOfLines={1}>
+                        {entry.name || '未命名条目'}
+                      </Text>
+                      
+                      {!sortMode && entry.isEditable && (
+                        <TouchableOpacity 
+                          style={styles.nameEditButton}
+                          onPress={() => {
+                            Alert.prompt(
+                              "编辑名称",
+                              "请输入条目名称",
+                              [
+                                {
+                                  text: "取消",
+                                  style: "cancel"
+                                },
+                                {
+                                  text: "确定",
+                                  onPress: name => name && onUpdate(entry.id, { name })
+                                }
+                              ],
+                              "plain-text",
+                              entry.name
+                            );
+                          }}
+                        >
+                          <MaterialIcons name="edit" size={16} color={theme.colors.primary} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    
+                    {/* Content view button */}
+                    <TouchableOpacity
+                      style={styles.contentViewButton}
+                      onPress={() => {
+                        if (!sortMode && onViewDetail) {
+                          onViewDetail(
+                            `预设 - ${entry.name || '未命名'}`,
+                            entry.content || '',
+                            (text) => onUpdate(entry.id, { content: text }),
+                            entry.isEditable,
+                            'preset',
+                            {
+                              insertType: entry.insertType,
+                              role: entry.role,
+                              depth: entry.depth
+                            },
+                            (options) => onUpdate(entry.id, options)
+                          );
+                        }
+                      }}
+                      disabled={sortMode}
+                    >
+                      <MaterialIcons name="visibility" size={20} color={theme.colors.text} />
+                    </TouchableOpacity>
                     
                     <View style={styles.buttonGroup}>
                       <ToggleButton
@@ -657,7 +766,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                         onToggle={() => onUpdate(entry.id, { enable: !entry.enable })}
                       />
                     </View>
-                  </TouchableOpacity>
+                  </View>
                 </View>
                 
                 {index === entries.length - 1 && dropAreaIndex === entries.length && sortMode && (
@@ -854,5 +963,43 @@ const styles = StyleSheet.create({
     color: theme.colors.white,
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  moveButtonsContainer: {
+    flexDirection: 'column',
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moveButton: {
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(60,60,60,0.6)',
+    marginVertical: 2,
+  },
+  nameEditContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  entryName: {
+    flex: 1,
+    color: theme.colors.text,
+    fontWeight: '500',
+    fontSize: 14,
+  },
+  fixedEntryName: {
+    fontStyle: 'italic',
+    color: theme.colors.textSecondary,
+  },
+  nameEditButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  contentViewButton: {
+    padding: 8,
+    backgroundColor: 'rgba(60,60,60,0.6)',
+    borderRadius: 16,
+    marginRight: 8,
   },
 });

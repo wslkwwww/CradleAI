@@ -62,6 +62,17 @@ graph TD
     C -->|存取数据| D[AsyncStorage]
     C -->|发送请求| E[Gemini API]
 ```
+### 2.1 角色身份感知机制
+
+系统在处理朋友圈互动时，现已增强对"角色自我身份"的感知能力，特别是当角色是内容的发布者时：
+
+1. **身份感知触发**：系统通过检测 `options.content.authorId === options.responderId` 来识别角色是否为帖子作者
+2. **内容生成适配**：基于身份提供不同的提示词模板，确保输出内容的合理性
+3. **提示词差异化**：发帖者、回复者、评论回复者的提示词模板分别独立设计
+
+
+
+
 
 ## 3. 快速开始
 
@@ -232,49 +243,68 @@ interface CirclePostOptions {
 ```
 
 ### 6.3 场景提示词设计
-系统针对不同的互动类型设计了不同的场景提示词：
 
-新帖子场景 (newPost)
-```
-你正在创建一条新的朋友圈动态。基于你的角色性格，请以JSON格式回应：
-- 决定是否点赞（like: true/false，对自己发的内容通常为false）
-- 提供一条你想发布的内容（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
 
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-    "like": false,
-    "comment": "你想发布的朋友圈内容"
-  },
-  "emotion": {
-    "type": "positive/neutral/negative",
-    "intensity": 0.0-1.0
-  }
+
+#### 6.3.0 D类条目可靠性改进
+
+系统现在能够检测关键D类条目（如关系状态检视）是否被成功包含在最终提示中：
+
+```typescript
+// Log important information about the constructed prompt
+console.log(`[PromptBuilderService] Final prompt includes D-entries: ${hasIncludedDEntries}, includes relationship review: ${hasIncludedRelationshipReview}`);
+
+// If relationship review should be present but isn't, add a diagnostic message
+if (!hasIncludedRelationshipReview && hasReviewInOriginal) {
+  console.error("[PromptBuilderService] WARNING: Relationship State Review was present in original messages but not included in final text!");
 }
-```
 
-回复帖子场景 (replyToPost)
-```
-你正在浏览朋友圈中的动态。基于你的角色性格，请以JSON格式回应：
-- 决定是否点赞（like: true/false）
-- 可选择是否发表评论（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
+当系统检测到关系状态检视未被包含时，会实施备用策略：
 
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-    "like": true/false,
-    "comment": "你的评论内容（如不评论则省略此字段）"
-  },
-  "emotion": {
-    "type": "positive/neutral/negative",
-    "intensity": 0.0-1.0
-  }
+// 如果日志中没有检测到状态检视提示词，但我们确实创建了它，那么手动添加它
+if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
+  console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
+  const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
+  // ...使用修改后的提示词
 }
+
 ```
 
-回复评论(replyToComment)
+#### 6.3.1 针对帖子发布者的场景提示词
+
+当角色是内容发布者时（即 authorId 与 responderId 相同）使用的提示词：
+作为一个角色，请基于你的性格和背景，创作一条适合发布在朋友圈的内容。
+
+这次发布可能的主题是：${contentText} ${options.content.context ? 【上下文】${options.content.context} : ''}
+
+请以JSON格式提供你的朋友圈帖子： { "post": "你要发布的朋友圈内容", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
+
+确保内容符合你的角色人设，展现出你独特的性格和表达方式。
+
+
+#### 6.3.2 自我帖子反思场景提示词
+
+当角色查看自己发布的帖子时使用的提示词：
+
+
+```
+
+这是你自己发布的朋友圈动态，现在你正在查看别人对你帖子的反应：
+
+【你发布的内容】${contentText} 【上下文】${options.content.context || '无'}
+
+基于你的角色性格，请以JSON格式回应：
+
+你对自己发布的这条内容的感受
+你希望获得什么样的评论或互动
+包含你的情感状态
+严格按以下格式回复： { "reflection": "对自己帖子的反思或补充想法", "expectation": "期待获得的互动类型", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
+```
+
+
+#### 6.3.3 其他角色回复评论的场景提示词
+
+
 ```
 你看到一条朋友圈评论。基于你的角色性格和上下文信息，请以JSON格式回应：
 - 决定是否点赞（like: true/false）
@@ -452,6 +482,40 @@ if (!matches || matches.length === 0) {
    ```
 
 使用 TestResultsModal 组件可视化展示测试结果，包含成功率、互动内容等统计数据。
+
+### 9.1 角色身份检测
+
+在 `getScenePromptByType` 方法中，系统会检查角色是否为内容的作者，并相应地提供不同的提示词模板：
+
+```typescript
+// 检查是否为自己发布的帖子（发帖者和响应者是同一角色）
+const isOwnPost = options.content.authorId === options.responderId;
+
+// 根据不同情况选择不同提示词模板
+if (options.type === 'newPost') {
+  if (isOwnPost) {
+    // 使用发帖者提示词模板
+    scenePrompt = `作为一个角色，请基于你的性格和背景，创作...`;
+  } else {
+    // 使用回应者提示词模板
+    scenePrompt = `作为一个角色，你正在创建一条新的朋友圈动态...`;
+  }
+}
+```
+## 9.2 提示词嵌入检测与修复
+系统现在能够检测特定D类条目（如关系状态检视提示词）是否成功嵌入到最终提示中，并在失败时进行手动修复：
+
+``` typescript
+// 检查关系状态检视提示词是否被包含
+if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
+  console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
+  const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
+  
+  // 使用修改后的提示词
+  const response = await this.getChatResponse(modifiedPrompt);
+  // ...处理响应
+}
+
 
 ## 10. 开发建议与最佳实践
 

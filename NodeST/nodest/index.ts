@@ -124,7 +124,8 @@ export class NodeST {
                 messageLength: params.userMessage.length,
                 status: params.status,
                 conversationId: params.conversationId,
-                apiProvider: params.apiSettings?.apiProvider || 'gemini'
+                apiProvider: params.apiSettings?.apiProvider || 'gemini',
+                hasJsonString: !!params.jsonString,
             });
 
             if (!params.apiKey) {
@@ -167,7 +168,9 @@ export class NodeST {
                     throw new Error("Character data is required for updating a character");
                 }
 
+                console.log("[NodeST] Updating character settings for conversationId:", params.conversationId);
                 const characterData = this.parseCharacterJson(params.jsonString);
+                
                 const updated = await core.updateCharacter(
                     params.conversationId,
                     characterData.roleCard,
@@ -181,7 +184,8 @@ export class NodeST {
                 }
 
                 return { 
-                    success: true
+                    success: true,
+                    response: "Character updated successfully"
                 };
             }
             else if (params.status === "同一角色继续对话") {

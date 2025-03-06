@@ -29,34 +29,29 @@
 
 
 
+
+
 -角色关系系统
- -确认消息盒子中的消息列表，能够正确更新并且显示出来
+
  -角色对行动的接受和拒绝逻辑，应该允许用户干预/角色自行判断的双重逻辑。
 
- 另外
-    1.状态检视提示词能够插入到AI请求中
-    2.AI请求包含消息盒子，且消息盒子的刷新正常
-    3.AI响应包含关系更新指令
-    4.系统根据AI响应更新数据
-    5.行动能够正常显示在关系页面
+
+-角色创建和更新的问题
+
+ -让create_char页面UI和character-detail界面UI统一，
+
+    -页面中的detailsidebar应该允许上下滑动，因为文本内容可能很长
+
+    -在文本框输入后放弃更改，不应该直接退出页面，而只是回到页面中。
+
+     -预设内容的排序方式无效，请更换排序方式，例如点击上下箭头来排序条目，注意保持UI的美观
+
+ -character-detail页面保存角色后，更新的信息没有生效，包括头像。并且character-detail没有将更新人设的请求传入NodeSTmanager中，需要解决。另外，确认character-detail和NodeSTmanager正确交互，正确传递信息给index中的updateCharacter方法。
+
+ -本需求是一个修改需求，无需创建新的文件。
 
 
 
-
-
-
-////////////////////////其他
-
--chatdialog页面允许html改变字体颜色。
-
--允许酒馆UI美化的兼容
-
--副ai！！！！！！！！！！！副AI功能用pbs构建，定期触发，插入聊天作为D类条目，作为第一个agent集市的agnet。。
-
--上下文建剪裁功能
-transforms: ["middle-out"]
-
--图转文
 
 -摇篮系统
 
@@ -79,6 +74,20 @@ transforms: ["middle-out"]
  (NOBRIDGE) ERROR  [摇篮系统] 未找到目标摇篮角色
  (NOBRIDGE) ERROR  Failed to generate character: [Error: 未找到目标摇篮角色]
  (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
+
+////////////////////////其他
+
+-chatdialog页面允许html改变字体颜色。
+
+-允许酒馆UI美化的兼容
+
+-副ai！！！！！！！！！！！副AI功能用pbs构建，定期触发，插入聊天作为D类条目，作为第一个agent集市的agnet。
+
+-上下文建剪裁功能
+transforms: ["middle-out"]
+
+-图转文
+
 
 
 /////////////UI修复

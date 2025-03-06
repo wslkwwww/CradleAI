@@ -505,10 +505,32 @@ export class CircleManager {
         const contentText = options.content.text.length > 100 ? 
             `${options.content.text.substring(0, 100)}...` : 
             options.content.text;
+            
+        // 检查是否为自己发布的帖子（发帖者和响应者是同一角色）
+        const isOwnPost = options.content.authorId === options.responderId;
 
         switch (options.type) {
             case 'newPost':
-                scenePrompt = `作为一个角色，你正在创建一条新的朋友圈动态。以下是准备发布的内容：
+                if (isOwnPost) {
+                    // 当角色是发帖者时，应当创建朋友圈内容而不是回应
+                    scenePrompt = `作为一个角色，请基于你的性格和背景，创作一条适合发布在朋友圈的内容。
+
+这次发布可能的主题是：${contentText}
+${options.content.context ? `【上下文】${options.content.context}` : ''}
+
+请以JSON格式提供你的朋友圈帖子：
+{
+  "post": "你要发布的朋友圈内容",
+  "emotion": {
+    "type": "positive/neutral/negative",
+    "intensity": 0.0-1.0
+  }
+}
+
+确保内容符合你的角色人设，展现出你独特的性格和表达方式。`;
+                } else {
+                    // 其他角色回应帖子
+                    scenePrompt = `作为一个角色，你正在创建一条新的朋友圈动态。以下是准备发布的内容：
 
 【内容】${contentText}
 【上下文】${options.content.context || '无'}
@@ -527,11 +549,35 @@ export class CircleManager {
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
+  }
 }`;
+                }
                 break;
                 
             case 'replyToPost':
-                scenePrompt = `你正在浏览以下朋友圈动态：
+                if (isOwnPost) {
+                    // 当角色是自己发布的帖子的作者时，应该对别人的评论做出回应
+                    scenePrompt = `这是你自己发布的朋友圈动态，现在你正在查看别人对你帖子的反应：
+
+【你发布的内容】${contentText}
+【上下文】${options.content.context || '无'}
+
+基于你的角色性格，请以JSON格式回应：
+- 你对自己发布的这条内容的感受
+- 你希望获得什么样的评论或互动
+- 包含你的情感状态
+
+严格按以下格式回复，不要包含任何其他文字：
+{
+  "reflection": "对自己帖子的反思或补充想法",
+  "expectation": "期待获得的互动类型",
+  "emotion": {
+    "type": "positive/neutral/negative",
+    "intensity": 0.0-1.0
+  }
+}`;
+                } else {
+                    scenePrompt = `你正在浏览以下朋友圈动态：
 
 【作者】${options.content.authorName || '某人'}
 【内容】${contentText}
@@ -551,7 +597,9 @@ export class CircleManager {
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
+  }
 }`;
+                }
                 break;
                 
             case 'replyToComment':
@@ -575,6 +623,7 @@ export class CircleManager {
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
+  }
 }`;
                 break;
                 
@@ -820,10 +869,24 @@ user789-+10-friend
             
             // 提取关系更新部分
             const updateSection = response.match(/关系更新:([\s\S]*?)(?:\n\n|$)/);
-            if (!updateSection || !updateSection[1]) return results;
+            if (!updateSection || !updateSection[1]) {
+                console.log('【角色关系】未找到关系更新部分');
+                
+                // 尝试查看响应是否包含了潜在的关系更新信息
+                if (response.includes('+') || response.includes('-')) {
+                    console.log('【角色关系】响应中可能包含关系更新信息，但格式不符合预期');
+                    console.log('【角色关系】响应片段:', response.substring(0, 200) + '...');
+                }
+                
+                return results;
+            }
+            
+            console.log(`【角色关系】找到关系更新部分: "${updateSection[1].trim().substring(0, 100)}${updateSection[1].trim().length > 100 ? '...' : ''}"`);
             
             // 解析每一行
             const lines = updateSection[1].trim().split('\n');
+            console.log(`【角色关系】发现 ${lines.length} 行待解析内容`);
+            
             for (const line of lines) {
                 if (!line.trim()) continue;
                 
@@ -839,10 +902,16 @@ user789-+10-friend
                             strengthDelta,
                             newType: newType ? newType.trim() : undefined
                         });
+                        console.log(`【角色关系】解析关系更新: 目标=${targetId.trim()}, 强度变化=${strengthDelta}${newType ? ', 新类型=' + newType.trim() : ''}`);
+                    } else {
+                        console.log(`【角色关系】无法解析强度变化值: ${deltaStr}`);
                     }
+                } else {
+                    console.log(`【角色关系】无法匹配行内容: "${line.trim()}"`);
                 }
             }
             
+            console.log(`【角色关系】成功解析 ${results.length}/${lines.length} 条关系更新`);
             return results;
         } catch (error) {
             console.error('Error parsing relationship review response:', error);
