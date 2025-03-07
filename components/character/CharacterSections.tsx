@@ -8,7 +8,8 @@ import {
   Animated,
   PanResponder,
   LayoutChangeEvent,
-  Alert
+  Alert,
+  Platform
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
@@ -217,7 +218,9 @@ interface WorldBookSectionProps {
     editable?: boolean,
     entryType?: 'worldbook' | 'preset' | 'author_note',
     entryOptions?: any,
-    onOptionsChange?: (options: any) => void
+    onOptionsChange?: (options: any) => void,
+    name?: string,
+    onNameChange?: (name: string) => void
   ) => void;
   onReorder?: (fromIndex: number, toIndex: number) => void;
 }
@@ -388,31 +391,41 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                         <TouchableOpacity 
                           style={styles.nameEditButton}
                           onPress={() => {
-                            // Open name edit dialog or inline editing
-                            Alert.prompt(
-                              "编辑名称",
-                              "请输入条目名称",
-                              [
-                                {
-                                  text: "取消",
-                                  style: "cancel"
-                                },
-                                {
-                                  text: "确定",
-                                  onPress: name => name && onUpdate(entry.id, { name })
-                                }
-                              ],
-                              "plain-text",
-                              entry.name
-                            );
+                            // Fix: Use your own Alert implementation that works across platforms
+                            if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                              Alert.prompt(
+                                "编辑名称",
+                                "请输入条目名称",
+                                [
+                                  {
+                                    text: "取消",
+                                    style: "cancel"
+                                  },
+                                  {
+                                    text: "确定",
+                                    onPress: (value?: string) => {
+                                      if (value) onUpdate(entry.id, { name: value });
+                                    }
+                                  }
+                                ],
+                                "plain-text",
+                                entry.name
+                              );
+                            } else {
+                              // Fallback for web or other platforms
+                              const newName = prompt("请输入条目名称", entry.name);
+                              if (newName !== null) {
+                                onUpdate(entry.id, { name: newName });
+                              }
+                            }
                           }}
                         >
-                          <MaterialIcons name="edit" size={16} color={theme.colors.primary} />
+                          <MaterialIcons name="edit" size={16} color="#000" />
                         </TouchableOpacity>
                       )}
                     </View>
                     
-                    {/* Content view button */}
+                    {/* Content view button - Updated icon */}
                     <TouchableOpacity
                       style={styles.contentViewButton}
                       onPress={() => {
@@ -428,21 +441,31 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                               depth: entry.depth,
                               key: entry.key
                             },
-                            (options) => onUpdate(entry.id, options)
+                            (options) => onUpdate(entry.id, options),
+                            entry.name,
+                            (name) => onUpdate(entry.id, { name })
                           );
                         }
                       }}
                       disabled={sortMode}
                     >
-                      <MaterialIcons name="visibility" size={20} color={theme.colors.text} />
+                      <MaterialIcons name="description" size={20} color="#000" />
                     </TouchableOpacity>
                     
                     <View style={styles.buttonGroup}>
-                      <ToggleButton
-                        isDisabled={entry.disable}
-                        onToggle={() => onUpdate(entry.id, { disable: !entry.disable })}
-                      />
+                      {/* Visibility toggle - Updated icon */}
+                      <TouchableOpacity
+                        style={[styles.toggleButton, entry.disable && styles.toggleButtonDisabled]}
+                        onPress={() => onUpdate(entry.id, { disable: !entry.disable })}
+                      >
+                        <MaterialIcons 
+                          name={entry.disable ? "visibility-off" : "visibility"} 
+                          size={20} 
+                          color="#000" 
+                        />
+                      </TouchableOpacity>
                       
+                      {/* Constant toggle - Updated icon */}
                       <TouchableOpacity 
                         style={[
                           styles.constantButton, 
@@ -453,7 +476,7 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                         <MaterialIcons 
                           name={entry.constant ? "lock" : "lock-open"} 
                           size={20} 
-                          color={theme.colors.white}
+                          color="#000"
                         />
                       </TouchableOpacity>
                     </View>
@@ -498,7 +521,9 @@ interface PresetSectionProps {
     editable?: boolean,
     entryType?: 'worldbook' | 'preset' | 'author_note',
     entryOptions?: any,
-    onOptionsChange?: (options: any) => void
+    onOptionsChange?: (options: any) => void,
+    name?: string,
+    onNameChange?: (name: string) => void
   ) => void;
   onReorder?: (fromIndex: number, toIndex: number) => void;
 }
@@ -682,7 +707,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                           <MaterialCommunityIcons 
                             name="chevron-up" 
                             size={20} 
-                            color={index === 0 ? theme.colors.textSecondary : theme.colors.white} 
+                            color={index === 0 ? theme.colors.textSecondary : "#000"} 
                           />
                         </TouchableOpacity>
                         <TouchableOpacity 
@@ -693,7 +718,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                           <MaterialCommunityIcons 
                             name="chevron-down" 
                             size={20} 
-                            color={index === entries.length - 1 ? theme.colors.textSecondary : theme.colors.white} 
+                            color={index === entries.length - 1 ? theme.colors.textSecondary : "#000"} 
                           />
                         </TouchableOpacity>
                       </View>
@@ -712,30 +737,41 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                         <TouchableOpacity 
                           style={styles.nameEditButton}
                           onPress={() => {
-                            Alert.prompt(
-                              "编辑名称",
-                              "请输入条目名称",
-                              [
-                                {
-                                  text: "取消",
-                                  style: "cancel"
-                                },
-                                {
-                                  text: "确定",
-                                  onPress: name => name && onUpdate(entry.id, { name })
-                                }
-                              ],
-                              "plain-text",
-                              entry.name
-                            );
+                            // Fix: Use your own Alert implementation that works across platforms
+                            if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                              Alert.prompt(
+                                "编辑名称",
+                                "请输入条目名称",
+                                [
+                                  {
+                                    text: "取消",
+                                    style: "cancel"
+                                  },
+                                  {
+                                    text: "确定",
+                                    onPress: (value?: string) => {
+                                      if (value) onUpdate(entry.id, { name: value });
+                                    }
+                                  }
+                                ],
+                                "plain-text",
+                                entry.name
+                              );
+                            } else {
+                              // Fallback for web or other platforms
+                              const newName = prompt("请输入条目名称", entry.name);
+                              if (newName !== null) {
+                                onUpdate(entry.id, { name: newName });
+                              }
+                            }
                           }}
                         >
-                          <MaterialIcons name="edit" size={16} color={theme.colors.primary} />
+                          <MaterialIcons name="edit" size={16} color="#000" />
                         </TouchableOpacity>
                       )}
                     </View>
                     
-                    {/* Content view button */}
+                    {/* Content view button - Updated icon */}
                     <TouchableOpacity
                       style={styles.contentViewButton}
                       onPress={() => {
@@ -751,21 +787,28 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                               role: entry.role,
                               depth: entry.depth
                             },
-                            (options) => onUpdate(entry.id, options)
+                            (options) => onUpdate(entry.id, options),
+                            entry.name,
+                            (name) => onUpdate(entry.id, { name })
                           );
                         }
                       }}
                       disabled={sortMode}
                     >
-                      <MaterialIcons name="visibility" size={20} color={theme.colors.text} />
+                      <MaterialIcons name="description" size={20} color="#000" />
                     </TouchableOpacity>
                     
-                    <View style={styles.buttonGroup}>
-                      <ToggleButton
-                        isDisabled={!entry.enable}
-                        onToggle={() => onUpdate(entry.id, { enable: !entry.enable })}
+                    {/* Visibility toggle - Updated icon */}
+                    <TouchableOpacity
+                      style={[styles.toggleButton, !entry.enable && styles.toggleButtonDisabled]}
+                      onPress={() => onUpdate(entry.id, { enable: !entry.enable })}
+                    >
+                      <MaterialIcons 
+                        name={entry.enable ? "visibility" : "visibility-off"} 
+                        size={20} 
+                        color="#000" 
                       />
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 </View>
                 
@@ -995,11 +1038,43 @@ const styles = StyleSheet.create({
   nameEditButton: {
     padding: 4,
     marginLeft: 8,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   contentViewButton: {
     padding: 8,
     backgroundColor: 'rgba(60,60,60,0.6)',
     borderRadius: 16,
     marginRight: 8,
+  },
+  
+  // Updated button styles for consistency
+  toggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  toggleButtonDisabled: {
+    backgroundColor: theme.colors.danger,
+  },
+  constantButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.info,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  constantButtonActive: {
+    backgroundColor: theme.colors.primary,
   },
 });

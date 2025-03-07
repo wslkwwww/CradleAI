@@ -15,6 +15,7 @@ import { Message, Character } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
+import { parseHtmlText } from '@/utils/textParser';
 
 interface ChatDialogProps {
   messages: Message[];
@@ -98,6 +99,19 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     );
   };
 
+  const renderMessageText = (text: string, isUser: boolean) => {
+    const segments = parseHtmlText(text);
+    return (
+      <Text style={isUser ? styles.userMessageText : styles.botMessageText}>
+        {segments.map((segment, index) => (
+          <Text key={index} style={segment.style}>
+            {segment.text}
+          </Text>
+        ))}
+      </Text>
+    );
+  };
+
   return (
     <ScrollView
       ref={scrollViewRef}
@@ -157,9 +171,7 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
                         colors={['rgb(255, 224, 195)', 'rgb(255, 200, 170)']}
                         style={styles.userGradient}
                       >
-                        <Text style={styles.userMessageText}>
-                          {message.text}
-                        </Text>
+                        {renderMessageText(message.text, true)}
                       </LinearGradient>
                     ) : (
                       <View style={styles.botMessageTextContainer}>
@@ -170,9 +182,7 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
                             <View style={[styles.loadingDot, { animationDelay: '0.4s' }]} />
                           </View>
                         ) : (
-                          <Text style={styles.botMessageText}>
-                            {message.text}
-                          </Text>
+                          renderMessageText(message.text, false)
                         )}
                         
                         {!isLoading && onRateMessage && (

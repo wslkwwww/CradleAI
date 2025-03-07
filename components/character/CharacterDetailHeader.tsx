@@ -20,6 +20,7 @@ interface CharacterDetailHeaderProps {
   onAvatarPress: () => void;
   onBackgroundPress: () => void;
   onBackPress: () => void;
+  onChatBackgroundPress?: () => void;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -32,6 +33,7 @@ const CharacterDetailHeader: React.FC<CharacterDetailHeaderProps> = ({
   onAvatarPress,
   onBackgroundPress,
   onBackPress,
+  onChatBackgroundPress,
 }) => {
   return (
     <View style={styles.header}>
@@ -75,13 +77,25 @@ const CharacterDetailHeader: React.FC<CharacterDetailHeaderProps> = ({
 
               <Text style={styles.characterName}>{name || '未命名角色'}</Text>
 
-              <TouchableOpacity
-                style={styles.changeBackgroundButton}
-                onPress={onBackgroundPress}
-              >
-                <Ionicons name="image" size={14} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.buttonText}>更换背景图</Text>
-              </TouchableOpacity>
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={styles.changeBackgroundButton}
+                  onPress={onBackgroundPress}
+                >
+                  <Ionicons name="image" size={14} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.buttonText}>更换角色背景</Text>
+                </TouchableOpacity>
+                
+                {onChatBackgroundPress && (
+                  <TouchableOpacity
+                    style={[styles.changeBackgroundButton, { marginLeft: 8 }]}
+                    onPress={onChatBackgroundPress}
+                  >
+                    <Ionicons name="chatbubble-outline" size={14} color="#fff" style={styles.buttonIcon} />
+                    <Text style={styles.buttonText}>设置聊天背景</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           </View>
         </BlurView>
@@ -174,6 +188,11 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
   },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
   changeBackgroundButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -188,6 +207,26 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 12,
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    marginHorizontal: 5,
+  },
+  actionText: {
+    color: '#fff',
+    fontSize: 12,
+    marginLeft: 5,
   },
 });
 

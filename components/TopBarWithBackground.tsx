@@ -14,6 +14,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import RegexToolModal from '@/components/RegexToolModal';
 
 interface TopBarWithBackgroundProps {
   selectedCharacter: Character | undefined | null;
@@ -21,6 +22,7 @@ interface TopBarWithBackgroundProps {
   onMemoPress: () => void;
   onSettingsPress: () => void;
   onMenuPress: () => void;
+  showBackground?: boolean; // 新增属性
 }
 
 const HEADER_HEIGHT = 90; // Fixed height for consistency
@@ -32,11 +34,13 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   onMemoPress,
   onSettingsPress,
   onMenuPress,
+  showBackground = true, // 默认为 true
 }) => {
   const [scrollY] = useState(new Animated.Value(0));
   const [navbarHeight, setNavbarHeight] = useState(
     Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0
   );
+  const [isRegexModalVisible, setIsRegexModalVisible] = useState(false);
 
   // Calculate header opacity based on scroll position
   const headerOpacity = scrollY.interpolate({
@@ -54,90 +58,106 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   }, []);
 
   return (
-    <Animated.View
-      style={[
-        styles.container,
-        {
-          opacity: headerOpacity,
-          height: HEADER_HEIGHT,
-          paddingTop: navbarHeight,
-        },
-      ]}
-    >
-      {/* Background Image or Gradient */}
-      {selectedCharacter?.backgroundImage ? (
-        <Image
-          source={
-            typeof selectedCharacter.backgroundImage === 'string'
-              ? { uri: selectedCharacter.backgroundImage }
-              : selectedCharacter.backgroundImage || require('@/assets/images/default-background.jpeg')
-          }
-          style={styles.backgroundImage}
-        />
-      ) : (
-        <LinearGradient
-          colors={['#333', '#282828']}
-          style={styles.backgroundGradient}
-        />
-      )}
+    <>
+      <Animated.View
+        style={[
+          styles.container,
+          {
+            opacity: headerOpacity,
+            height: HEADER_HEIGHT,
+            paddingTop: navbarHeight,
+          },
+        ]}
+      >
+        {/* Background Image or Gradient */}
+        {showBackground && (selectedCharacter?.backgroundImage ? (
+          <Image
+            source={
+              typeof selectedCharacter.backgroundImage === 'string'
+                ? { uri: selectedCharacter.backgroundImage }
+                : selectedCharacter.backgroundImage || require('@/assets/images/default-background.jpeg')
+            }
+            style={styles.backgroundImage}
+          />
+        ) : (
+          <LinearGradient
+            colors={['#333', '#282828']}
+            style={styles.backgroundGradient}
+          />
+        ))}
 
-      {/* Blur Overlay */}
-      <BlurView intensity={80} style={styles.blurView} tint="dark" />
+        {/* Blur Overlay */}
+        {showBackground && <BlurView intensity={80} style={styles.blurView} tint="dark" />}
+        
+        {/* Dark Overlay */}
+        {showBackground && <View style={styles.overlay} />}
+
+        {/* Content */}
+        <View style={styles.content}>
+          <TouchableOpacity 
+            style={styles.menuButton} 
+            onPress={onMenuPress}
+          >
+            <Ionicons name="menu" size={26} color="#fff" />
+          </TouchableOpacity>
+
+          <View style={styles.characterInfo}>
+            <TouchableOpacity 
+              style={styles.avatarContainer} 
+              onPress={onAvatarPress}
+            >
+              <Image
+                source={
+                  selectedCharacter?.avatar
+                    ? { uri: String(selectedCharacter.avatar) }
+                    : require('@/assets/images/default-avatar.png')
+                }
+                style={styles.avatar}
+              />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.nameContainer}
+              onPress={onAvatarPress}
+            >
+              <Text style={styles.characterName} numberOfLines={1}>
+                {selectedCharacter?.name || '选择角色'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.actions}>
+            {selectedCharacter && (
+              <TouchableOpacity 
+                style={styles.actionButton} 
+                onPress={() => setIsRegexModalVisible(true)}
+              >
+                <MaterialCommunityIcons name="regex" size={24} color="#fff" />
+              </TouchableOpacity>
+            )}
+            
+            <TouchableOpacity 
+              style={styles.actionButton} 
+              onPress={onMemoPress}
+            >
+              <MaterialCommunityIcons name="notebook-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.actionButton} 
+              onPress={onSettingsPress}
+            >
+              <Ionicons name="settings-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Animated.View>
       
-      {/* Dark Overlay */}
-      <View style={styles.overlay} />
-
-      {/* Content */}
-      <View style={styles.content}>
-        <TouchableOpacity 
-          style={styles.menuButton} 
-          onPress={onMenuPress}
-        >
-          <Ionicons name="menu" size={26} color="#fff" />
-        </TouchableOpacity>
-
-        <View style={styles.characterInfo}>
-          <TouchableOpacity 
-            style={styles.avatarContainer} 
-            onPress={onAvatarPress}
-          >
-            <Image
-              source={
-                selectedCharacter?.avatar
-                  ? { uri: String(selectedCharacter.avatar) }
-                  : require('@/assets/images/default-avatar.png')
-              }
-              style={styles.avatar}
-            />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.nameContainer}
-            onPress={onAvatarPress}
-          >
-            <Text style={styles.characterName} numberOfLines={1}>
-              {selectedCharacter?.name || '选择角色'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.actions}>
-          <TouchableOpacity 
-            style={styles.actionButton} 
-            onPress={onMemoPress}
-          >
-            <MaterialCommunityIcons name="notebook-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.actionButton} 
-            onPress={onSettingsPress}
-          >
-            <Ionicons name="settings-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Animated.View>
+      <RegexToolModal 
+        visible={isRegexModalVisible}
+        onClose={() => setIsRegexModalVisible(false)}
+      />
+    </>
   );
 };
 

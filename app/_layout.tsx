@@ -11,6 +11,7 @@ import { CharactersProvider } from '@/constants/CharactersContext';
 import { UserProvider } from '@/constants/UserContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Colors from '@/constants/Colors';
+import { RegexProvider } from '@/constants/RegexContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -76,19 +77,21 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <UserProvider>
         <CharactersProvider>
-          <View style={styles.container}>
-            <ThemeProvider value={theme}>
-              <Stack screenOptions={{headerShown: false}}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="pages/character-detail" />
-                <Stack.Screen name="pages/create_char" />
-                <Stack.Screen name="pages/create_char_cradle" />
-                <Stack.Screen name="pages/create_character_tabs" />
-              </Stack>
-              <StatusBar style="dark" backgroundColor='black' />
-            </ThemeProvider>
-          </View>
+          <RegexProvider>
+            <View style={styles.container}>
+              <ThemeProvider value={theme}>
+                <Stack screenOptions={{headerShown: false}}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="pages/character-detail" />
+                  <Stack.Screen name="pages/create_char" />
+                  <Stack.Screen name="pages/create_char_cradle" />
+                  <Stack.Screen name="pages/create_character_tabs" />
+                </Stack>
+                <StatusBar style="dark" backgroundColor='black' />
+              </ThemeProvider>
+            </View>
+          </RegexProvider>
         </CharactersProvider>
       </UserProvider>
     </GestureHandlerRootView>

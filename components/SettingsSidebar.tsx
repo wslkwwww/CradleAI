@@ -177,23 +177,26 @@ export default function SettingsSidebar({
     if (!selectedCharacter) return;
 
     try {
+      // 直接进入选择聊天背景的流程，不再弹出选择对话框
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [9, 16],
+        aspect: [9, 16], // 竖向聊天背景图
         quality: 1,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const updatedCharacter = {
           ...selectedCharacter,
-          backgroundImage: result.assets[0].uri,
+          chatBackground: result.assets[0].uri,
         };
+        
         await updateCharacter(updatedCharacter);
-        Alert.alert('Success', 'Chat background image has been updated');
+        Alert.alert('成功', '聊天背景已更新');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to update background image');
+      console.error("Background update error:", error);
+      Alert.alert('错误', '无法更新背景图片');
     }
   };
 
@@ -332,8 +335,8 @@ export default function SettingsSidebar({
           <Switch
             value={isPermanentMemoryEnabled}
             onValueChange={handleMemoryToggle}
-            trackColor={{ false: '#767577', true: '#FFD1DC' }}
-            thumbColor={isPermanentMemoryEnabled ? '#FF9ECD' : '#f4f3f4'}
+            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+            thumbColor={isPermanentMemoryEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
           />
         </View>
 
@@ -342,8 +345,8 @@ export default function SettingsSidebar({
           <Switch
             value={isAutoMessageEnabled}
             onValueChange={handleAutoMessageToggle}
-            trackColor={{ false: '#767577', true: '#FFD1DC' }}
-            thumbColor={isAutoMessageEnabled ? '#FF9ECD' : '#f4f3f4'}
+            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+            thumbColor={isAutoMessageEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
           />
         </View>
 
@@ -352,8 +355,8 @@ export default function SettingsSidebar({
           <Switch
             value={isNotificationEnabled}
             onValueChange={setIsNotificationEnabled}
-            trackColor={{ false: '#767577', true: '#FFD1DC' }}
-            thumbColor={isNotificationEnabled ? '#FF9ECD' : '#f4f3f4'}
+            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+            thumbColor={isNotificationEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
           />
         </View>
 
@@ -362,8 +365,8 @@ export default function SettingsSidebar({
           <Switch
             value={isCircleInteractionEnabled}
             onValueChange={handleCircleInteractionToggle}
-            trackColor={{ false: '#767577', true: '#FFD1DC' }}
-            thumbColor={isCircleInteractionEnabled ? '#FF9ECD' : '#f4f3f4'}
+            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+            thumbColor={isCircleInteractionEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
           />
         </View>
 
@@ -372,8 +375,8 @@ export default function SettingsSidebar({
           <Switch
             value={isRelationshipEnabled}
             onValueChange={handleRelationshipToggle}
-            trackColor={{ false: '#767577', true: '#FFD1DC' }}
-            thumbColor={isRelationshipEnabled ? '#FF9ECD' : '#f4f3f4'}
+            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+            thumbColor={isRelationshipEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
           />
         </View>
 
@@ -381,8 +384,8 @@ export default function SettingsSidebar({
           style={styles.backgroundButton}
           onPress={handleBackgroundChange}
         >
-          <MaterialIcons name="image" size={24} color="#4A4A4A" />
-          <Text style={styles.backgroundButtonText}>更换背景</Text>
+          <MaterialIcons name="image" size={24} color="#fff" />
+          <Text style={styles.backgroundButtonText}>更换聊天背景</Text>
         </TouchableOpacity>
 
         {selectedCharacter && (
@@ -452,7 +455,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: "#FF9ECD", // Pink title to match app theme
+    color: "rgb(255, 224, 195)", // 修改：使用米黄色
     marginBottom: theme.spacing.md,
     textAlign: 'center',
   },
@@ -493,7 +496,7 @@ const styles = StyleSheet.create({
   settingSectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: "#FF9ECD", // Pink title to match app theme
+    color: "rgb(255, 224, 195)", // 修改：使用米黄色
     marginBottom: theme.spacing.sm,
   },
   settingRow: {

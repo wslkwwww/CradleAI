@@ -5,6 +5,8 @@ import {
   SafeAreaView,
   Platform,
   Keyboard,
+  ImageBackground,
+  StatusBar,
 } from 'react-native';
 
 import ChatDialog from '@/components/ChatDialog';
@@ -218,68 +220,111 @@ const App = () => {
     return selectedConversationId || undefined;
   }
 
+  // 获取角色的背景图片
+  const getBackgroundImage = () => {
+    if (selectedCharacter?.backgroundImage) {
+      return { uri: selectedCharacter.backgroundImage };
+    } else if (selectedCharacter?.backgroundImage) {
+      // 如果没有专门的聊天背景图，则使用普通背景图
+      return { uri: selectedCharacter.backgroundImage };
+    }
+    return require('@/assets/images/default-background.jpg');
+  };
 
   return (
-    <View style={styles.container}>
-      <TopBarWithBackground
-        selectedCharacter={selectedCharacter}
-        onAvatarPress={handleAvatarPress}
-        onMemoPress={() => setIsMemoSheetVisible(true)}
-        onSettingsPress={toggleSettingsSidebar}
-        onMenuPress={toggleSidebar}
-      />
-
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.contentContainer}>
-          <ChatDialog
-            messages={messages}
-            style={styles.chatDialog}
+    <View style={styles.outerContainer}>
+      <StatusBar translucent backgroundColor="transparent" />
+      <ImageBackground
+        source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
+        style={styles.backgroundImage}
+        resizeMode="cover"
+      >
+        <View style={[
+          styles.container,
+          selectedCharacter ? styles.transparentBackground : styles.darkBackground
+        ]}>
+          <TopBarWithBackground
             selectedCharacter={selectedCharacter}
-            onRateMessage={handleRateMessage}
+            onAvatarPress={handleAvatarPress}
+            onMemoPress={() => setIsMemoSheetVisible(true)}
+            onSettingsPress={toggleSettingsSidebar}
+            onMenuPress={toggleSidebar}
+            showBackground={false} // 不在 TopBar 中显示背景，因为我们已经在整个屏幕上设置了背景
           />
-        </View>
 
-        <View style={styles.inputBar}>
-          {selectedCharacter && (
-            <ChatInput
-              onSendMessage={handleSendMessage}
+          <SafeAreaView style={[
+            styles.safeArea,
+            selectedCharacter && styles.transparentBackground
+          ]}>
+            <View style={[
+              styles.contentContainer,
+              selectedCharacter && styles.transparentBackground
+            ]}>
+              <ChatDialog
+                messages={messages}
+                style={styles.chatDialog}
+                selectedCharacter={selectedCharacter}
+                onRateMessage={handleRateMessage}
+              />
+            </View>
+
+            <View style={[
+              styles.inputBar,
+              selectedCharacter && styles.transparentBackground
+            ]}>
+              {selectedCharacter && (
+                <ChatInput
+                  onSendMessage={handleSendMessage}
+                  selectedConversationId={selectedConversationId}
+                  conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
+                  onResetConversation={handleResetConversation}
+                  selectedCharacter={selectedCharacter}
+                />
+              )}
+            </View>
+
+            {/* Sidebars and overlays */}
+            <Sidebar
+              isVisible={isSidebarVisible}
+              conversations={characters}
               selectedConversationId={selectedConversationId}
-              conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
-              onResetConversation={handleResetConversation}
+              onSelectConversation={handleSelectConversation}
+              onClose={toggleSidebar}
+            />
+            <SettingsSidebar
+              isVisible={isSettingsSidebarVisible}
+              onClose={toggleSettingsSidebar}
               selectedCharacter={selectedCharacter}
             />
-          )}
+            {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
+          </SafeAreaView>
+
+          {/* 直接在主视图中渲染 MemoOverlay */}
+          <MemoOverlay
+            isVisible={isMemoSheetVisible}
+            onClose={() => setIsMemoSheetVisible(false)}
+          />
         </View>
-
-        {/* Sidebars and overlays */}
-        <Sidebar
-          isVisible={isSidebarVisible}
-          conversations={characters}
-          selectedConversationId={selectedConversationId}
-          onSelectConversation={handleSelectConversation}
-          onClose={toggleSidebar}
-        />
-        <SettingsSidebar
-          isVisible={isSettingsSidebarVisible}
-          onClose={toggleSettingsSidebar}
-          selectedCharacter={selectedCharacter}
-        />
-        {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
-      </SafeAreaView>
-
-      {/* 直接在主视图中渲染 MemoOverlay */}
-      <MemoOverlay
-        isVisible={isMemoSheetVisible}
-        onClose={() => setIsMemoSheetVisible(false)}
-      />
+      </ImageBackground>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  outerContainer: {
+    flex: 1,
+  },
+  backgroundImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
   container: {
     flex: 1,
-    position: 'relative', // 确保容器使用相对定位
+    position: 'relative',
+  },
+  darkBackground: {
+    backgroundColor: 'rgba(26, 26, 26, 0.8)',
   },
   safeArea: {
     flex: 1,
@@ -288,7 +333,7 @@ const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
     padding: 10,
-    position: 'relative', // 添加相对定位
+    position: 'relative',
   },
   chatDialog: {
     flex: 1,
@@ -301,6 +346,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
     zIndex: 900,
+  },
+  transparentBackground: {
+    backgroundColor: 'transparent',
   },
 });
 

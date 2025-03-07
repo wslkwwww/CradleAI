@@ -816,6 +816,7 @@ const CreateChar: React.FC = () => {
           icon="close-outline"
           onPress={handleBackPress}
           color="#666666"
+          textColor="#000" // Updated text color
           style={styles.cancelButton}
         />
         
@@ -824,7 +825,8 @@ const CreateChar: React.FC = () => {
           icon="save-outline"
           onPress={saveCharacter}
           loading={isSaving}
-          color={theme.colors.primary}
+          color="rgb(255, 224, 195)" // 修改：使用米黄色而不是theme.colors.primary
+          textColor="#000" // Updated text color
           style={styles.saveButton}
         />
       </BlurView>

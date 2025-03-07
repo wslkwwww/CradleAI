@@ -402,3 +402,12 @@ export interface GeminiMessage {
     is_author_note?: boolean;
     injection_depth?: number;
 }
+
+export interface RegexTool {
+    id: string;
+    name: string;
+    pattern: string;
+    replacement: string;
+    target: 'ai' | 'user';
+    enabled: boolean;
+  }

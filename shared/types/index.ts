@@ -58,3 +58,13 @@ export interface User {
   avatar: string | null;
   settings: GlobalSettings;
 }
+
+
+export interface RegexTool {
+  id: string;
+  name: string;
+  pattern: string;
+  replacement: string;
+  target: 'ai' | 'user';
+  enabled: boolean;
+}

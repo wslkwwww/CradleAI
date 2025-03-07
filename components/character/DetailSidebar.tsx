@@ -18,7 +18,6 @@ import {
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { POSITION_OPTIONS } from './CharacterFormComponents';
 import { theme } from '@/constants/theme';
-import { BlurView } from 'expo-blur';
 
 interface EntryOptions {
   position?: number;
@@ -467,14 +466,14 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                         <MaterialCommunityIcons 
                           name="pencil" 
                           size={22} 
-                          color={isEditMode ? "#fff" : theme.colors.primary} 
+                          color={isEditMode ? "#000" : theme.colors.primary} 
                         />
                       </TouchableOpacity>
                     </>
                   )}
                   
                   <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
-                    <MaterialCommunityIcons name="content-save" size={24} color="#fff" />
+                    <MaterialCommunityIcons name="content-save" size={24} color="#000" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -524,6 +523,7 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                       />
                     </View>
                   ) : (
+                    // Improved scrollable content view
                     <ScrollView 
                       style={[
                         styles.contentView,
@@ -531,6 +531,8 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                       ]}
                       showsVerticalScrollIndicator={true}
                       nestedScrollEnabled={true}
+                      scrollEnabled={true}
+                      contentContainerStyle={{ flexGrow: 1 }}
                     >
                       <Text style={styles.contentText}>
                         {editableContent || '暂无内容'}
@@ -544,7 +546,8 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                 {renderPresetOptions()}
                 {renderAuthorNoteOptions()}
               </ScrollView>
-
+              
+              {/* Removed bottom bar */}
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -687,7 +690,8 @@ const styles = StyleSheet.create({
   },
   contentViewExpanded: {
     minHeight: 300,
-    maxHeight: WINDOW_HEIGHT * 0.5,
+    maxHeight: WINDOW_HEIGHT * 0.6, // Increased max height
+    height: WINDOW_HEIGHT * 0.5, // Fixed height for better scrolling
   },
   contentText: {
     color: '#fff',

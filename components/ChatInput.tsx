@@ -15,7 +15,7 @@ import { useUser } from '@/constants/UserContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { theme } from '@/constants/theme';
 import { BlurView } from 'expo-blur';
-
+import { useRegex } from '@/constants/RegexContext';
 interface ChatInputProps {
   onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean) => void;
   selectedConversationId: string | null;
@@ -36,6 +36,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [showActions, setShowActions] = useState(false);
   const { user } = useUser();
   const inputRef = useRef<TextInput>(null);
+  const { applyRegexTools } = useRegex();
   
   // Animation states
   const actionMenuHeight = useRef(new Animated.Value(0)).current;
@@ -98,8 +99,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setIsLoading(true);
     
     try {
+      // 应用正则工具处理用户消息
+      const processedMessage = applyRegexTools(messageToSend, 'user');
+      
       // Send user message
-      onSendMessage(messageToSend, 'user');
+      onSendMessage(processedMessage, 'user');
       
       // Create temp loading message for bot
       const tempId = `temp-${Date.now()}`;
@@ -127,7 +131,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
       
       // Remove the temp loading message and add the real response
       if (result.success) {
-        onSendMessage(result.text || '抱歉，未收到有效回复。', 'bot');
+        // 在发送AI回复前也应用正则工具
+        const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
+        onSendMessage(processedResponse, 'bot');
       } else {
         onSendMessage('抱歉，处理消息时出现了错误，请重试。', 'bot');
         console.error('NodeST error:', result.error);
@@ -183,7 +189,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
       });
       
       if (result.success) {
-        onSendMessage(result.text || '抱歉，未收到有效回复。', 'bot');
+        // 在发送AI回复前也应用正则工具
+        const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
+        onSendMessage(processedResponse, 'bot');
       } else {
         onSendMessage('抱歉，重新生成回复时出现了错误，请重试。', 'bot');
         console.error('NodeST regenerate error:', result.error);

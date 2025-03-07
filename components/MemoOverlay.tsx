@@ -12,6 +12,8 @@ import {
   Platform,
   ScrollView,
   Alert,
+  Dimensions,
+  FlatList,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,48 +37,12 @@ const MemoOverlay: React.FC<MemoOverlayProps> = ({ isVisible, onClose }) => {
   const [currentMemo, setCurrentMemo] = useState<Memo | null>(null);
   const [memoContent, setMemoContent] = useState('');
   const [isEditing, setIsEditing] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(100)).current;
   
   useEffect(() => {
     if (isVisible) {
       loadMemos();
-      fadeIn();
-      Keyboard.dismiss();
-    } else {
-      fadeOut();
     }
   }, [isVisible]);
-  
-  const fadeIn = () => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-  
-  const fadeOut = () => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 100,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
   
   const loadMemos = async () => {
     try {
@@ -182,202 +148,230 @@ const MemoOverlay: React.FC<MemoOverlayProps> = ({ isVisible, onClose }) => {
     return new Date(timestamp).toLocaleString();
   };
   
-  if (!isVisible) return null;
+  const renderMemoItem = ({ item }: { item: Memo }) => (
+    <View style={styles.memoItem}>
+      <Text style={styles.memoContent} numberOfLines={2}>{item.content}</Text>
+      <Text style={styles.memoDate}>{formatDate(item.updatedAt)}</Text>
+      <View style={styles.toolActions}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => handleEditMemo(item)}>
+          <Ionicons name="create-outline" size={22} color="#ccc" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={() => handleDeleteMemo(item.id)}>
+          <Ionicons name="trash-outline" size={22} color="#ff6b6b" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
   
   return (
     <Modal
       transparent
-      statusBarTranslucent
       visible={isVisible}
       onRequestClose={onClose}
-      animationType="none"
+      animationType="slide"
     >
-      <Animated.View
-        style={[
-          styles.overlay,
-          {
-            opacity: fadeAnim,
-          },
-        ]}
-      >
-        <TouchableOpacity
-          style={styles.dismissArea}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-        
-        <Animated.View
-          style={[
-            styles.contentContainer,
-            {
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
-        >
-          <BlurView intensity={15} tint="dark" style={styles.blurContainer}>
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              style={{ flex: 1 }}
-            >
-              <View style={styles.header}>
-                <Text style={styles.title}>备忘录</Text>
-                <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                  <Ionicons name="close" size={24} color="#fff" />
-                </TouchableOpacity>
+      <View style={styles.container}>
+        <BlurView intensity={30} tint="dark" style={styles.blurView}>
+          <View style={styles.header}>
+            <Text style={styles.title}>备忘录</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          {isEditing ? (
+            <ScrollView style={styles.editorContainer}>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>内容</Text>
+                <TextInput
+                  style={styles.input}
+                  value={memoContent}
+                  onChangeText={setMemoContent}
+                  placeholder="备忘录内容..."
+                  placeholderTextColor="#999"
+                  multiline
+                  autoFocus
+                />
               </View>
               
-              {isEditing ? (
-                <View style={styles.editorContainer}>
-                  <TextInput
-                    style={styles.editor}
-                    value={memoContent}
-                    onChangeText={setMemoContent}
-                    placeholder="输入备忘录内容..."
-                    placeholderTextColor="#777"
-                    multiline
-                    autoFocus
-                  />
-                  
-                  <View style={styles.editorButtons}>
-                    <TouchableOpacity
-                      style={[styles.editorButton, styles.cancelButton]}
-                      onPress={handleCancelEdit}
-                    >
-                      <Text style={styles.editorButtonText}>取消</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.editorButton, styles.saveButton]}
-                      onPress={handleSaveMemo}
-                    >
-                      <Text style={styles.editorButtonText}>保存</Text>
-                    </TouchableOpacity>
+              <View style={styles.buttonGroup}>
+                <TouchableOpacity style={styles.cancelButton} onPress={handleCancelEdit}>
+                  <Text style={styles.buttonText}>取消</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity style={styles.saveButton} onPress={handleSaveMemo}>
+                  <Text style={styles.buttonText}>保存</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          ) : (
+            <>
+              <FlatList
+                data={memos}
+                renderItem={renderMemoItem}
+                keyExtractor={item => item.id}
+                contentContainerStyle={styles.listContent}
+                ListEmptyComponent={() => (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>暂无备忘录</Text>
+                    <Text style={styles.emptySubtext}>点击下方按钮添加新备忘录</Text>
                   </View>
-                </View>
-              ) : (
-                <ScrollView style={styles.memoList}>
-                  {memos.map(memo => (
-                    <TouchableOpacity
-                      key={memo.id}
-                      style={styles.memoItem}
-                      onPress={() => handleEditMemo(memo)}
-                    >
-                      <Text style={styles.memoContent}>{memo.content}</Text>
-                      <Text style={styles.memoDate}>{formatDate(memo.updatedAt)}</Text>
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={() => handleDeleteMemo(memo.id)}
-                      >
-                        <Ionicons name="trash" size={24} color="#FF4444" />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-            </KeyboardAvoidingView>
-          </BlurView>
-        </Animated.View>
-      </Animated.View>
+                )}
+              />
+              
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={handleAddMemo}
+              >
+                <Ionicons name="add" size={24} color="#fff" />
+                <Text style={styles.addButtonText}>添加备忘录</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </BlurView>
+      </View>
     </Modal>
   );
 };
 
+const { height } = Dimensions.get('window');
+
 const styles = StyleSheet.create({
-  overlay: {
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
-  dismissArea: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  contentContainer: {
+  blurView: {
     width: '90%',
-    maxHeight: '80%',
-    backgroundColor: 'white',
-    borderRadius: 15,
+    height: height * 0.75, // 使用屏幕高度的75%
+    borderRadius: 20,
     overflow: 'hidden',
-  },
-  blurContainer: {
-    flex: 1,
-    padding: 20,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   title: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
   },
   closeButton: {
-    padding: 8,
+    padding: 5,
   },
-  editorContainer: {
-    flex: 1,
-  },
-  editor: {
-    flex: 1,
-    fontSize: 16,
-    color: '#fff',
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  editorButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  editorButton: {
-    flex: 1,
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginHorizontal: 5,
-  },
-  cancelButton: {
-    backgroundColor: '#FF4444',
-  },
-  saveButton: {
-    backgroundColor: '#4CAF50',
-  },
-  editorButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  memoList: {
-    flex: 1,
+  listContent: {
+    padding: 16,
   },
   memoItem: {
-    flexDirection: 'row',
+    backgroundColor: 'rgba(60, 60, 60, 0.6)',
+    borderRadius: 10,
     padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    alignItems: 'center',
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: 'rgb(255, 224, 195)',
   },
   memoContent: {
-    flex: 1,
     fontSize: 16,
+    fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 8,
   },
   memoDate: {
+    color: '#ccc',
     fontSize: 12,
-    color: '#666',
-    marginTop: 4,
+    marginBottom: 5,
   },
-  deleteButton: {
-    padding: 8,
+  toolActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+  },
+  actionButton: {
+    padding: 6,
+    marginLeft: 15,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#ccc',
+    marginBottom: 10,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    backgroundColor: 'rgb(255, 224, 195)',
+    borderRadius: 10,
+    margin: 16,
+  },
+  addButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 8,
+    fontSize: 16,
+  },
+  editorContainer: {
+    padding: 16,
+    flex: 1,
+  },
+  formGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 16,
+    color: '#fff',
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: 'rgba(70, 70, 70, 0.8)',
+    padding: 12,
+    borderRadius: 10,
+    color: '#fff',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    minHeight: 150,
+    textAlignVertical: 'top',
+  },
+  buttonGroup: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  cancelButton: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: 'rgba(100, 100, 100, 0.8)',
+    borderRadius: 10,
+    marginRight: 10,
+  },
+  saveButton: {
+    flex: 2,
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: 'rgb(255, 224, 195)',
+    borderRadius: 10,
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
 

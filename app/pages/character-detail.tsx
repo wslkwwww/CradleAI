@@ -242,7 +242,7 @@ const CharacterDetail: React.FC = () => {
       let result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [16, 9],
+        aspect: [16, 9],  // 横向背景图
         quality: 1,
       });
 
@@ -259,6 +259,31 @@ const CharacterDetail: React.FC = () => {
     } catch (error) {
       console.error("Background image picking error:", error);
       Alert.alert("错误", "选择背景图片失败");
+    }
+  };
+
+  const pickChatBackground = async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [9, 16],  // 竖向聊天背景图
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        if (character) {
+          const updatedCharacter = {
+            ...character,
+            chatBackground: result.assets[0].uri
+          };
+          setCharacter(updatedCharacter);
+          setHasUnsavedChanges(true);
+        }
+      }
+    } catch (error) {
+      console.error("Chat background picking error:", error);
+      Alert.alert("错误", "选择聊天背景失败");
     }
   };
 
@@ -578,6 +603,7 @@ const CharacterDetail: React.FC = () => {
         backgroundImage={character?.backgroundImage || null}
         onAvatarPress={pickAvatar}
         onBackgroundPress={pickBackground}
+        onChatBackgroundPress={pickChatBackground} // 新增聊天背景选择按钮
         onBackPress={handleBack}
       />
       
@@ -689,6 +715,7 @@ const CharacterDetail: React.FC = () => {
           icon="close-outline"
           onPress={handleBack}
           color="#666666"
+          textColor="#000" // Updated text color
           style={styles.cancelButton}
         />
         
@@ -700,7 +727,8 @@ const CharacterDetail: React.FC = () => {
             setShowDialog(true);
           }}
           loading={isSaving}
-          color={theme.colors.primary}
+          color="rgb(255, 224, 195)" // 修改：使用米黄色而不是theme.colors.primary
+          textColor="#000" // Updated text color
           style={styles.saveButton}
         />
       </BlurView>
