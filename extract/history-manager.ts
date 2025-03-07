@@ -1,7 +1,5 @@
 import { SimpleContext } from './simple-context';
-import { resolve } from 'path';
-import { readFile, writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface GenerationHistoryItem {
   id: string;
@@ -15,12 +13,12 @@ export interface GenerationHistoryItem {
 }
 
 export class HistoryManager {
-  private historyPath: string;
+  private historyPrefix: string;
   private history: Record<string, GenerationHistoryItem[]> = {};
   private maxItems: number;
   
   constructor(private ctx: SimpleContext, options: { maxItems?: number, historyPath?: string } = {}) {
-    this.historyPath = options.historyPath || resolve(ctx.baseDir, 'data/novelai-history');
+    this.historyPrefix = 'novelai_history_';
     this.maxItems = options.maxItems || 50;
     this.loadHistory().catch(err => {
       ctx.logger.error('Failed to load history:', err);
@@ -103,36 +101,30 @@ export class HistoryManager {
   
   private async loadHistory(): Promise<void> {
     try {
-      if (!existsSync(this.historyPath)) {
-        await mkdir(this.historyPath, { recursive: true });
-        return;
-      }
+      // 获取所有键
+      const keys = await AsyncStorage.getAllKeys();
+      const historyKeys = keys.filter(key => key.startsWith(this.historyPrefix));
       
-      const files = await this.ctx.http(`file://${this.historyPath}`);
-      for (const file of files.data) {
-        if (!file.endsWith('.json')) continue;
-        
+      for (const key of historyKeys) {
         try {
-          const userId = file.replace('.json', '');
-          const content = await readFile(resolve(this.historyPath, file), 'utf8');
-          this.history[userId] = JSON.parse(content);
+          const userId = key.slice(this.historyPrefix.length);
+          const content = await AsyncStorage.getItem(key);
+          if (content) {
+            this.history[userId] = JSON.parse(content);
+          }
         } catch (err) {
-          this.ctx.logger.error(`Failed to load history for ${file}:`, err);
+          this.ctx.logger.error(`Failed to load history for ${key}:`, err);
         }
       }
     } catch (err) {
-      this.ctx.logger.error('Failed to read history directory:', err);
+      this.ctx.logger.error('Failed to read history keys:', err);
     }
   }
   
   private async saveHistory(userId: string): Promise<void> {
     try {
-      if (!existsSync(this.historyPath)) {
-        await mkdir(this.historyPath, { recursive: true });
-      }
-      
-      const filePath = resolve(this.historyPath, `${userId}.json`);
-      await writeFile(filePath, JSON.stringify(this.history[userId] || []), 'utf8');
+      const key = `${this.historyPrefix}${userId}`;
+      await AsyncStorage.setItem(key, JSON.stringify(this.history[userId] || []));
     } catch (err) {
       this.ctx.logger.error(`Failed to save history for ${userId}:`, err);
     }

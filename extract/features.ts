@@ -1,8 +1,7 @@
 import { SimpleContext } from './simple-context';
 import { models, sampler, scheduler, orientMap } from './config';
-import { download, login, NetworkError, forceDataPrefix, trimSlash } from './utils';
+import { download, NetworkError, forceDataPrefix, trimSlash, login, arrayBufferToBase64 } from './utils';
 import { ImageData } from './types';
-import AdmZip from 'adm-zip';
 
 /**
  * NovelAI功能配置接口
@@ -455,7 +454,7 @@ export class NovelAIFeatures {
       }
       
       const imgResponse = await this.ctx.http(imgUrl, { responseType: 'arraybuffer' });
-      const b64 = Buffer.from(imgResponse.data).toString('base64');
+      const b64 = arrayBufferToBase64(imgResponse.data);
       return forceDataPrefix(b64, imgResponse.headers['content-type']);
     } else if (this.config.type === 'naifu') {
       // 处理naifu的响应
@@ -463,25 +462,22 @@ export class NovelAIFeatures {
     } else {
       // NovelAI 官方API返回
       try {
+        // 在React Native环境中，无法处理zip格式，这里简化处理
         if (response.headers['content-type'] === 'application/x-zip-compressed' || 
             response.headers['content-disposition']?.includes('.zip')) {
-          // 处理ZIP格式返回
-          const buffer = Buffer.from(response.data);
-          const zip = new AdmZip(buffer);
-          const zipEntries = zip.getEntries();
-          const firstImageBuffer = zip.readFile(zipEntries[0]);
-          if (!firstImageBuffer) {
-            throw new Error('No valid image found in ZIP response');
-          }
-          const b64 = firstImageBuffer.toString('base64');
+          
+          this.ctx.logger.warn('React Native环境中不支持处理ZIP响应格式');
+          
+          // 直接返回原始数据
+          const b64 = arrayBufferToBase64(response.data);
           return forceDataPrefix(b64, 'image/png');
         }
       } catch (error) {
-        this.ctx.logger.error('Error processing ZIP response:', error);
+        this.ctx.logger.error('Error processing response:', error);
       }
       
       // 正常的图像数据返回
-      return forceDataPrefix(Buffer.from(response.data).toString('base64'), 'image/png');
+      return forceDataPrefix(arrayBufferToBase64(response.data), 'image/png');
     }
   }
 }

@@ -7,6 +7,8 @@ import {
   Keyboard,
   ImageBackground,
   StatusBar,
+  TouchableOpacity,
+  Text,
 } from 'react-native';
 
 import ChatDialog from '@/components/ChatDialog';
@@ -14,6 +16,7 @@ import ChatInput from '@/components/ChatInput';
 import Sidebar from '@/components/Sidebar';
 import SettingsSidebar from '@/components/SettingsSidebar';
 import MemoOverlay from '@/components/MemoOverlay';  // 替换原来的 MemoSheet 导入
+import NovelAITestModal from '@/components/NovelAITestModal'; // 导入 NovelAI 测试组件
 import { Message, Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -42,6 +45,9 @@ const App = () => {
   const [isSettingsSidebarVisible, setIsSettingsSidebarVisible] = useState(false);
   const [isMemoSheetVisible, setIsMemoSheetVisible] = useState(false);
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  // 新增 NovelAI 测试模态框状态
+  const [isNovelAITestVisible, setIsNovelAITestVisible] = useState(false);
 
   const toggleSettingsSidebar = () => {
     setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
@@ -104,6 +110,30 @@ const App = () => {
   const handleResetConversation = async () => {
     if (selectedConversationId) {
       await clearMessages(selectedConversationId);
+    }
+  };
+
+  // 处理 NovelAI 生成的图像
+  const handleImageGenerated = async (imageUrl: string) => {
+    if (!selectedConversationId) {
+      console.warn('未选择对话，无法添加图片消息');
+      return;
+    }
+
+    console.log('接收到生成的图片:', imageUrl);
+    
+    try {
+      // 记录日志
+      console.log('添加NovelAI图片到对话', selectedConversationId);
+      
+      // 创建图像消息
+      const imageMessage = `![NovelAI生成的图像](${imageUrl})`;
+      await handleSendMessage(imageMessage, 'bot');
+      
+      // 关闭测试模态窗口（可选）
+      // setIsNovelAITestVisible(false);
+    } catch (error) {
+      console.error('添加图片消息失败:', error);
     }
   };
 
@@ -266,6 +296,16 @@ const App = () => {
                 selectedCharacter={selectedCharacter}
                 onRateMessage={handleRateMessage}
               />
+              
+              {/* NovelAI测试按钮 */}
+              <View style={styles.testButtonContainer}>
+                <TouchableOpacity 
+                  style={styles.novelaiButton}
+                  onPress={() => setIsNovelAITestVisible(true)}
+                >
+                  <Text style={styles.novelaiButtonText}>NovelAI 图像测试</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={[
@@ -303,6 +343,13 @@ const App = () => {
           <MemoOverlay
             isVisible={isMemoSheetVisible}
             onClose={() => setIsMemoSheetVisible(false)}
+          />
+          
+          {/* NovelAI测试模态框 */}
+          <NovelAITestModal
+            visible={isNovelAITestVisible}
+            onClose={() => setIsNovelAITestVisible(false)}
+            onImageGenerated={handleImageGenerated}
           />
         </View>
       </ImageBackground>
@@ -349,6 +396,29 @@ const styles = StyleSheet.create({
   },
   transparentBackground: {
     backgroundColor: 'transparent',
+  },
+  // NovelAI测试按钮样式
+  testButtonContainer: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    zIndex: 100,
+  },
+  novelaiButton: {
+    backgroundColor: 'rgba(52, 152, 219, 0.9)', // 半透明蓝色
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  novelaiButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
 
