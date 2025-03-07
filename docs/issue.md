@@ -31,6 +31,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 -角色关系系统
 
  -角色对行动的接受和拒绝逻辑，应该允许用户干预/角色自行判断的双重逻辑。
@@ -38,17 +48,14 @@
 
 -角色创建和更新的问题
 
- -让create_char页面UI和character-detail界面UI统一，
 
-    -页面中的detailsidebar应该允许上下滑动，因为文本内容可能很长
 
-    -在文本框输入后放弃更改，不应该直接退出页面，而只是回到页面中。
 
-     -预设内容的排序方式无效，请更换排序方式，例如点击上下箭头来排序条目，注意保持UI的美观
 
- -character-detail页面保存角色后，更新的信息没有生效，包括头像。并且character-detail没有将更新人设的请求传入NodeSTmanager中，需要解决。另外，确认character-detail和NodeSTmanager正确交互，正确传递信息给index中的updateCharacter方法。
 
- -本需求是一个修改需求，无需创建新的文件。
+
+
+
 
 
 
