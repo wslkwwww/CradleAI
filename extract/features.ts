@@ -1,8 +1,8 @@
 import { SimpleContext } from './simple-context';
 import { models, sampler, scheduler, orientMap } from './config';
-import { download, NetworkError, forceDataPrefix, trimSlash, login, arrayBufferToBase64 } from './utils';
+import { download, NetworkError, forceDataPrefix, trimSlash, login } from './utils';
 import { ImageData } from './types';
-
+import { arrayBufferToBase64 } from './simple-context';
 /**
  * NovelAI功能配置接口
  */
@@ -318,7 +318,7 @@ export class NovelAIFeatures {
   }
   
   private async executeRequest(token: string, parameters: any, isImageToImage: boolean) {
-    // Define API path based on backend type
+    // 定义 API 路径基于后端类型
     const path = (() => {
       switch (this.config.type) {
         case 'sd-webui':
@@ -328,14 +328,15 @@ export class NovelAIFeatures {
         case 'naifu':
           return '/generate-stream';
         default:
+          // 修改为正确的图像生成端点
           return '/ai/generate-image';
       }
     })();
     
-    // Prepare payload based on backend type
+    // 准备载荷基于后端类型
     const payload = await this.preparePayload(parameters, isImageToImage);
     
-    // Prepare headers
+    // 准备头部
     const headers = { ...this.config.headers };
     if (['login', 'token', 'naifu'].includes(this.config.type)) {
       headers.Authorization = `Bearer ${token}`;
@@ -343,8 +344,17 @@ export class NovelAIFeatures {
       headers.apikey = token;
     }
     
-    // Execute request
-    const endpoint = this.config.endpoint || 'https://api.novelai.net';
+    // 执行请求
+    let endpoint;
+    if (this.config.type === 'token' || this.config.type === 'login') {
+      // 对于官方 NovelAI API，使用正确的图像生成端点
+      endpoint = this.config.apiEndpoint?.replace('api.novelai.net', 'image.novelai.net') || 'https://image.novelai.net';
+    } else {
+      endpoint = this.config.endpoint || 'https://api.novelai.net';
+    }
+    
+    this.ctx.logger.debug(`使用端点: ${endpoint}${path}`);
+    
     const response = await this.ctx.http({
       url: `${trimSlash(endpoint)}${path}`,
       method: 'POST',

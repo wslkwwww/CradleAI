@@ -113,25 +113,34 @@ const App = () => {
     }
   };
 
-  // 处理 NovelAI 生成的图像
+  // 修改处理图像的函数
   const handleImageGenerated = async (imageUrl: string) => {
     if (!selectedConversationId) {
       console.warn('未选择对话，无法添加图片消息');
       return;
     }
 
-    console.log('接收到生成的图片:', imageUrl);
+    console.log('接收到生成的图片URL:', imageUrl);
     
     try {
-      // 记录日志
-      console.log('添加NovelAI图片到对话', selectedConversationId);
-      
       // 创建图像消息
-      const imageMessage = `![NovelAI生成的图像](${imageUrl})`;
-      await handleSendMessage(imageMessage, 'bot');
+      let imageMessage: string;
       
-      // 关闭测试模态窗口（可选）
-      // setIsNovelAITestVisible(false);
+      // 直接使用图像URL
+      if (imageUrl.startsWith('http')) {
+        // 如果是HTTP URL，使用基本的markdown图片语法
+        imageMessage = `![NovelAI生成的图像](${imageUrl})`;
+      } else if (imageUrl.length > 200000) {
+        // 如果是非常大的data URL，提供警告
+        imageMessage = `[NovelAI生成了一张图像，但数据量太大无法直接显示。点击查看](${imageUrl})`;
+      } else {
+        // 普通data URL
+        imageMessage = `![NovelAI生成的图像](${imageUrl})`;
+      }
+      
+      // 添加消息
+      console.log('添加NovelAI图片到对话', selectedConversationId);
+      await handleSendMessage(imageMessage, 'bot');
     } catch (error) {
       console.error('添加图片消息失败:', error);
     }

@@ -1,0 +1,62 @@
+
+
+现在转变思路，不再在用户的app端实现argon加密，将测试按钮作为纯粹的请求发送按钮，将测试页面的参数发送到服务端，将argon加密的实现放在服务端，这样可以避免argon加密的泄露，同时也可以减少app端的代码量，提高app端的性能。
+
+因此，需要在服务端实现argon加密，并且由服务端和novelai的api进行交互。
+
+服务端将部署在云服务器上，app端通过http请求发送测试页面的参数到服务端，服务端接收到请求后，将参数进行argon加密，然后将加密后的参数发送到novelai的api，获取生成的图片，最后将生成的图片返回给app端。
+
+**技术要求:**
+
+1.  **Flask 应用:**
+    *   使用 Flask 框架。
+    *   提供 `/generate` (POST) 接口，接收来自 App 的生成请求，并将其放入 Celery 队列。    
+    *   提供 `/task_status/<task_id>` (GET) 接口，查询任务状态，并将状态信息返回给 App。
+    *   使用 Redis 作为 Celery 的消息代理。
+    *   **重要：**Flask 应用**不进行** NovelAI API 的直接调用，所有 API 调用都由 Celery Worker 完成。
+    *   **重要：实现过程中要注意，和NovelAI交互需要先登录，然后获取token，然后再进行请求。**
+    *   **重要：需要按照原测试功能，将用户名和密码进行argon加密，然后再发送到novelai的api。**
+
+2.  **Celery Worker:**
+    *   使用 Celery 框架。
+    *   定义一个 `generate_image` 任务，负责调用 NovelAI 的 API 生成图片。
+    *   API请求的参数和原本的测试页面参数一致，符合novelai的api规范。   
+    *   `generate_image` 任务返回生成的图片的base64。
+    *   **重要：**考虑到 NovelAI 的 API 速率限制，`generate_image` 任务需要模拟 API 调用过程中的耗时操作，使用 `time.sleep()` 模拟 API 调用和图片生成的时间。
+
+3.  **错误处理:**
+    *   在 Flask 应用和 Celery Worker 中添加完善的错误处理机制，包括重试机制。
+    *   使用 try-except 块捕获异常，并记录详细可追溯的中文错误信息。
+
+**实现步骤:**
+
+所有服务端的代码文件放置在/text2image_service文件夹下，文件结构如下：
+
+1.  **Flask 应用:**
+    *   创建 Flask 应用实例。
+    *   配置 Celery 消息代理 (Redis)。
+    *   定义 `/generate` 接口，从请求中获取当前测试页面包含的参数，并将任务放入 Celery 队列。
+    *   定义 `/task_status/<task_id>` 接口，查询任务状态并返回。
+
+2.  **Celery Worker (worker.py):**
+    *   创建 Celery 应用实例。
+    *   配置 Celery 消息代理 (Redis)。
+    *   定义 `generate_image` 任务，接收当前测试页面的参数。
+    *   在 `generate_image` 任务中，模拟调用 NovelAI API 的过程 (使用 `time.sleep()`)。
+    *   `generate_image` 任务返回一个示例图片 URL。
+3.  **测试:**
+    *   编写简单的测试用例，验证 Flask 应用和 Celery Worker 的功能是否正常。
+
+**输出要求:**
+
+1.  请提供完整的服务端代码，确保代码能够直接运行。
+2.  在代码中添加必要的中文注释，解释代码的功能和逻辑。
+
+**补充说明:**
+
+*   重点在于实现 Flask 应用和 Celery Worker 的集成，以及任务的排队和状态查询。
+*   结合已有的代码理解和灵活执行需求。
+
+
+请基于以上描述，生成 Flask 应用和 Celery Worker的代码，确保它们能在服务器上正常运行。
+```

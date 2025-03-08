@@ -1,5 +1,7 @@
 import { SimpleContext, getFileData, dataURLToBuffer } from './simple-context';
 import axios from 'axios';
+// 只导入 crypto-helpers 中的函数，不再在本地重新定义
+import { calcAccessKey, calcEncryptionKey } from './crypto-helpers';
 
 // Import arrayBufferToBase64 from simple-context (where it's defined) and re-export it
 import { arrayBufferToBase64 } from './simple-context';
@@ -101,17 +103,6 @@ export async function download(ctx: SimpleContext, url: string, headers = {}): P
   }
 }
 
-// 简化的轻量版认证函数，在React Native环境中可能不支持原加密功能
-export async function calcAccessKey(email: string, password: string) {
-  // 暂时返回一个模拟的key
-  return btoa(`${email}:${password}`).slice(0, 64);
-}
-
-export async function calcEncryptionKey(email: string, password: string) {
-  // 暂时返回一个模拟的key
-  return btoa(`${email}:${password}:enc`).slice(0, 128);
-}
-
 export class NetworkError extends Error {
   constructor(message: string, public params = {}) {
     super(message);
@@ -133,6 +124,7 @@ export class NetworkError extends Error {
 export async function login(ctx: SimpleContext, config: any): Promise<string> {
   if (config.type === 'token') {
     try {
+      // 修改为正确的端点
       await ctx.http(config.apiEndpoint + '/user/subscription', {
         timeout: 30000,
         headers: { authorization: 'Bearer ' + config.token },
@@ -146,20 +138,33 @@ export async function login(ctx: SimpleContext, config: any): Promise<string> {
     }
   } else if (config.type === 'login') {
     try {
-      // 简化版登录逻辑，没有使用Node特定的加密函数
-      const accessKey = await calcAccessKey(config.email, config.password);
+      ctx.logger.info('正在登录 NovelAI...');
       
-      const response = await ctx.http(config.apiEndpoint + '/user/login', {
+      // 使用正确的加密函数计算访问密钥
+      const accessKey = await calcAccessKey(config.email, config.password);
+      ctx.logger.debug('访问密钥已生成');
+      
+      // 修改为正确的登录端点
+      const loginEndpoint = (config.apiEndpoint || 'https://api.novelai.net') + '/user/login';
+      ctx.logger.debug('使用登录端点:', loginEndpoint);
+      
+      const response = await ctx.http(loginEndpoint, {
         method: 'POST',
         timeout: 30000,
         data: {
           key: accessKey,
         },
       });
+      
+      ctx.logger.info('登录成功!');
       return response.data.accessToken;
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        throw new NetworkError('.invalid-password');
+      if (axios.isAxiosError(error)) {
+        ctx.logger.error('登录失败:', error.message);
+        if (error.response?.status === 401) {
+          throw new NetworkError('.invalid-password');
+        }
+        throw new NetworkError(`.login-failed-${error.response?.status || 'unknown'}`);
       }
       throw error;
     }
