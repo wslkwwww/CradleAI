@@ -5,6 +5,9 @@ import time
 import os
 import argon2.low_level
 from hashlib import blake2b
+import zipfile
+import io
+import uuid
 
 # 配置日志 - 修复格式化错误
 logging.basicConfig(
@@ -181,6 +184,69 @@ def save_base64_as_image(base64_data, output_path):
         # 解码并保存图像
         with open(output_path, 'wb') as f:
             f.write(base64.b64decode(base64_data))
+            
+        logger.info(f"图像已保存到: {output_path}")
+        return output_path
+    except Exception as e:
+        logger.error(f"保存图像失败: {e}")
+        raise
+
+def extract_images_from_zip(zip_data):
+    """从 ZIP 数据中提取图像
+    
+    Args:
+        zip_data: ZIP 文件的二进制内容
+        
+    Returns:
+        list: 包含提取的图像数据的列表
+    """
+    try:
+        # 创建 IO 缓冲区来处理 ZIP 数据
+        zip_buffer = io.BytesIO(zip_data)
+        
+        # 打开 ZIP 文件
+        images = []
+        with zipfile.ZipFile(zip_buffer, 'r') as zip_ref:
+            # 列出 ZIP 中的所有文件
+            file_list = zip_ref.namelist()
+            logger.info(f"ZIP 文件中包含 {len(file_list)} 个文件: {file_list}")
+            
+            # 提取所有文件
+            for file_name in file_list:
+                # 检查是否为图像文件
+                if file_name.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                    image_data = zip_ref.read(file_name)
+                    images.append({
+                        'name': file_name,
+                        'data': image_data
+                    })
+        
+        logger.info(f"已成功从 ZIP 文件中提取 {len(images)} 张图像")
+        return images
+    except zipfile.BadZipFile:
+        logger.error("无效的 ZIP 文件数据")
+        return []
+    except Exception as e:
+        logger.error(f"提取图像时出错: {e}")
+        return []
+
+def save_binary_image(image_data, output_path):
+    """将二进制图像数据保存为文件
+    
+    Args:
+        image_data: 二进制图像数据
+        output_path: 输出文件路径
+        
+    Returns:
+        str: 输出文件路径
+    """
+    try:
+        # 确保目录存在
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # 保存图像
+        with open(output_path, 'wb') as f:
+            f.write(image_data)
             
         logger.info(f"图像已保存到: {output_path}")
         return output_path

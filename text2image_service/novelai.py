@@ -134,7 +134,7 @@ class NovelAIClient:
             params: 包含生成参数的字典
             
         Returns:
-            str: 生成的图像的 base64 数据 URL
+            list: 生成的图像的文件路径列表
             
         Raises:
             Exception: 生成失败时抛出异常
@@ -211,7 +211,7 @@ class NovelAIClient:
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
-                "Accept": "application/octet-stream"  # 重要：告知服务器我们期望二进制响应
+                "Accept": "application/x-zip-compressed"  # 修改：明确请求ZIP格式
             }
             
             logger.info(f"发送请求到 {NOVELAI_API_GENERATE}")
@@ -234,17 +234,22 @@ class NovelAIClient:
                     logger.error(f"非JSON响应：{response.text[:200]}")
                     raise Exception(f"图像生成失败（{response.status_code}）：服务器返回了非JSON格式响应")
             
-            # 返回响应内容，图像的二进制数据
+            # 检查内容类型
             content_type = response.headers.get('Content-Type', '')
-            logger.info(f"响应成功，Content-Type: {content_type}")
+            logger.info(f"响应成功，Content-Type: {content_type}, 数据大小: {len(response.content) / 1024:.2f} KB")
             
-            # 这里不需要修改，因为我们在task_status API中处理base64转换和图像存储
-            image_data = base64.b64encode(response.content).decode('utf-8')
-            logger.info("图像生成成功，数据大小：{:.2f} KB".format(len(response.content) / 1024))
+            # 处理ZIP数据
+            from utils import extract_images_from_zip
+            images = extract_images_from_zip(response.content)
             
-            return f"data:image/png;base64,{image_data}"
+            if not images:
+                logger.error("未能从响应中提取有效图像")
+                raise Exception("图像生成失败：未能从响应中提取有效图像")
             
-        except requests.exceptions.RequestException as e:
+            logger.info(f"成功提取 {len(images)} 张图像")
+            return images
+            
+        except Exception as e:
             logger.error(f"图像生成请求失败: {e}")
             if hasattr(e, 'response') and e.response:
                 status_code = e.response.status_code

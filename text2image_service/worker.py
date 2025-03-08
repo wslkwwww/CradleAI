@@ -122,13 +122,27 @@ def generate_image(self, request_params):
                     f"比例={generation_params.get('scale')}")
         
         # 调用 NovelAI API 生成图像
-        image_url = client.generate_image(generation_params)
+        images = client.generate_image(generation_params)
         
-        logger.info(f"图像生成成功: {self.request.id}")
+        # 检查是否成功获取图像
+        if not images or len(images) == 0:
+            return {
+                'success': False,
+                'error': '未能生成图像',
+                'task_id': self.request.id
+            }
+        
+        # 只返回第一张图像的信息，其余图像信息存储在元数据中
+        first_image = images[0]
+        
+        # 注意：我们不在这里保存图像文件，而是将原始数据返回给 API 处理
+        # 因为图像文件应该存储在静态文件目录中，供 Flask 应用访问
+        
+        logger.info(f"图像生成成功: {self.request.id}, 获取到 {len(images)} 张图像")
         
         return {
             'success': True,
-            'image_url': image_url,
+            'images': images,  # 返回包含所有图像的列表
             'task_id': self.request.id
         }
         

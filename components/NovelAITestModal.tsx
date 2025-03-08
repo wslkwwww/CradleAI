@@ -21,6 +21,13 @@ interface NovelAITestModalProps {
   onImageGenerated: (imageUrl: string) => void;
 }
 
+interface GenerationResult {
+  success: boolean;
+  message: string;
+  imageUrl?: string;
+  image_urls?: string[];  // 添加对多图像URL的支持
+}
+
 const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   visible,
   onClose,
@@ -49,7 +56,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   
   // 状态管理
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<{success: boolean; message: string; imageUrl?: string}>();
+  const [result, setResult] = useState<GenerationResult>();
   const [logs, setLogs] = useState<string[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
@@ -137,15 +144,23 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         
         if (response.data.success) {
           addLog('图像生成成功!');
+          
+          // 处理多张图像
+          const imageUrls = response.data.image_urls || [];
+          const mainImageUrl = response.data.image_url;
+          
           setResult({
             success: true,
-            message: '图像生成成功!',
-            imageUrl: response.data.image_url,
+            message: imageUrls.length > 1 
+              ? `成功生成了 ${imageUrls.length} 张图像!` 
+              : '图像生成成功!',
+            imageUrl: mainImageUrl,
+            image_urls: imageUrls.length > 0 ? imageUrls : (mainImageUrl ? [mainImageUrl] : [])
           });
           
           // 将图片传递给父组件
-          if (response.data.image_url) {
-            onImageGenerated(response.data.image_url);
+          if (mainImageUrl) {
+            onImageGenerated(mainImageUrl);
           }
         } else {
           addLog(`图像生成失败: ${response.data.error}`);
@@ -267,12 +282,36 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   };
 
   // 渲染图像结果
-  const renderImage = () => {
-    if (!result?.success || !result.imageUrl) return null;
+  const renderImages = () => {
+    if (!result?.success) return null;
+    
+    // 检查是否有多张图片
+    const hasMultipleImages = result.image_urls && result.image_urls.length > 1;
+    
+    if (hasMultipleImages) {
+      return (
+        <ScrollView horizontal style={styles.imageScrollView}>
+          {result.image_urls!.map((url, index) => (
+            <View key={index} style={styles.imageContainer}>
+              <Image
+                source={{ uri: url }}
+                style={styles.resultImage}
+                resizeMode="contain"
+              />
+              <Text style={styles.imageIndexText}>图像 {index + 1}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
+    
+    // 单张图片情况
+    const imageUrl = result.imageUrl;
+    if (!imageUrl) return null;
     
     // 检查URL大小，避免显示过大的base64数据
-    const isDataUrl = result.imageUrl.startsWith('data:');
-    const isLargeDataUrl = isDataUrl && result.imageUrl.length > 100000; // 大于100KB的视为大数据URL
+    const isDataUrl = imageUrl.startsWith('data:');
+    const isLargeDataUrl = isDataUrl && imageUrl.length > 100000;
     
     if (isLargeDataUrl) {
       // 对于大型Data URL，提供查看选项而不是直接显示
@@ -284,7 +323,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
             onPress={() => {
               // 打开新窗口查看图像
               if (typeof window !== 'undefined') {
-                window.open(result.imageUrl, '_blank');
+                window.open(imageUrl, '_blank');
               }
             }}
           >
@@ -294,10 +333,10 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
       );
     }
     
-    // 对于普通URL或小型Data URL，直接显示
+    // 对于普通URL，直接显示
     return (
       <Image
-        source={{ uri: result.imageUrl }}
+        source={{ uri: imageUrl }}
         style={styles.resultImage}
         resizeMode="contain"
       />
@@ -555,7 +594,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
           <View style={[styles.resultContainer, 
             result.success ? styles.successResult : styles.errorResult]}>
             <Text style={styles.resultText}>{result.message}</Text>
-            {result.success && result.imageUrl && renderImage()}
+            {result.success && renderImages()}
           </View>
         )}
 
@@ -752,7 +791,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   resultImage: {
-    width: '100%',
+    width: 300,
     height: 300,
     borderRadius: 5,
   },
@@ -785,11 +824,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 5,
   },
+  imageScrollView: {
+    flexGrow: 0,
+    marginVertical: 10,
+  },
   imageContainer: {
-    width: '100%',
-    padding: 10,
+    marginRight: 10,
     alignItems: 'center',
-    marginTop: 10,
+  },
+  imageIndexText: {
+    marginTop: 5,
+    color: '#666',
+    fontSize: 12,
   },
   warningText: {
     color: '#e67e22',

@@ -136,28 +136,44 @@ def api_task_status(task_id):
             if task_result.successful():
                 result = task_result.result
                 
-                # 如果有base64图像数据，则保存为文件
-                if result.get('success') and result.get('image_url', '').startswith('data:'):
+                # 如果有图像数据，保存为文件
+                if result.get('success') and result.get('images'):
                     try:
-                        base64_data = result['image_url'].split(',', 1)[1] if ',' in result['image_url'] else result['image_url']
-                        mime_type = 'image/png'
-                        if result['image_url'].startswith('data:'):
-                            mime_parts = result['image_url'].split(';')[0]
-                            if ':' in mime_parts:
-                                mime_type = mime_parts.split(':', 1)[1]
+                        image_urls = []  # 存储所有图像的URL
                         
-                        # 保存图片并获取URL
-                        filename = f"novelai_{uuid.uuid4()}.png"
-                        filepath = os.path.join(IMAGES_DIR, filename)
-                        save_base64_as_image(base64_data, filepath)
+                        for index, image_info in enumerate(result['images']):
+                            # 生成唯一文件名
+                            original_name = image_info['name']
+                            ext = os.path.splitext(original_name)[1] or '.png'
+                            filename = f"novelai_{uuid.uuid4()}{ext}"
+                            filepath = os.path.join(IMAGES_DIR, filename)
+                            
+                            # 保存图像
+                            from utils import save_binary_image
+                            save_binary_image(image_info['data'], filepath)
+                            
+                            # 创建URL
+                            image_url = f"/static/images/{filename}"
+                            full_url = request.url_root.rstrip('/') + image_url
+                            image_urls.append(full_url)
+                            
+                        # 在响应中包含所有图像URL
+                        result['image_urls'] = image_urls
                         
-                        # 替换base64数据为文件URL
-                        image_url = f"/static/images/{filename}"
-                        result['image_url'] = request.url_root.rstrip('/') + image_url
-                        logger.info(f"图像已保存为文件: {filename}")
+                        # 为了向后兼容，将第一张图像作为主图像URL
+                        if image_urls:
+                            result['image_url'] = image_urls[0]
+                            
+                        # 移除原始二进制数据，避免大量数据传输
+                        if 'images' in result:
+                            del result['images']
+                            
+                        logger.info(f"已保存 {len(image_urls)} 张图像")
                     except Exception as e:
                         logger.error(f"保存图像文件失败: {e}")
-                        # 如果保存失败，保留原始base64数据
+                        # 如果保存失败，保留错误信息
+                        result['error'] = f"保存图像失败: {str(e)}"
+                        result['success'] = False
                 
                 response.update(result)
             else:
