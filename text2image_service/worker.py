@@ -29,6 +29,10 @@ celery_app.conf.update(
     result_serializer='json',
     timezone='Asia/Shanghai',
     enable_utc=True,
+    # 添加任务优先级配置
+    task_queue_max_priority=10,
+    task_default_priority=5,
+    broker_transport_options={'priority_steps': list(range(11))},  # 0-10的优先级
 )
 
 @celery_app.task(bind=True, max_retries=MAX_RETRIES)
@@ -106,6 +110,18 @@ def generate_image(self, request_params):
             'smeaDyn': request_params.get('smeaDyn', False),
             'ucPreset': request_params.get('ucPreset', 0),
         }
+        
+        # 判断模型是否为 V4 类型
+        model_name = request_params.get('model', 'nai-v3')
+        is_v4_model = 'nai-v4' in model_name
+        
+        if is_v4_model:
+            # 添加 V4 特有的参数
+            generation_params.update({
+                'noise_schedule': request_params.get('noise_schedule', 'karras'),
+                # 如果前端传递了角色提示词，也添加进来
+                'character_prompt': request_params.get('character_prompt', ''),
+            })
         
         # 如果是图像到图像转换
         if request_params.get('source_image'):

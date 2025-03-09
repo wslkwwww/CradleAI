@@ -18,7 +18,7 @@ import axios from 'axios';
 interface NovelAITestModalProps {
   visible: boolean;
   onClose: () => void;
-  onImageGenerated: (imageUrl: string) => void;
+  onImageGenerated: (imageUrl: string, taskId?: string) => void;
 }
 
 interface GenerationResult {
@@ -26,6 +26,12 @@ interface GenerationResult {
   message: string;
   imageUrl?: string;
   image_urls?: string[];  // 添加对多图像URL的支持
+}
+
+interface QueueInfo {
+  position: number;
+  total_pending: number;
+  estimated_wait?: number;
 }
 
 const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
@@ -60,6 +66,24 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   const [logs, setLogs] = useState<string[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
+  const [processedTaskIds, setProcessedTaskIds] = useState<Set<string>>(new Set());
+
+  // 添加角色提示词输入字段和噪声调度选项
+  const [showV4Settings, setShowV4Settings] = useState(false);
+  const [characterPrompt, setCharacterPrompt] = useState('');
+  const [noiseSchedule, setNoiseSchedule] = useState('karras');
+
+  // 添加队列状态信息
+  const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
+
+  // 监听模型变化，显示或隐藏V4特有设置
+  useEffect(() => {
+    if (model.includes('nai-v4')) {
+      setShowV4Settings(true);
+    } else {
+      setShowV4Settings(false);
+    }
+  }, [model]);
 
   // 从存储中加载设置
   useEffect(() => {
@@ -101,6 +125,13 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     };
   }, [pollingInterval]);
 
+  // 当模态窗口关闭时，重置状态
+  useEffect(() => {
+    if (!visible) {
+      setProcessedTaskIds(new Set());
+    }
+  }, [visible]);
+
   // 保存设置
   const saveSettings = async () => {
     try {
@@ -129,20 +160,42 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     setLogs(prev => [...prev, `[${timestamp}] ${message}`]);
   };
 
-  // 查询任务状态
+  // 修改查询任务状态的函数
   const checkTaskStatus = async (taskId: string) => {
     try {
       addLog(`正在查询任务状态: ${taskId}`);
       const response = await axios.get(`${apiServer}/task_status/${taskId}`);
       
+      // 更新队列信息
+      if (response.data.queue_info) {
+        const newQueueInfo = response.data.queue_info;
+        setQueueInfo(newQueueInfo);
+        
+        // 如果队列位置发生变化，记录日志
+        if (!queueInfo || queueInfo.position !== newQueueInfo.position) {
+          if (newQueueInfo.position > 1) {
+            addLog(`队列位置: ${newQueueInfo.position}，预计等待时间: ${Math.round(newQueueInfo.estimated_wait / 60)} 分钟`);
+          } else if (newQueueInfo.position === 1) {
+            addLog(`你的任务正在处理中，马上就好！`);
+          }
+        }
+      } else {
+        // 如果不再有队列信息，说明任务正在处理中
+        if (queueInfo) {
+          setQueueInfo(null);
+          addLog(`任务已从队列移出，正在处理...`);
+        }
+      }
+
       if (response.data.done) {
-        // 停止轮询
+        // 立即停止轮询，避免多次调用
         if (pollingInterval) {
           clearInterval(pollingInterval);
           setPollingInterval(null);
         }
         
-        if (response.data.success) {
+        // 如果任务成功且尚未处理过
+        if (response.data.success && !processedTaskIds.has(taskId)) {
           addLog('图像生成成功!');
           
           // 首选图像 URL 数组
@@ -163,34 +216,58 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
               image_urls: imageUrls.length > 0 ? imageUrls : (mainImageUrl ? [mainImageUrl] : [])
             });
             
-            // 将第一张图片传递给父组件
+            // 更改：将第一张图片和任务ID传递给父组件，只传一次
             const imageToPass = mainImageUrl || imageUrls[0];
             if (imageToPass) {
-              onImageGenerated(imageToPass);
+              // 立即标记任务已处理，防止后续再次调用
+              setProcessedTaskIds(prev => new Set([...prev, taskId]));
+              
+              // 传递任务ID给父组件，允许进一步的重复检测
+              onImageGenerated(imageToPass, taskId);
+              
+              // 停止轮询
+              setIsLoading(false);
             }
+            return true; // 返回true表示任务已完成并处理
           } else {
             addLog('图像生成成功但未返回图像URL');
             setResult({
               success: true,
               message: '图像生成成功但未返回图像URL'
             });
+            
+            // 停止轮询
+            setIsLoading(false);
+            return true;
           }
-        } else {
+        } else if (!response.data.success) {
+          // 任务失败
           addLog(`图像生成失败: ${response.data.error}`);
           setResult({
             success: false,
             message: `生成失败: ${response.data.error}`,
           });
+          
+          // 停止轮询
+          setIsLoading(false);
+          return true;
+        } else if (processedTaskIds.has(taskId)) {
+          // 任务成功但已处理过
+          addLog('该任务已经处理过，不再重复处理');
+          setIsLoading(false);
+          return true;
         }
-        
-        setIsLoading(false);
       } else {
         // 任务仍在进行中
         addLog(`任务状态: ${response.data.status}`);
+        return false;
       }
+      
+      return response.data.done;
     } catch (error) {
       addLog(`查询任务状态失败: ${error instanceof Error ? error.message : String(error)}`);
       // 不停止轮询，继续尝试
+      return false;
     }
   };
 
@@ -199,6 +276,8 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     setIsLoading(true);
     setResult(undefined);
     setLogs([]);
+    // 清空已处理任务集合
+    setProcessedTaskIds(new Set());
     addLog('开始生成图像...');
     addLog(`认证类型: ${authType}`);
     addLog(`API服务器: ${apiServer}`);
@@ -232,6 +311,14 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         negative_prompt: negativePrompt,
       };
       
+      // 如果是V4模型，添加V4特有参数
+      if (model.includes('nai-v4')) {
+        Object.assign(requestData, {
+          character_prompt: characterPrompt,
+          noise_schedule: noiseSchedule,
+        });
+      }
+      
       addLog('正在发送请求到服务器...');
       addLog(`请求数据: ${JSON.stringify({
         ...requestData,
@@ -249,9 +336,35 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         addLog(`任务已提交，ID: ${newTaskId}`);
         addLog('开始轮询任务状态...');
         
-        // 开始轮询任务状态
-        const interval = setInterval(() => {
-          checkTaskStatus(newTaskId);
+        // 获取队列信息
+        if (response.data.queue_info) {
+          setQueueInfo(response.data.queue_info);
+          const position = response.data.queue_info.position;
+          if (position > 1) {
+            addLog(`你的任务在队列中的位置: ${position}，前面有 ${position-1} 个任务`);
+          } else {
+            addLog(`你的任务正在处理中`);
+          }
+        }
+
+        // 修改轮询实现，使用显式的轮询控制标志
+        let isPolling = true;
+        const interval = setInterval(async () => {
+          if (!isPolling) {
+            clearInterval(interval);
+            return;
+          }
+          
+          try {
+            const isDone = await checkTaskStatus(newTaskId);
+            if (isDone) {
+              isPolling = false;
+              clearInterval(interval);
+              setPollingInterval(null);
+            }
+          } catch (err) {
+            addLog(`轮询过程中出错: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }, 2000); // 每2秒检查一次
         
         setPollingInterval(interval);
@@ -291,6 +404,31 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         message: '生成图像过程中发生错误: ' + errorMessage,
       });
       setIsLoading(false);
+    }
+  };
+
+  // 添加取消任务的函数
+  const cancelTask = async () => {
+    if (!taskId) return;
+    
+    try {
+      addLog(`正在取消任务: ${taskId}...`);
+      const response = await axios.post(`${apiServer}/cancel_task/${taskId}`);
+      
+      if (response.data.success) {
+        addLog(`任务已成功取消`);
+        setIsLoading(false);
+        setTaskId(null);
+        setQueueInfo(null);
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          setPollingInterval(null);
+        }
+      } else {
+        addLog(`任务取消失败: ${response.data.error}`);
+      }
+    } catch (error) {
+      addLog(`取消任务时发生错误: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -552,6 +690,39 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
             </View>
           )}
 
+          {/* V4特有设置 */}
+          {showV4Settings && (
+            <View style={styles.v4SettingsContainer}>
+              <Text style={styles.v4SettingsTitle}>V4 模型特有设置</Text>
+              
+              <Text style={styles.label}>角色提示词</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={characterPrompt}
+                onChangeText={setCharacterPrompt}
+                placeholder="描述角色特征，如：girl, long hair, blue eyes"
+                multiline
+                numberOfLines={3}
+              />
+              
+              <Text style={styles.label}>噪声调度</Text>
+              <View style={styles.pickerContainer}>
+                {(['karras', 'exponential', 'polyexponential'] as const).map((scheduleOption) => (
+                  <TouchableOpacity
+                    key={scheduleOption}
+                    style={[
+                      styles.optionButton,
+                      noiseSchedule === scheduleOption && styles.selectedOption,
+                    ]}
+                    onPress={() => setNoiseSchedule(scheduleOption)}
+                  >
+                    <Text style={styles.optionText}>{scheduleOption}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
           <Text style={styles.label}>提示词</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
@@ -599,6 +770,34 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
             <ActivityIndicator size="large" color="#3498db" />
             <Text style={styles.loadingText}>正在生成图像，请稍候...</Text>
             {taskId && <Text style={styles.taskIdText}>任务ID: {taskId}</Text>}
+            
+            {/* 显示队列位置信息 */}
+            {queueInfo && queueInfo.position > 0 && (
+              <View style={styles.queueInfoContainer}>
+                <Text style={styles.queuePositionText}>
+                  队列位置: {queueInfo.position} / {queueInfo.total_pending}
+                </Text>
+                {queueInfo.estimated_wait && (
+                  <Text style={styles.queueTimeText}>
+                    预计等待: {Math.round(queueInfo.estimated_wait / 60)} 分钟
+                  </Text>
+                )}
+                <View style={styles.progressBarContainer}>
+                  <View style={[
+                    styles.progressBar, 
+                    { width: `${Math.max(5, 100 - (queueInfo.position / queueInfo.total_pending * 100))}%` }
+                  ]} />
+                </View>
+                
+                {/* 取消任务按钮 */}
+                <TouchableOpacity 
+                  style={styles.cancelTaskButton}
+                  onPress={cancelTask}
+                >
+                  <Text style={styles.cancelTaskButtonText}>取消任务</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
@@ -863,6 +1062,60 @@ const styles = StyleSheet.create({
   },
   viewImageButtonText: {
     color: '#fff',
+    fontWeight: 'bold',
+  },
+  v4SettingsContainer: {
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    marginVertical: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#6c5ce7',
+  },
+  v4SettingsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#6c5ce7',
+    marginBottom: 12,
+  },
+  queueInfoContainer: {
+    marginTop: 15,
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  queuePositionText: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 5,
+    fontWeight: 'bold',
+  },
+  queueTimeText: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 10,
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#eaeaea',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 15,
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#3498db',
+  },
+  cancelTaskButton: {
+    backgroundColor: '#e74c3c',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    marginTop: 10,
+  },
+  cancelTaskButtonText: {
+    color: 'white',
     fontWeight: 'bold',
   },
 });

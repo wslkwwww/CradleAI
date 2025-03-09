@@ -49,6 +49,11 @@ const App = () => {
   // 新增 NovelAI 测试模态框状态
   const [isNovelAITestVisible, setIsNovelAITestVisible] = useState(false);
 
+  // 添加一个跟踪处理过的图片URL的集合
+  const [processedImageUrls, setProcessedImageUrls] = useState<Set<string>>(new Set());
+  // 添加一个引用来跟踪处理中的任务ID
+  const processingTaskIds = useRef<Set<string>>(new Set());
+
   const toggleSettingsSidebar = () => {
     setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
   };
@@ -114,15 +119,32 @@ const App = () => {
   };
 
   // 修改处理图像的函数
-  const handleImageGenerated = async (imageUrl: string) => {
+  const handleImageGenerated = async (imageUrl: string, taskId?: string) => {
     if (!selectedConversationId) {
       console.warn('未选择对话，无法添加图片消息');
       return;
     }
 
-    console.log('接收到生成的图片URL:', imageUrl);
+    console.log('接收到生成的图片URL:', imageUrl.substring(0, 50) + '...');
+    
+    // 如果提供了任务ID，检查是否正在处理该任务
+    if (taskId && processingTaskIds.current.has(taskId)) {
+      console.log(`任务 ${taskId} 正在处理中，跳过重复处理`);
+      return;
+    }
+    
+    // 如果已经处理过这个URL，避免重复添加
+    if (processedImageUrls.has(imageUrl)) {
+      console.log('图片URL已经被处理过，跳过:', imageUrl.substring(0, 50) + '...');
+      return;
+    }
     
     try {
+      // 如果提供了任务ID，标记为正在处理
+      if (taskId) {
+        processingTaskIds.current.add(taskId);
+      }
+      
       // 创建图像消息
       let imageMessage: string;
       
@@ -141,8 +163,20 @@ const App = () => {
       // 添加消息
       console.log('添加NovelAI图片到对话', selectedConversationId);
       await handleSendMessage(imageMessage, 'bot');
+      
+      // 将URL添加到已处理集合中
+      setProcessedImageUrls(prev => new Set([...prev, imageUrl]));
+      
+      // 如果任务处理完成，从处理中集合移除
+      if (taskId) {
+        processingTaskIds.current.delete(taskId);
+      }
     } catch (error) {
       console.error('添加图片消息失败:', error);
+      // 确保即使出错也从处理中集合移除任务
+      if (taskId) {
+        processingTaskIds.current.delete(taskId);
+      }
     }
   };
 

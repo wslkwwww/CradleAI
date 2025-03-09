@@ -45,7 +45,7 @@ try:
     )
     
     # 确保存储桶存在
-    if minio_storage.ensure_bucket_exists(MINIO_BUCKET):
+    if (minio_storage.ensure_bucket_exists(MINIO_BUCKET)):
         logger.info(f"MinIO 存储桶 '{MINIO_BUCKET}' 已确认可用")
     else:
         logger.error(f"MinIO 存储桶 '{MINIO_BUCKET}' 不可用")
@@ -93,6 +93,70 @@ def serve_image(filename):
     """提供静态图片文件"""
     return send_from_directory(IMAGES_DIR, filename)
 
+# 添加全局队列状态变量
+task_queue_status = {
+    "total_pending": 0,
+    "queue_positions": {},  # 任务ID到队列位置的映射
+    "last_updated": datetime.now().timestamp()
+}
+
+# 添加任务优先级管理
+task_priorities = {}  # 任务ID到优先级值的映射
+
+# 更新任务队列状态的函数
+def update_queue_status():
+    """更新任务队列状态"""
+    global task_queue_status
+    
+    try:
+        # 获取等待中的任务
+        i = celery_app.control.inspect()
+        active_tasks = i.active() or {}
+        reserved_tasks = i.reserved() or {}
+        
+        # 合并所有worker的活跃和预留任务
+        all_tasks = []
+        for worker, tasks in active_tasks.items():
+            for task in tasks:
+                all_tasks.append((task['id'], task.get('delivery_info', {}).get('priority', 0), 'active'))
+                
+        for worker, tasks in reserved_tasks.items():
+            for task in tasks:
+                all_tasks.append((task['id'], task.get('delivery_info', {}).get('priority', 0), 'reserved'))
+        
+        # 根据优先级和时间排序
+        all_tasks.sort(key=lambda x: (-task_priorities.get(x[0], 0), x[1]))
+        
+        # 更新队列状态
+        queue_positions = {}
+        for idx, (task_id, _, _) in enumerate(all_tasks):
+            queue_positions[task_id] = idx + 1
+        
+        task_queue_status = {
+            "total_pending": len(all_tasks),
+            "queue_positions": queue_positions,
+            "last_updated": datetime.now().timestamp()
+        }
+        
+        logger.debug(f"更新了队列状态，当前待处理任务: {len(all_tasks)}")
+    except Exception as e:
+        logger.error(f"更新队列状态时出错: {e}")
+
+# 定期更新队列状态的线程
+def queue_status_updater():
+    """定期更新队列状态"""
+    while True:
+        try:
+            update_queue_status()
+            time.sleep(5)  # 每5秒更新一次
+        except Exception as e:
+            logger.error(f"队列状态更新线程出错: {e}")
+            time.sleep(30)  # 出错后等待较长时间再重试
+
+# 启动队列状态更新线程
+queue_updater_thread = threading.Thread(target=queue_status_updater, daemon=True)
+queue_updater_thread.start()
+
 @app.route('/generate', methods=['POST'])
 def api_generate():
     """接收图像生成请求并将任务放入 Celery 队列"""
@@ -131,16 +195,45 @@ def api_generate():
                 'error': '未提供提示词'
             }), 400
         
+        # 获取用户优先级（可从请求头或请求体中获取）
+        user_priority = data.get('priority', 0)
+        
+        # 验证优先级值的范围
+        try:
+            user_priority = int(user_priority)
+            if user_priority < 0:
+                user_priority = 0
+            elif user_priority > 10:
+                user_priority = 10
+        except (ValueError, TypeError):
+            user_priority = 0
+                
         # 提交 Celery 任务
-        task = generate_image.delay(data)
+        task = generate_image.apply_async(
+            args=[data],
+            priority=user_priority  # 设置任务优先级
+        )
         
-        logger.info(f"任务已提交，ID: {task.id}")
+        # 记录任务优先级
+        task_priorities[task.id] = user_priority
         
-        # 返回任务 ID
+        logger.info(f"任务已提交，ID: {task.id}，优先级: {user_priority}")
+        
+        # 更新队列状态
+        update_queue_status()
+        
+        # 获取队列位置
+        queue_position = task_queue_status["queue_positions"].get(task.id, 0)
+        
+        # 返回任务 ID 和队列信息
         return jsonify({
             'success': True,
             'task_id': task.id,
-            'message': '图像生成任务已提交'
+            'message': '图像生成任务已提交',
+            'queue_info': {
+                'position': queue_position,
+                'total_pending': task_queue_status["total_pending"],
+            }
         })
         
     except Exception as e:
@@ -157,13 +250,11 @@ def api_task_status(task_id):
         # 首先检查是否有缓存的结果
         if task_id in task_results_cache:
             logger.debug(f"返回缓存的任务结果 (task_id: {task_id})")
-            result = task_results_cache[task_id]
-            
             return jsonify({
                 'task_id': task_id,
                 'status': 'SUCCESS',
                 'done': True,
-                **result
+                **task_results_cache[task_id]
             })
             
         # 查询任务状态
@@ -175,6 +266,15 @@ def api_task_status(task_id):
             'status': task_result.status,
             'done': task_result.ready()
         }
+        
+        # 添加队列位置信息
+        queue_position = task_queue_status["queue_positions"].get(task_id, 0)
+        if queue_position > 0 and not response['done']:
+            response['queue_info'] = {
+                'position': queue_position,
+                'total_pending': task_queue_status["total_pending"],
+                'estimated_wait': queue_position * 30  # 每个任务估计30秒，可根据实际情况调整
+            }
         
         # 如果任务完成，添加结果信息
         if task_result.ready():
@@ -274,6 +374,43 @@ def api_task_status(task_id):
             'success': False,
             'error': f'查询任务状态时出错: {str(e)}',
             'task_id': task_id
+        }), 500
+
+# 添加新的端点来获取队列状态
+@app.route('/queue_status', methods=['GET'])
+def api_queue_status():
+    """获取当前队列状态"""
+    return jsonify({
+        'queue_status': task_queue_status,
+        'active_tasks': len(task_queue_status["queue_positions"]),
+        'last_updated': datetime.fromtimestamp(task_queue_status["last_updated"]).strftime('%Y-%m-%d %H:%M:%S')
+    })
+
+# 添加取消任务的端点
+@app.route('/cancel_task/<task_id>', methods=['POST'])
+def api_cancel_task(task_id):
+    """取消指定的任务"""
+    try:
+        # 尝试撤销任务
+        celery_app.control.revoke(task_id, terminate=True)
+        
+        # 从队列状态中移除
+        if task_id in task_queue_status["queue_positions"]:
+            del task_queue_status["queue_positions"][task_id]
+        
+        # 从优先级映射中移除
+        if task_id in task_priorities:
+            del task_priorities[task_id]
+        
+        return jsonify({
+            'success': True,
+            'message': f'任务 {task_id} 已取消'
+        })
+    except Exception as e:
+        logger.error(f"取消任务时出错: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'取消任务时出错: {str(e)}'
         }), 500
 
 if __name__ == '__main__':

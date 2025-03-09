@@ -171,7 +171,10 @@ class NovelAIClient:
         
         logger.info(f"使用模型: {model_name} -> {official_model}")
         
-        # 构建与官方 API 格式一致的请求参数
+        # 检测是否使用 V4 模型
+        is_v4_model = 'nai-diffusion-4' in official_model
+        
+        # 构建请求参数
         request_data = {
             "action": "generate",
             "input": params.get('prompt', ''),
@@ -184,15 +187,91 @@ class NovelAIClient:
                 "steps": params.get('steps', 28),
                 "n_samples": params.get('batch_size', 1),
                 "ucPreset": 0,  # 简单设置为0，可能需要根据实际需求调整
-                "qualityToggle": False,
                 "seed": params.get('seed', int(time.time() * 1000) % (2**32)),
                 "sm": params.get('smea', False),
-                "sm_dyn": params.get('smeaDyn', False)
+                "sm_dyn": params.get('smeaDyn', False),
+                "add_original_image": True,
+                "legacy": False
             }
         }
         
         # 处理负面提示词
-        negative_prompt = params.get('negative_prompt')
+        negative_prompt = params.get('negative_prompt', '')
+        
+        # 对V4模型添加特殊处理
+        if is_v4_model:
+            # 设置V4特有的参数
+            request_data["parameters"]["params_version"] = 3
+            request_data["parameters"]["qualityToggle"] = True
+            request_data["parameters"]["prefer_brownian"] = True
+            request_data["parameters"]["autoSmea"] = False
+            request_data["parameters"]["dynamic_thresholding"] = False
+            request_data["parameters"]["controlnet_strength"] = 1
+            request_data["parameters"]["legacy_v3_extend"] = False
+            request_data["parameters"]["deliberate_euler_ancestral_bug"] = False
+            
+            # 修改噪声调度设置
+            request_data["parameters"]["noise_schedule"] = params.get('noise_schedule', 'karras')
+            
+            # 处理V4的提示词结构
+            characterPrompt = params.get('character_prompt', '')
+            
+            # 设置基本的v4_prompt结构
+            request_data["parameters"]["v4_prompt"] = {
+                "caption": {
+                    "base_caption": params.get('prompt', ''),
+                    "char_captions": [
+                        {
+                            "char_caption": characterPrompt,
+                            "centers": [
+                                {
+                                    "x": 0,
+                                    "y": 0
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "use_coords": False,
+                "use_order": True
+            }
+            
+            # 设置负面提示词
+            request_data["parameters"]["v4_negative_prompt"] = {
+                "caption": {
+                    "base_caption": negative_prompt or "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, multiple views, logo, too many watermarks, white blank page, blank page",
+                    "char_captions": [
+                        {
+                            "char_caption": "",
+                            "centers": [
+                                {
+                                    "x": 0,
+                                    "y": 0
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            
+            # 如果有角色提示词，也添加到characterPrompts
+            if characterPrompt:
+                request_data["parameters"]["characterPrompts"] = [
+                    {
+                        "prompt": characterPrompt,
+                        "uc": "",
+                        "center": {
+                            "x": 0,
+                            "y": 0
+                        }
+                    }
+                ]
+        
+        # 对非V4模型设置标准的负面提示词参数
+        if not is_v4_model and negative_prompt:
+            request_data["parameters"]["negative_prompt"] = negative_prompt
+        
+        # 添加所有模型都通用的负面提示词字段
         if negative_prompt:
             request_data["parameters"]["negative_prompt"] = negative_prompt
         
@@ -211,7 +290,7 @@ class NovelAIClient:
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
-                "Accept": "application/x-zip-compressed"  # 修改：明确请求ZIP格式
+                "Accept": "application/x-zip-compressed"  # 明确请求ZIP格式
             }
             
             logger.info(f"发送请求到 {NOVELAI_API_GENERATE}")
