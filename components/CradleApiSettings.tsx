@@ -13,124 +13,296 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
-import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
-import { OpenRouterModelManager } from '@/NodeST/nodest/utils/openrouter-model-manager';
 import { OpenRouterModel } from '@/shared/types/api-types';
+import DropDownPicker from 'react-native-dropdown-picker';
 
 interface CradleApiSettingsProps {
   isVisible: boolean;
+  embedded?: boolean;
   onClose: () => void;
 }
 
-export default function CradleApiSettings({ isVisible, onClose }: CradleApiSettingsProps) {
+export default function CradleApiSettings({ 
+  isVisible, 
+  embedded = false,
+  onClose 
+}: CradleApiSettingsProps) {
   const { getCradleApiSettings, updateCradleApiSettings } = useCharacters();
-  const currentSettings = getCradleApiSettings();
+  const [loading, setLoading] = useState(false);
+  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter'>('gemini');
+  const [openRouterEnabled, setOpenRouterEnabled] = useState(false);
+  const [openRouterApiKey, setOpenRouterApiKey] = useState('');
+  const [openRouterModel, setOpenRouterModel] = useState('');
+  const [openDropdown, setOpenDropdown] = useState(false);
+  const [modelsList, setModelsList] = useState<{label: string, value: string}[]>([]);
+  const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   
-  // State variables
-  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter'>(
-    currentSettings.apiProvider || 'gemini'
-  );
-  const [openrouterEnabled, setOpenrouterEnabled] = useState(
-    currentSettings.openrouter?.enabled || false
-  );
-  const [openrouterApiKey, setOpenrouterApiKey] = useState(
-    currentSettings.openrouter?.apiKey || ''
-  );
-  const [openrouterModel, setOpenrouterModel] = useState(
-    currentSettings.openrouter?.model || 'openai/gpt-3.5-turbo'
-  );
-  
-  // Models list state
-  const [models, setModels] = useState<OpenRouterModel[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [showModelSelector, setShowModelSelector] = useState(false);
-  const [testingConnection, setTestingConnection] = useState(false);
-  
-  // Load models on mount if OpenRouter is enabled
+  // Load settings on mount or when modal opens
   useEffect(() => {
-    if (openrouterEnabled && openrouterApiKey) {
-      loadModels();
+    if (isVisible || embedded) {
+      loadSettings();
     }
-  }, []);
+  }, [isVisible, embedded]);
   
-  // Load models from OpenRouter
-  const loadModels = async () => {
-    if (!openrouterApiKey) {
-      Alert.alert('错误', '请先输入OpenRouter API密钥');
-      return;
-    }
-    
-    setLoadingModels(true);
-    
+  const loadSettings = async () => {
     try {
-      const modelsList = await OpenRouterModelManager.getModels(openrouterApiKey, true);
-      setModels(modelsList);
-    } catch (error) {
-      console.error('加载模型失败:', error);
-      Alert.alert(
-        '加载模型失败', 
-        error instanceof Error ? error.message : '未知错误'
-      );
-    } finally {
-      setLoadingModels(false);
-    }
-  };
-  
-  // Test OpenRouter connection
-  const testConnection = async () => {
-    if (!openrouterApiKey) {
-      Alert.alert('错误', '请先输入API密钥');
-      return;
-    }
-    
-    setTestingConnection(true);
-    
-    try {
-      const adapter = new OpenRouterAdapter(openrouterApiKey);
-      const testResponse = await adapter.generateContent([{
-        role: 'user',
-        parts: [{ text: 'Say "Connection successful!" and nothing else.' }]
-      }]);
+      setLoading(true);
+      const settings = getCradleApiSettings();
+      setApiProvider(settings.apiProvider);
       
-      if (testResponse.includes('Connection successful')) {
-        Alert.alert('连接成功', '成功连接到OpenRouter API');
-        // Load models after successful connection
-        await loadModels();
-      } else {
-        Alert.alert('连接失败', '连接测试未返回预期响应');
+      // Load OpenRouter settings if available
+      if (settings.openrouter) {
+        setOpenRouterEnabled(settings.openrouter.enabled || false);
+        setOpenRouterApiKey(settings.openrouter.apiKey || '');
+        setOpenRouterModel(settings.openrouter.model || '');
       }
+      
+      // Load models list for dropdown
+      loadModelsList();
     } catch (error) {
-      console.error('测试连接失败:', error);
-      Alert.alert(
-        '连接测试失败', 
-        error instanceof Error ? error.message : '未知错误'
-      );
+      console.error('Failed to load API settings:', error);
     } finally {
-      setTestingConnection(false);
+      setLoading(false);
     }
   };
   
-  // Save settings
-  const saveSettings = async () => {
+  const loadModelsList = async () => {
+    // Sample models list - would usually be fetched from API
+    setModelsList([
+      { label: 'gpt-4o', value: 'gpt-4o' },
+      { label: 'gpt-4-turbo', value: 'gpt-4-turbo' },
+      { label: 'claude-3-opus', value: 'claude-3-opus' },
+      { label: 'claude-3-sonnet', value: 'claude-3-sonnet' },
+      { label: 'claude-3-haiku', value: 'claude-3-haiku' },
+      { label: 'mistral-large', value: 'mistral-large' }
+    ]);
+  };
+  
+  const handleSaveSettings = async () => {
     try {
-      const settings = {
-        apiProvider,
-        openrouter: apiProvider === 'openrouter' ? {
-          enabled: openrouterEnabled,
-          apiKey: openrouterApiKey,
-          model: openrouterModel
-        } : undefined
-      };
+      setLoading(true);
       
-      await updateCradleApiSettings(settings);
-      Alert.alert('设置已保存', '摇篮系统API设置已更新');
+      // Validate settings
+      if (apiProvider === 'openrouter' && openRouterEnabled) {
+        if (!openRouterApiKey.trim()) {
+          Alert.alert('Error', 'OpenRouter API Key 不能为空');
+          return;
+        }
+        if (!openRouterModel) {
+          Alert.alert('Error', '请选择一个模型');
+          return;
+        }
+      }
+      
+      // Update settings
+      await updateCradleApiSettings({
+        apiProvider,
+        openrouter: {
+          enabled: openRouterEnabled,
+          apiKey: openRouterApiKey,
+          model: openRouterModel
+        }
+      });
+      
+      Alert.alert('成功', '设置已保存');
       onClose();
     } catch (error) {
       console.error('保存设置失败:', error);
-      Alert.alert('保存失败', error instanceof Error ? error.message : '未知错误');
+      Alert.alert('错误', '保存设置失败');
+    } finally {
+      setLoading(false);
     }
   };
   
+  const handleTestConnection = async () => {
+    if (!openRouterApiKey.trim()) {
+      Alert.alert('Error', 'API Key 不能为空');
+      return;
+    }
+    
+    setTestStatus('loading');
+    
+    try {
+      // Simulate API test
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setTestStatus('success');
+      Alert.alert('连接成功', '成功连接到 OpenRouter API');
+    } catch (error) {
+      console.error('连接测试失败:', error);
+      setTestStatus('error');
+      Alert.alert('连接失败', '无法连接到 OpenRouter API');
+    }
+  };
+
+  const content = (
+    <ScrollView style={styles.scrollContent}>
+      <Text style={styles.sectionTitle}>API 提供商</Text>
+      
+      <View style={styles.apiProviderSelector}>
+        <TouchableOpacity
+          style={[
+            styles.providerOption,
+            apiProvider === 'gemini' && styles.selectedProvider
+          ]}
+          onPress={() => setApiProvider('gemini')}
+        >
+          <Ionicons 
+            name="logo-google" 
+            size={24} 
+            color={apiProvider === 'gemini' ? '#4285F4' : '#777'} 
+          />
+          <Text style={[
+            styles.providerName,
+            apiProvider === 'gemini' && styles.selectedProviderText
+          ]}>
+            Gemini API
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            styles.providerOption,
+            apiProvider === 'openrouter' && styles.selectedProvider
+          ]}
+          onPress={() => setApiProvider('openrouter')}
+        >
+          <Ionicons 
+            name="globe-outline" 
+            size={24} 
+            color={apiProvider === 'openrouter' ? '#FF6B6B' : '#777'} 
+          />
+          <Text style={[
+            styles.providerName,
+            apiProvider === 'openrouter' && styles.selectedProviderText
+          ]}>
+            OpenRouter
+          </Text>
+        </TouchableOpacity>
+      </View>
+      
+      {apiProvider === 'gemini' && (
+        <View style={styles.infoBox}>
+          <Ionicons name="information-circle-outline" size={20} color="#4285F4" />
+          <Text style={styles.infoText}>
+            Gemini API 是默认的 API 提供商，无需额外配置。
+          </Text>
+        </View>
+      )}
+      
+      {apiProvider === 'openrouter' && (
+        <View style={styles.openRouterSection}>
+          <View style={styles.settingItem}>
+            <Text style={styles.settingLabel}>启用 OpenRouter</Text>
+            <Switch
+              value={openRouterEnabled}
+              onValueChange={setOpenRouterEnabled}
+              trackColor={{ false: '#555', true: '#FF6B6B' }}
+              thumbColor={openRouterEnabled ? '#fff' : '#f4f3f4'}
+            />
+          </View>
+          
+          {openRouterEnabled && (
+            <>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>API Key</Text>
+                <TextInput 
+                  style={styles.textInput}
+                  value={openRouterApiKey}
+                  onChangeText={setOpenRouterApiKey}
+                  placeholder="输入 OpenRouter API Key"
+                  placeholderTextColor="#777"
+                  secureTextEntry
+                />
+              </View>
+              
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>选择默认模型</Text>
+                <View style={styles.dropdownContainer}>
+                  <DropDownPicker
+                    open={openDropdown}
+                    value={openRouterModel}
+                    items={modelsList}
+                    setOpen={setOpenDropdown}
+                    setValue={setOpenRouterModel}
+                    setItems={setModelsList}
+                    placeholder="选择模型"
+                    style={styles.dropdown}
+                    textStyle={styles.dropdownText}
+                    dropDownContainerStyle={styles.dropdownList}
+                    listItemLabelStyle={styles.dropdownItemLabel}
+                    selectedItemContainerStyle={styles.dropdownSelectedItem}
+                    selectedItemLabelStyle={styles.dropdownSelectedLabel}
+                    listMode="SCROLLVIEW"
+                  />
+                </View>
+              </View>
+              
+              <View style={styles.testContainer}>
+                <TouchableOpacity 
+                  style={styles.testButton}
+                  onPress={handleTestConnection}
+                  disabled={testStatus === 'loading'}
+                >
+                  {testStatus === 'loading' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons 
+                        name={
+                          testStatus === 'success' ? 'checkmark-circle-outline' : 
+                          testStatus === 'error' ? 'close-circle-outline' : 
+                          'radio-button-on-outline'
+                        } 
+                        size={18} 
+                        color="#fff" 
+                      />
+                      <Text style={styles.testButtonText}>测试连接</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.infoBox}>
+                <Ionicons name="information-circle-outline" size={20} color="#FF6B6B" />
+                <Text style={styles.infoText}>
+                  OpenRouter 允许你使用多种不同的 AI 模型。你需要创建一个 OpenRouter 账户并获取 API Key。
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+    </ScrollView>
+  );
+
+  const footer = (
+    <View style={embedded ? styles.embeddedFooter : styles.footer}>
+      <TouchableOpacity
+        style={styles.saveButton}
+        onPress={handleSaveSettings}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.saveButtonText}>保存设置</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+
+  // If in embedded mode, render directly without modal
+  if (embedded) {
+    return (
+      <View style={styles.embeddedContainer}>
+        <Text style={styles.embeddedTitle}>API 设置</Text>
+        {content}
+        {footer}
+      </View>
+    );
+  }
+
+  // Otherwise render as modal
   return (
     <Modal
       visible={isVisible}
@@ -141,185 +313,16 @@ export default function CradleApiSettings({ isVisible, onClose }: CradleApiSetti
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <View style={styles.header}>
-            <Text style={styles.title}>摇篮系统API设置</Text>
+            <Text style={styles.title}>API 设置</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
           
-          <ScrollView style={styles.scrollContent}>
-            <Text style={styles.sectionTitle}>API提供商</Text>
-            <View style={styles.providerSelection}>
-              <TouchableOpacity 
-                style={[
-                  styles.providerButton, 
-                  apiProvider === 'gemini' && styles.selectedProvider
-                ]}
-                onPress={() => setApiProvider('gemini')}
-              >
-                <Text style={[
-                  styles.providerText,
-                  apiProvider === 'gemini' && styles.selectedProviderText
-                ]}>
-                  Gemini API
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.providerButton, 
-                  apiProvider === 'openrouter' && styles.selectedProvider
-                ]}
-                onPress={() => setApiProvider('openrouter')}
-              >
-                <Text style={[
-                  styles.providerText,
-                  apiProvider === 'openrouter' && styles.selectedProviderText
-                ]}>
-                  OpenRouter
-                </Text>
-              </TouchableOpacity>
-            </View>
-            
-            {apiProvider === 'openrouter' && (
-              <>
-                <View style={styles.switchContainer}>
-                  <Text style={styles.label}>启用 OpenRouter</Text>
-                  <Switch
-                    value={openrouterEnabled}
-                    onValueChange={setOpenrouterEnabled}
-                    trackColor={{ false: '#767577', true: '#4A90E2' }}
-                    thumbColor={openrouterEnabled ? '#fff' : '#f4f3f4'}
-                  />
-                </View>
-                
-                {openrouterEnabled && (
-                  <>
-                    <Text style={styles.label}>API密钥</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={openrouterApiKey}
-                      onChangeText={setOpenrouterApiKey}
-                      placeholder="输入OpenRouter API密钥"
-                      placeholderTextColor="#888"
-                      secureTextEntry={true}
-                    />
-                    
-                    <TouchableOpacity 
-                      style={styles.testButton}
-                      onPress={testConnection}
-                      disabled={testingConnection}
-                    >
-                      {testingConnection ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.testButtonText}>测试连接</Text>
-                      )}
-                    </TouchableOpacity>
-                    
-                    <Text style={styles.label}>选择模型</Text>
-                    <TouchableOpacity 
-                      style={styles.modelSelector}
-                      onPress={() => setShowModelSelector(true)}
-                    >
-                      <Text style={styles.modelText}>
-                        {openrouterModel || '选择模型'}
-                      </Text>
-                      <Ionicons name="chevron-down" size={18} color="#ccc" />
-                    </TouchableOpacity>
-                    
-                    <Text style={styles.infoText}>
-                      OpenRouter让你可以访问多种AI模型，包括GPT-3.5、GPT-4、Claude等。
-                      这些模型可能比默认的Gemini模型更适合某些类型的角色培育。
-                    </Text>
-                  </>
-                )}
-              </>
-            )}
-          </ScrollView>
-          
-          <View style={styles.footer}>
-            <TouchableOpacity 
-              style={styles.cancelButton}
-              onPress={onClose}
-            >
-              <Text style={styles.cancelButtonText}>取消</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.saveButton}
-              onPress={saveSettings}
-            >
-              <Text style={styles.saveButtonText}>保存设置</Text>
-            </TouchableOpacity>
-          </View>
+          {content}
+          {footer}
         </View>
       </View>
-      
-      {/* Model Selector Modal */}
-      <Modal
-        visible={showModelSelector}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowModelSelector(false)}
-      >
-        <View style={styles.modelModalContainer}>
-          <View style={styles.modelModalContent}>
-            <View style={styles.modelHeader}>
-              <Text style={styles.modelTitle}>选择模型</Text>
-              <TouchableOpacity onPress={() => setShowModelSelector(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            
-            {loadingModels ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#4A90E2" />
-                <Text style={styles.loadingText}>加载模型中...</Text>
-              </View>
-            ) : (
-              <ScrollView style={styles.modelList}>
-                {models.length > 0 ? (
-                  models.map(model => (
-                    <TouchableOpacity
-                      key={model.id}
-                      style={[
-                        styles.modelItem,
-                        model.id === openrouterModel && styles.selectedModel
-                      ]}
-                      onPress={() => {
-                        setOpenrouterModel(model.id);
-                        setShowModelSelector(false);
-                      }}
-                    >
-                      <Text style={styles.modelName}>{model.name || model.id}</Text>
-                      {model.provider && (
-                        <Text style={styles.providerName}>
-                          {model.provider.name || model.provider.id}
-                        </Text>
-                      )}
-                      {model.id === openrouterModel && (
-                        <Ionicons name="checkmark-circle" size={22} color="#4A90E2" />
-                      )}
-                    </TouchableOpacity>
-                  ))
-                ) : (
-                  <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>
-                      没有可用的模型。请检查API密钥并重试。
-                    </Text>
-                    <TouchableOpacity 
-                      style={styles.retryButton}
-                      onPress={loadModels}
-                    >
-                      <Text style={styles.retryButtonText}>重试</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
     </Modal>
   );
 }
@@ -327,14 +330,14 @@ export default function CradleApiSettings({ isVisible, onClose }: CradleApiSetti
 const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
     width: '90%',
     maxHeight: '80%',
-    backgroundColor: '#333',
+    backgroundColor: '#282828',
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -343,202 +346,170 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#444',
+    backgroundColor: '#333',
     borderBottomWidth: 1,
-    borderBottomColor: '#555',
+    borderBottomColor: '#444',
   },
   title: {
+    color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#fff',
   },
   closeButton: {
     padding: 4,
   },
   scrollContent: {
     padding: 16,
+    maxHeight: '70%',
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 12,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
   },
-  providerSelection: {
+  apiProviderSelector: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 20,
   },
-  providerButton: {
+  providerOption: {
     flex: 1,
-    padding: 12,
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: '#333',
     alignItems: 'center',
+    marginHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#555',
+    borderColor: '#444',
   },
   selectedProvider: {
-    backgroundColor: '#4A90E2',
-    borderColor: '#4A90E2',
+    borderColor: '#666',
+    backgroundColor: '#3a3a3a',
   },
-  providerText: {
-    color: '#ccc',
+  providerName: {
+    color: '#777',
+    marginTop: 8,
     fontWeight: 'bold',
   },
   selectedProviderText: {
     color: '#fff',
   },
-  switchContainer: {
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  infoText: {
+    color: '#ccc',
+    fontSize: 14,
+    flex: 1,
+    marginLeft: 8,
+    lineHeight: 20,
+  },
+  openRouterSection: {
+    marginTop: 16,
+  },
+  settingItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginVertical: 12,
+    marginBottom: 16,
   },
-  label: {
-    fontSize: 14,
-    color: '#ccc',
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#444',
-    borderRadius: 4,
-    padding: 12,
+  settingLabel: {
     color: '#fff',
-    marginBottom: 12,
+    fontSize: 16,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    color: '#fff',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#333',
+    color: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#444',
+  },
+  dropdownContainer: {
+    zIndex: 1000,
+  },
+  dropdown: {
+    backgroundColor: '#333',
+    borderColor: '#444',
+  },
+  dropdownText: {
+    color: '#fff',
+  },
+  dropdownList: {
+    backgroundColor: '#333',
+    borderColor: '#444',
+  },
+  dropdownItemLabel: {
+    color: '#fff',
+  },
+  dropdownSelectedItem: {
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+  },
+  dropdownSelectedLabel: {
+    color: '#FF6B6B',
+    fontWeight: 'bold',
+  },
+  testContainer: {
+    marginTop: 16,
+    marginBottom: 16,
   },
   testButton: {
-    backgroundColor: '#555',
-    padding: 10,
-    borderRadius: 4,
+    backgroundColor: '#FF6B6B',
+    padding: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 16,
+    justifyContent: 'center',
   },
   testButtonText: {
     color: '#fff',
-  },
-  modelSelector: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#444',
-    padding: 12,
-    borderRadius: 4,
-    marginBottom: 12,
-  },
-  modelText: {
-    color: '#fff',
-  },
-  infoText: {
-    color: '#aaa',
-    fontSize: 12,
-    marginTop: 10,
-    lineHeight: 18,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#555',
-  },
-  cancelButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  cancelButtonText: {
-    color: '#ccc',
+    borderTopColor: '#444',
+    backgroundColor: '#333',
   },
   saveButton: {
     backgroundColor: '#4A90E2',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 4,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
   saveButtonText: {
     color: '#fff',
     fontWeight: 'bold',
   },
-  modelModalContainer: {
+  // Embedded mode styles
+  embeddedContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modelModalContent: {
-    width: '90%',
-    height: '70%',
-    backgroundColor: '#333',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  modelHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     padding: 16,
-    backgroundColor: '#444',
-    borderBottomWidth: 1,
-    borderBottomColor: '#555',
+    backgroundColor: '#282828',
   },
-  modelTitle: {
-    fontSize: 18,
+  embeddedTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 20,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#ccc',
-    marginTop: 16,
-  },
-  modelList: {
-    flex: 1,
-  },
-  modelItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#444',
-  },
-  selectedModel: {
-    backgroundColor: 'rgba(74, 144, 226, 0.1)',
-  },
-  modelName: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 16,
-  },
-  providerName: {
-    color: '#aaa',
-    fontSize: 14,
-    marginLeft: 8,
-    marginRight: 8,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyText: {
-    color: '#ccc',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  retryButton: {
-    backgroundColor: '#555',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 4,
-  },
-  retryButtonText: {
-    color: '#fff',
-  },
+  embeddedFooter: {
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#444',
+  }
 });

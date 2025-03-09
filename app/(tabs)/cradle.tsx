@@ -1,575 +1,289 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Image,
   SafeAreaView,
+  TouchableOpacity,
   StatusBar,
-  ActivityIndicator,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
-  Keyboard,
-  Alert
+  ScrollView,
+  RefreshControl,
+  Animated,
+  Dimensions,
+  ImageBackground
 } from 'react-native';
+import { Ionicons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useCharacters } from '@/constants/CharactersContext';
-import CradleFeedModal from '@/components/CradleFeedModal';
-import CradleSettings from '@/components/CradleSettings';
-import CradleApiSettings from '@/components/CradleApiSettings';
-import ImportToCradleModal from '@/components/ImportToCradleModal';
 import { CradleCharacter } from '@/shared/types';
-import { CradleSettings as CradleSettingsType } from '@/constants/types';
 
-export default function CradleScreen() {
+// UPDATED: CradleCharacterCarousel now supports scrollToIndex properly and has UI fixes
+import CradleCharacterCarousel from '@/components/CradleCharacterCarousel';
+
+// UPDATED: These components were previously used as modals, now they can also be embedded directly into tabs
+import CradleApiSettings from '@/components/CradleApiSettings';  // NEW: Added for API provider settings
+import CradleSettings from '@/components/CradleSettings';        // UPDATED: Now supports embedded mode
+import CradleCreateForm from '@/components/CradleCreateForm';    // UPDATED: Fixed slider issues & supports embedded mode
+import ImportToCradleModal from '@/components/ImportToCradleModal'; // UPDATED: Now supports embedded mode
+import CradleFeedModal from '@/components/CradleFeedModal';      // UNCHANGED: Still used as a modal
+
+// DEPRECATED: Previous floating action button approach - now using tabs instead
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// NEW: Define our tabs for the updated UI
+const TABS = [
+  { id: 'main', title: '主页', icon: 'home-outline' },
+  { id: 'create', title: '创建', icon: 'add-outline' },
+  { id: 'import', title: '导入', icon: 'download-outline' },
+  { id: 'settings', title: '设置', icon: 'settings-outline' },
+  { id: 'api', title: 'API', icon: 'cloud-outline' } // NEW: Added API settings tab
+];
+
+export default function CradlePage() {
   const router = useRouter();
-  const {
+  
+  const { 
+    getCradleCharacters, 
     getCradleSettings,
     updateCradleSettings,
-    getCradleCharacters,
-    generateCharacterFromCradle,
-    getCradleApiSettings,
   } = useCharacters();
 
-  // Define types for state variables
-  const [cradleSettings, setCradleSettingsState] = useState<CradleSettingsType>({
-    enabled: false,
-    duration: 7,
-    startDate: undefined,
-    progress: 0
-  });
-  const [characters, setCharactersState] = useState<CradleCharacter[]>([]);
-  const [loading, setLoading] = useState(true);
-  
-  // Add state for selected character
+  // States for data
+  const [cradleCharacters, setCradleCharacters] = useState<CradleCharacter[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<CradleCharacter | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const cradleSettings = getCradleSettings();
   
-  // Keyboard handling
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const scrollViewRef = useRef<ScrollView>(null);
-  
-  // Modals
+  // NEW: State for tabs
+  const [activeTab, setActiveTab] = useState<string>('main');
   const [showFeedModal, setShowFeedModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [showApiSettingsModal, setShowApiSettingsModal] = useState(false);
-  
-  // Load data on mount
+
+  // DEPRECATED: Old modal states, now handled by tab system
+  // const [showCreateForm, setShowCreateForm] = useState(false);
+  // const [showImportModal, setShowImportModal] = useState(false);
+  // const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // Load characters when component mounts or refreshes
   useEffect(() => {
-    loadData();
-    
-    // Setup keyboard listeners
-    const keyboardDidShowListener = Keyboard.addListener(
-      'keyboardDidShow',
-      () => {
-        setKeyboardVisible(true);
-        // Scroll to make sure form is visible
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }
-    );
-    const keyboardDidHideListener = Keyboard.addListener(
-      'keyboardDidHide',
-      () => {
-        setKeyboardVisible(false);
-      }
-    );
-
-    return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
-    };
+    loadCradleCharacters();
   }, []);
-  
-  // Load cradle data
-  const loadData = () => {
-    try {
-      setLoading(true);
-      const settings = getCradleSettings();
-      const chars = getCradleCharacters();
-      
-      console.log("Loaded cradle settings:", settings);
-      console.log("Loaded cradle characters:", chars.length);
-      
-      setCradleSettingsState(settings as CradleSettingsType);
-      setCharactersState(chars || []);
-      
-      // Keep the selected character if it still exists
-      if (selectedCharacter) {
-        const stillExists = chars.find(c => c.id === selectedCharacter.id);
-        if (stillExists) {
-          // Update the selected character data (especially feed counts)
-          setSelectedCharacter(stillExists);
-        } else {
-          // Reset selection if character doesn't exist anymore
-          setSelectedCharacter(chars.length > 0 ? chars[0] : null);
-        }
-      } else if (chars.length > 0) {
-        // Select the first character if none was selected before
-        setSelectedCharacter(chars[0]);
+
+  // Load cradle characters from context
+  const loadCradleCharacters = useCallback(() => {
+    const characters = getCradleCharacters();
+    setCradleCharacters(characters);
+    
+    // If we have characters but none selected, select the first one
+    if (characters.length > 0 && !selectedCharacter) {
+      setSelectedCharacter(characters[0]);
+    } else if (selectedCharacter) {
+      // If we have a selected character, make sure it's updated
+      const updatedSelectedChar = characters.find(c => c.id === selectedCharacter.id);
+      if (updatedSelectedChar) {
+        setSelectedCharacter(updatedSelectedChar);
+      } else if (characters.length > 0) {
+        // If the selected character no longer exists, select the first one
+        setSelectedCharacter(characters[0]);
+      } else {
+        setSelectedCharacter(null);
       }
-    } catch (error) {
-      console.error("Error loading cradle data:", error);
-    } finally {
-      setLoading(false);
     }
-  };
-  
-  // Toggle cradle system enabled state
-  const handleToggleCradle = async (enabled: boolean) => {
-    const newSettings: CradleSettingsType = { 
-      ...cradleSettings, 
-      enabled,
-      // If enabling, set start date if not already set
-      startDate: enabled && !cradleSettings.startDate ? new Date().toISOString() : cradleSettings.startDate
-    };
-    
-    try {
-      await updateCradleSettings(newSettings);
-      setCradleSettingsState(newSettings);
-    } catch (error) {
-      console.error("Error toggling cradle:", error);
-    }
-  };
-  
-  // Update cradle duration
-  const handleDurationChange = async (duration: number) => {
-    try {
-      const newSettings: CradleSettingsType = { ...cradleSettings, duration };
-      await updateCradleSettings(newSettings);
-      setCradleSettingsState(newSettings);
-    } catch (error) {
-      console.error("Error changing duration:", error);
-    }
-  };
-  
-  // Calculate progress based on start date and duration
-  const calculateProgress = () => {
-    if (!cradleSettings.enabled || !cradleSettings.startDate) {
-      return 0;
-    }
-    
-    const startDate = new Date(cradleSettings.startDate);
-    const currentDate = new Date();
-    const elapsedDays = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
-    const totalDuration = cradleSettings.duration || 7;
-    
-    return Math.min(Math.round((elapsedDays / totalDuration) * 100), 100);
-  };
-  
-  const progress = calculateProgress();
-  
-  // Handle character generation
-  const handleGenerateCharacter = async (characterId: string) => {
-    try {
-      const character = await generateCharacterFromCradle(characterId);
-      router.push({
-        pathname: "/(tabs)",
-        params: { characterId: character.id }
-      });
-    } catch (error) {
-      console.error('Failed to generate character:', error);
-    }
-  };
-  
-  // Handle feed button click
-  const handleFeedCharacter = () => {
-    if (!selectedCharacter) {
-      Alert.alert('请选择角色', '请先选择一个角色以进行投喂');
-      return;
-    }
-    setShowFeedModal(true);
-  };
+  }, [selectedCharacter]);
 
-  // Create new character
-  const handleCreateCharacter = () => {
-    router.push('/pages/create_char_cradle');
-  };
-  
-  // Add new function to handle importing characters
-  const handleImportCharacter = () => {
-    setShowImportModal(true);
-  };
+  // Handle refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    loadCradleCharacters();
+    setRefreshing(false);
+  }, [loadCradleCharacters]);
 
-  // Get the API provider name to display
-  const getApiProviderName = () => {
-    const apiSettings = getCradleApiSettings();
-    if (apiSettings.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled) {
-      return 'OpenRouter';
-    }
-    return 'Gemini API';
-  };
-  
-  // Select a character to show in detail view
+  // Handle character selection
   const handleSelectCharacter = (character: CradleCharacter) => {
     setSelectedCharacter(character);
   };
-  
-  // If still loading data
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4A90E2" />
-        <Text style={styles.loadingText}>加载摇篮系统...</Text>
-      </View>
-    );
-  }
+
+  // Handle feed character
+  const handleFeedCharacter = (characterId: string) => {
+    // Find the character
+    const character = cradleCharacters.find(c => c.id === characterId);
+    if (character) {
+      setSelectedCharacter(character);
+      setShowFeedModal(true);
+    }
+  };
+
+  // NEW: Fix the scrollToIndex error by making sure we handle onScrollToIndexFailed
+  const handleTabChange = (tabId: string) => {
+    // Reset any flatlist scroll position issues when changing tabs
+    if (tabId === 'main') {
+      // Use setTimeout to ensure the state update happens after the tab change
+      setTimeout(() => {
+        loadCradleCharacters();
+      }, 10);
+    }
+    setActiveTab(tabId);
+  };
+
+  // NEW: Render the appropriate content based on active tab
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'main':
+        return (
+          <ScrollView 
+            style={styles.tabContent}
+            contentContainerStyle={styles.tabPageContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+          >
+            <View style={styles.statusBar}>
+              <View style={styles.statusContainer}>
+                <View style={[
+                  styles.statusIndicator, 
+                  cradleSettings.enabled ? styles.statusActive : styles.statusInactive
+                ]} />
+                <Text style={styles.statusText}>
+                  {cradleSettings.enabled 
+                    ? `摇篮系统已启用 · ${cradleSettings.duration || 7}天培育期`
+                    : '摇篮系统未启用'}
+                </Text>
+              </View>
+            </View>
+
+            <CradleCharacterCarousel
+              characters={cradleCharacters}
+              onSelectCharacter={handleSelectCharacter}
+              selectedCharacterId={selectedCharacter?.id}
+              onFeedCharacter={handleFeedCharacter}
+            />
+            
+            {/* Empty state */}
+            {cradleCharacters.length === 0 && (
+              <View style={styles.emptyStateContainer}>
+                <MaterialCommunityIcons name="cradle" size={60} color="#555" />
+                <Text style={styles.emptyTitle}>没有摇篮角色</Text>
+                <Text style={styles.emptyText}>点击"创建"标签来添加新角色</Text>
+              </View>
+            )}
+          </ScrollView>
+        );
+      case 'create':
+        return (
+          <View style={styles.tabContent}>
+            <CradleCreateForm 
+              embedded={true}  // NEW: Now supports embedded mode
+              onClose={() => handleTabChange('main')}
+              onSuccess={loadCradleCharacters}
+            />
+          </View>
+        );
+      case 'import':
+        return (
+          <View style={styles.tabContent}>
+            <ImportToCradleModal 
+              embedded={true} // NEW: Now supports embedded mode
+              visible={true}
+              onClose={() => handleTabChange('main')}
+              onImportSuccess={loadCradleCharacters}
+            />
+          </View>
+        );
+      case 'settings':
+        return (
+          <View style={styles.tabContent}>
+            <CradleSettings
+              embedded={true} // NEW: Now supports embedded mode
+              isVisible={true}
+              onClose={() => handleTabChange('main')}
+              isCradleEnabled={cradleSettings.enabled}
+              cradleDuration={cradleSettings.duration}
+              onCradleToggle={(enabled) => {
+                updateCradleSettings({
+                  ...cradleSettings,
+                  enabled,
+                  startDate: enabled ? new Date().toISOString() : undefined
+                });
+              }}
+              onDurationChange={(duration) => {
+                updateCradleSettings({
+                  ...cradleSettings,
+                  duration
+                });
+              }}
+            />
+          </View>
+        );
+      // NEW: API settings tab
+      case 'api':
+        return (
+          <View style={styles.tabContent}>
+            <CradleApiSettings
+              embedded={true}
+              isVisible={true}
+              onClose={() => handleTabChange('main')}
+            />
+          </View>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#282828" />
       
+      {/* UPDATED: Header now includes tabs */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>摇篮系统</Text>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={() => setShowApiSettingsModal(true)}
-          >
-            <Ionicons name="cloud-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={handleImportCharacter}
-          >
-            <Ionicons name="cloud-download-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={() => setShowSettingsModal(true)}
-          >
-            <Ionicons name="settings-outline" size={22} color="#fff" />
-          </TouchableOpacity>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>摇篮系统</Text>
         </View>
+        
+        {/* NEW: Tabs */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          style={styles.tabsContainer}
+          contentContainerStyle={styles.tabsContentContainer}
+        >
+          {TABS.map(tab => {
+            const isActive = activeTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.tab, isActive && styles.activeTab]}
+                onPress={() => handleTabChange(tab.id)}
+              >
+                <Ionicons 
+                  name={tab.icon as any} 
+                  size={18} 
+                  color={isActive ? '#FFD700' : '#aaa'} 
+                  style={styles.tabIcon}
+                />
+                <Text style={[styles.tabText, isActive && styles.activeTabText]}>
+                  {tab.title}
+                </Text>
+                {isActive && <View style={styles.activeIndicator} />}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
       
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
-      >
-        <ScrollView 
-          style={styles.scrollView} 
-          ref={scrollViewRef}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Cradle Details Area - Redesigned with background support */}
-          <View style={styles.detailsContainer}>
-            <ImageBackground
-              source={selectedCharacter?.backgroundImage 
-                ? { uri: selectedCharacter.backgroundImage } 
-                : require('@/assets/images/default-cradle-bg.jpg')}
-              style={styles.backgroundImage}
-            >
-              <LinearGradient
-                colors={['rgba(28, 38, 59, 0.6)', 'rgba(28, 38, 59, 0.95)']}
-                style={styles.detailsGradient}
-              >
-                <View style={styles.detailsContent}>
-                  {/* Character Avatar */}
-                  {selectedCharacter ? (
-                    <View style={styles.selectedCharacterContainer}>
-                      <View style={styles.avatarContainer}>
-                        {selectedCharacter.avatar ? (
-                          <Image 
-                            source={{ uri: selectedCharacter.avatar }} 
-                            style={styles.detailsAvatar} 
-                          />
-                        ) : (
-                          <View style={styles.detailsPlaceholderAvatar}>
-                            <Ionicons name="person" size={40} color="#ccc" />
-                          </View>
-                        )}
-                      </View>
-                      
-                      <View style={styles.characterDetailsInfo}>
-                        <Text style={styles.detailsCharacterName}>
-                          {selectedCharacter.name || '未命名角色'}
-                          {selectedCharacter.importedFromCharacter && (
-                            <Text style={styles.importBadge}> (导入)</Text>
-                          )}
-                        </Text>
-                        <Text style={styles.detailsCharacterMeta}>
-                          投喂数据: {selectedCharacter.feedHistory?.length || 0} 条
-                        </Text>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={styles.noCharacterSelected}>
-                      <Ionicons name="leaf-outline" size={40} color="#ccc" />
-                      <Text style={styles.noCharacterText}>请选择或创建一个摇篮角色</Text>
-                    </View>
-                  )}
-                  
-                  {/* Progress and settings */}
-                  {cradleSettings.enabled && (
-                    <>
-                      <View style={styles.progressContainer}>
-                        <View style={styles.progressBar}>
-                          <View 
-                            style={[
-                              styles.progressFill, 
-                              { width: `${progress}%` }
-                            ]} 
-                          />
-                        </View>
-                        <Text style={styles.progressText}>{progress}%</Text>
-                      </View>
-                      
-                      <Text style={styles.bannerSubtitle}>
-                        {progress >= 100 
-                          ? "培育周期已完成，可以生成角色" 
-                          : `培育周期: ${cradleSettings.duration || 7} 天`}
-                      </Text>
-                      
-                      <View style={styles.apiInfoContainer}>
-                        <Text style={styles.apiInfo}>
-                          当前API: <Text style={styles.apiName}>{getApiProviderName()}</Text>
-                        </Text>
-                        <TouchableOpacity 
-                          style={styles.apiChangeButton}
-                          onPress={() => setShowApiSettingsModal(true)}
-                        >
-                          <Text style={styles.apiChangeText}>更改</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </>
-                  )}
-                  
-                  {/* Action Buttons - Now require character selection */}
-                  <View style={styles.actionButtons}>
-                    <TouchableOpacity 
-                      style={styles.bannerButton}
-                      onPress={() => handleToggleCradle(!cradleSettings.enabled)}
-                    >
-                      <Text style={styles.bannerButtonText}>
-                        {cradleSettings.enabled ? "暂停培育" : "开始培育"}
-                      </Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={[
-                        styles.bannerButton, 
-                        styles.secondaryButton,
-                        !selectedCharacter && styles.disabledButton
-                      ]}
-                      onPress={handleFeedCharacter}
-                      disabled={!selectedCharacter}
-                    >
-                      <Text style={[
-                        styles.bannerButtonText, 
-                        styles.secondaryButtonText,
-                        !selectedCharacter && styles.disabledButtonText
-                      ]}>
-                        投喂数据
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </LinearGradient>
-            </ImageBackground>
-          </View>
-          
-          {/* Character List Section */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>我的摇篮角色</Text>
-              <View style={styles.headerActionButtons}>
-                <TouchableOpacity 
-                  style={styles.smallActionButton}
-                  onPress={handleImportCharacter}
-                >
-                  <Ionicons name="download-outline" size={16} color="#fff" />
-                  <Text style={styles.smallButtonText}>导入</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.addButton}
-                  onPress={handleCreateCharacter}
-                >
-                  <Ionicons name="add" size={20} color="#fff" />
-                  <Text style={styles.addButtonText}>新建</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            
-            {characters && characters.length > 0 ? (
-              <View style={styles.characterList}>
-                {characters.map((character: CradleCharacter) => (
-                  <TouchableOpacity
-                    key={character.id}
-                    style={[
-                      styles.characterCard,
-                      selectedCharacter?.id === character.id && styles.selectedCharacterCard
-                    ]}
-                    onPress={() => handleSelectCharacter(character)}
-                  >
-                    <View style={styles.characterHeader}>
-                      <View style={styles.avatarContainer}>
-                        {character.avatar ? (
-                          <Image source={{ uri: character.avatar }} style={styles.avatar} />
-                        ) : (
-                          <View style={styles.placeholderAvatar}>
-                            <Ionicons name="person" size={30} color="#ccc" />
-                          </View>
-                        )}
-                      </View>
-                      <View style={styles.characterInfo}>
-                        <Text style={styles.characterName}>
-                          {character.name || '未命名角色'}
-                          {character.importedFromCharacter && (
-                            <Text style={styles.importBadge}> (导入)</Text>
-                          )}
-                        </Text>
-                        <Text style={styles.characterMeta}>
-                          投喂数据: {character.feedHistory?.length || 0} 条
-                        </Text>
-                      </View>
-                    </View>
-                    
-                    {/* Only show actions if this is the selected character */}
-                    {selectedCharacter?.id === character.id && (
-                      <View style={styles.actionRow}>
-                        <TouchableOpacity 
-                          style={styles.actionButton}
-                          onPress={handleFeedCharacter}
-                        >
-                          <Ionicons name="add-circle-outline" size={18} color="#4A90E2" />
-                          <Text style={styles.actionText}>投喂</Text>
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity style={styles.actionButton}>
-                          <Ionicons name="analytics-outline" size={18} color="#4A90E2" />
-                          <Text style={styles.actionText}>培育状态</Text>
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity 
-                          style={[styles.actionButton, progress >= 100 ? styles.readyButton : styles.disabledButton]}
-                          disabled={progress < 100}
-                          onPress={() => handleGenerateCharacter(character.id)}
-                        >
-                          <Ionicons 
-                            name={character.importedFromCharacter ? "refresh-outline" : "rocket-outline"} 
-                            size={18} 
-                            color={progress >= 100 ? "#4A90E2" : "#999"} 
-                          />
-                          <Text style={[
-                            styles.actionText,
-                            progress >= 100 ? styles.readyText : styles.disabledText
-                          ]}>
-                            {progress >= 100 
-                              ? (character.importedFromCharacter ? "应用更新" : "生成角色")
-                              : "未准备好"
-                            }
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="leaf-outline" size={60} color="#666" />
-                <Text style={styles.emptyTitle}>没有摇篮角色</Text>
-                <Text style={styles.emptyText}>创建一个摇篮角色开始培育吧</Text>
-                <View style={styles.emptyButtons}>
-                  <TouchableOpacity
-                    style={styles.createButton}
-                    onPress={handleCreateCharacter}
-                  >
-                    <Text style={styles.createButtonText}>创建角色</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[styles.createButton, styles.importButton]}
-                    onPress={handleImportCharacter}
-                  >
-                    <Text style={styles.createButtonText}>导入已有角色</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-          </View>
-          
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>摇篮系统说明</Text>
-            <View style={styles.infoCard}>
-              <Text style={styles.infoText}>
-                摇篮系统可以帮助你培育更具个性的AI角色。通过投喂文本、图片等数据，系统将为角色塑造个性。培育周期结束后，你可以将摇篮角色生成为正式角色进行互动。
-              </Text>
-              
-              <View style={styles.infoPoints}>
-                <View style={styles.infoPoint}>
-                  <Ionicons name="time-outline" size={20} color="#4A90E2" />
-                  <Text style={styles.infoPointText}>需要时间培育</Text>
-                </View>
-                
-                <View style={styles.infoPoint}>
-                  <Ionicons name="document-text-outline" size={20} color="#4A90E2" />
-                  <Text style={styles.infoPointText}>投喂各类数据</Text>
-                </View>
-                
-                <View style={styles.infoPoint}>
-                  <Ionicons name="person-outline" size={20} color="#4A90E2" />
-                  <Text style={styles.infoPointText}>塑造个性特征</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-          
-          {/* Add padding at bottom for keyboard */}
-          {keyboardVisible && <View style={{ height: 200 }} />}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      {/* NEW: Tab Content - now using a simple container with conditional rendering instead of ScrollView */}
+      <View style={styles.tabContentContainer}>
+        {renderTabContent()}
+      </View>
       
-      {/* Modals */}
-      {showFeedModal && (
-        <CradleFeedModal
-          visible={showFeedModal}
-          onClose={() => {
-            setShowFeedModal(false);
-            // Immediately reload data to refresh feed counts
-            loadData(); 
-          }}
-          characterId={selectedCharacter?.id}
-        />
-      )}
-      
-      {showSettingsModal && (
-        <CradleSettings
-          isVisible={showSettingsModal}
-          onClose={() => setShowSettingsModal(false)}
-          onCradleToggle={handleToggleCradle}
-          onDurationChange={handleDurationChange}
-          isCradleEnabled={cradleSettings.enabled}
-          cradleDuration={cradleSettings.duration || 7}
-        />
-      )}
-      
-      {showApiSettingsModal && (
-        <CradleApiSettings
-          isVisible={showApiSettingsModal}
-          onClose={() => {
-            setShowApiSettingsModal(false);
-            loadData(); 
-          }}
-        />
-      )}
-      
-      <ImportToCradleModal
-        visible={showImportModal}
+      {/* UNCHANGED: Feed Modal - still used as a popup */}
+      <CradleFeedModal
+        visible={showFeedModal}
         onClose={() => {
-          setShowImportModal(false);
-          // Immediately reload data after import
-          loadData(); 
+          setShowFeedModal(false);
+          loadCradleCharacters();
         }}
-        onImportSuccess={loadData}
+        characterId={selectedCharacter?.id}
       />
     </SafeAreaView>
   );
@@ -580,403 +294,117 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#282828',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#282828',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#fff',
-  },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    backgroundColor: '#333333',
+    paddingTop: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  headerTitleContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#333',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 12,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#fff',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  
-  // New styles for redesigned details area
-  detailsContainer: {
-    height: 300, // Fixed height for the details area
-    width: '100%',
-    marginBottom: 16,
-  },
-  backgroundImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  detailsGradient: {
-    flex: 1,
-    padding: 20,
-  },
-  detailsContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  selectedCharacterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 16,
-  },
-  detailsAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: '#4A90E2',
-  },
-  detailsPlaceholderAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(68, 68, 68, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#4A90E2',
-  },
-  characterDetailsInfo: {
-    marginLeft: 16,
-    flex: 1,
-  },
-  detailsCharacterName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
+    color: '#FFD700',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
   },
-  detailsCharacterMeta: {
-    fontSize: 16,
-    color: '#eee',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
+  tabsContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 215, 0, 0.2)',
   },
-  noCharacterSelected: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  tabsContentContainer: {
+    paddingHorizontal: 12,
   },
-  noCharacterText: {
-    color: '#ccc',
-    fontSize: 16,
-    marginTop: 10,
-  },
-  
-  // Updated existing styles
-  progressContainer: {
+  tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
-    marginVertical: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    position: 'relative',
   },
-  progressBar: {
-    flex: 1,
-    height: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 4,
-    marginRight: 8,
-    overflow: 'hidden',
+  activeTab: {
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#4A90E2',
-    borderRadius: 4,
+  tabIcon: {
+    marginRight: 6,
   },
-  progressText: {
-    width: 40,
+  tabText: {
+    color: '#aaa',
     fontSize: 14,
-    color: '#fff',
-    textAlign: 'right',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
-  bannerSubtitle: {
-    fontSize: 14,
-    color: '#eee',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
+  activeTabText: {
+    color: '#FFD700',
+    fontWeight: '500',
   },
-  actionButtons: {
-    flexDirection: 'row',
-    marginTop: 8,
+  activeIndicator: {
+    position: 'absolute',
+    bottom: -1,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#FFD700',
+  },
+  tabContentContainer: {
+    flex: 1,
+  },
+  tabContent: {
+    flex: 1,
+  },
+  tabPageContent: {
+    paddingBottom: 20,
+  },
+  statusBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(0,0,0,0.2)',
     marginBottom: 10,
   },
-  bannerButton: {
-    backgroundColor: '#4A90E2',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    marginHorizontal: 8,
-  },
-  bannerButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  secondaryButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#4A90E2',
-  },
-  secondaryButtonText: {
-    color: '#4A90E2',
-  },
-  section: {
-    padding: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  
-  // New styles for character list
-  characterList: {
-    marginBottom: 16,
-  },
-  characterCard: {
-    backgroundColor: '#333',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.5,
-  },
-  selectedCharacterCard: {
-    backgroundColor: '#3a4563',
-    borderWidth: 1,
-    borderColor: '#4A90E2',
-  },
-  characterHeader: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  avatarContainer: {
-    marginRight: 12,
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-  },
-  placeholderAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#444',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  characterInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  characterName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  characterMeta: {
-    fontSize: 14,
-    color: '#aaa',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    paddingTop: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 8,
-  },
-  actionText: {
-    marginLeft: 4,
-    color: '#4A90E2',
-  },
-  readyButton: {
-    // Additional styles when ready
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  disabledButtonText: {
-    opacity: 0.6,
-  },
-  readyText: {
-    color: '#4A90E2',
-  },
-  disabledText: {
-    color: '#999',
-  },
-  
-  // Remaining styles
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 30,
-    backgroundColor: '#333',
-    borderRadius: 10,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    color: '#fff',
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#aaa',
-    textAlign: 'center',
-  },
-  createButton: {
-    backgroundColor: '#4A90E2',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  createButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  infoCard: {
-    backgroundColor: '#333',
-    borderRadius: 10,
-    padding: 16,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#ddd',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  infoPoints: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  infoPoint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '48%',
-    marginBottom: 8,
-  },
-  infoPointText: {
-    marginLeft: 6,
-    color: '#bbb',
-    fontSize: 13,
-  },
-  headerButtons: {
-    flexDirection: 'row',
-  },
-  headerButton: {
-    padding: 8,
-    marginLeft: 8,
-  },
-  headerActionButtons: {
+  statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  smallActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#555',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
+  statusIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     marginRight: 8,
   },
-  smallButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    marginLeft: 4,
+  statusActive: {
+    backgroundColor: '#4CAF50',
   },
-  importBadge: {
-    fontSize: 12,
-    color: '#4A90E2',
-    fontStyle: 'italic',
+  statusInactive: {
+    backgroundColor: '#FF5722',
   },
-  emptyButtons: {
-    flexDirection: 'row',
+  statusText: {
+    color: '#ccc',
+    fontSize: 14,
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    marginHorizontal: 20,
+    marginTop: 40,
+  },
+  emptyTitle: {
+    color: '#FFD700',
+    fontSize: 20,
+    fontWeight: 'bold',
     marginTop: 16,
   },
-  importButton: {
-    backgroundColor: '#555',
-    marginLeft: 12,
-  },
-  // Add new styles for API info
-  apiInfoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 12,
-  },
-  apiInfo: {
-    fontSize: 13,
-    color: '#ccc',
-  },
-  apiName: {
-    color: '#4A90E2',
-    fontWeight: 'bold',
-  },
-  apiChangeButton: {
-    marginLeft: 8,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    backgroundColor: 'rgba(74, 144, 226, 0.3)',
-    borderRadius: 4,
-  },
-  apiChangeText: {
-    fontSize: 12,
-    color: '#4A90E2',
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4A90E2',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-  },
-  addButtonText: {  // Add this missing style
-    color: '#fff',
-    marginLeft: 4,
+  emptyText: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });

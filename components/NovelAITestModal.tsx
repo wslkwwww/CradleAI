@@ -76,6 +76,13 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   // 添加队列状态信息
   const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
 
+  // 添加令牌缓存状态
+  const [tokenStatus, setTokenStatus] = useState<{
+    isCached: boolean;
+    daysRemaining?: number;
+    email?: string;
+  } | null>(null);
+
   // 监听模型变化，显示或隐藏V4特有设置
   useEffect(() => {
     if (model.includes('nai-v4')) {
@@ -131,6 +138,50 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
       setProcessedTaskIds(new Set());
     }
   }, [visible]);
+
+  // 检查令牌缓存状态
+  const checkTokenStatus = async () => {
+    try {
+      const response = await axios.get(`${apiServer}/token_status`, {
+        headers: authType === 'token' ? {
+          Authorization: `Bearer ${token.trim()}`
+        } : undefined,
+        params: authType === 'login' ? {
+          email: email
+        } : undefined
+      });
+      
+      if (response.data.success) {
+        setTokenStatus({
+          isCached: response.data.isCached,
+          daysRemaining: response.data.daysRemaining,
+          email: response.data.email
+        });
+        
+        if (response.data.isCached) {
+          addLog(`令牌缓存状态: ${response.data.email ? `用户 ${response.data.email}` : '默认用户'} 的令牌有效，剩余约 ${response.data.daysRemaining.toFixed(1)} 天`);
+        } else {
+          addLog(`未找到缓存的令牌，将需要重新验证`);
+        }
+      }
+    } catch (error) {
+      console.error('获取令牌状态失败:', error);
+    }
+  };
+
+  // 监听认证设置变化，获取令牌状态
+  useEffect(() => {
+    if (!visible) return;
+    
+    const timer = setTimeout(() => {
+      if ((authType === 'token' && token.trim().length > 10) || 
+          (authType === 'login' && email.trim().length > 5)) {
+        checkTokenStatus();
+      }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [visible, authType, token, email]);
 
   // 保存设置
   const saveSettings = async () => {
@@ -494,6 +545,38 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     );
   };
 
+  // 令牌状态显示组件
+  const renderTokenStatus = () => {
+    if (!tokenStatus) return null;
+    
+    return (
+      <View style={styles.tokenStatusContainer}>
+        {tokenStatus.isCached ? (
+          <View style={styles.tokenStatusContent}>
+            <Text style={styles.tokenStatusText}>
+              令牌状态: <Text style={styles.tokenCached}>已缓存</Text>
+            </Text>
+            {tokenStatus.daysRemaining !== undefined && (
+              <Text style={styles.tokenDetailText}>
+                剩余有效期: {tokenStatus.daysRemaining.toFixed(1)} 天
+                {tokenStatus.daysRemaining < 10 && (
+                  <Text style={styles.tokenWarning}> (即将过期，将自动刷新)</Text>
+                )}
+              </Text>
+            )}
+            {tokenStatus.email && (
+              <Text style={styles.tokenDetailText}>用户: {tokenStatus.email}</Text>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.tokenStatusText}>
+            令牌状态: <Text style={styles.tokenNotCached}>未缓存</Text> (将进行验证)
+          </Text>
+        )}
+      </View>
+    );
+  };
+
   return (
     <Modal
       visible={visible}
@@ -577,6 +660,9 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
             placeholder="API服务器URL"
             autoCapitalize="none"
           />
+
+          {/* 显示令牌缓存状态 */}
+          {renderTokenStatus()}
         </View>
 
         {/* 生成设置 */}
@@ -1117,6 +1203,39 @@ const styles = StyleSheet.create({
   cancelTaskButtonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  tokenStatusContainer: {
+    marginVertical: 10,
+    padding: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: '#3498db',
+  },
+  tokenStatusContent: {
+    flexDirection: 'column',
+  },
+  tokenStatusText: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
+  },
+  tokenDetailText: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
+  },
+  tokenCached: {
+    color: '#27ae60',
+    fontWeight: 'bold',
+  },
+  tokenNotCached: {
+    color: '#e74c3c',
+    fontWeight: 'bold',
+  },
+  tokenWarning: {
+    color: '#e67e22',
+    fontStyle: 'italic',
   },
 });
 

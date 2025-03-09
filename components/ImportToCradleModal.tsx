@@ -19,24 +19,31 @@ import * as ImageManipulator from 'expo-image-manipulator';
 
 interface ImportToCradleModalProps {
   visible: boolean;
+  embedded?: boolean;
   onClose: () => void;
   onImportSuccess?: () => void;
 }
 
-export default function ImportToCradleModal({ visible, onClose, onImportSuccess }: ImportToCradleModalProps) {
+export default function ImportToCradleModal({ 
+  visible, 
+  embedded = false,
+  onClose, 
+  onImportSuccess 
+}: ImportToCradleModalProps) {
   const { characters, importCharacterToCradle } = useCharacters();
   const [loading, setLoading] = useState(false);
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
-  const [showImageEditor, setShowImageEditor] = useState(false);
+  const [cardImage, setCardImage] = useState<string | null>(null);
   
-  // Reset state when modal opens
+  // Reset state when modal opens or embedded component mounts
   useEffect(() => {
-    if (visible) {
+    if (visible || embedded) {
       setSelectedCharacter(null);
       setBackgroundImage(null);
+      setCardImage(null);
     }
-  }, [visible]);
+  }, [visible, embedded]);
   
   const handleSelectCharacter = (character: Character) => {
     if (selectedCharacter?.id === character.id) {
@@ -134,7 +141,55 @@ export default function ImportToCradleModal({ visible, onClose, onImportSuccess 
       Alert.alert('错误', '选择图片时发生错误');
     }
   };
-  
+
+  // Select card image with 9:16 aspect ratio
+  const handleSelectCardImage = async (useCamera: boolean = false) => {
+    try {
+      let result;
+      
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('权限错误', '需要相机权限才能拍照');
+          return;
+        }
+        
+        result = await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          aspect: [9, 16],
+          quality: 0.8,
+        });
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('权限错误', '需要访问相册的权限才能选择图片');
+          return;
+        }
+        
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [9, 16],
+          quality: 0.8,
+        });
+      }
+      
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const processedImage = await ImageManipulator.manipulateAsync(
+          result.assets[0].uri,
+          [{ resize: { width: 900, height: 1600 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        
+        setCardImage(processedImage.uri);
+        setBackgroundImage(processedImage.uri); // Also set as background for compatibility
+      }
+    } catch (error) {
+      console.error('选择角色卡图片失败:', error);
+      Alert.alert('错误', '选择角色卡图片失败');
+    }
+  };
+
   const renderItem = ({ item }: { item: Character }) => (
     <TouchableOpacity
       style={[
@@ -168,6 +223,103 @@ export default function ImportToCradleModal({ visible, onClose, onImportSuccess 
     </TouchableOpacity>
   );
   
+  const content = (
+    <>
+      <ScrollView style={embedded ? styles.embeddedScrollContent : styles.scrollContent}>
+        <Text style={styles.sectionTitle}>选择角色</Text>
+        
+        {characters.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="sad-outline" size={40} color="#666" />
+            <Text style={styles.emptyText}>没有可导入的角色</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={characters.filter(char => !char.inCradleSystem)} // Only show characters not already in cradle
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            style={styles.listContainer}
+            contentContainerStyle={styles.listContent}
+            scrollEnabled={false} // Disable scrolling of FlatList since it's inside ScrollView
+          />
+        )}
+        
+        {selectedCharacter && (
+          <>
+            <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
+              角色卡图片
+            </Text>
+            
+            <View style={styles.cardImageContainer}>
+              {cardImage ? (
+                <Image 
+                  source={{ uri: cardImage }}
+                  style={styles.cardImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.noCardImage}>
+                  <Ionicons name="card-outline" size={40} color="#666" />
+                  <Text style={styles.noBackgroundText}>无角色卡图片</Text>
+                  <Text style={styles.noBackgroundSubtext}>(9:16比例)</Text>
+                </View>
+              )}
+            </View>
+            
+            <View style={styles.imageButtonsRow}>
+              <TouchableOpacity 
+                style={styles.imageButton}
+                onPress={() => handleSelectCardImage(false)}
+              >
+                <Ionicons name="images-outline" size={20} color="#fff" />
+                <Text style={styles.imageButtonText}>选择图片</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.imageButton}
+                onPress={() => handleSelectCardImage(true)}
+              >
+                <Ionicons name="camera-outline" size={20} color="#fff" />
+                <Text style={styles.imageButtonText}>拍摄照片</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+      </ScrollView>
+      
+      <View style={embedded ? styles.embeddedFooter : styles.footer}>
+        <TouchableOpacity 
+          style={[
+            styles.importButton,
+            (!selectedCharacter || loading) && styles.disabledButton
+          ]}
+          onPress={handleImport}
+          disabled={!selectedCharacter || loading}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
+              <Text style={styles.importButtonText}>导入到摇篮系统</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+  
+  // If embedded mode is enabled, render directly without a modal
+  if (embedded) {
+    return (
+      <View style={styles.embeddedContainer}>
+        <Text style={styles.embeddedTitle}>导入角色到摇篮系统</Text>
+        {content}
+      </View>
+    );
+  }
+  
+  // Otherwise render as a modal
   return (
     <Modal
       visible={visible}
@@ -184,86 +336,7 @@ export default function ImportToCradleModal({ visible, onClose, onImportSuccess 
             </TouchableOpacity>
           </View>
           
-          <ScrollView style={styles.scrollContent}>
-            <Text style={styles.sectionTitle}>选择角色</Text>
-            
-            {characters.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="sad-outline" size={40} color="#666" />
-                <Text style={styles.emptyText}>没有可导入的角色</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={characters.filter(char => !char.inCradleSystem)} // Only show characters not already in cradle
-                renderItem={renderItem}
-                keyExtractor={(item) => item.id}
-                style={styles.listContainer}
-                contentContainerStyle={styles.listContent}
-                scrollEnabled={false} // Disable scrolling of FlatList since it's inside ScrollView
-              />
-            )}
-            
-            {selectedCharacter && (
-              <>
-                <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-                  背景图片 (可选)
-                </Text>
-                
-                <View style={styles.backgroundImageContainer}>
-                  {backgroundImage ? (
-                    <Image 
-                      source={{ uri: backgroundImage }}
-                      style={styles.backgroundImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.noBackgroundImage}>
-                      <Ionicons name="image-outline" size={40} color="#666" />
-                      <Text style={styles.noBackgroundText}>无背景图片</Text>
-                    </View>
-                  )}
-                </View>
-                
-                <View style={styles.imageButtonsRow}>
-                  <TouchableOpacity 
-                    style={styles.imageButton}
-                    onPress={() => handleSelectImage(false)}
-                  >
-                    <Ionicons name="images-outline" size={20} color="#fff" />
-                    <Text style={styles.imageButtonText}>选择图片</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.imageButton}
-                    onPress={() => handleSelectImage(true)}
-                  >
-                    <Ionicons name="camera-outline" size={20} color="#fff" />
-                    <Text style={styles.imageButtonText}>拍摄照片</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </ScrollView>
-          
-          <View style={styles.footer}>
-            <TouchableOpacity 
-              style={[
-                styles.importButton,
-                (!selectedCharacter || loading) && styles.disabledButton
-              ]}
-              onPress={handleImport}
-              disabled={!selectedCharacter || loading}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
-                  <Text style={styles.importButtonText}>导入到摇篮系统</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
+          {content}
         </View>
       </View>
     </Modal>
@@ -434,5 +507,49 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#666',
     marginTop: 8,
+  },
+  // Add embedded mode styles
+  embeddedContainer: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#282828',
+  },
+  embeddedTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 20,
+  },
+  embeddedScrollContent: {
+    flex: 1,
+  },
+  embeddedFooter: {
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#444',
+  },
+  cardImageContainer: {
+    width: '100%',
+    height: 320,
+    backgroundColor: '#444',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  noCardImage: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noBackgroundSubtext: {
+    color: '#555',
+    fontSize: 12,
+    marginTop: 4,
   },
 });

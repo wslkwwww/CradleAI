@@ -64,3 +64,7 @@ MODEL_MAP = {
     'safe': 'safe-diffusion',
     'furry': 'nai-diffusion-furry',
 }
+
+# 令牌缓存文件路径
+CACHE_DIR = os.environ.get('CACHE_DIR', os.path.join(os.path.dirname(__file__), 'cache'))
+TOKEN_CACHE_FILE = os.environ.get('TOKEN_CACHE_FILE', os.path.join(CACHE_DIR, 'token_cache.json'))

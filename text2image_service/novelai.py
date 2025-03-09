@@ -8,8 +8,11 @@ from config import (
     NOVELAI_API_LOGIN, 
     NOVELAI_API_SUBSCRIPTION, 
     NOVELAI_API_GENERATE,
-    REQUEST_TIMEOUT
+    REQUEST_TIMEOUT,
+    TOKEN_CACHE_FILE
 )
+import os
+import datetime
 
 # 配置日志
 logger = logging.getLogger('text2image.novelai')
@@ -19,6 +22,74 @@ class NovelAIClient:
     
     def __init__(self):
         self.access_token = None
+        # 令牌缓存数据结构
+        self.token_cache = {}
+        # 加载已缓存的令牌
+        self._load_token_cache()
+    
+    def _load_token_cache(self):
+        """从文件加载令牌缓存"""
+        try:
+            if os.path.exists(TOKEN_CACHE_FILE):
+                with open(TOKEN_CACHE_FILE, 'r') as f:
+                    self.token_cache = json.load(f)
+                logger.info("已从文件加载令牌缓存")
+        except Exception as e:
+            logger.error(f"加载令牌缓存失败: {e}")
+            self.token_cache = {}
+    
+    def _save_token_cache(self):
+        """保存令牌缓存到文件"""
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(TOKEN_CACHE_FILE), exist_ok=True)
+            with open(TOKEN_CACHE_FILE, 'w') as f:
+                json.dump(self.token_cache, f)
+            logger.info("已保存令牌缓存到文件")
+        except Exception as e:
+            logger.error(f"保存令牌缓存失败: {e}")
+    
+    def _get_cached_token(self, email):
+        """获取缓存的令牌，如果有效则返回"""
+        cache_key = email or "default"
+        if cache_key in self.token_cache:
+            token_data = self.token_cache[cache_key]
+            # 获取当前时间和过期时间
+            now = time.time()
+            expiry = token_data.get('expiry', 0)
+            # 计算距离过期还有多少天
+            days_remaining = (expiry - now) / (24 * 3600)  # 转换为天数
+            
+            # 如果令牌还有超过10天有效期，直接返回
+            if now < expiry and days_remaining > 10:
+                logger.info(f"使用缓存的令牌，剩余有效期约 {days_remaining:.1f} 天")
+                self.access_token = token_data['token']
+                return token_data['token']
+            
+            # 如果令牌还有效但少于10天，标记为需要刷新
+            if now < expiry:
+                logger.info(f"缓存的令牌即将过期（剩余 {days_remaining:.1f} 天），将重新获取")
+            else:
+                logger.info(f"缓存的令牌已过期，将重新获取")
+        
+        return None
+    
+    def _cache_token(self, email, token):
+        """缓存令牌"""
+        cache_key = email or "default"
+        # NovelAI令牌有效期为30天（2592000秒）
+        expiry = time.time() + 2592000  # 当前时间 + 30天
+        
+        self.token_cache[cache_key] = {
+            'token': token,
+            'expiry': expiry,
+            'timestamp': time.time()
+        }
+        self._save_token_cache()
+        
+        # 格式化时间为人类可读形式
+        expiry_date = datetime.datetime.fromtimestamp(expiry).strftime('%Y-%m-%d %H:%M:%S')
+        logger.info(f"令牌已缓存，有效期至: {expiry_date}")
     
     def login_with_email_password(self, email, password):
         """使用邮箱和密码登录
@@ -33,7 +104,12 @@ class NovelAIClient:
         Raises:
             Exception: 登录失败时抛出异常
         """
-        logger.info(f"使用邮箱 {email} 登录 NovelAI")
+        # 首先尝试获取缓存的令牌
+        cached_token = self._get_cached_token(email)
+        if cached_token:
+            return cached_token
+        
+        logger.info(f"缓存中没有有效令牌，使用邮箱 {email} 登录 NovelAI")
         
         try:
             # 计算 NovelAI 访问密钥
@@ -61,7 +137,11 @@ class NovelAIClient:
             if not self.access_token:
                 raise Exception("登录响应中未找到访问令牌")
                 
-            logger.info("登录成功，获取到访问令牌")
+            logger.info("登录成功，获取到新访问令牌")
+            
+            # 缓存令牌
+            self._cache_token(email, self.access_token)
+            
             return self.access_token
             
         except requests.exceptions.RequestException as e:
@@ -91,7 +171,29 @@ class NovelAIClient:
         Raises:
             Exception: 令牌验证失败时抛出异常
         """
-        logger.info("使用令牌登录 NovelAI")
+        # 首先尝试从缓存中获取令牌的有效期信息
+        for cache_key, token_data in self.token_cache.items():
+            if token_data.get('token') == token:
+                # 获取当前时间和过期时间
+                now = time.time()
+                expiry = token_data.get('expiry', 0)
+                # 计算距离过期还有多少天
+                days_remaining = (expiry - now) / (24 * 3600)  # 转换为天数
+                
+                # 如果令牌还有超过10天有效期，直接返回
+                if now < expiry and days_remaining > 10:
+                    logger.info(f"使用提供的令牌，根据缓存信息剩余有效期约 {days_remaining:.1f} 天")
+                    self.access_token = token
+                    return token
+                
+                # 如果令牌即将过期或已过期，进行验证
+                if now < expiry:
+                    logger.info(f"提供的令牌即将过期（剩余 {days_remaining:.1f} 天），将验证有效性")
+                else:
+                    logger.info(f"提供的令牌可能已过期，将验证有效性")
+                break
+        
+        logger.info("验证提供的令牌")
         logger.debug(f"验证令牌: {token[:10]}...")
         
         try:
@@ -114,6 +216,17 @@ class NovelAIClient:
             # 验证通过，存储令牌
             self.access_token = token
             logger.info("令牌验证成功")
+            
+            # 缓存令牌（使用默认键或尝试提取用户信息）
+            try:
+                # 尝试从响应中提取用户邮箱
+                response_data = response.json()
+                user_email = response_data.get('emailVerified') or "default"
+                self._cache_token(user_email, token)
+            except:
+                # 如果无法获取用户信息，使用默认键
+                self._cache_token("default", token)
+            
             return token
             
         except requests.exceptions.RequestException as e:

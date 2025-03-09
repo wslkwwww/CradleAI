@@ -314,6 +314,7 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
       };
       reference?: string;            // 参考角色ID
       description?: string;          // 描述
+      traits?: any;                  // 添加特质数据的属性
     };
     cradle?: {
       startDate?: string;

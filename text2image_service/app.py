@@ -413,5 +413,66 @@ def api_cancel_task(task_id):
             'error': f'取消任务时出错: {str(e)}'
         }), 500
 
+@app.route('/token_status', methods=['GET'])
+def api_token_status():
+    """获取令牌缓存状态"""
+    try:
+        # 获取请求参数
+        token = None
+        email = None
+        
+        # 从Authorization头获取token
+        auth_header = request.headers.get('Authorization')
+        if (auth_header and auth_header.startswith('Bearer ')):
+            token = auth_header[7:].strip()  # 移除'Bearer '前缀
+        
+        # 从查询参数获取email
+        email = request.args.get('email')
+        
+        # 创建NovelAI客户端
+        from novelai import NovelAIClient
+        client = NovelAIClient()
+        
+        # 检查令牌缓存状态
+        cache_key = email or "default"
+        is_cached = False
+        days_remaining = None
+        cached_email = None
+        
+        # 如果提供了令牌，检查令牌是否在缓存中
+        if token:
+            for key, token_data in client.token_cache.items():
+                if token_data.get('token') == token:
+                    is_cached = True
+                    cache_key = key
+                    now = time.time()
+                    expiry = token_data.get('expiry', 0)
+                    days_remaining = (expiry - now) / (24 * 3600)  # 转换为天数
+                    cached_email = key if key != "default" else None
+                    break
+        # 如果提供了email但没有提供token，检查该email是否有缓存的令牌
+        elif email:
+            if email in client.token_cache:
+                is_cached = True
+                cache_key = email
+                now = time.time()
+                token_data = client.token_cache[email]
+                expiry = token_data.get('expiry', 0)
+                days_remaining = (expiry - now) / (24 * 3600)  # 转换为天数
+                cached_email = email
+        
+        return jsonify({
+            'success': True,
+            'isCached': is_cached,
+            'daysRemaining': days_remaining,
+            'email': cached_email
+        })
+    except Exception as e:
+        logger.error(f"查询令牌状态时出错: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'查询令牌状态时出错: {str(e)}'
+        }), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
