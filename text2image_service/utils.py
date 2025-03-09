@@ -253,3 +253,42 @@ def save_binary_image(image_data, output_path):
     except Exception as e:
         logger.error(f"保存图像失败: {e}")
         raise
+
+def get_content_type(file_extension):
+    """根据文件扩展名获取 MIME 类型
+    
+    Args:
+        file_extension: 文件扩展名
+        
+    Returns:
+        str: MIME 类型
+    """
+    extension = file_extension.lower()
+    
+    if extension.endswith('.jpg') or extension.endswith('.jpeg'):
+        return 'image/jpeg'
+    elif extension.endswith('.png'):
+        return 'image/png'
+    elif extension.endswith('.gif'):
+        return 'image/gif'
+    elif extension.endswith('.webp'):
+        return 'image/webp'
+    elif extension.endswith('.bmp'):
+        return 'image/bmp'
+    else:
+        return 'application/octet-stream'
+
+def is_allowed_image_type(content_type):
+    """检查是否允许的图片类型
+    
+    Args:
+        content_type: MIME 类型
+        
+    Returns:
+        bool: 是否允许
+    """
+    allowed_types = [
+        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
+        'image/webp', 'image/bmp', 'image/tiff'
+    ]
+    return content_type in allowed_types

@@ -39,6 +39,13 @@ REQUEST_TIMEOUT = 60  # 秒
 LOG_LEVEL = 'DEBUG'
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
+# MinIO 配置
+MINIO_ENDPOINT = os.environ.get('MINIO_ENDPOINT', '152.69.219.182:19000')
+MINIO_ACCESS_KEY = os.environ.get('MINIO_ACCESS_KEY', 'PWhqUUegzsxgIVgJs8iV')
+MINIO_SECRET_KEY = os.environ.get('MINIO_SECRET_KEY', 'VZWbbSByQ2r5XAkqLO8PT5MjB6xRCeKmwfxQXiEG')
+MINIO_SECURE = os.environ.get('MINIO_SECURE', 'False') == 'True'
+MINIO_BUCKET = os.environ.get('MINIO_BUCKET', 'cradleimg')
+
 # 模型和采样器预设
 DEFAULT_MODEL = 'nai-v3'  # 会在客户端中被映射到正确的官方名称
 DEFAULT_SAMPLER = 'k_euler_ancestral'

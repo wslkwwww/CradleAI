@@ -140,10 +140,12 @@ def generate_image(self, request_params):
         
         logger.info(f"图像生成成功: {self.request.id}, 获取到 {len(images)} 张图像")
         
+        # 返回结果时添加任务ID，便于追踪
         return {
             'success': True,
             'images': images,  # 返回包含所有图像的列表
-            'task_id': self.request.id
+            'task_id': self.request.id,
+            'processed': False  # 标记图像尚未处理，避免重复处理
         }
         
     except Exception as e:

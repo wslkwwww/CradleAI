@@ -1,12 +1,23 @@
 import os
 import logging
+import threading
+import time
+from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from celery.result import AsyncResult
 from worker import celery_app, generate_image
-from config import SECRET_KEY  # 从配置文件导入SECRET_KEY
+from config import (
+    SECRET_KEY,
+    MINIO_ENDPOINT,
+    MINIO_ACCESS_KEY,
+    MINIO_SECRET_KEY, 
+    MINIO_SECURE,
+    MINIO_BUCKET
+)
 import uuid
-from utils import save_base64_as_image  # 导入新添加的工具函数
+from utils import save_binary_image
+from minio_client import MinioStorage
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -16,13 +27,65 @@ logger = logging.getLogger('text2image.app')
 app = Flask(__name__, static_folder='static')
 app.config['SECRET_KEY'] = SECRET_KEY
 
+# 处理过的任务缓存，避免重复处理相同任务
+app.processed_tasks = set()
+
 # 确保图片存储目录存在
 IMAGES_DIR = os.path.join(app.static_folder, 'images')
 os.makedirs(IMAGES_DIR, exist_ok=True)
-logger.info(f"图片存储目录: {IMAGES_DIR}")
+logger.info(f"本地图片存储目录: {IMAGES_DIR}")
+
+# 创建 MinIO 客户端
+try:
+    minio_storage = MinioStorage(
+        endpoint=MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=MINIO_SECURE
+    )
+    
+    # 确保存储桶存在
+    if minio_storage.ensure_bucket_exists(MINIO_BUCKET):
+        logger.info(f"MinIO 存储桶 '{MINIO_BUCKET}' 已确认可用")
+    else:
+        logger.error(f"MinIO 存储桶 '{MINIO_BUCKET}' 不可用")
+except Exception as e:
+    logger.error(f"初始化 MinIO 客户端失败: {e}")
+    minio_storage = None
 
 # 启用跨域请求支持
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+# 结果缓存，键为任务ID，值为结果字典
+task_results_cache = {}
+
+# 结果缓存清理函数
+def clean_task_results_cache():
+    """定期清理结果缓存，防止内存泄漏"""
+    while True:
+        try:
+            time.sleep(3600)  # 每小时检查一次
+            
+            now = datetime.now().timestamp()
+            keys_to_remove = []
+            
+            for task_id, result in task_results_cache.items():
+                # 缓存项超过1天则删除
+                cache_time = result.get('cache_timestamp', now - 86000)
+                if now - cache_time > 86400:  # 1天 = 86400秒
+                    keys_to_remove.append(task_id)
+            
+            # 删除过期缓存项
+            for key in keys_to_remove:
+                task_results_cache.pop(key, None)
+                
+            logger.info(f"清理了 {len(keys_to_remove)} 个过期的结果缓存项")
+        except Exception as e:
+            logger.error(f"清理缓存时出错: {e}")
+
+# 启动清理线程
+cleaner_thread = threading.Thread(target=clean_task_results_cache, daemon=True)
+cleaner_thread.start()
 
 # 静态图片服务
 @app.route('/static/images/<path:filename>')
@@ -32,30 +95,7 @@ def serve_image(filename):
 
 @app.route('/generate', methods=['POST'])
 def api_generate():
-    """接收图像生成请求并将任务放入 Celery 队列
-    
-    Expected JSON body:
-    {
-        "auth_type": "token" or "login",
-        "token": "novelai-token",  // 如果 auth_type 是 "token"
-        "email": "user@example.com",  // 如果 auth_type 是 "login"
-        "password": "password123",    // 如果 auth_type 是 "login"
-        "model": "nai-v3",
-        "prompt": "正面提示词",
-        "negative_prompt": "负面提示词",
-        "sampler": "k_euler_ancestral",
-        "steps": 28,
-        "scale": 11,
-        "resolution": "portrait",
-        "seed": 1234567,  // 可选
-        "source_image": "base64...",  // 可选，用于图像到图像
-        "strength": 0.7,  // 可选，用于图像到图像
-        "noise": 0.2      // 可选，用于图像到图像
-    }
-    
-    Returns:
-        JSON: 包含任务 ID 的响应
-    """
+    """接收图像生成请求并将任务放入 Celery 队列"""
     try:
         # 获取请求数据
         data = request.get_json()
@@ -112,15 +152,20 @@ def api_generate():
 
 @app.route('/task_status/<task_id>', methods=['GET'])
 def api_task_status(task_id):
-    """查询任务状态
-    
-    Args:
-        task_id: Celery 任务 ID
-        
-    Returns:
-        JSON: 包含任务状态和结果的响应
-    """
+    """查询任务状态"""
     try:
+        # 首先检查是否有缓存的结果
+        if task_id in task_results_cache:
+            logger.debug(f"返回缓存的任务结果 (task_id: {task_id})")
+            result = task_results_cache[task_id]
+            
+            return jsonify({
+                'task_id': task_id,
+                'status': 'SUCCESS',
+                'done': True,
+                **result
+            })
+            
         # 查询任务状态
         task_result = AsyncResult(task_id, app=celery_app)
         
@@ -131,50 +176,88 @@ def api_task_status(task_id):
             'done': task_result.ready()
         }
         
-        # 如果任务完成，添加结果或错误信息
+        # 如果任务完成，添加结果信息
         if task_result.ready():
             if task_result.successful():
                 result = task_result.result
                 
-                # 如果有图像数据，保存为文件
-                if result.get('success') and result.get('images'):
+                # 如果是成功的任务且包含图像数据，且尚未处理
+                if result.get('success') and result.get('images') and task_id not in app.processed_tasks:
                     try:
-                        image_urls = []  # 存储所有图像的URL
+                        # 标记任务已处理，避免重复处理
+                        app.processed_tasks.add(task_id)
                         
-                        for index, image_info in enumerate(result['images']):
-                            # 生成唯一文件名
-                            original_name = image_info['name']
-                            ext = os.path.splitext(original_name)[1] or '.png'
-                            filename = f"novelai_{uuid.uuid4()}{ext}"
-                            filepath = os.path.join(IMAGES_DIR, filename)
+                        # 处理图像
+                        image_urls = []
+                        
+                        # 使用 MinIO 存储图像
+                        if minio_storage:
+                            logger.info(f"使用 MinIO 处理任务图像 (task_id: {task_id})")
                             
-                            # 保存图像
-                            from utils import save_binary_image
-                            save_binary_image(image_info['data'], filepath)
+                            for index, image_info in enumerate(result['images']):
+                                # 生成唯一文件名
+                                original_name = image_info.get('name', f"image_{index}.png")
+                                ext = os.path.splitext(original_name)[1] or '.png'
+                                
+                                # 确定内容类型
+                                content_type = 'image/png'
+                                if ext.lower() in ('.jpg', '.jpeg'):
+                                    content_type = 'image/jpeg'
+                                elif ext.lower() == '.gif':
+                                    content_type = 'image/gif'
+                                elif ext.lower() == '.webp':
+                                    content_type = 'image/webp'
+                                
+                                # 上传到 MinIO
+                                success, url = minio_storage.upload_binary(
+                                    bucket_name=MINIO_BUCKET,
+                                    binary_data=image_info['data'],
+                                    content_type=content_type
+                                )
+                                
+                                if success:
+                                    image_urls.append(url)
+                                else:
+                                    logger.error(f"上传图像到 MinIO 失败: {url}")
+                                    # 降级到本地存储
+                                    filename = f"novelai_{uuid.uuid4().hex}{ext}"
+                                    filepath = os.path.join(IMAGES_DIR, filename)
+                                    save_binary_image(image_info['data'], filepath)
+                                    image_url = f"/static/images/{filename}"
+                                    image_urls.append(request.url_root.rstrip('/') + image_url)
+                        else:
+                            # 本地存储
+                            logger.info(f"使用本地存储处理任务图像 (task_id: {task_id})")
                             
-                            # 创建URL
-                            image_url = f"/static/images/{filename}"
-                            full_url = request.url_root.rstrip('/') + image_url
-                            image_urls.append(full_url)
-                            
-                        # 在响应中包含所有图像URL
+                            for index, image_info in enumerate(result['images']):
+                                original_name = image_info.get('name', f"image_{index}.png")
+                                ext = os.path.splitext(original_name)[1] or '.png'
+                                filename = f"novelai_{uuid.uuid4().hex}{ext}"
+                                filepath = os.path.join(IMAGES_DIR, filename)
+                                save_binary_image(image_info['data'], filepath)
+                                image_url = f"/static/images/{filename}"
+                                image_urls.append(request.url_root.rstrip('/') + image_url)
+                        
+                        # 更新结果
                         result['image_urls'] = image_urls
-                        
-                        # 为了向后兼容，将第一张图像作为主图像URL
                         if image_urls:
                             result['image_url'] = image_urls[0]
-                            
-                        # 移除原始二进制数据，避免大量数据传输
+                        
+                        # 移除二进制数据
                         if 'images' in result:
                             del result['images']
-                            
-                        logger.info(f"已保存 {len(image_urls)} 张图像")
+                        
+                        # 缓存处理后的结果
+                        result['cache_timestamp'] = datetime.now().timestamp()
+                        task_results_cache[task_id] = result
+                        
+                        logger.info(f"已处理 {len(image_urls)} 张图像，任务ID: {task_id}")
                     except Exception as e:
-                        logger.error(f"保存图像文件失败: {e}")
-                        # 如果保存失败，保留错误信息
-                        result['error'] = f"保存图像失败: {str(e)}"
+                        logger.error(f"处理图像失败: {e}")
+                        result['error'] = f"处理图像失败: {str(e)}"
                         result['success'] = False
                 
+                # 更新响应
                 response.update(result)
             else:
                 error = str(task_result.result) if task_result.result else "未知错误"

@@ -145,22 +145,35 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         if (response.data.success) {
           addLog('图像生成成功!');
           
-          // 处理多张图像
+          // 首选图像 URL 数组
           const imageUrls = response.data.image_urls || [];
+          // 向后兼容的单个图像 URL
           const mainImageUrl = response.data.image_url;
           
-          setResult({
-            success: true,
-            message: imageUrls.length > 1 
+          // 确保我们有至少一个 URL
+          if (imageUrls.length > 0 || mainImageUrl) {
+            const resultMessage = imageUrls.length > 1 
               ? `成功生成了 ${imageUrls.length} 张图像!` 
-              : '图像生成成功!',
-            imageUrl: mainImageUrl,
-            image_urls: imageUrls.length > 0 ? imageUrls : (mainImageUrl ? [mainImageUrl] : [])
-          });
-          
-          // 将图片传递给父组件
-          if (mainImageUrl) {
-            onImageGenerated(mainImageUrl);
+              : '图像生成成功!';
+              
+            setResult({
+              success: true,
+              message: resultMessage,
+              imageUrl: mainImageUrl || imageUrls[0],
+              image_urls: imageUrls.length > 0 ? imageUrls : (mainImageUrl ? [mainImageUrl] : [])
+            });
+            
+            // 将第一张图片传递给父组件
+            const imageToPass = mainImageUrl || imageUrls[0];
+            if (imageToPass) {
+              onImageGenerated(imageToPass);
+            }
+          } else {
+            addLog('图像生成成功但未返回图像URL');
+            setResult({
+              success: true,
+              message: '图像生成成功但未返回图像URL'
+            });
           }
         } else {
           addLog(`图像生成失败: ${response.data.error}`);

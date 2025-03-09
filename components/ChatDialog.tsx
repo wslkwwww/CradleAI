@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   ViewStyle,
   Dimensions,
   Platform,
+  ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Message, Character } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +28,7 @@ interface ChatDialogProps {
 
 const { width } = Dimensions.get('window');
 const MAX_WIDTH = width * 0.8; // Maximum width for chat bubbles
+const MAX_IMAGE_HEIGHT = 300; // Maximum height for images in chat
 
 const ChatDialog: React.FC<ChatDialogProps> = ({
   messages,
@@ -36,6 +39,7 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
   const scrollViewRef = useRef<ScrollView>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateAnim = useRef(new Animated.Value(20)).current;
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
   // Animate new messages
   useEffect(() => {
@@ -99,6 +103,105 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     );
   };
 
+  // 检测并处理消息中的图片链接
+  const processMessageContent = (text: string, isUser: boolean) => {
+    // 检查是否是图片 Markdown 语法，支持 HTTP URL 和 data URL
+    const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)|!\[(.*?)\]\((data:image\/[^\s)]+)\)/g;
+    let match: RegExpExecArray | null;
+    let matches: { alt: string, url: string }[] = [];
+    
+    while ((match = imageMarkdownRegex.exec(text)) !== null) {
+      matches.push({
+        alt: match[1] || match[3] || "图片",
+        url: match[2] || match[4]
+      });
+    }
+    
+    // 如果找到图片链接
+    if (matches.length > 0) {
+      return (
+        <View>
+          {matches.map((img, idx) => {
+            // 检查是否为数据 URL 或 HTTP URL
+            const isDataUrl = img.url.startsWith('data:');
+            const isLargeDataUrl = isDataUrl && img.url.length > 100000;
+            
+            // 处理大型数据 URL
+            if (isLargeDataUrl) {
+              return (
+                <View key={idx} style={styles.imageWrapper}>
+                  <TouchableOpacity
+                    style={styles.imageDataUrlWarning}
+                    onPress={() => setFullscreenImage(img.url)}
+                  >
+                    <Ionicons name="image" size={36} color="#999" />
+                    <Text style={styles.imageDataUrlWarningText}>
+                      {img.alt} (点击查看)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+            
+            // 正常显示图片，包括 HTTP URL 和小型数据 URL
+            return (
+              <TouchableOpacity 
+                key={idx}
+                style={styles.imageWrapper}
+                onPress={() => setFullscreenImage(img.url)}
+              >
+                <Image
+                  source={{ uri: img.url }}
+                  style={styles.messageImage}
+                  resizeMode="contain"
+                />
+                <Text style={styles.imageCaption}>{img.alt}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      );
+    }
+    
+    // 检查是否是普通的链接说明
+    const linkRegex = /\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
+    let linkMatches: { text: string, url: string }[] = [];
+    
+    while ((match = linkRegex.exec(text)) !== null) {
+      linkMatches.push({
+        text: match[1],
+        url: match[2]
+      });
+    }
+    
+    // 如果找到链接
+    if (linkMatches.length > 0) {
+      return (
+        <View>
+          {linkMatches.map((link, idx) => (
+            <TouchableOpacity
+              key={idx}
+              style={styles.linkButton}
+              onPress={() => {
+                if (typeof window !== 'undefined') {
+                  window.open(link.url, '_blank');
+                } else {
+                  setFullscreenImage(link.url);
+                }
+              }}
+            >
+              <Ionicons name="link" size={16} color="#3498db" style={styles.linkIcon} />
+              <Text style={styles.linkText}>{link.text}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      );
+    }
+    
+    // 处理普通文本
+    return renderMessageText(text, isUser);
+  };
+
   const renderMessageText = (text: string, isUser: boolean) => {
     const segments = parseHtmlText(text);
     return (
@@ -113,116 +216,143 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
   };
 
   return (
-    <ScrollView
-      ref={scrollViewRef}
-      style={[styles.container, style]}
-      contentContainerStyle={
-        messages.length === 0 ? styles.emptyContent : styles.content
-      }
-      showsVerticalScrollIndicator={false}
-    >
-      {messages.length === 0 ? (
-        renderEmptyState()
-      ) : (
-        <Animated.View
-          style={[
-            styles.messagesContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: translateAnim }],
-            },
-          ]}
-        >
-          {messages.map((message, index) => {
-            const isUser = message.sender === 'user';
-            const showTime = index === 0 || index % 5 === 0; // Show time every 5 messages
-            const isLoading = message.isLoading;
-            
-            return (
-              <View key={message.id} style={styles.messageWrapper}>
-                {showTime && message.timestamp && renderTimeGroup(message.timestamp)}
-                
-                <View
-                  style={[
-                    styles.messageContainer,
-                    isUser ? styles.userMessageContainer : styles.botMessageContainer,
-                  ]}
-                >
-                  {!isUser && (
-                    <View style={styles.avatarContainer}>
-                      <Image
-                        source={
-                          selectedCharacter?.avatar
-                            ? { uri: String(selectedCharacter.avatar) }
-                            : require('@/assets/images/default-avatar.png')
-                        }
-                        style={styles.avatar}
-                      />
-                    </View>
-                  )}
+    <>
+      <ScrollView
+        ref={scrollViewRef}
+        style={[styles.container, style]}
+        contentContainerStyle={
+          messages.length === 0 ? styles.emptyContent : styles.content
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        {messages.length === 0 ? (
+          renderEmptyState()
+        ) : (
+          <Animated.View
+            style={[
+              styles.messagesContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: translateAnim }],
+              },
+            ]}
+          >
+            {messages.map((message, index) => {
+              const isUser = message.sender === 'user';
+              const showTime = index === 0 || index % 5 === 0; // Show time every 5 messages
+              const isLoading = message.isLoading;
+              
+              return (
+                <View key={message.id} style={styles.messageWrapper}>
+                  {showTime && message.timestamp && renderTimeGroup(message.timestamp)}
                   
-                  <View style={[
-                    styles.messageContent,
-                    isUser ? styles.userMessageContent : styles.botMessageContent,
-                    isLoading && styles.loadingMessage
-                  ]}>
-                    {isUser ? (
-                      <LinearGradient
-                        colors={['rgb(255, 224, 195)', 'rgb(255, 200, 170)']}
-                        style={styles.userGradient}
-                      >
-                        {renderMessageText(message.text, true)}
-                      </LinearGradient>
-                    ) : (
-                      <View style={styles.botMessageTextContainer}>
-                        {isLoading ? (
-                          <View style={styles.loadingContainer}>
-                            <View style={styles.loadingDot} />
-                            <View style={[styles.loadingDot, { animationDelay: '0.2s' }]} />
-                            <View style={[styles.loadingDot, { animationDelay: '0.4s' }]} />
-                          </View>
-                        ) : (
-                          renderMessageText(message.text, false)
-                        )}
-                        
-                        {!isLoading && onRateMessage && (
-                          <View style={styles.messageActions}>
-                            <TouchableOpacity
-                              style={styles.rateButton}
-                              onPress={() => onRateMessage(message.id, true)}
-                            >
-                              <Ionicons name="thumbs-up-outline" size={18} color="#999" />
-                            </TouchableOpacity>
-                            
-                            <TouchableOpacity
-                              style={styles.rateButton}
-                              onPress={() => onRateMessage(message.id, false)}
-                            >
-                              <Ionicons name="thumbs-down-outline" size={18} color="#999" />
-                            </TouchableOpacity>
-                          </View>
-                        )}
+                  <View
+                    style={[
+                      styles.messageContainer,
+                      isUser ? styles.userMessageContainer : styles.botMessageContainer,
+                    ]}
+                  >
+                    {!isUser && (
+                      <View style={styles.avatarContainer}>
+                        <Image
+                          source={
+                            selectedCharacter?.avatar
+                              ? { uri: String(selectedCharacter.avatar) }
+                              : require('@/assets/images/default-avatar.png')
+                          }
+                          style={styles.avatar}
+                        />
+                      </View>
+                    )}
+                    
+                    <View style={[
+                      styles.messageContent,
+                      isUser ? styles.userMessageContent : styles.botMessageContent,
+                      isLoading && styles.loadingMessage
+                    ]}>
+                      {isUser ? (
+                        <LinearGradient
+                          colors={['rgb(255, 224, 195)', 'rgb(255, 200, 170)']}
+                          style={styles.userGradient}
+                        >
+                          {processMessageContent(message.text, true)}
+                        </LinearGradient>
+                      ) : (
+                        <View style={styles.botMessageTextContainer}>
+                          {isLoading ? (
+                            <View style={styles.loadingContainer}>
+                              <View style={styles.loadingDot} />
+                              <View style={[styles.loadingDot, { animationDelay: '0.2s' }]} />
+                              <View style={[styles.loadingDot, { animationDelay: '0.4s' }]} />
+                            </View>
+                          ) : (
+                            processMessageContent(message.text, false)
+                          )}
+                          
+                          {!isLoading && onRateMessage && (
+                            <View style={styles.messageActions}>
+                              <TouchableOpacity
+                                style={styles.rateButton}
+                                onPress={() => onRateMessage(message.id, true)}
+                              >
+                                <Ionicons name="thumbs-up-outline" size={18} color="#999" />
+                              </TouchableOpacity>
+                              
+                              <TouchableOpacity
+                                style={styles.rateButton}
+                                onPress={() => onRateMessage(message.id, false)}
+                              >
+                                <Ionicons name="thumbs-down-outline" size={18} color="#999" />
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                    
+                    {isUser && (
+                      <View style={styles.avatarContainer}>
+                        <Image
+                          source={require('@/assets/images/default-user-avatar.png')}
+                          style={styles.avatar}
+                        />
                       </View>
                     )}
                   </View>
-                  
-                  {isUser && (
-                    <View style={styles.avatarContainer}>
-                      <Image
-                        source={require('@/assets/images/default-user-avatar.png')}
-                        style={styles.avatar}
-                      />
-                    </View>
-                  )}
                 </View>
-              </View>
-            );
-          })}
+              );
+            })}
+            
+            <View style={styles.endSpacer} />
+          </Animated.View>
+        )}
+      </ScrollView>
+      
+      {/* 全屏查看图片的模态框 */}
+      <Modal
+        visible={!!fullscreenImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setFullscreenImage(null)}
+      >
+        <View style={styles.fullscreenContainer}>
+          <TouchableOpacity 
+            style={styles.fullscreenCloseButton}
+            onPress={() => setFullscreenImage(null)}
+          >
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
           
-          <View style={styles.endSpacer} />
-        </Animated.View>
-      )}
-    </ScrollView>
+          {fullscreenImage && (
+            <Image
+              source={{ uri: fullscreenImage }}
+              style={styles.fullscreenImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
+    </>
   );
 };
 
@@ -363,6 +493,72 @@ const styles = StyleSheet.create({
   },
   endSpacer: {
     height: 40,
+  },
+  // 新增样式
+  imageWrapper: {
+    marginVertical: 8,
+    alignItems: 'center',
+  },
+  messageImage: {
+    width: '100%',
+    height: 200,
+    maxHeight: MAX_IMAGE_HEIGHT,
+    borderRadius: 8,
+    backgroundColor: '#2a2a2a',
+  },
+  imageCaption: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  imageDataUrlWarning: {
+    backgroundColor: '#333',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  imageDataUrlWarningText: {
+    color: '#ddd',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenImage: {
+    width: '100%',
+    height: '80%',
+  },
+  fullscreenCloseButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 100,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  linkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  linkIcon: {
+    marginRight: 8,
+  },
+  linkText: {
+    color: '#3498db',
+    textDecorationLine: 'underline',
+    fontSize: 16,
   },
 });
 
