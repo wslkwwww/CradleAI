@@ -31,13 +31,13 @@ import CradleFeedModal from '@/components/CradleFeedModal';      // UNCHANGED: S
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// NEW: Define our tabs for the updated UI
+// Chinese text for cradle tab titles
 const TABS = [
   { id: 'main', title: '主页', icon: 'home-outline' },
   { id: 'create', title: '创建', icon: 'add-outline' },
   { id: 'import', title: '导入', icon: 'download-outline' },
   { id: 'settings', title: '设置', icon: 'settings-outline' },
-  { id: 'api', title: 'API', icon: 'cloud-outline' } // NEW: Added API settings tab
+  { id: 'api', title: 'API', icon: 'cloud-outline' }
 ];
 
 export default function CradlePage() {
@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   activeTabText: {
-    color: '#FFD700',
+    color: '#000', // Changed from gold to black
     fontWeight: '500',
   },
   activeIndicator: {

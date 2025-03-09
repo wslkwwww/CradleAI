@@ -1205,14 +1205,6 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
                   size={24} 
                   color={activeSection === section.id ? "#FFD700" : "#aaa"} 
                 />
-                <Text 
-                  style={[
-                    styles.sidebarText,
-                    activeSection === section.id && styles.activeSidebarText
-                  ]}
-                >
-                  {section.title}
-                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -1226,13 +1218,7 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
             {isLoading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <LinearGradient
-                colors={['#FFD700', '#FFA500']}
-                style={styles.createButtonGradient}
-              >
-                <Ionicons name="save-outline" size={24} color="#fff" />
-                <Text style={styles.createButtonText}>创建摇篮角色</Text>
-              </LinearGradient>
+              <Ionicons name="save-outline" size={18} color="#000" />
             )}
           </TouchableOpacity>
         </View>
@@ -1455,6 +1441,7 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   );
 };
 
+// Reduce sidebar width to match the regular mode
 const styles = StyleSheet.create({
   modalContainer: {
     width: '90%',
@@ -1760,7 +1747,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#222',
   },
   sidebarContainer: {
-    width: 120,
+    width: 50, // Reduced from 120 to 50 to match regular mode
     backgroundColor: '#333',
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.1)',
@@ -1797,25 +1784,21 @@ const styles = StyleSheet.create({
   },
   // New sidebar create button styles
   sidebarCreateButton: {
-    margin: 10,
-    marginBottom: 20,
-    borderRadius: 8,
-    overflow: 'hidden',
-    height: 90,
+    position: 'absolute',
+    bottom: 16,
+    left: 10,  // Center in the 50px sidebar
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgb(255, 224, 195)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   createButtonGradient: {
     width: '100%',
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
-  },
-  createButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
   },
   // Remove the old embedded create button style since we no longer need it
   createButtonEmbedded: {

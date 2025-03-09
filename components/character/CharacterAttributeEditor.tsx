@@ -2,145 +2,107 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TextInput,
+  StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  ViewStyle,
+  ViewStyle
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { theme } from '@/constants/theme';
-import ShimmerPlaceholder from '../ShimmerPlaceholder';
 
-interface AttributeEditorProps {
+interface CharacterAttributeEditorProps {
   title: string;
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
-  multiline?: boolean;
   style?: ViewStyle;
-  maxLength?: number;
-  loading?: boolean;
-  showFullscreen?: boolean;
-  onFullscreenPress?: () => void;
+  multiline?: boolean;
+  numberOfLines?: number;
 }
 
-const CharacterAttributeEditor: React.FC<AttributeEditorProps> = ({
+const CharacterAttributeEditor: React.FC<CharacterAttributeEditorProps> = ({
   title,
   value,
   onChangeText,
-  placeholder = '请输入内容...',
-  multiline = true,
+  placeholder,
   style,
-  maxLength,
-  loading = false,
-  showFullscreen = true,
-  onFullscreenPress,
+  multiline = true,
+  numberOfLines = 4
 }) => {
-  const [isFocused, setIsFocused] = useState(false);
-  const [textHeight, setTextHeight] = useState(100);
-  
-  const handleContentSizeChange = (event: any) => {
-    if (multiline) {
-      setTextHeight(Math.max(100, event.nativeEvent.contentSize.height));
-    }
+  const [expanded, setExpanded] = useState(false);
+
+  const toggleExpanded = () => {
+    setExpanded(!expanded);
   };
-  
+
   return (
     <View style={[styles.container, style]}>
-      <View style={styles.header}>
-        <View style={styles.titleContainer}>
-          <Text style={styles.title}>{title}</Text>
-          {maxLength && (
-            <Text style={styles.counter}>{value.length}/{maxLength}</Text>
-          )}
-        </View>
-        
-        {showFullscreen && onFullscreenPress && (
-          <TouchableOpacity 
-            style={styles.fullscreenButton}
-            onPress={onFullscreenPress}
-          >
-            <Ionicons name="expand-outline" size={18} color={theme.colors.primary} />
-          </TouchableOpacity>
-        )}
-      </View>
+      <TouchableOpacity style={styles.header} onPress={toggleExpanded}>
+        <Text style={styles.title}>{title}</Text>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color="#aaa"
+        />
+      </TouchableOpacity>
       
-      <ShimmerPlaceholder
-        visible={!loading}
-        style={styles.inputContainer}
-        shimmerColors={['#333', '#444', '#333']}
-      >
-        <View 
+      {(expanded || !value) ? (
+        <TextInput
           style={[
-            styles.inputContainer,
-            isFocused && styles.inputContainerFocused
+            styles.inputField,
+            multiline && { minHeight: numberOfLines * 24 }
           ]}
-        >
-          <TextInput
-            value={value}
-            onChangeText={onChangeText}
-            placeholder={placeholder}
-            placeholderTextColor="rgba(255, 255, 255, 0.3)"
-            multiline={multiline}
-            style={[
-              styles.input, 
-              multiline && { height: textHeight }
-            ]}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            onContentSizeChange={handleContentSizeChange}
-            maxLength={maxLength}
-            textAlignVertical="top"
-          />
-        </View>
-      </ShimmerPlaceholder>
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#666"
+          multiline={multiline}
+          numberOfLines={numberOfLines}
+          textAlignVertical={multiline ? "top" : "center"}
+        />
+      ) : (
+        <TouchableOpacity onPress={toggleExpanded}>
+          <Text style={styles.previewText} numberOfLines={2}>
+            {value}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 16,
+    backgroundColor: '#333',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 8,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#444',
   },
   title: {
+    fontWeight: 'bold',
+    color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text,
-    marginRight: 8,
   },
-  counter: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-  },
-  fullscreenButton: {
-    padding: 5,
-  },
-  inputContainer: {
-    backgroundColor: 'rgba(60, 60, 60, 0.5)',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  inputContainerFocused: {
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-  },
-  input: {
-    color: theme.colors.text,
-    fontSize: 15,
+  inputField: {
+    color: '#fff',
     padding: 12,
-    minHeight: 100,
+    paddingTop: 12,
+    fontSize: 16,
+    backgroundColor: '#333',
+    borderTopWidth: 1,
+    borderTopColor: '#555',
   },
+  previewText: {
+    color: '#ccc',
+    padding: 12,
+    fontSize: 14,
+  }
 });
 
 export default CharacterAttributeEditor;

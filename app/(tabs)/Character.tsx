@@ -17,6 +17,7 @@ import {
   Switch,
   ViewStyle,
   TextStyle,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, FontAwesome, MaterialIcons } from '@expo/vector-icons';
@@ -28,9 +29,11 @@ import { CharacterImporter } from '@/utils/CharacterImporter';
 import { useUser } from '@/constants/UserContext';
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import  RelationshipGraph  from '@/components/RelationshipGraph';
-import  MessageBox  from '@/components/MessageBox';
+import RelationshipGraph from '@/components/RelationshipGraph';
+import MessageBox from '@/components/MessageBox';
 import { getCharacterById } from '@/services/character-service';
+import CreateChar from '@/app/pages/create_char';
+import CradleCreateForm from '@/components/CradleCreateForm';
 
 // Add view mode constants
 const VIEW_MODE_SMALL = 'small';
@@ -48,9 +51,27 @@ const LARGE_CARD_HEIGHT = LARGE_CARD_WIDTH * 0.6; // 5:3 aspect ratio
 
 const COLOR_BACKGROUND = '#282828';  // Dark background
 const COLOR_CARD_BG = '#333333';     // Dark card background
-const COLOR_BUTTON = '#1a237e';      // Starry night blue
+const COLOR_BUTTON = 'rgb(255, 224, 195)';  // Updated to use specified color
 const COLOR_ACCENT = '#333333';      // Dark accent
 const COLOR_TEXT = '#FFFFFF';        // White text
+
+// Define tab constants
+const TABS = [
+  { id: 'cards', title: '角色卡' },
+  { id: 'create', title: '创建' }
+];
+
+// Define creation mode constants
+const CREATION_MODES = [
+  { id: 'regular', title: '常规模式' },
+  { id: 'cradle', title: '摇篮模式' }
+];
+
+// Define sidebar items for regular mode
+const REGULAR_SIDEBAR_ITEMS = [
+  { id: 'basic', icon: 'person-outline' },
+  { id: 'advanced', icon: 'settings-outline' },
+];
 
 const CharactersScreen: React.FC = () => {
   const { characters, isLoading, deleteCharacters, addCharacter, updateCharacter } = useCharacters();
@@ -66,15 +87,22 @@ const CharactersScreen: React.FC = () => {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [relationshipView, setRelationshipView] = useState<'graph' | 'messages'>('graph');
 
+  // New states for tabbed interface
+  const [activeTab, setActiveTab] = useState<string>('cards');
+  const [creationMode, setCreationMode] = useState<string>('regular');
+  const [activeSidebarItem, setActiveSidebarItem] = useState<string>('basic');
+
   // useEffect(() => {
   //   console.log('Characters from Context:', characters);
   // }, [characters]);
 
   const handleCreate = () => {
-    router.push('/pages/create_char');
+    setActiveTab('create');
+    setCreationMode('regular');
+    setActiveSidebarItem('basic');
   };
 
-   useEffect(() => {
+  useEffect(() => {
     // 根据 isManaging 的变化启动动画
     Animated.timing(animatedValue, {
       toValue: isManaging ? 1 : 0, // isManaging 为 true 时，值为 1，否则为 0
@@ -134,8 +162,10 @@ const CharactersScreen: React.FC = () => {
             JSON.stringify(completeData)
           );
 
-          // 简单跳转，不携带大量数据
-          router.push('/pages/create_char?mode=import');
+          // 切换到创建标签页并选择常规模式
+          setActiveTab('create');
+          setCreationMode('regular');
+          setActiveSidebarItem('basic');
 
         } catch (error) {
           console.error('[Character Import] Error:', error);
@@ -217,6 +247,9 @@ const CharactersScreen: React.FC = () => {
 
   // Add floating buttons for actions
   const renderFloatingButtons = () => {
+    // Only show floating buttons in the character cards tab
+    if (activeTab !== 'cards') return null;
+    
     return (
       <View style={styles.floatingButtonsContainer}>
         {isManaging && (
@@ -279,13 +312,14 @@ const CharactersScreen: React.FC = () => {
     );
   };
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR_BACKGROUND} />
+  // Render character cards tab content
+  const renderCharacterCardsTab = () => {
+    if (isLoading) {
+      return <ActivityIndicator size="large" color="#fff" style={styles.loader} />;
+    }
 
-      {isLoading ? (
-        <ActivityIndicator size="large" color="#fff" />
-      ) : (
+    return (
+      <>
         <FlatList
           data={characters}
           renderItem={renderItem}
@@ -294,9 +328,135 @@ const CharactersScreen: React.FC = () => {
           contentContainerStyle={styles.listContainer}
           key={viewMode} // Add this to force re-render when view mode changes
         />
-      )}
+        {renderFloatingButtons()}
+      </>
+    );
+  };
 
-      {renderFloatingButtons()}
+  // Render creation mode selection
+  const renderCreationModeSelection = () => {
+    return (
+      <View style={styles.modeSelectionContainer}>
+        {CREATION_MODES.map(mode => (
+          <TouchableOpacity
+            key={mode.id}
+            style={[
+              styles.modeButton,
+              creationMode === mode.id && styles.activeModeButton
+            ]}
+            onPress={() => setCreationMode(mode.id)}
+          >
+            <Text 
+              style={[
+                styles.modeButtonText,
+                creationMode === mode.id && styles.activeModeButtonText
+              ]}
+            >
+              {mode.title}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  // Render regular mode sidebar with icons only
+  const renderRegularModeSidebar = () => {
+    return (
+      <View style={styles.sidebar}>
+        {REGULAR_SIDEBAR_ITEMS.map(item => (
+          <TouchableOpacity
+            key={item.id}
+            style={[
+              styles.sidebarItem,
+              activeSidebarItem === item.id && styles.activeSidebarItem
+            ]}
+            onPress={() => setActiveSidebarItem(item.id)}
+          >
+            <Ionicons
+              name={item.icon as any}
+              size={24}
+              color={activeSidebarItem === item.id ? "#FFD700" : "#aaa"}
+            />
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  // Render character creation content
+  const renderCreationContent = () => {
+    if (creationMode === 'regular') {
+      // For regular mode, we render just the CreateChar component
+      // and it will handle its own internal tabs based on the activeSidebarItem
+      return (
+        <View style={styles.creationContentContainer}>
+          {renderRegularModeSidebar()}
+          <View style={styles.creationMainContent}>
+            <CreateChar activeTab={activeSidebarItem as 'basic' | 'advanced'} />
+          </View>
+        </View>
+      );
+    } else {
+      // For cradle mode, render the embedded CradleCreateForm
+      return (
+        <View style={styles.creationContentContainer}>
+          <CradleCreateForm
+            embedded={true}
+            onClose={() => {
+              // Switch back to cards tab when closed
+              setActiveTab('cards');
+            }}
+          />
+        </View>
+      );
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor={COLOR_BACKGROUND} />
+      
+      {/* Header with title and tabs */}
+      <View style={styles.header}>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>角色管理</Text>
+        </View>
+        <View style={styles.tabsContainer}>
+          {TABS.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              style={[
+                styles.tab,
+                activeTab === tab.id && styles.activeTab
+              ]}
+              onPress={() => setActiveTab(tab.id)}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === tab.id && styles.activeTabText
+                ]}
+              >
+                {tab.title}
+              </Text>
+              {activeTab === tab.id && <View style={styles.activeTabIndicator} />}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Main content area */}
+      <View style={styles.mainContainer}>
+        {activeTab === 'cards' ? (
+          renderCharacterCardsTab()
+        ) : (
+          <View style={styles.createTabContainer}>
+            {renderCreationModeSelection()}
+            {renderCreationContent()}
+          </View>
+        )}
+      </View>
     </SafeAreaView>
   );
 };
@@ -393,6 +553,16 @@ import { ImageStyle } from 'react-native';
 
 interface Styles {
   safeArea: ViewStyle;
+  header: ViewStyle;
+  headerTitleContainer: ViewStyle;
+  headerTitle: TextStyle;
+  tabsContainer: ViewStyle;
+  tab: ViewStyle;
+  activeTab: ViewStyle;
+  tabText: TextStyle;
+  activeTabText: TextStyle;
+  activeTabIndicator: ViewStyle;
+  mainContainer: ViewStyle;
   listContainer: ViewStyle;
   card: ViewStyle;
   manageCard: ViewStyle;
@@ -409,6 +579,18 @@ interface Styles {
   floatingButton: ViewStyle;
   activeButton: ViewStyle;
   deleteButton: ViewStyle;
+  createTabContainer: ViewStyle;
+  modeSelectionContainer: ViewStyle;
+  modeButton: ViewStyle;
+  activeModeButton: ViewStyle;
+  modeButtonText: TextStyle;
+  activeModeButtonText: TextStyle;
+  creationContentContainer: ViewStyle;
+  sidebar: ViewStyle;
+  sidebarItem: ViewStyle;
+  activeSidebarItem: ViewStyle;
+  creationMainContent: ViewStyle;
+  loader: ViewStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
@@ -417,9 +599,53 @@ const styles = StyleSheet.create<Styles>({
     backgroundColor: COLOR_BACKGROUND,
   },
   header: {
-    height: Platform.OS === 'ios' ? 90 : 90,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 47,
-    backgroundColor: 'rgba(40, 40, 40, 0.95)',
+    backgroundColor: '#333333',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  headerTitleContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: 'rgb(255, 224, 195)',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 224, 195, 0.2)',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  activeTab: {
+    backgroundColor: 'rgb(255, 224, 195)',
+  },
+  tabText: {
+    color: '#aaa',
+    fontSize: 14,
+  },
+  activeTabText: {
+    color: '#000', // Updated to black
+    fontWeight: '500',
+  },
+  activeTabIndicator: {
+    position: 'absolute',
+    bottom: -1,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#FFD700',
+  },
+  mainContainer: {
+    flex: 1,
   },
   listContainer: {
     padding: 16,
@@ -487,7 +713,7 @@ const styles = StyleSheet.create<Styles>({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(255, 224, 195, 0.9)',
+    backgroundColor: COLOR_BUTTON,  // Updated to use the standardized color
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -532,6 +758,65 @@ const styles = StyleSheet.create<Styles>({
     color: COLOR_TEXT,
     fontSize: 14,
     marginTop: 8,
+  },
+  // New styles for create tab
+  createTabContainer: {
+    flex: 1,
+    backgroundColor: '#282828',
+  },
+  modeSelectionContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#222222',
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeModeButton: {
+    backgroundColor: 'rgb(255, 224, 195)',
+    borderBottomWidth: 2,
+    borderBottomColor: '#FFD700',
+  },
+  modeButtonText: {
+    color: '#aaa',
+    fontSize: 16,
+  },
+  activeModeButtonText: {
+    color: '#FFD700',
+    fontWeight: '500',
+  },
+  creationContentContainer: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  sidebar: {
+    width: 50, // Reduced sidebar width
+    backgroundColor: '#333',
+    paddingTop: 20,
+    alignItems: 'center',
+  },
+  sidebarItem: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
+  },
+  activeSidebarItem: {
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    borderLeftColor: '#FFD700',
+  },
+  // Remove sidebarItemText styles as we're removing the text
+  creationMainContent: {
+    flex: 1,
+  },
+  loader: {
+    marginTop: 40,
   },
 });
 

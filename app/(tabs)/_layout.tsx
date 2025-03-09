@@ -72,7 +72,7 @@ export default function TabLayout() {
           name="Character"
           options={{
             title: '角色卡',
-            headerShown: true,
+            headerShown: false,
             tabBarIcon: ({ color, focused }) => (
               <Ionicons
                 name={focused ? 'document-text' : 'document-text-outline'}
@@ -100,7 +100,7 @@ export default function TabLayout() {
           name="profile"
           options={{
             title: '我',
-            headerShown: true,
+            headerShown: false,
             tabBarIcon: ({ color, focused }) => (
               <Ionicons
                 name={focused ? 'person' : 'person-outline'}

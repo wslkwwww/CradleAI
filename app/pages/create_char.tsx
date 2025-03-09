@@ -42,7 +42,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import ActionButton from '@/components/ActionButton';
 import CharacterAttributeEditor from '@/components/character/CharacterAttributeEditor';
 import CharacterDetailHeader from '@/components/character/CharacterDetailHeader';
-
+import { Ionicons } from '@expo/vector-icons';
 // Default preset entries
 export const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
@@ -105,7 +105,11 @@ const INSERT_TYPE_OPTIONS = {
   CHAT: 'chat'
 } as const;
 
-const CreateChar: React.FC = () => {
+interface CreateCharProps {
+  activeTab?: 'basic' | 'advanced';
+}
+
+const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = 'basic' }) => {
   const router = useRouter();
   const { addCharacter, addConversation,} = useCharacters();
   const { user } = useUser();
@@ -190,10 +194,15 @@ const CreateChar: React.FC = () => {
   });
 
   // UI state variables - match character-detail page
-  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>(initialActiveTab);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Update activeTab when initialActiveTab changes
+  useEffect(() => {
+    setActiveTab(initialActiveTab);
+  }, [initialActiveTab]);
 
   const [selectedField, setSelectedField] = useState<{
     title: string;
@@ -685,150 +694,208 @@ const CreateChar: React.FC = () => {
     character.avatar, character.backgroundImage
   ]);
 
+  // Render content based on activeTab
+  const renderContent = () => {
+    if (activeTab === 'basic') {
+      return (
+        <View style={styles.tabContent}>
+          {/* Image selection section */}
+          <View style={styles.imageSelectionSection}>
+            <View style={styles.avatarContainer}>
+              <TouchableOpacity
+                style={styles.avatarButton}
+                onPress={pickAvatar}
+              >
+                {character.avatar ? (
+                  <Image source={{ uri: character.avatar }} style={styles.avatarPreview} />
+                ) : (
+                  <>
+                    <Ionicons name="person-circle-outline" size={40} color="#aaa" />
+                    <Text style={styles.imageButtonText}>添加头像</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.backgroundContainer}>
+              <TouchableOpacity
+                style={styles.backgroundButton}
+                onPress={pickBackgroundImage}
+              >
+                {character.backgroundImage ? (
+                  <Image source={{ uri: character.backgroundImage }} style={styles.backgroundPreview} />
+                ) : (
+                  <>
+                    <Ionicons name="image-outline" size={40} color="#aaa" />
+                    <Text style={styles.imageButtonText}>添加背景(9:16)</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <CharacterAttributeEditor
+            title="名称"
+            value={roleCard.name || ''}
+            onChangeText={(text) => handleRoleCardChange('name', text)}
+            placeholder="角色名称..."
+          />
+          
+          <CharacterAttributeEditor
+            title="开场白"
+            value={roleCard.first_mes || ''}
+            onChangeText={(text) => handleRoleCardChange('first_mes', text)}
+            placeholder="角色与用户的第一次对话内容..."
+            style={styles.attributeSection}
+          />
+          
+          <CharacterAttributeEditor
+            title="角色描述"
+            value={roleCard.description || ''}
+            onChangeText={(text) => handleRoleCardChange('description', text)}
+            placeholder="描述角色的外表、背景等基本信息..."
+            style={styles.attributeSection}
+          />
+          
+          <CharacterAttributeEditor
+            title="性格特征"
+            value={roleCard.personality || ''}
+            onChangeText={(text) => handleRoleCardChange('personality', text)}
+            placeholder="描述角色的性格、习惯、喜好等..."
+            style={styles.attributeSection}
+          />
+          
+          <CharacterAttributeEditor
+            title="场景设定"
+            value={roleCard.scenario || ''}
+            onChangeText={(text) => handleRoleCardChange('scenario', text)}
+            placeholder="描述角色所在的环境、情境..."
+            style={styles.attributeSection}
+          />
+          
+          <CharacterAttributeEditor
+            title="对话示例"
+            value={roleCard.mes_example || ''}
+            onChangeText={(text) => handleRoleCardChange('mes_example', text)}
+            placeholder="提供一些角色对话的范例..."
+            style={styles.attributeSection}
+          />
+        </View>
+      );
+    } else {
+      return (
+        <View style={styles.tabContent}>
+          <WorldBookSection
+            entries={worldBookEntries}
+            onAdd={handleAddWorldBookEntry}
+            onUpdate={handleUpdateWorldBookEntry}
+            onViewDetail={handleViewDetail}
+            onReorder={handleReorderWorldBook}
+          />
+          
+          <PresetSection
+            entries={presetEntries}
+            onAdd={handleAddPresetEntry}
+            onUpdate={handleUpdatePresetEntry}
+            onMove={handleMoveEntry}
+            onViewDetail={handleViewDetail}
+            onReorder={handleReorderPresets}
+          />
+          
+          <AuthorNoteSection
+            content={authorNote.content || ''}
+            injection_depth={authorNote.injection_depth || 0}
+            onUpdateContent={(content) => {
+              setAuthorNote(prev => ({ ...prev, content }));
+              setHasUnsavedChanges(true);
+            }}
+            onUpdateDepth={(depth) => {
+              setAuthorNote(prev => ({ ...prev, injection_depth: depth }));
+              setHasUnsavedChanges(true);
+            }}
+            onViewDetail={handleViewDetail}
+          />
+        </View>
+      );
+    }
+  };
+  
+  // Add new styles for image selection
+  const additionalStyles = StyleSheet.create({
+    imageSelectionSection: {
+      flexDirection: 'row',
+      marginBottom: 20,
+    },
+    avatarContainer: {
+      width: 100,
+      marginRight: 16,
+    },
+    avatarButton: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: '#333',
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.2)',
+      overflow: 'hidden',
+    },
+    avatarPreview: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 50,
+    },
+    backgroundContainer: {
+      flex: 1,
+    },
+    backgroundButton: {
+      aspectRatio: 9/16,
+      backgroundColor: '#333',
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.2)',
+      overflow: 'hidden',
+    },
+    backgroundPreview: {
+      width: '100%',
+      height: '100%',
+    },
+    imageButtonText: {
+      color: '#aaa',
+      marginTop: 8,
+      fontSize: 12,
+      textAlign: 'center',
+    },
+  });
+  
+  // For embedded usage in tabs, we don't need the header and tabs
+  // Just render the content based on activeTab prop
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+      {renderContent()}
       
-      {/* Character Header - now using the shared CharacterDetailHeader component */}
-      <CharacterDetailHeader
-        name={roleCard.name || '新建角色'}
-        avatar={character.avatar || null}
-        backgroundImage={character.backgroundImage || null}
-        onAvatarPress={pickAvatar}
-        onBackgroundPress={pickBackgroundImage}
-        onBackPress={handleBackPress}
-      />
-      
-      {/* Tab Navigation - match character-detail */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'basic' && styles.activeTab]} 
-          onPress={() => setActiveTab('basic')}
-        >
-          <Text style={[styles.tabText, activeTab === 'basic' && styles.activeTabText]}>
-            基本设定
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'advanced' && styles.activeTab]} 
-          onPress={() => setActiveTab('advanced')}
-        >
-          <Text style={[styles.tabText, activeTab === 'advanced' && styles.activeTabText]}>
-            高级设定
-          </Text>
-        </TouchableOpacity>
-      </View>
-      
-      {/* Content Area */}
-      <ScrollView style={styles.content}>
-        {activeTab === 'basic' ? (
-          <View style={styles.tabContent}>
-            <CharacterAttributeEditor
-              title="名称"
-              value={roleCard.name || ''}
-              onChangeText={(text) => handleRoleCardChange('name', text)}
-              placeholder="角色名称..."
-            />
-            
-            <CharacterAttributeEditor
-              title="开场白"
-              value={roleCard.first_mes || ''}
-              onChangeText={(text) => handleRoleCardChange('first_mes', text)}
-              placeholder="角色与用户的第一次对话内容..."
-              style={styles.attributeSection}
-            />
-            
-            <CharacterAttributeEditor
-              title="角色描述"
-              value={roleCard.description || ''}
-              onChangeText={(text) => handleRoleCardChange('description', text)}
-              placeholder="描述角色的外表、背景等基本信息..."
-              style={styles.attributeSection}
-            />
-            
-            <CharacterAttributeEditor
-              title="性格特征"
-              value={roleCard.personality || ''}
-              onChangeText={(text) => handleRoleCardChange('personality', text)}
-              placeholder="描述角色的性格、习惯、喜好等..."
-              style={styles.attributeSection}
-            />
-            
-            <CharacterAttributeEditor
-              title="场景设定"
-              value={roleCard.scenario || ''}
-              onChangeText={(text) => handleRoleCardChange('scenario', text)}
-              placeholder="描述角色所在的环境、情境..."
-              style={styles.attributeSection}
-            />
-            
-            <CharacterAttributeEditor
-              title="对话示例"
-              value={roleCard.mes_example || ''}
-              onChangeText={(text) => handleRoleCardChange('mes_example', text)}
-              placeholder="提供一些角色对话的范例..."
-              style={styles.attributeSection}
-            />
-          </View>
-        ) : (
-          <View style={styles.tabContent}>
-            {/* World Book Section */}
-            <WorldBookSection 
-              entries={worldBookEntries}
-              onAdd={handleAddWorldBookEntry}
-              onUpdate={handleUpdateWorldBookEntry}
-              onReorder={handleReorderWorldBook}
-              onViewDetail={handleViewDetail}
-            />
-            
-            {/* Author Note Section */}
-            <AuthorNoteSection
-              content={authorNote.content || ''}
-              injection_depth={authorNote.injection_depth || 0}
-              onUpdateContent={(text) => {
-                setAuthorNote(prev => ({ ...prev, content: text }));
-                setHasUnsavedChanges(true);
-              }}
-              onUpdateDepth={(depth) => {
-                setAuthorNote(prev => ({ ...prev, injection_depth: depth }));
-                setHasUnsavedChanges(true);
-              }}
-              onViewDetail={handleViewDetail}
-            />
-            
-            {/* Preset Section */}
-            <PresetSection
-              entries={presetEntries}
-              onAdd={handleAddPresetEntry}
-              onUpdate={handleUpdatePresetEntry}
-              onMove={handleMoveEntry}
-              onReorder={handleReorderPresets}
-              onViewDetail={handleViewDetail}
-            />
-          </View>
-        )}
-      </ScrollView>
-      
-      {/* Bottom Actions Bar - match character-detail */}
       <BlurView intensity={30} tint="dark" style={styles.bottomBar}>
-        <ActionButton
-          title="取消"
-          icon="close-outline"
-          onPress={handleBackPress}
-          color="#666666"
-          textColor="#000" // Updated text color
+        <TouchableOpacity
           style={styles.cancelButton}
-        />
+          onPress={handleBackPress}
+        >
+          <Ionicons name="close-outline" size={24} color="#000" />
+        </TouchableOpacity>
         
-        <ActionButton
-          title="创建角色"
-          icon="save-outline"
-          onPress={saveCharacter}
-          loading={isSaving}
-          color="rgb(255, 224, 195)" // 修改：使用米黄色而不是theme.colors.primary
-          textColor="#000" // Updated text color
+        <TouchableOpacity
           style={styles.saveButton}
-        />
+          onPress={saveCharacter}
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#000" />
+          ) : (
+            <Ionicons name="save-outline" size={24} color="#000" />
+          )}
+        </TouchableOpacity>
       </BlurView>
       
       {/* Detail Sidebar for expanded editing */}
@@ -861,40 +928,17 @@ const CreateChar: React.FC = () => {
         destructive={true}
         icon="alert-circle-outline"
       />
-    </SafeAreaView>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  content: {
     flex: 1,
     backgroundColor: '#282828',
   },
-  tabContainer: {
-    flexDirection: 'row',
-    marginTop: 10,
-    paddingHorizontal: 16,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  activeTab: {
-    borderBottomColor: theme.colors.primary,
-  },
-  tabText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#aaaaaa',
-  },
-  activeTabText: {
-    color: theme.colors.text,
-  },
-  content: {
-    flex: 1,
+  contentContainer: {
+    paddingBottom: 120, // Extra padding at bottom for the fixed bottom bar
   },
   tabContent: {
     padding: 16,
@@ -908,13 +952,75 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(40, 40, 40, 0.8)',
   },
   cancelButton: {
-    flex: 1,
-    marginRight: 8,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#666666',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveButton: {
-    flex: 2,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgb(255, 224, 195)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageSelectionSection: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  avatarContainer: {
+    width: 100,
+    marginRight: 16,
+  },
+  avatarButton: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    overflow: 'hidden',
+  },
+  avatarPreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 50,
+  },
+  backgroundContainer: {
+    flex: 1,
+  },
+  backgroundButton: {
+    aspectRatio: 9/16,
+    backgroundColor: '#333',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    overflow: 'hidden',
+    height: 200,
+  },
+  backgroundPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  imageButtonText: {
+    color: '#aaa',
+    marginTop: 8,
+    fontSize: 12,
+    textAlign: 'center',
   },
 });
 
