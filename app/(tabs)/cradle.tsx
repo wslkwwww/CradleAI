@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View,
   Text,
   StyleSheet,
   SafeAreaView,
@@ -8,9 +7,9 @@ import {
   StatusBar,
   ScrollView,
   RefreshControl,
-  Animated,
+  View,
   Dimensions,
-  ImageBackground
+  Platform,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -21,20 +20,16 @@ import { CradleCharacter } from '@/shared/types';
 import CradleCharacterCarousel from '@/components/CradleCharacterCarousel';
 
 // UPDATED: These components were previously used as modals, now they can also be embedded directly into tabs
-import CradleApiSettings from '@/components/CradleApiSettings';  // NEW: Added for API provider settings
-import CradleSettings from '@/components/CradleSettings';        // UPDATED: Now supports embedded mode
-import CradleCreateForm from '@/components/CradleCreateForm';    // UPDATED: Fixed slider issues & supports embedded mode
-import ImportToCradleModal from '@/components/ImportToCradleModal'; // UPDATED: Now supports embedded mode
-import CradleFeedModal from '@/components/CradleFeedModal';      // UNCHANGED: Still used as a modal
-
-// DEPRECATED: Previous floating action button approach - now using tabs instead
+import CradleApiSettings from '@/components/CradleApiSettings';
+import CradleSettings from '@/components/CradleSettings';
+import ImportToCradleModal from '@/components/ImportToCradleModal';
+import CradleFeedModal from '@/components/CradleFeedModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Chinese text for cradle tab titles
+// Updated tabs to remove the 'create' tab and make naming consistent with character page
 const TABS = [
   { id: 'main', title: '主页', icon: 'home-outline' },
-  { id: 'create', title: '创建', icon: 'add-outline' },
   { id: 'import', title: '导入', icon: 'download-outline' },
   { id: 'settings', title: '设置', icon: 'settings-outline' },
   { id: 'api', title: 'API', icon: 'cloud-outline' }
@@ -55,14 +50,9 @@ export default function CradlePage() {
   const [refreshing, setRefreshing] = useState(false);
   const cradleSettings = getCradleSettings();
   
-  // NEW: State for tabs
+  // State for tabs
   const [activeTab, setActiveTab] = useState<string>('main');
   const [showFeedModal, setShowFeedModal] = useState(false);
-
-  // DEPRECATED: Old modal states, now handled by tab system
-  // const [showCreateForm, setShowCreateForm] = useState(false);
-  // const [showImportModal, setShowImportModal] = useState(false);
-  // const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Load characters when component mounts or refreshes
   useEffect(() => {
@@ -113,7 +103,7 @@ export default function CradlePage() {
     }
   };
 
-  // NEW: Fix the scrollToIndex error by making sure we handle onScrollToIndexFailed
+  // Fix the scrollToIndex error by making sure we handle onScrollToIndexFailed
   const handleTabChange = (tabId: string) => {
     // Reset any flatlist scroll position issues when changing tabs
     if (tabId === 'main') {
@@ -125,7 +115,7 @@ export default function CradlePage() {
     setActiveTab(tabId);
   };
 
-  // NEW: Render the appropriate content based on active tab
+  // Render the appropriate content based on active tab
   const renderTabContent = () => {
     switch (activeTab) {
       case 'main':
@@ -163,26 +153,22 @@ export default function CradlePage() {
               <View style={styles.emptyStateContainer}>
                 <MaterialCommunityIcons name="cradle" size={60} color="#555" />
                 <Text style={styles.emptyTitle}>没有摇篮角色</Text>
-                <Text style={styles.emptyText}>点击"创建"标签来添加新角色</Text>
+                <Text style={styles.emptyText}>前往角色管理页面的"创建"标签创建摇篮角色</Text>
+                <TouchableOpacity 
+                  style={styles.createCharacterButton}
+                  onPress={() => router.push('/(tabs)/Character')}
+                >
+                  <Text style={styles.createCharacterButtonText}>前往角色管理</Text>
+                </TouchableOpacity>
               </View>
             )}
           </ScrollView>
-        );
-      case 'create':
-        return (
-          <View style={styles.tabContent}>
-            <CradleCreateForm 
-              embedded={true}  // NEW: Now supports embedded mode
-              onClose={() => handleTabChange('main')}
-              onSuccess={loadCradleCharacters}
-            />
-          </View>
         );
       case 'import':
         return (
           <View style={styles.tabContent}>
             <ImportToCradleModal 
-              embedded={true} // NEW: Now supports embedded mode
+              embedded={true}
               visible={true}
               onClose={() => handleTabChange('main')}
               onImportSuccess={loadCradleCharacters}
@@ -193,7 +179,7 @@ export default function CradlePage() {
         return (
           <View style={styles.tabContent}>
             <CradleSettings
-              embedded={true} // NEW: Now supports embedded mode
+              embedded={true}
               isVisible={true}
               onClose={() => handleTabChange('main')}
               isCradleEnabled={cradleSettings.enabled}
@@ -214,7 +200,6 @@ export default function CradlePage() {
             />
           </View>
         );
-      // NEW: API settings tab
       case 'api':
         return (
           <View style={styles.tabContent}>
@@ -231,22 +216,16 @@ export default function CradlePage() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#282828" />
       
-      {/* UPDATED: Header now includes tabs */}
+      {/* Header with title and tabs - Updated to match Character.tsx layout */}
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>摇篮系统</Text>
         </View>
         
-        {/* NEW: Tabs */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false} 
-          style={styles.tabsContainer}
-          contentContainerStyle={styles.tabsContentContainer}
-        >
+        <View style={styles.tabsContainer}>
           {TABS.map(tab => {
             const isActive = activeTab === tab.id;
             return (
@@ -255,28 +234,22 @@ export default function CradlePage() {
                 style={[styles.tab, isActive && styles.activeTab]}
                 onPress={() => handleTabChange(tab.id)}
               >
-                <Ionicons 
-                  name={tab.icon as any} 
-                  size={18} 
-                  color={isActive ? '#FFD700' : '#aaa'} 
-                  style={styles.tabIcon}
-                />
                 <Text style={[styles.tabText, isActive && styles.activeTabText]}>
                   {tab.title}
                 </Text>
-                {isActive && <View style={styles.activeIndicator} />}
+                {isActive && <View style={styles.activeTabIndicator} />}
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
       
-      {/* NEW: Tab Content - now using a simple container with conditional rendering instead of ScrollView */}
+      {/* Tab Content */}
       <View style={styles.tabContentContainer}>
         {renderTabContent()}
       </View>
       
-      {/* UNCHANGED: Feed Modal - still used as a popup */}
+      {/* Feed Modal - still used as a popup */}
       <CradleFeedModal
         visible={showFeedModal}
         onClose={() => {
@@ -290,18 +263,13 @@ export default function CradlePage() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#282828',
   },
   header: {
     backgroundColor: '#333333',
-    paddingTop: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   headerTitleContainer: {
     paddingHorizontal: 16,
@@ -310,42 +278,34 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#FFD700',
+    color: 'rgb(255, 224, 195)',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
   },
   tabsContainer: {
+    flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 215, 0, 0.2)',
-  },
-  tabsContentContainer: {
-    paddingHorizontal: 12,
+    borderBottomColor: 'rgba(255, 224, 195, 0.2)',
   },
   tab: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flex: 1,
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    alignItems: 'center',
     position: 'relative',
   },
   activeTab: {
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-  },
-  tabIcon: {
-    marginRight: 6,
+    backgroundColor: 'rgb(255, 224, 195)',
   },
   tabText: {
     color: '#aaa',
     fontSize: 14,
   },
   activeTabText: {
-    color: '#000', // Changed from gold to black
+    color: '#000',
     fontWeight: '500',
   },
-  activeIndicator: {
+  activeTabIndicator: {
     position: 'absolute',
     bottom: -1,
     left: 0,
@@ -406,5 +366,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
+  },
+  createCharacterButton: {
+    marginTop: 20,
+    backgroundColor: 'rgb(255, 224, 195)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+  },
+  createCharacterButtonText: {
+    color: '#000',
+    fontWeight: '500',
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
+  BackHandler,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -198,6 +199,32 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Add ref to track unsaved changes for back button handling
+  const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
+  
+  // Update the ref when hasUnsavedChanges changes
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
+  
+  // Handle Android back button
+  useEffect(() => {
+    const backAction = () => {
+      if (hasUnsavedChangesRef.current) {
+        setShowConfirmDialog(true);
+        return true; // Prevent default behavior
+      }
+      return false; // Allow default behavior
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction
+    );
+
+    return () => backHandler.remove();
+  }, []);
 
   // Update activeTab when initialActiveTab changes
   useEffect(() => {
@@ -874,29 +901,26 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
   // For embedded usage in tabs, we don't need the header and tabs
   // Just render the content based on activeTab prop
   return (
-    <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-      {renderContent()}
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={styles.contentContainer}
+      >
+        {renderContent()}
+      </ScrollView>
       
-      <BlurView intensity={30} tint="dark" style={styles.bottomBar}>
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={handleBackPress}
-        >
-          <Ionicons name="close-outline" size={24} color="#000" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.saveButton}
-          onPress={saveCharacter}
-          disabled={isSaving}
-        >
-          {isSaving ? (
-            <ActivityIndicator size="small" color="#000" />
-          ) : (
-            <Ionicons name="save-outline" size={24} color="#000" />
-          )}
-        </TouchableOpacity>
-      </BlurView>
+      {/* Save button in sidebar style (moved from bottom bar) */}
+      <TouchableOpacity
+        style={styles.sidebarSaveButton}
+        onPress={saveCharacter}
+        disabled={isSaving}
+      >
+        {isSaving ? (
+          <ActivityIndicator size="small" color="#000" />
+        ) : (
+          <Ionicons name="save-outline" size={24} color="#000" />
+        )}
+      </TouchableOpacity>
       
       {/* Detail Sidebar for expanded editing */}
       <DetailSidebar
@@ -928,17 +952,20 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         destructive={true}
         icon="alert-circle-outline"
       />
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  content: {
+  container: {
     flex: 1,
     backgroundColor: '#282828',
   },
+  content: {
+    flex: 1,
+  },
   contentContainer: {
-    paddingBottom: 120, // Extra padding at bottom for the fixed bottom bar
+    paddingBottom: 80, // Extra padding for scrolling at bottom
   },
   tabContent: {
     padding: 16,
@@ -946,30 +973,15 @@ const styles = StyleSheet.create({
   attributeSection: {
     marginTop: 20,
   },
-  bottomBar: {
-    flexDirection: 'row',
-    padding: 16,
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  // Remove bottom bar styles
+  
+  sidebarSaveButton: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(40, 40, 40, 0.8)',
-  },
-  cancelButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#666666',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  saveButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    bottom: 16,
+    left: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: 'rgb(255, 224, 195)',
     justifyContent: 'center',
     alignItems: 'center',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -31,6 +31,7 @@ interface DetailSidebarProps {
 }
 
 const { width } = Dimensions.get('window');
+const COLOR_BEIGE = 'rgb(255, 224, 195)';
 
 const DetailSidebar: React.FC<DetailSidebarProps> = ({
   isVisible,
@@ -48,11 +49,15 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
   const [localContent, setLocalContent] = useState(content);
   const [localName, setLocalName] = useState(name || '');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  
+  // Add local state to track option changes and ensure immediate UI updates
+  const [localOptions, setLocalOptions] = useState(entryOptions || {});
 
   useEffect(() => {
     setLocalContent(content);
     setLocalName(name || '');
-  }, [content, name]);
+    setLocalOptions(entryOptions || {});
+  }, [content, name, entryOptions]);
 
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
@@ -84,8 +89,29 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
     onClose();
   };
 
+  // Update local options and call onOptionsChange
+  const handleOptionsChange = (updates: any) => {
+    const newOptions = { ...localOptions, ...updates };
+    setLocalOptions(newOptions);
+    if (onOptionsChange) {
+      onOptionsChange(newOptions);
+    }
+  };
+
+  const handleUpdateSlider = useCallback((value: number) => {
+    if (entryType === 'worldbook' && localOptions.position === 4) {
+      handleOptionsChange({ depth: value });
+    } 
+    else if (entryType === 'preset' && localOptions.insertType === 'chat') {
+      handleOptionsChange({ depth: value });
+    } 
+    else if (entryType === 'author_note') {
+      handleOptionsChange({ injection_depth: value });
+    }
+  }, [entryType, localOptions, handleOptionsChange]);
+
   const renderEntryOptions = () => {
-    if (!entryType || !entryOptions || !onOptionsChange) return null;
+    if (!entryType || !localOptions) return null;
 
     switch (entryType) {
       case 'worldbook':
@@ -99,14 +125,14 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                     key={pos}
                     style={[
                       styles.radioButton,
-                      entryOptions.position === pos && styles.radioButtonSelected,
+                      localOptions.position === pos && styles.radioButtonSelected,
                     ]}
-                    onPress={() => onOptionsChange({ ...entryOptions, position: pos })}
+                    onPress={() => handleOptionsChange({ position: pos })}
                   >
                     <Text
                       style={[
                         styles.radioText,
-                        entryOptions.position === pos && styles.radioTextSelected,
+                        localOptions.position === pos && styles.radioTextSelected,
                       ]}
                     >
                       {pos}
@@ -119,36 +145,36 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
             <View style={styles.optionRow}>
               <Text style={styles.optionLabel}>禁用:</Text>
               <Switch
-                trackColor={{ false: "#767577", true: "#81b0ff" }}
-                thumbColor={entryOptions.disable ? "#f5dd4b" : "#f4f3f4"}
+                trackColor={{ false: "#767577", true: COLOR_BEIGE }}
+                thumbColor={localOptions.disable ? COLOR_BEIGE : "#f4f3f4"}
                 ios_backgroundColor="#3e3e3e"
-                onValueChange={(value) => onOptionsChange({ ...entryOptions, disable: value })}
-                value={entryOptions.disable}
+                onValueChange={(value) => handleOptionsChange({ disable: value })}
+                value={localOptions.disable}
               />
             </View>
             
             <View style={styles.optionRow}>
               <Text style={styles.optionLabel}>常驻:</Text>
               <Switch
-                trackColor={{ false: "#767577", true: "#81b0ff" }}
-                thumbColor={entryOptions.constant ? "#4CAF50" : "#f4f3f4"}
+                trackColor={{ false: "#767577", true: COLOR_BEIGE }}
+                thumbColor={localOptions.constant ? COLOR_BEIGE : "#f4f3f4"}
                 ios_backgroundColor="#3e3e3e"
-                onValueChange={(value) => onOptionsChange({ ...entryOptions, constant: value })}
-                value={entryOptions.constant}
+                onValueChange={(value) => handleOptionsChange({ constant: value })}
+                value={localOptions.constant}
               />
             </View>
 
-            {entryOptions.position === 4 && (
+            {localOptions.position === 4 && (
               <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>深度: {entryOptions.depth}</Text>
+                <Text style={styles.optionLabel}>深度: {localOptions.depth}</Text>
                 <Slider
                   style={styles.slider}
                   minimumValue={0}
                   maximumValue={5}
                   step={1}
-                  value={entryOptions.depth || 0}
-                  onValueChange={(value) => onOptionsChange({ ...entryOptions, depth: value })}
-                  minimumTrackTintColor="rgb(255, 224, 195)"
+                  value={localOptions.depth || 0}
+                  onValueChange={handleUpdateSlider}
+                  minimumTrackTintColor={COLOR_BEIGE}
                   maximumTrackTintColor="#444"
                 />
               </View>
@@ -162,11 +188,11 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
             <View style={styles.optionRow}>
               <Text style={styles.optionLabel}>启用:</Text>
               <Switch
-                trackColor={{ false: "#767577", true: "#81b0ff" }}
-                thumbColor={entryOptions.enable ? "#f5dd4b" : "#f4f3f4"}
+                trackColor={{ false: "#767577", true: COLOR_BEIGE }}
+                thumbColor={localOptions.enable ? COLOR_BEIGE : "#f4f3f4"}
                 ios_backgroundColor="#3e3e3e"
-                onValueChange={(value) => onOptionsChange({ ...entryOptions, enable: value })}
-                value={entryOptions.enable}
+                onValueChange={(value) => handleOptionsChange({ enable: value })}
+                value={localOptions.enable}
               />
             </View>
             
@@ -176,14 +202,14 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                 <TouchableOpacity
                   style={[
                     styles.radioButton,
-                    entryOptions.role === 'user' && styles.radioButtonSelected,
+                    localOptions.role === 'user' && styles.radioButtonSelected,
                   ]}
-                  onPress={() => onOptionsChange({ ...entryOptions, role: 'user' })}
+                  onPress={() => handleOptionsChange({ role: 'user' })}
                 >
                   <Text
                     style={[
                       styles.radioText,
-                      entryOptions.role === 'user' && styles.radioTextSelected,
+                      localOptions.role === 'user' && styles.radioTextSelected,
                     ]}
                   >
                     用户
@@ -192,14 +218,14 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                 <TouchableOpacity
                   style={[
                     styles.radioButton,
-                    entryOptions.role === 'model' && styles.radioButtonSelected,
+                    localOptions.role === 'model' && styles.radioButtonSelected,
                   ]}
-                  onPress={() => onOptionsChange({ ...entryOptions, role: 'model' })}
+                  onPress={() => handleOptionsChange({ role: 'model' })}
                 >
                   <Text
                     style={[
                       styles.radioText,
-                      entryOptions.role === 'model' && styles.radioTextSelected,
+                      localOptions.role === 'model' && styles.radioTextSelected,
                     ]}
                   >
                     AI
@@ -214,14 +240,14 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                 <TouchableOpacity
                   style={[
                     styles.radioButton,
-                    entryOptions.insertType === 'relative' && styles.radioButtonSelected,
+                    localOptions.insertType === 'relative' && styles.radioButtonSelected,
                   ]}
-                  onPress={() => onOptionsChange({ ...entryOptions, insertType: 'relative' })}
+                  onPress={() => handleOptionsChange({ insertType: 'relative' })}
                 >
                   <Text
                     style={[
                       styles.radioText,
-                      entryOptions.insertType === 'relative' && styles.radioTextSelected,
+                      localOptions.insertType === 'relative' && styles.radioTextSelected,
                     ]}
                   >
                     相对位置
@@ -230,14 +256,14 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
                 <TouchableOpacity
                   style={[
                     styles.radioButton,
-                    entryOptions.insertType === 'chat' && styles.radioButtonSelected,
+                    localOptions.insertType === 'chat' && styles.radioButtonSelected,
                   ]}
-                  onPress={() => onOptionsChange({ ...entryOptions, insertType: 'chat' })}
+                  onPress={() => handleOptionsChange({ insertType: 'chat' })}
                 >
                   <Text
                     style={[
                       styles.radioText,
-                      entryOptions.insertType === 'chat' && styles.radioTextSelected,
+                      localOptions.insertType === 'chat' && styles.radioTextSelected,
                     ]}
                   >
                     对话式
@@ -246,17 +272,17 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
               </View>
             </View>
 
-            {entryOptions.insertType === 'chat' && (
+            {localOptions.insertType === 'chat' && (
               <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>深度: {entryOptions.depth}</Text>
+                <Text style={styles.optionLabel}>深度: {localOptions.depth}</Text>
                 <Slider
                   style={styles.slider}
                   minimumValue={0}
                   maximumValue={5}
                   step={1}
-                  value={entryOptions.depth || 0}
-                  onValueChange={(value) => onOptionsChange({ ...entryOptions, depth: value })}
-                  minimumTrackTintColor="rgb(255, 224, 195)"
+                  value={localOptions.depth || 0}
+                  onValueChange={handleUpdateSlider}
+                  minimumTrackTintColor={COLOR_BEIGE}
                   maximumTrackTintColor="#444"
                 />
               </View>
@@ -268,15 +294,15 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
         return (
           <View style={styles.optionsContainer}>
             <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>深度: {entryOptions.injection_depth}</Text>
+              <Text style={styles.optionLabel}>深度: {localOptions.injection_depth}</Text>
               <Slider
                 style={styles.slider}
                 minimumValue={0}
                 maximumValue={5}
                 step={1}
-                value={entryOptions.injection_depth || 0}
-                onValueChange={(value) => onOptionsChange({ ...entryOptions, injection_depth: value })}
-                minimumTrackTintColor="rgb(255, 224, 195)"
+                value={localOptions.injection_depth || 0}
+                onValueChange={handleUpdateSlider}
+                minimumTrackTintColor={COLOR_BEIGE}
                 maximumTrackTintColor="#444"
               />
             </View>
@@ -306,13 +332,13 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
 
           {name !== undefined && (
             <View style={styles.nameContainer}>
-              <Text style={styles.nameLabel}>Name:</Text>
+              <Text style={styles.nameLabel}>名称:</Text>
               <TextInput
                 style={styles.nameInput}
                 value={localName}
                 onChangeText={setLocalName}
                 editable={editable}
-                placeholder="Enter name..."
+                placeholder="输入名称..."
                 placeholderTextColor="#999"
               />
             </View>
@@ -327,7 +353,7 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
               onChangeText={setLocalContent}
               multiline={true}
               editable={editable}
-              placeholder="Enter text here..."
+              placeholder="在此输入文本..."
               placeholderTextColor="#999"
               textAlignVertical="top"
             />
@@ -433,10 +459,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#666',
   },
   saveButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: COLOR_BEIGE,
   },
   buttonText: {
-    color: '#fff',
+    color: '#000',
     fontWeight: 'bold',
   },
   optionsContainer: {
@@ -456,6 +482,7 @@ const styles = StyleSheet.create({
   },
   radioGroup: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
   },
   radioButton: {
     backgroundColor: '#444',
@@ -463,15 +490,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     marginRight: 8,
+    marginBottom: 8,
   },
   radioButtonSelected: {
-    backgroundColor: '#007AFF',
+    backgroundColor: COLOR_BEIGE,
   },
   radioText: {
     color: '#ccc',
   },
   radioTextSelected: {
-    color: '#fff',
+    color: '#000',
     fontWeight: 'bold',
   },
   slider: {

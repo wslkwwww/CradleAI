@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
   View,
   Text,
@@ -60,7 +60,7 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
               ]}
               onPress={() => {
                 onViewDetail(
-                  entry.name || 'World Book Entry',
+                  entry.name || '世界书条目',
                   entry.content,
                   (text) => onUpdate(entry.id, { content: text }),
                   true,
@@ -79,7 +79,7 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
             >
               <View style={styles.entryHeader}>
                 <Text style={styles.entryTitle}>
-                  {entry.name || 'Unnamed Entry'}
+                  {entry.name || '未命名条目'}
                 </Text>
                 <View style={styles.entryBadges}>
                   <View style={styles.positionBadge}>
@@ -87,18 +87,18 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                   </View>
                   {entry.disable && (
                     <View style={styles.disabledBadge}>
-                      <Text style={styles.disabledText}>Disabled</Text>
+                      <Text style={styles.disabledText}>已禁用</Text>
                     </View>
                   )}
                   {entry.constant && (
                     <View style={styles.constantBadge}>
-                      <Text style={styles.constantText}>Constant</Text>
+                      <Text style={styles.constantText}>常驻</Text>
                     </View>
                   )}
                 </View>
               </View>
               <Text style={styles.entryPreview} numberOfLines={1}>
-                {entry.content || 'No content'}
+                {entry.content || '无内容'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -135,7 +135,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
   onReorder
 }) => {
   // Helper function to reorder entry
-  const handleReorder = (id: string, direction: 'up' | 'down') => {
+  const handleReorder = useCallback((id: string, direction: 'up' | 'down') => {
     const index = entries.findIndex(entry => entry.id === id);
     if ((direction === 'up' && index === 0) || 
         (direction === 'down' && index === entries.length - 1)) {
@@ -144,7 +144,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
     
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     onReorder(index, newIndex);
-  };
+  }, [entries, onReorder]);
 
   return (
     <View style={styles.section}>
@@ -170,7 +170,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
               ]}
               onPress={() => {
                 onViewDetail(
-                  entry.name || 'Preset Entry',
+                  entry.name || '预设条目',
                   entry.content,
                   entry.isEditable ? (text) => onUpdate(entry.id, { content: text }) : undefined,
                   entry.isEditable,
@@ -188,7 +188,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
             >
               <View style={styles.entryHeader}>
                 <Text style={styles.entryTitle}>
-                  {entry.name || entry.identifier || 'Unnamed Preset'}
+                  {entry.name || entry.identifier || '未命名预设'}
                 </Text>
                 <View style={styles.entryControls}>
                   <View style={styles.orderBadge}>
@@ -215,12 +215,12 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
               
               <View style={styles.entryDetails}>
                 <Text style={styles.entryDetail}>
-                  {entry.role === 'user' ? 'User' : 'AI'} | 
-                  {entry.insertType === 'relative' ? ' Relative' : ' Chat'}
-                  {entry.insertType === 'chat' && ` | Depth: ${entry.depth}`}
+                  {entry.role === 'user' ? '用户' : 'AI'} | 
+                  {entry.insertType === 'relative' ? ' 相对位置' : ' 对话式'}
+                  {entry.insertType === 'chat' && ` | 深度: ${entry.depth}`}
                 </Text>
                 <Text style={[styles.entryStatus, entry.enable ? styles.enabledText : styles.disabledText]}>
-                  {entry.enable ? 'Enabled' : 'Disabled'}
+                  {entry.enable ? '已启用' : '已禁用'}
                 </Text>
               </View>
               
@@ -229,7 +229,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
                   {entry.content}
                 </Text>
               ) : (
-                <Text style={styles.entryEmptyContent}>No content</Text>
+                <Text style={styles.entryEmptyContent}>无内容</Text>
               )}
             </TouchableOpacity>
           ))}

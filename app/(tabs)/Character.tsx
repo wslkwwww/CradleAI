@@ -333,7 +333,7 @@ const CharactersScreen: React.FC = () => {
     );
   };
 
-  // Render creation mode selection
+  // Replace the creation mode selection code with buttons
   const renderCreationModeSelection = () => {
     return (
       <View style={styles.modeSelectionContainer}>
@@ -346,12 +346,12 @@ const CharactersScreen: React.FC = () => {
             ]}
             onPress={() => setCreationMode(mode.id)}
           >
-            <Text 
-              style={[
-                styles.modeButtonText,
-                creationMode === mode.id && styles.activeModeButtonText
-              ]}
-            >
+            <Ionicons 
+              name={mode.id === 'regular' ? 'person-outline' : 'leaf-outline'} 
+              size={22} 
+              color="#000" 
+            />
+            <Text style={styles.modeButtonText}>
               {mode.title}
             </Text>
           </TouchableOpacity>
@@ -598,6 +598,9 @@ const styles = StyleSheet.create<Styles>({
     flex: 1,
     backgroundColor: COLOR_BACKGROUND,
   },
+  activeModeButtonText: {
+    color: '#000',
+  },
   header: {
     backgroundColor: '#333333',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
@@ -766,28 +769,28 @@ const styles = StyleSheet.create<Styles>({
   },
   modeSelectionContainer: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    justifyContent: 'space-around',
     backgroundColor: '#222222',
   },
   modeButton: {
-    flex: 1,
-    paddingVertical: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
     justifyContent: 'center',
+    backgroundColor: '#555',
   },
   activeModeButton: {
     backgroundColor: 'rgb(255, 224, 195)',
-    borderBottomWidth: 2,
-    borderBottomColor: '#FFD700',
   },
   modeButtonText: {
-    color: '#aaa',
+    color: '#000',
     fontSize: 16,
-  },
-  activeModeButtonText: {
-    color: '#FFD700',
     fontWeight: '500',
+    marginLeft: 8,
   },
   creationContentContainer: {
     flex: 1,

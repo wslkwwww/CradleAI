@@ -1,106 +1,29 @@
-/////////////业务逻辑修复
+## 角色生成器流程更新 (包含图片生成功能)
 
+**核心目标:** 为摇篮角色创建流程集成图片生成功能，提升用户体验。
 
+**更新内容:**
 
--explore页面
- -转发问题
+1.  **角色外观 Tag 选择:**
+    *   在进入创建角色的摇篮模式页面的外观部分，增加选项：“自己上传图片”或“根据Tag生成图片”。根据选择结果加载出不同的界面
+    *   根据Tag生成图片的界面，其Tag 数据来自 `tag.json`，已完成层级和分类。
+    *   为Tag生成图片的界面提供一个美观易用的 UI/UX，允许用户在界面中组合正面和负面 Tag。
 
-```
-  (NOBRIDGE) LOG  【朋友圈服务】初始化角色 温棠 的朋友圈
- (NOBRIDGE) LOG  【朋友圈服务】获取NodeST实例，apiKey存在: true，provider: gemini no openrouter config
- (NOBRIDGE) LOG  【NodeST】设置API Key: AIzaS...
- (NOBRIDGE) LOG  【CircleManager】更新API Key和配置 {"hasGeminiKey": true, "hasOpenRouterKey": false, "openRouterModel": undefined}
- (NOBRIDGE) LOG  【CircleManager】已初始化/更新 Gemini 适配器
- (NOBRIDGE) LOG  【NodeST】初始化角色朋友圈: 1741193734137, apiKey存在: true
- (NOBRIDGE) LOG  【CircleManager】初始化角色朋友圈: 1741193734137, apiKey存在: true
- (NOBRIDGE) LOG  【朋友圈服务】获取NodeST实例，apiKey存在: true，provider: gemini no openrouter config
- (NOBRIDGE) LOG  【NodeST】设置API Key: AIzaS...
- (NOBRIDGE) LOG  【CircleManager】更新API Key和配置 {"hasGeminiKey": true, "hasOpenRouterKey": false, "openRouterModel": undefined}
- (NOBRIDGE) LOG  【CircleManager】已初始化/更新 Gemini 适配器
- (NOBRIDGE) LOG  【NodeST】处理朋友圈互动: replyToPost, apiKey存在: true
- (NOBRIDGE) LOG  【朋友圈】处理互动，类型: replyToPost，作者ID: 1740662644578，响应者ID: 1741193734137
- (NOBRIDGE) ERROR  【朋友圈】未找到角色框架，响应者ID: 1741193734137
- (NOBRIDGE) ERROR  【朋友圈】处理朋友圈互动失败: [Error: 朋友圈框架未初始化]
- (NOBRIDGE) ERROR  Failed to get character response: 朋友圈框架未初始化
- (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
-```
- -切换头像报错： (NOBRIDGE) ERROR  Warning: Encountered two children with the same key, `.$action-action-1741160579305-kje06i2m`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+2.  **生图任务提交:**
+    *   点击保存创建的摇篮角色后，生图请求被立即提交给服务器生图队列，无视角色是否孵化完成。生图tag将作为服务器向Novel AI发送的正/负向提示词。
+3.  **生图任务完成:**
+    *   服务端生图完成并上传至minio存储桶后，app不要立即向服务端发送get请求获取图片，而是等待摇篮系统的角色生成。
+4.  **角色生成与图片获取:**
+    *   到达角色生成时间点，App 再向服务端发送请求，获取角色图片。
+    *   **生图任务已完成:** 如果成果获取图片，将图片作为cradle页面主页中，对应的摇篮角色的背景图片，并自动裁剪头像。 (若有头部识别工具，优先使用自动识别裁剪)
+    *   **生图任务未完成:**
+        *   **角色生成成功提示:** 右上角显示角色已生成的提示框。
+        *   **生图状态提示:** 提示框显示友好的生图详情 (错误信息或排队中)。
+5.  **日志记录:**
+    *   提供详细可追溯的中文日志，追踪摇篮角色创建后，生图请求的发送和处理过程。 (参考测试组件的日志记录方式)
 
+**其他:关于生图参数**
 
+1.生成模型默认选择NAI动漫v4完整，
 
-
-
-
-
-
-
-
-
-
-
-
-
-
--角色关系系统
-
- -角色对行动的接受和拒绝逻辑，应该允许用户干预/角色自行判断的双重逻辑。
-
-
--角色创建和更新的问题
-
-
-
-
-
-
-
-
-
-
-
-
-
--摇篮系统
-
-  -摇篮系统集成openrouter的跟踪和debug
-  -摇篮角色生成后，虽然日志显示删除了摇篮角色，但是角色未从列表中消失
-  -摇篮角色的数据结构和create_char需要填充的结构不匹配
- (NOBRIDGE) LOG  [摇篮系统] 删除摇篮角色: 1740917160663
- (NOBRIDGE) LOG  [摇篮系统] 保存摇篮角色列表，数量: 4
- (NOBRIDGE) LOG  [摇篮系统] 摇篮角色删除成功
- (NOBRIDGE) LOG  [摇篮系统] 成功生成角色: 莉莉丝
- (NOBRIDGE) LOG  [Index] Character ID from params: 1741182145452
- (NOBRIDGE) LOG  [Index] Character exists in characters array: true
- (NOBRIDGE) LOG  [Index] Selected conversation set to: 1741182145452
- (NOBRIDGE) LOG  [Index] Loaded messages count: 0
- (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1738930528012
- (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1741182145452
- (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1741166137964
- (NOBRIDGE) LOG  [Index] Saving selectedConversationId to AsyncStorage: 1741182145452
- (NOBRIDGE) LOG  [摇篮系统] 开始从摇篮生成正式角色 1740917160663
- (NOBRIDGE) ERROR  [摇篮系统] 未找到目标摇篮角色
- (NOBRIDGE) ERROR  Failed to generate character: [Error: 未找到目标摇篮角色]
- (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
-
-////////////////////////其他
-
--chatdialog页面允许html改变字体颜色。
-
--允许酒馆UI美化的兼容
-
--副ai！！！！！！！！！！！副AI功能用pbs构建，定期触发，插入聊天作为D类条目，作为第一个agent集市的agnet。
-
--上下文建剪裁功能
-transforms: ["middle-out"]
-
--图转文
-
-
-
-/////////////UI修复
-
--摇篮系统顶部栏和其他页面的统一
--
-
-
-
+2.其他参数采用测试组件的默认值
