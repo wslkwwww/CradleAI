@@ -36,6 +36,7 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
   const [filteredTags, setFilteredTags] = useState<{ tag: string; category: string }[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [showSelectedTags, setShowSelectedTags] = useState(true);
+  const [tagWeightMode, setTagWeightMode] = useState<'none' | 'increase' | 'decrease'>('none');
 
   // Load tag data
   useEffect(() => {
@@ -101,16 +102,38 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
 
   // Handle tag selection
   const handleTagSelect = (tag: string, type: 'positive' | 'negative') => {
+    const cleanTag = tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '');
+    
     setSelectedTags(prev => {
-      // If already selected with the same type, remove it
-      if (prev[tag] === type) {
-        const newTags = { ...prev };
-        delete newTags[tag];
-        return newTags;
+      const newTags = { ...prev };
+      const existingValue = Object.entries(newTags).find(([key, _]) => 
+        key.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === cleanTag
+      )?.[0];
+      
+      // If already selected with the same type
+      if (existingValue && prev[existingValue] === type) {
+        if (tagWeightMode !== 'none') {
+          // Apply weighting to existing tag
+          delete newTags[existingValue];
+          newTags[handleTagWeighting(cleanTag)] = type;
+        } else {
+          // Remove it if no weighting mode active
+          delete newTags[existingValue];
+        }
+      } else {
+        // Remove from opposite type if exists
+        Object.keys(newTags).forEach(key => {
+          if (key.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === cleanTag) {
+            delete newTags[key];
+          }
+        });
+        
+        // Add new tag with weighting if applicable
+        const tagToAdd = tagWeightMode !== 'none' ? handleTagWeighting(cleanTag) : cleanTag;
+        newTags[tagToAdd] = type;
       }
       
-      // Otherwise add or update it
-      return { ...prev, [tag]: type };
+      return newTags;
     });
   };
 
@@ -133,34 +156,46 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
     return tag;
   };
 
+  // Add tag weighting function
+  const handleTagWeighting = (tag: string) => {
+    if (tagWeightMode === 'none') return tag;
+    
+    // Remove any existing weighting first
+    let cleanTag = tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '');
+    
+    if (tagWeightMode === 'increase') {
+      return `{${cleanTag}}`;
+    } else {
+      return `[${cleanTag}]`;
+    }
+  };
+
   // Render category selector
   const renderCategorySelector = () => (
     <View style={styles.categoryContainer}>
-      <ScrollView style={styles.categorySelector} showsHorizontalScrollIndicator={false}>
-        {categories.map((category, index) => (
-          <TouchableOpacity
-            key={`category-${index}`}
+      {categories.map((category, index) => (
+        <TouchableOpacity
+          key={`category-${index}`}
+          style={[
+            styles.categoryButton,
+            selectedCategory?.name === category.name && styles.selectedCategoryButton
+          ]}
+          onPress={() => {
+            setSelectedCategory(category);
+            setSelectedSubCategory(null);
+            setShowSearchResults(false);
+          }}
+        >
+          <Text 
             style={[
-              styles.categoryButton,
-              selectedCategory?.name === category.name && styles.selectedCategoryButton
+              styles.categoryButtonText,
+              selectedCategory?.name === category.name && styles.selectedCategoryButtonText
             ]}
-            onPress={() => {
-              setSelectedCategory(category);
-              setSelectedSubCategory(null);
-              setShowSearchResults(false);
-            }}
           >
-            <Text 
-              style={[
-                styles.categoryButtonText,
-                selectedCategory?.name === category.name && styles.selectedCategoryButtonText
-              ]}
-            >
-              {category.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+            {category.name}
+          </Text>
+        </TouchableOpacity>
+      ))}
     </View>
   );
 
@@ -356,6 +391,7 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
 
         {showSelectedTags && (
           <>
+            {renderWeightingControls()}
             {positiveTags.length > 0 && (
               <View style={styles.tagSection}>
                 <Text style={styles.tagSectionTitle}>正面标签 ({positiveTags.length})</Text>
@@ -397,6 +433,50 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
     );
   };
 
+  // Add weighting UI component
+  const renderWeightingControls = () => (
+    <View style={styles.weightingContainer}>
+      <Text style={styles.weightingSectionTitle}>标签权重调整</Text>
+      <View style={styles.weightingButtons}>
+        <TouchableOpacity
+          style={[
+            styles.weightingButton,
+            tagWeightMode === 'increase' && styles.activeIncreaseButton
+          ]}
+          onPress={() => setTagWeightMode(tagWeightMode === 'increase' ? 'none' : 'increase')}
+        >
+          <Ionicons
+            name="arrow-up-circle"
+            size={20}
+            color={tagWeightMode === 'increase' ? theme.colors.accent : "#aaa"}
+          />
+          <Text style={[
+            styles.weightingButtonText,
+            tagWeightMode === 'increase' && styles.activeWeightingText
+          ]}>加权 {tagWeightMode === 'increase' ? '(开启)' : ''}</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            styles.weightingButton,
+            tagWeightMode === 'decrease' && styles.activeDecreaseButton
+          ]}
+          onPress={() => setTagWeightMode(tagWeightMode === 'decrease' ? 'none' : 'decrease')}
+        >
+          <Ionicons
+            name="arrow-down-circle"
+            size={20}
+            color={tagWeightMode === 'decrease' ? "#ff4444" : "#aaa"}
+          />
+          <Text style={[
+            styles.weightingButtonText,
+            tagWeightMode === 'decrease' && styles.activeWeightingText
+          ]}>降权 {tagWeightMode === 'decrease' ? '(开启)' : ''}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       {/* Search Bar */}
@@ -422,20 +502,25 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
       {/* Selected Tags Summary */}
       {renderSelectedTags()}
 
-      {/* Tag Browser - Only show when not searching */}
+      {/* Tag Browser layout with fixed category sidebar */}
       {!showSearchResults && (
-        <>
-          {/* Category Selector */}
-          {renderCategorySelector()}
+        <View style={styles.browsingContainer}>
+          {/* Category Selector - fixed, no scrolling */}
+          <View style={styles.fixedCategorySidebar}>
+            {renderCategorySelector()}
+          </View>
           
-          {/* Subcategory Selector */}
-          {renderSubCategorySelector()}
-          
-          {/* Tags List */}
-          <ScrollView style={styles.tagBrowser}>
-            {renderTags()}
-          </ScrollView>
-        </>
+          {/* Scrollable content area */}
+          <View style={styles.scrollableContentArea}>
+            {/* Subcategory Selector */}
+            {renderSubCategorySelector()}
+            
+            {/* Tags List */}
+            <ScrollView style={styles.tagBrowser}>
+              {renderTags()}
+            </ScrollView>
+          </View>
+        </View>
       )}
 
       {/* Search Results */}
@@ -519,6 +604,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     margin: 4,
+    maxWidth: '100%', // Allow chips to take full width if needed
+    flexShrink: 1,
   },
   positiveTagChip: {
     backgroundColor: 'rgba(255, 224, 195, 0.8)',
@@ -529,22 +616,16 @@ const styles = StyleSheet.create({
   tagChipText: {
     marginRight: 6,
     fontSize: 13,
-    maxWidth: 120,
-    color: '#000', // Black text for positive tags
+    flexShrink: 1,
   },
   categoryContainer: {
-    height: 40, // Fixed height for category selector
-    marginBottom: 12,
-  },
-  categorySelector: {
     flex: 1,
   },
   categoryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    borderRadius: 20,
-    backgroundColor: '#333',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   selectedCategoryButton: {
     backgroundColor: theme.colors.accent,
@@ -588,7 +669,7 @@ const styles = StyleSheet.create({
   tagItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 10, // Slightly smaller padding
+    padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -597,6 +678,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     flex: 1,
     marginRight: 8,
+    flexWrap: 'wrap', // Allow text to wrap
   },
   tagActions: {
     flexDirection: 'row',
@@ -668,6 +750,66 @@ const styles = StyleSheet.create({
     color: '#aaa',
     marginLeft: 8,
     fontSize: 12,
+  },
+  // Update to fixed category sidebar
+  browsingContainer: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  fixedCategorySidebar: {
+    width: 100,
+    backgroundColor: '#333',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.1)',
+    paddingTop: 8,
+  },
+  scrollableContentArea: {
+    flex: 1,
+  },
+  // Add styles for tag weighting UI
+  weightingContainer: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 8,
+  },
+  weightingSectionTitle: {
+    color: '#fff',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  weightingButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  weightingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    flex: 0.48,
+    justifyContent: 'center',
+  },
+  activeIncreaseButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+  },
+  activeDecreaseButton: {
+    backgroundColor: 'rgba(255, 68, 68, 0.2)',
+    borderWidth: 1,
+    borderColor: '#ff4444',
+  },
+  weightingButtonText: {
+    color: '#aaa',
+    marginLeft: 6,
+    fontSize: 13,
+  },
+  activeWeightingText: {
+    fontWeight: '500',
+    color: '#fff',
   },
 });
 

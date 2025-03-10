@@ -226,6 +226,9 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
   const [activeCategoryName, setActiveCategoryName] = useState<string | null>(null);
   
+  // Add these new state variables for tag weighting
+  const [tagWeightMode, setTagWeightMode] = useState<'none' | 'increase' | 'decrease'>('none');
+  
   // Reset state when form closes
   useEffect(() => {
     if (!isVisible && !embedded) {
@@ -1249,6 +1252,9 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
               {activeCategoryName ? `${activeCategoryName}相关标签` : '请选择标签分类'}
             </Text>
             
+            {/* Add weighting controls */}
+
+            
             {activeCategoryName && (
               <View style={styles.subCategoryTabs}>
                 {tagData.general_categories
@@ -1282,12 +1288,68 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
                       <Text style={styles.tagSubcategoryTitle}>{subCatName}</Text>
                       <View style={styles.tagGrid}>
                         {Array.isArray(tags) && tags.map((tag, index) => {
-                          const isPositive = positiveTags.includes(tag);
-                          const isNegative = negativeTags.includes(tag);
+                          const cleanTag = tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '');
+                          const isPositive = positiveTags.some(t => 
+                            t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === cleanTag
+                          );
+                          const isNegative = negativeTags.some(t => 
+                            t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === cleanTag
+                          );
                           
+                          function handlePositiveTagClick(tag: string) {
+                            // Handle increasing/decreasing emphasis for positive tags
+                            if (tagWeightMode === 'increase') {
+                              // Add another set of curly braces to increase emphasis
+                              setPositiveTags(prev => prev.map(t => 
+                                t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') 
+                                  ? `{${t}}` 
+                                  : t
+                              ));
+                            } else if (tagWeightMode === 'decrease') {
+                              // Remove one set of curly braces to decrease emphasis
+                              setPositiveTags(prev => prev.map(t => 
+                                t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') 
+                                  ? t.replace(/^\{|\}$/g, '')
+                                  : t
+                              ));
+                            }
+                          }
+                          
+                          function handleNegativeTagClick(tag: string) {
+                            // Handle increasing/decreasing emphasis for negative tags
+                            if (tagWeightMode === 'increase') {
+                              // Add another set of curly braces to increase emphasis
+                              setNegativeTags(prev => prev.map(t => 
+                                t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') 
+                                  ? `{${t}}` 
+                                  : t
+                              ));
+                            } else if (tagWeightMode === 'decrease') {
+                              // Remove one set of curly braces to decrease emphasis
+                              setNegativeTags(prev => prev.map(t => 
+                                t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') === tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') 
+                                  ? t.replace(/^\{|\}$/g, '')
+                                  : t
+                              ));
+                            }
+                          }
+                          function handleTagWeighting(tag: string): string {
+                            // Get the clean tag without any existing emphasis markers
+                            const cleanTag = tag.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '');
+
+                            // Add emphasis based on the weight mode
+                            switch (tagWeightMode) {
+                              case 'increase':
+                                return `{${cleanTag}}`; // Add emphasis with curly braces
+                              case 'decrease':
+                                return `[${cleanTag}]`; // Reduce emphasis with square brackets
+                              default:
+                                return cleanTag; // Return the clean tag without any emphasis
+                            }
+                          }
                           return (
                             <View key={index} style={styles.tagGridItem}>
-                              <Text style={styles.tagGridItemText} numberOfLines={1}>
+                              <Text style={styles.tagGridItemText} numberOfLines={2}>
                                 {tag}
                               </Text>
                               <View style={styles.tagGridItemActions}>
@@ -1298,15 +1360,23 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
                                     isPositive && styles.tagGridItemActionActive
                                   ]}
                                   onPress={() => {
-                                    if (isPositive) {
+                                    if (isPositive && tagWeightMode === 'none') {
                                       // Remove from positive tags
-                                      setPositiveTags(prev => prev.filter(t => t !== tag));
+                                      setPositiveTags(prev => prev.filter(t => 
+                                        t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') !== cleanTag
+                                      ));
+                                    } else if (isPositive && tagWeightMode !== 'none') {
+                                      // Apply weighting to existing tag
+                                      handlePositiveTagClick(tag);
                                     } else {
                                       // Add to positive tags
-                                      setPositiveTags(prev => [...prev, tag]);
+                                      const newTag = tagWeightMode !== 'none' ? handleTagWeighting(tag) : tag;
+                                      setPositiveTags(prev => [...prev, newTag]);
                                       // Remove from negative if it exists
                                       if (isNegative) {
-                                        setNegativeTags(prev => prev.filter(t => t !== tag));
+                                        setNegativeTags(prev => prev.filter(t => 
+                                          t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') !== cleanTag
+                                        ));
                                       }
                                     }
                                   }}
@@ -1325,15 +1395,23 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
                                     isNegative && styles.tagGridItemActionActive
                                   ]}
                                   onPress={() => {
-                                    if (isNegative) {
+                                    if (isNegative && tagWeightMode === 'none') {
                                       // Remove from negative tags
-                                      setNegativeTags(prev => prev.filter(t => t !== tag));
+                                      setNegativeTags(prev => prev.filter(t => 
+                                        t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') !== cleanTag
+                                      ));
+                                    } else if (isNegative && tagWeightMode !== 'none') {
+                                      // Apply weighting to existing tag
+                                      handleNegativeTagClick(tag);
                                     } else {
                                       // Add to negative tags
-                                      setNegativeTags(prev => [...prev, tag]);
+                                      const newTag = tagWeightMode !== 'none' ? handleTagWeighting(tag) : tag;
+                                      setNegativeTags(prev => [...prev, newTag]);
                                       // Remove from positive if it exists
                                       if (isPositive) {
-                                        setPositiveTags(prev => prev.filter(t => t !== tag));
+                                        setPositiveTags(prev => prev.filter(t => 
+                                          t.replace(/^\{+|\}+$/g, '').replace(/^\[+|\]+$/g, '') !== cleanTag
+                                        ));
                                       }
                                     }
                                   }}
@@ -2635,18 +2713,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   tagGridItem: {
-    width: '48%', // Keep two columns but adjust as needed
+    width: '100%', // Full width to show complete tag
     backgroundColor: '#333',
     marginBottom: 8,
-    marginRight: '2%',
-    marginLeft: '1%',
-    padding: 8,
+    padding: 10,
     borderRadius: 6,
   },
   tagGridItemText: {
     color: '#fff',
     fontSize: 13,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   tagGridItemActions: {
     flexDirection: 'row',
@@ -2671,7 +2747,47 @@ const styles = StyleSheet.create({
   closeTagSidebarButton: {
     padding: 8,
     borderRadius: 20,
-  }
+  },
+  // Add styles for tag weighting UI
+  tagWeightingContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  tagWeightingTitle: {
+    color: '#fff',
+    fontSize: 15,
+    marginBottom: 8,
+  },
+  tagWeightingButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  weightingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    flex: 0.48,
+    justifyContent: 'center',
+  },
+  activeWeightingButton: {
+    backgroundColor: 'rgba(50, 50, 50, 1)',
+    borderWidth: 1,
+  },
+  weightingButtonText: {
+    color: '#aaa',
+    marginLeft: 6,
+    fontSize: 13,
+  },
+  activeWeightingButtonText: {
+    fontWeight: '500',
+  },
 });
 
 export default CradleCreateForm;
+
+
