@@ -22,6 +22,10 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import Slider from '@react-native-community/slider';
 import { LinearGradient } from 'expo-linear-gradient';
+import TagSelector from './TagSelector';
+import { theme } from '@/constants/theme';
+// Add import for tag data
+import tagData from '@/app/data/tag.json';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -213,6 +217,15 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   
   const cradleSettings = getCradleSettings();
   
+  // Add state variables for tag selection
+  const [uploadMode, setUploadMode] = useState<'upload' | 'generate'>('upload');
+  const [positiveTags, setPositiveTags] = useState<string[]>([]);
+  const [negativeTags, setNegativeTags] = useState<string[]>([]);
+  
+  // Add these new state variables for the tag selection UI
+  const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
+  const [activeCategoryName, setActiveCategoryName] = useState<string | null>(null);
+  
   // Reset state when form closes
   useEffect(() => {
     if (!isVisible && !embedded) {
@@ -247,6 +260,9 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
         });
         setTraitCategories(DEFAULT_TRAIT_CATEGORIES);
         setGenerateImmediately(false);
+        setUploadMode('upload');
+        setPositiveTags([]);
+        setNegativeTags([]);
       }, 300);
       
       return () => clearTimeout(timer);
@@ -1038,48 +1054,344 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
     <View style={styles.sectionContent}>
       <Text style={styles.sectionTitle}>角色外观</Text>
       
-      <View style={styles.cardPreviewSection}>
-        <Text style={styles.inputLabel}>角色卡图片 (9:16)</Text>
-        <View style={styles.cardImageContainer}>
-          <TouchableOpacity
-            style={styles.cardImagePicker}
-            onPress={pickCardImage}
+      {/* Mode selection switcher with more descriptive UI */}
+      <View style={styles.modeSelectionContainer}>
+        <TouchableOpacity 
+          style={[styles.modeButton, uploadMode === 'upload' && styles.activeMode]}
+          onPress={() => setUploadMode('upload')}
+        >
+          <View style={styles.modeIconContainer}>
+            <Ionicons 
+              name="cloud-upload-outline" 
+              size={24} 
+              color={uploadMode === 'upload' ? '#FFD700' : "#888"}
+            />
+          </View>
+          <View style={styles.modeTextContainer}>
+            <Text style={[styles.modeText, uploadMode === 'upload' && styles.activeModeText]}>
+              自己上传图片
+            </Text>
+            <Text style={styles.modeDescription}>
+              上传您准备好的角色形象图片
+            </Text>
+          </View>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.modeButton, uploadMode === 'generate' && styles.activeMode]}
+          onPress={() => setUploadMode('generate')}
+        >
+          <View style={styles.modeIconContainer}>
+            <Ionicons 
+              name="color-wand-outline" 
+              size={24} 
+              color={uploadMode === 'generate' ? '#FFD700' : "#888"} 
+            />
+          </View>
+          <View style={styles.modeTextContainer}>
+            <Text style={[styles.modeText, uploadMode === 'generate' && styles.activeModeText]}>
+              根据Tag生成图片
+            </Text>
+            <Text style={styles.modeDescription}>
+              通过组合标签生成符合需求的角色形象
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+      
+      {/* Render content based on selected mode */}
+      {uploadMode === 'upload' ? (
+        <View style={styles.uploadContainer}>
+          <View style={styles.cardPreviewSection}>
+            <Text style={styles.inputLabel}>角色卡图片 (9:16)</Text>
+            <View style={styles.cardImageContainer}>
+              <TouchableOpacity
+                style={styles.cardImagePicker}
+                onPress={pickCardImage}
+              >
+                {cardImageUri ? (
+                  <Image source={{ uri: cardImageUri }} style={styles.cardImagePreview} />
+                ) : (
+                  <>
+                    <Ionicons name="card-outline" size={40} color="#aaa" />
+                    <Text style={styles.imageButtonText}>添加角色卡图片</Text>
+                    <Text style={styles.imageButtonSubtext}>(9:16比例)</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.imageSeparator}>
+              <View style={styles.imageSeparatorLine} />
+              <Text style={styles.imageSeparatorText}>或</Text>
+              <View style={styles.imageSeparatorLine} />
+            </View>
+            
+            {/* Avatar selection */}
+            <Text style={styles.inputLabel}>头像图片 (方形)</Text>
+            <View style={styles.imageSelectionContainer}>
+              <TouchableOpacity
+                style={styles.avatarButton}
+                onPress={pickAvatar}
+              >
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
+                ) : (
+                  <>
+                    <Ionicons name="person-circle-outline" size={40} color="#aaa" />
+                    <Text style={styles.imageButtonText}>添加头像</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.tagGenerateContainer}>
+          <Text style={styles.tagInstructionsText}>
+            请选择描述角色外观的正面和负面标签，正面标签会被包含在生成中，负面标签会被排除
+          </Text>
+          
+          {/* Tag selection summary */}
+          <View style={styles.tagSummaryContainer}>
+            <Text style={styles.tagSummaryTitle}>已选标签</Text>
+            <View style={styles.selectedTagsRow}>
+              {positiveTags.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {positiveTags.map((tag, index) => (
+                    <TouchableOpacity
+                      key={`pos-${index}`}
+                      style={styles.selectedPositiveTag}
+                      onPress={() => {
+                        setPositiveTags(tags => tags.filter(t => t !== tag));
+                      }}
+                    >
+                      <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                      <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : (
+                <Text style={styles.noTagsSelectedText}>未选择正面标签</Text>
+              )}
+            </View>
+            
+            <View style={styles.selectedTagsRow}>
+              {negativeTags.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {negativeTags.map((tag, index) => (
+                    <TouchableOpacity
+                      key={`neg-${index}`}
+                      style={styles.selectedNegativeTag}
+                      onPress={() => {
+                        setNegativeTags(tags => tags.filter(t => t !== tag));
+                      }}
+                    >
+                      <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                      <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : (
+                <Text style={styles.noTagsSelectedText}>未选择负面标签</Text>
+              )}
+            </View>
+          </View>
+          
+          {/* Open tag selector button */}
+          <TouchableOpacity 
+            style={styles.openTagSelectorButton}
+            onPress={() => {
+              setTagSelectorVisible(true);
+              // Set default category if none is selected
+              if (!activeCategoryName && tagData.general_categories.length > 0) {
+                setActiveCategoryName(tagData.general_categories[0].name);
+              }
+            }}
           >
-            {cardImageUri ? (
-              <Image source={{ uri: cardImageUri }} style={styles.cardImagePreview} />
-            ) : (
-              <>
-                <Ionicons name="card-outline" size={40} color="#aaa" />
-                <Text style={styles.imageButtonText}>添加角色卡图片</Text>
-                <Text style={styles.imageButtonSubtext}>(9:16比例)</Text>
-              </>
-            )}
+            <Ionicons name="pricetag-outline" size={20} color="#fff" />
+            <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
+          </TouchableOpacity>
+          
+          {/* Generate button */}
+          <TouchableOpacity 
+            style={[
+              styles.generateButton,
+              positiveTags.length === 0 && styles.generateButtonDisabled
+            ]}
+            disabled={positiveTags.length === 0}
+            onPress={() => {
+              // ...existing generation code...
+            }}
+          >
+            <Ionicons 
+              name="image-outline" 
+              size={20} 
+              color={positiveTags.length === 0 ? "#555" : "#000"} 
+            />
+            <Text style={[
+              styles.generateButtonText,
+              positiveTags.length === 0 && styles.generateButtonTextDisabled
+            ]}>
+              生成图片
+            </Text>
           </TouchableOpacity>
         </View>
-        
-        <View style={styles.imageSeparator}>
-          <View style={styles.imageSeparatorLine} />
-          <Text style={styles.imageSeparatorText}>或</Text>
-          <View style={styles.imageSeparatorLine} />
-        </View>
-        
-        {/* Avatar selection */}
-        <Text style={styles.inputLabel}>头像图片 (方形)</Text>
-        <View style={styles.imageSelectionContainer}>
-          <TouchableOpacity
-            style={styles.avatarButton}
-            onPress={pickAvatar}
-          >
-            {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
-            ) : (
-              <>
-                <Ionicons name="person-circle-outline" size={40} color="#aaa" />
-                <Text style={styles.imageButtonText}>添加头像</Text>
-              </>
+      )}
+      
+      {/* Tag selector sidebar */}
+      {tagSelectorVisible && (
+        <View style={styles.tagSelectorOverlay}>
+          {renderTagCategorySidebar()}
+          
+          <View style={styles.tagContentArea}>
+            <Text style={styles.tagContentTitle}>
+              {activeCategoryName ? `${activeCategoryName}相关标签` : '请选择标签分类'}
+            </Text>
+            
+            {activeCategoryName && (
+              <View style={styles.subCategoryTabs}>
+                {tagData.general_categories
+                  .find(cat => cat.name === activeCategoryName)
+                  ?.sub_categories && 
+                  Object.keys(tagData.general_categories
+                    .find(cat => cat.name === activeCategoryName)!
+                    .sub_categories).map(subCat => (
+                      <TouchableOpacity 
+                        key={subCat}
+                        style={styles.subCategoryTab}
+                        onPress={() => {
+                          // Handle subcategory selection
+                          // Here we could add another state variable to track active subcategory
+                          // For now we'll just show all tags from the category
+                        }}
+                      >
+                        <Text style={styles.subCategoryTabText}>{subCat}</Text>
+                      </TouchableOpacity>
+                    ))
+                }
+              </View>
             )}
-          </TouchableOpacity>
+            
+            {activeCategoryName && (
+              <ScrollView style={styles.tagListContainer}>
+                {Object.entries(tagData.general_categories
+                  .find(cat => cat.name === activeCategoryName)!
+                  .sub_categories).map(([subCatName, tags]) => (
+                    <View key={subCatName} style={styles.tagSubcategorySection}>
+                      <Text style={styles.tagSubcategoryTitle}>{subCatName}</Text>
+                      <View style={styles.tagGrid}>
+                        {Array.isArray(tags) && tags.map((tag, index) => {
+                          const isPositive = positiveTags.includes(tag);
+                          const isNegative = negativeTags.includes(tag);
+                          
+                          return (
+                            <View key={index} style={styles.tagGridItem}>
+                              <Text style={styles.tagGridItemText} numberOfLines={1}>
+                                {tag}
+                              </Text>
+                              <View style={styles.tagGridItemActions}>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.tagGridItemAction,
+                                    styles.tagGridItemPositive,
+                                    isPositive && styles.tagGridItemActionActive
+                                  ]}
+                                  onPress={() => {
+                                    if (isPositive) {
+                                      // Remove from positive tags
+                                      setPositiveTags(prev => prev.filter(t => t !== tag));
+                                    } else {
+                                      // Add to positive tags
+                                      setPositiveTags(prev => [...prev, tag]);
+                                      // Remove from negative if it exists
+                                      if (isNegative) {
+                                        setNegativeTags(prev => prev.filter(t => t !== tag));
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <Ionicons
+                                    name={isPositive ? "checkmark-circle" : "add-circle-outline"}
+                                    size={18}
+                                    color={isPositive ? "#000" : theme.colors.accent}
+                                  />
+                                </TouchableOpacity>
+                                
+                                <TouchableOpacity
+                                  style={[
+                                    styles.tagGridItemAction,
+                                    styles.tagGridItemNegative,
+                                    isNegative && styles.tagGridItemActionActive
+                                  ]}
+                                  onPress={() => {
+                                    if (isNegative) {
+                                      // Remove from negative tags
+                                      setNegativeTags(prev => prev.filter(t => t !== tag));
+                                    } else {
+                                      // Add to negative tags
+                                      setNegativeTags(prev => [...prev, tag]);
+                                      // Remove from positive if it exists
+                                      if (isPositive) {
+                                        setPositiveTags(prev => prev.filter(t => t !== tag));
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <Ionicons
+                                    name={isNegative ? "checkmark-circle" : "remove-circle-outline"}
+                                    size={18}
+                                    color={isNegative ? "#fff" : "#ff4444"}
+                                  />
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ))
+                }
+              </ScrollView>
+            )}
+          </View>
         </View>
+      )}
+    </View>
+  );
+
+  // New sidebar for tag categories
+  const renderTagCategorySidebar = () => (
+    <View style={styles.tagCategorySidebar}>
+      <View style={styles.tagCategoryHeader}>
+        <Text style={styles.tagCategoryTitle}>标签分类</Text>
+        <TouchableOpacity 
+          style={styles.closeTagSidebarButton}
+          onPress={() => setTagSelectorVisible(false)}
+        >
+          <Ionicons name="close" size={20} color="#fff" />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.tagCategoryList}>
+        {tagData.general_categories.map(category => (
+          <TouchableOpacity
+            key={category.name}
+            style={[
+              styles.tagCategoryItem,
+              activeCategoryName === category.name && styles.activeTagCategory
+            ]}
+            onPress={() => setActiveCategoryName(category.name)}
+          >
+            <Text 
+              style={[
+                styles.tagCategoryItemText,
+                activeCategoryName === category.name && styles.activeTagCategoryText
+              ]}
+            >
+              {category.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </View>
   );
@@ -2066,6 +2378,300 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
+  // Update the mode selection styles
+  modeSelectionContainer: {
+    marginBottom: 20,
+  },
+  modeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    backgroundColor: '#333',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  activeMode: {
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    borderColor: '#FFD700',
+  },
+  modeIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  modeTextContainer: {
+    flex: 1,
+  },
+  modeText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#aaa',
+  },
+  activeModeText: {
+    color: '#FFD700',
+  },
+  modeDescription: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 4,
+  },
+  
+  // Tag selector area enhancements
+  tagSelectorContainer: {
+    flex: 1,
+    marginTop: 8,
+    maxHeight: 500, // Limit height to ensure other UI elements are visible
+  },
+  tagInstructionsText: {
+    color: '#aaa',
+    fontSize: 14,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  tagStatsContainer: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    marginVertical: 8,
+  },
+  tagStatsText: {
+    color: '#aaa',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgb(255, 224, 195)',
+    padding: 16,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  generateButtonDisabled: {
+    backgroundColor: '#444',
+  },
+  generateButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  generateButtonTextDisabled: {
+    color: '#777',
+  },
+  uploadContainer: {
+    flex: 1,
+    marginTop: 8,
+  },
+  tagGenerateContainer: {
+    flex: 1,
+    paddingVertical: 16,
+  },
+  tagSummaryContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 16,
+  },
+  tagSummaryTitle: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  selectedTagsRow: {
+    flexDirection: 'row',
+    minHeight: 36,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  selectedPositiveTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 224, 195, 0.8)',
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+  },
+  selectedNegativeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 68, 68, 0.8)',
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+  },
+  selectedTagText: {
+    fontSize: 12,
+    marginRight: 4,
+    maxWidth: 100,
+  },
+  noTagsSelectedText: {
+    color: '#777',
+    fontStyle: 'italic',
+    fontSize: 13,
+  },
+  openTagSelectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#444',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 8,
+  },
+  openTagSelectorText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontSize: 15,
+  },
+  tagSelectorOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    flexDirection: 'row',
+    zIndex: 1000,
+  },
+  tagCategorySidebar: {
+    width: 100,
+    backgroundColor: '#222',
+    height: '100%',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.1)',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  tagCategoryTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  tagCategoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  tagCategoryList: {
+    flex: 1,
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  tagCategoryItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  activeTagCategory: {
+    backgroundColor: 'rgba(255, 224, 195, 0.15)',
+    borderLeftWidth: 3,
+    borderLeftColor: theme.colors.accent,
+  },
+  tagCategoryItemText: {
+    color: '#aaa',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  activeTagCategoryText: {
+    color: theme.colors.accent,
+    fontWeight: '500',
+  },
+  tagContentArea: {
+    flex: 1,
+    padding: 16,
+  },
+  tagContentTitle: {
+    fontSize: 18,
+    color: '#fff',
+    marginBottom: 16,
+  },
+  subCategoryTabs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  subCategoryTab: {
+    backgroundColor: '#333',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  subCategoryTabText: {
+    color: '#ddd',
+    fontSize: 12,
+  },
+  tagListContainer: {
+    flex: 1,
+  },
+  tagSubcategorySection: {
+    marginBottom: 16,
+  },
+  tagSubcategoryTitle: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  tagGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  tagGridItem: {
+    width: '48%', // Keep two columns but adjust as needed
+    backgroundColor: '#333',
+    marginBottom: 8,
+    marginRight: '2%',
+    marginLeft: '1%',
+    padding: 8,
+    borderRadius: 6,
+  },
+  tagGridItemText: {
+    color: '#fff',
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  tagGridItemActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  tagGridItemAction: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tagGridItemPositive: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+  },
+  tagGridItemNegative: {
+    backgroundColor: 'rgba(255, 68, 68, 0.2)',
+  },
+  tagGridItemActionActive: {
+    backgroundColor: theme.colors.accent,
+  },
+  closeTagSidebarButton: {
+    padding: 8,
+    borderRadius: 20,
+  }
 });
 
 export default CradleCreateForm;

@@ -17,6 +17,7 @@ export const theme = {
     overlay: 'rgba(0, 0, 0, 0.6)',
     input: '#444444',
     disabled: '#666666',
+    accent: '#4A90E2',
   },
   fontSizes: {
     xs: 10,

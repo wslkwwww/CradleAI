@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import traceback
+import random
 from celery import Celery
 from celery.exceptions import MaxRetriesExceededError
 from config import (
@@ -12,6 +13,7 @@ from config import (
 )
 from novelai import NovelAIClient
 import credentials
+from rate_limiter import rate_limiter
 
 # 配置日志
 logger = logging.getLogger('text2image.worker')
@@ -48,6 +50,17 @@ def generate_image(self, request_params):
     """
     logger.info(f"开始处理图像生成任务: {self.request.id}")
     logger.debug(f"接收到的参数: {request_params}")
+    
+    # 检查是否为测试请求
+    is_test_request = request_params.get('is_test_request', False)
+    if is_test_request:
+        logger.info("这是测试请求，将优先处理")
+    
+    # 添加标记到参数中，以便在NovelAI客户端中使用
+    request_params['is_test_request'] = is_test_request
+    
+    # 内部重试次数计数
+    retry_count = request_params.get('_retry_count', 0)
     
     try:
         # 创建 NovelAI 客户端
@@ -98,9 +111,10 @@ def generate_image(self, request_params):
                     'error': '服务器未配置 NovelAI 凭据，且请求中未提供有效的认证信息'
                 }
         
-        # 添加模拟延迟，避免 NovelAI API 速率限制
-        logger.info("模拟 API 调用延迟...")
-        time.sleep(2)
+        # 随机延迟，模拟人类行为
+        delay = random.uniform(1.0, 3.0)
+        logger.info(f"模拟人类行为：等待 {delay:.1f} 秒")
+        time.sleep(delay)
         
         # 准备图像生成参数
         generation_params = {
@@ -177,25 +191,35 @@ def generate_image(self, request_params):
         logger.error(traceback.format_exc())
         
         # 重试机制
-        try:
-            # 只有对特定错误进行重试，避免无法解决的错误无限重试
-            if "速率限制" in str(e) or "连接" in str(e):
-                logger.info(f"将在 {RETRY_DELAY * (2 ** self.request.retries)} 秒后重试...")
+        retry_count += 1
+        
+        if retry_count <= 3:  # 最多内部重试3次
+            # 更新重试计数并放回队列
+            request_params['_retry_count'] = retry_count
+            
+            # 计算随机的重试延迟
+            retry_delay = random.uniform(5, 12)
+            logger.info(f"任务将在 {retry_delay:.1f} 秒后进行第 {retry_count} 次重试")
+            
+            # 修复: 使用Celery的重试机制，只传递一次request_params
+            # 不要在kwargs中再次传递request_params
+            try:
                 raise self.retry(
-                    exc=e, 
-                    countdown=RETRY_DELAY * (2 ** self.request.retries)
+                    exc=e,
+                    countdown=retry_delay,
                 )
-            else:
-                # 不需要重试的错误，直接返回错误信息
+            except MaxRetriesExceededError:
+                logger.error(f"超过最大重试次数: {retry_count-1}")
                 return {
                     'success': False,
-                    'error': f'生成失败: {str(e)}',
+                    'error': f'生成失败 (已重试 {retry_count-1} 次): {str(e)}',
                     'task_id': self.request.id
                 }
-        except MaxRetriesExceededError:
-            logger.error(f"超过最大重试次数: {MAX_RETRIES}")
+        else:
+            # 超过最大重试次数
+            logger.error(f"超过最大重试次数: {retry_count-1}")
             return {
                 'success': False,
-                'error': f'生成失败 (已重试 {MAX_RETRIES} 次): {str(e)}',
+                'error': f'生成失败 (已重试 {retry_count-1} 次): {str(e)}',
                 'task_id': self.request.id
             }

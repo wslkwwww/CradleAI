@@ -68,3 +68,11 @@ MODEL_MAP = {
 # 令牌缓存文件路径
 CACHE_DIR = os.environ.get('CACHE_DIR', os.path.join(os.path.dirname(__file__), 'cache'))
 TOKEN_CACHE_FILE = os.environ.get('TOKEN_CACHE_FILE', os.path.join(CACHE_DIR, 'token_cache.json'))
+
+# 速率限制配置
+RATE_LIMIT_DAILY = int(os.environ.get('RATE_LIMIT_DAILY', 800))  # 每日最大请求数
+RATE_LIMIT_MIN_INTERVAL = int(os.environ.get('RATE_LIMIT_MIN_INTERVAL', 8))  # 最小请求间隔(秒)
+RATE_LIMIT_MAX_INTERVAL = int(os.environ.get('RATE_LIMIT_MAX_INTERVAL', 15))  # 最大请求间隔(秒)
+RATE_LIMIT_ERROR_COOLDOWN_MIN = int(os.environ.get('RATE_LIMIT_ERROR_COOLDOWN_MIN', 5))  # 错误后最小冷却时间(秒)
+RATE_LIMIT_ERROR_COOLDOWN_MAX = int(os.environ.get('RATE_LIMIT_ERROR_COOLDOWN_MAX', 12))  # 错误后最大冷却时间(秒)
+RATE_LIMIT_MAX_RETRIES = int(os.environ.get('RATE_LIMIT_MAX_RETRIES', 3))  # 最大重试次数

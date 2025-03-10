@@ -13,7 +13,8 @@ from config import (
 )
 import os
 import datetime
-
+from rate_limiter import rate_limiter  # 导入速率限制器
+import random
 # 配置日志
 logger = logging.getLogger('text2image.novelai')
 
@@ -106,10 +107,14 @@ class NovelAIClient:
         """
         # 首先尝试获取缓存的令牌
         cached_token = self._get_cached_token(email)
-        if cached_token:
+        if (cached_token):
             return cached_token
         
         logger.info(f"缓存中没有有效令牌，使用邮箱 {email} 登录 NovelAI")
+        
+        # 应用请求速率限制
+        if not rate_limiter.wait_if_needed(is_test_request=False):
+            raise Exception("请求被速率限制，请稍后再试")
         
         try:
             # 计算 NovelAI 访问密钥
@@ -117,11 +122,21 @@ class NovelAIClient:
             logger.debug("访问密钥计算完成")
             logger.debug(f"访问密钥: {access_key[:10]}...")
             
+            # 构建请求头
+            headers = {
+                "User-Agent": rate_limiter.get_user_agent(),
+                "Content-Type": "application/json"
+            }
+            
+            # 模拟人类行为：在发送请求前加入短暂的随机延迟
+            time.sleep(random.uniform(0.5, 2.0))
+            
             # 发送登录请求
             logger.debug(f"发送登录请求到: {NOVELAI_API_LOGIN}")
             response = requests.post(
                 NOVELAI_API_LOGIN,
                 json={"key": access_key},
+                headers=headers,
                 timeout=REQUEST_TIMEOUT
             )
             
@@ -145,6 +160,9 @@ class NovelAIClient:
             return self.access_token
             
         except requests.exceptions.RequestException as e:
+            # 请求错误后等待一段时间
+            rate_limiter.wait_after_error()
+            
             logger.error(f"登录请求失败: {e}")
             if hasattr(e, 'response') and e.response:
                 status_code = e.response.status_code
@@ -196,11 +214,22 @@ class NovelAIClient:
         logger.info("验证提供的令牌")
         logger.debug(f"验证令牌: {token[:10]}...")
         
+        # 应用请求速率限制
+        if not rate_limiter.wait_if_needed(is_test_request=False):
+            raise Exception("请求被速率限制，请稍后再试")
+        
         try:
-            # 使用令牌验证权限
-            headers = {"Authorization": f"Bearer {token}"}
+            # 构建请求头
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "User-Agent": rate_limiter.get_user_agent()
+            }
+            
             endpoint = NOVELAI_API_SUBSCRIPTION
             logger.debug(f"发送验证请求到: {endpoint}")
+            
+            # 模拟人类行为：在发送请求前加入短暂的随机延迟
+            time.sleep(random.uniform(0.5, 1.5))
             
             response = requests.get(
                 endpoint,
@@ -230,6 +259,9 @@ class NovelAIClient:
             return token
             
         except requests.exceptions.RequestException as e:
+            # 请求错误后等待一段时间
+            rate_limiter.wait_after_error()
+            
             logger.error(f"令牌验证失败: {e}")
             if hasattr(e, 'response') and e.response:
                 status_code = e.response.status_code
@@ -254,6 +286,13 @@ class NovelAIClient:
         """
         if not self.access_token:
             raise Exception("未登录，请先调用 login_with_email_password 或 login_with_token")
+
+        # 检查是否为测试请求
+        is_test_request = params.get('is_test_request', False)
+        
+        # 应用请求速率限制
+        if not rate_limiter.wait_if_needed(is_test_request=is_test_request):
+            raise Exception(f"请求被速率限制，请稍后再试 (今日剩余配额: {rate_limiter.get_remaining_quota()})")
             
         logger.info(f"开始生成图像，参数概要: 提示词='{params.get('prompt', '')[:30]}...'")
         
@@ -400,13 +439,46 @@ class NovelAIClient:
         
         # 发送请求
         try:
+            # 构建请求头
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
-                "Accept": "application/x-zip-compressed"  # 明确请求ZIP格式
+                "Accept": "application/x-zip-compressed",  # 明确请求ZIP格式
+                "User-Agent": rate_limiter.get_user_agent()
             }
             
+            # 模拟真实用户: 添加Referer和Origin
+            headers["Referer"] = "https://novelai.net/image"
+            headers["Origin"] = "https://novelai.net"
+            headers["sec-ch-ua"] = '"Chromium";v="106", "Google Chrome";v="106", "Not;A=Brand";v="99"'
+            headers["sec-ch-ua-platform"] = '"Windows"'
+            headers["sec-ch-ua-mobile"] = "?0"
+            headers["Accept-Language"] = "en-US,en;q=0.9"
+            
+            # 模拟真实用户: 随机化请求顺序
+            if random.random() < 0.3:
+                # 30%的概率先请求一个常见资源，如CSS或图标
+                dummy_headers = headers.copy()
+                dummy_headers["Accept"] = "text/css,*/*;q=0.1"
+                dummy_url = "https://novelai.net/static/css/main.css"
+                logger.debug(f"发送模拟请求到 {dummy_url}")
+                try:
+                    requests.get(
+                        dummy_url,
+                        headers=dummy_headers,
+                        timeout=5
+                    )
+                except:
+                    pass  # 忽略模拟请求的错误
+                
+                # 添加小延迟
+                time.sleep(random.uniform(0.5, 2.0))
+            
             logger.info(f"发送请求到 {NOVELAI_API_GENERATE}")
+            
+            # 模拟真实用户：在发送主请求前的随机等待
+            time.sleep(random.uniform(0.8, 2.5))
+            
             response = requests.post(
                 NOVELAI_API_GENERATE,
                 json=request_data,
@@ -425,6 +497,10 @@ class NovelAIClient:
                     # 如果响应不是JSON格式
                     logger.error(f"非JSON响应：{response.text[:200]}")
                     raise Exception(f"图像生成失败（{response.status_code}）：服务器返回了非JSON格式响应")
+                
+                # 请求错误后等待一段时间
+                rate_limiter.wait_after_error()
+                raise Exception(f"图像生成失败（{response.status_code}）：服务器返回错误")
             
             # 检查内容类型
             content_type = response.headers.get('Content-Type', '')
@@ -442,6 +518,9 @@ class NovelAIClient:
             return images
             
         except Exception as e:
+            # 请求错误后等待一段时间
+            rate_limiter.wait_after_error()
+            
             logger.error(f"图像生成请求失败: {e}")
             if hasattr(e, 'response') and e.response:
                 status_code = e.response.status_code

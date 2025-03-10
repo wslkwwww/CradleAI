@@ -18,6 +18,7 @@ from config import (
 import uuid
 from utils import save_binary_image
 from minio_client import MinioStorage
+from rate_limiter import rate_limiter
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -176,6 +177,21 @@ def api_generate():
                 'error': '未提供提示词'
             }), 400
         
+        # 检查是否为测试请求
+        is_test_request = data.get('is_test_request', False)
+        
+        # 对非测试请求检查每日请求配额
+        if not is_test_request and rate_limiter.get_remaining_quota() <= 0:
+            return jsonify({
+                'success': False,
+                'error': '已达到每日请求限制',
+                'rate_limit_info': {
+                    'daily_limit': rate_limiter.daily_limit,
+                    'requests_today': rate_limiter.get_request_count(),
+                    'remaining': 0
+                }
+            }), 429
+        
         # 获取用户优先级（可从请求头或请求体中获取）
         user_priority = data.get('priority', 0)
         
@@ -189,6 +205,9 @@ def api_generate():
         except (ValueError, TypeError):
             user_priority = 0
         
+        # 在任务参数中标记是否为测试请求
+        data['is_test_request'] = is_test_request
+        
         # 提交 Celery 任务
         task = generate_image.apply_async(
             args=[data],
@@ -198,7 +217,7 @@ def api_generate():
         # 记录任务优先级
         task_priorities[task.id] = user_priority
         
-        logger.info(f"任务已提交，ID: {task.id}，优先级: {user_priority}")
+        logger.info(f"任务已提交，ID: {task.id}，优先级: {user_priority}, 测试请求: {is_test_request}")
         
         # 更新队列状态
         update_queue_status()
@@ -207,7 +226,7 @@ def api_generate():
         queue_position = task_queue_status["queue_positions"].get(task.id, 0)
         
         # 返回任务 ID 和队列信息
-        return jsonify({
+        response = {
             'success': True,
             'task_id': task.id,
             'message': '图像生成任务已提交',
@@ -215,7 +234,31 @@ def api_generate():
                 'position': queue_position,
                 'total_pending': task_queue_status["total_pending"],
             }
-        })
+        }
+        
+        # 添加速率限制信息
+        if not is_test_request:
+            response['rate_limit_info'] = {
+                'daily_limit': rate_limiter.daily_limit,
+                'requests_today': rate_limiter.get_request_count(),
+                'remaining': rate_limiter.get_remaining_quota()
+            }
+            
+            # 添加时间窗口信息
+            hour = rate_limiter._get_sg_hour()
+            allowed_windows = [
+                (6, 9),    # 早上
+                (12, 14),  # 中午
+                (19, 23),  # 晚上
+            ]
+            response['rate_limit_info']['current_sg_hour'] = hour
+            response['rate_limit_info']['allowed_windows'] = allowed_windows
+            
+            # 检查当前时间是否在允许的窗口内
+            in_allowed_window = any(start <= hour < end for start, end in allowed_windows)
+            response['rate_limit_info']['in_allowed_window'] = in_allowed_window
+        
+        return jsonify(response)
         
     except Exception as e:
         logger.error(f"处理请求时出错: {e}")
@@ -394,6 +437,48 @@ def api_cancel_task(task_id):
             'error': f'取消任务时出错: {str(e)}'
         }), 500
 
+# 添加速率限制状态的端点
+@app.route('/rate_limit_status', methods=['GET'])
+def api_rate_limit_status():
+    """获取当前速率限制状态"""
+    try:
+        # 获取新加坡时间的小时
+        hour = rate_limiter._get_sg_hour()
+        sg_date = rate_limiter._get_sg_date()
+        
+        # 定义允许请求的时间窗口(新加坡时间)
+        allowed_windows = [
+            (6, 9),    # 早上
+            (12, 14),  # 中午
+            (19, 23),  # 晚上
+        ]
+        
+        # 检查当前时间是否在允许的窗口内
+        in_allowed_window = any(start <= hour < end for start, end in allowed_windows)
+        
+        return jsonify({
+            'success': True,
+            'rate_limit_info': {
+                'daily_limit': rate_limiter.daily_limit,
+                'requests_today': rate_limiter.get_request_count(),
+                'remaining': rate_limiter.get_remaining_quota(),
+                'singapore_time': {
+                    'date': sg_date,
+                    'hour': hour,
+                },
+                'allowed_windows': allowed_windows,
+                'in_allowed_window': in_allowed_window,
+                'window_description': ', '.join([f"{start}:00-{end}:00" for start, end in allowed_windows])
+            }
+        })
+    except Exception as e:
+        logger.error(f"获取速率限制状态时出错: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'获取速率限制状态时出错: {str(e)}'
+        }), 500
+
+# 修复token_status端点中的拼写错误（trip -> strip）
 @app.route('/token_status', methods=['GET'])
 def api_token_status():
     """获取令牌缓存状态"""
@@ -405,7 +490,7 @@ def api_token_status():
         # 从Authorization头获取token
         auth_header = request.headers.get('Authorization')
         if (auth_header and auth_header.startswith('Bearer ')):
-            token = auth_header[7:].trip()  # 移除'Bearer '前缀
+            token = auth_header[7:].strip()  # 修复此处的拼写错误 (trip -> strip)
         
         # 从查询参数获取email
         email = request.args.get('email')

@@ -333,25 +333,28 @@ const CharactersScreen: React.FC = () => {
     );
   };
 
-  // Replace the creation mode selection code with buttons
+  // Modify the renderCreationModeSelection function to use a bookmark style instead of large buttons
   const renderCreationModeSelection = () => {
     return (
-      <View style={styles.modeSelectionContainer}>
+      <View style={styles.modeTabs}>
         {CREATION_MODES.map(mode => (
           <TouchableOpacity
             key={mode.id}
             style={[
-              styles.modeButton,
-              creationMode === mode.id && styles.activeModeButton
+              styles.modeTab,
+              creationMode === mode.id && styles.activeModeTab
             ]}
             onPress={() => setCreationMode(mode.id)}
           >
             <Ionicons 
               name={mode.id === 'regular' ? 'person-outline' : 'leaf-outline'} 
-              size={22} 
-              color="#000" 
+              size={20} 
+              color={creationMode === mode.id ? "#000" : "#aaa"} 
             />
-            <Text style={styles.modeButtonText}>
+            <Text style={[
+              styles.modeTabText, 
+              creationMode === mode.id && styles.activeModeTabText
+            ]}>
               {mode.title}
             </Text>
           </TouchableOpacity>
@@ -359,6 +362,10 @@ const CharactersScreen: React.FC = () => {
       </View>
     );
   };
+
+  // Modify the renderCreationContent function to properly position the mode tabs
+
+  
 
   // Render regular mode sidebar with icons only
   const renderRegularModeSidebar = () => {
@@ -452,6 +459,7 @@ const CharactersScreen: React.FC = () => {
           renderCharacterCardsTab()
         ) : (
           <View style={styles.createTabContainer}>
+            {/* Mode tabs on the side */}
             {renderCreationModeSelection()}
             {renderCreationContent()}
           </View>
@@ -580,11 +588,11 @@ interface Styles {
   activeButton: ViewStyle;
   deleteButton: ViewStyle;
   createTabContainer: ViewStyle;
-  modeSelectionContainer: ViewStyle;
-  modeButton: ViewStyle;
-  activeModeButton: ViewStyle;
-  modeButtonText: TextStyle;
-  activeModeButtonText: TextStyle;
+  modeTabs: ViewStyle;
+  modeTab: ViewStyle;
+  activeModeTab: ViewStyle;
+  modeTabText: TextStyle;
+  activeModeTabText: TextStyle;
   creationContentContainer: ViewStyle;
   sidebar: ViewStyle;
   sidebarItem: ViewStyle;
@@ -598,9 +606,7 @@ const styles = StyleSheet.create<Styles>({
     flex: 1,
     backgroundColor: COLOR_BACKGROUND,
   },
-  activeModeButtonText: {
-    color: '#000',
-  },
+
   header: {
     backgroundColor: '#333333',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
@@ -766,31 +772,40 @@ const styles = StyleSheet.create<Styles>({
   createTabContainer: {
     flex: 1,
     backgroundColor: '#282828',
+    position: 'relative',  // Added to support absolute positioning of modeTabs
   },
-  modeSelectionContainer: {
-    flexDirection: 'row',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    justifyContent: 'space-around',
-    backgroundColor: '#222222',
+  // Replace the modeSelectionContainer with a more compact modeTabs
+  modeTabs: {
+    position: 'absolute',
+    right: 0,
+    top: 20,
+    zIndex: 10,
+    flexDirection: 'column',
   },
-  modeButton: {
+  modeTab: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#333',
     paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    justifyContent: 'center',
-    backgroundColor: '#555',
+    paddingHorizontal: 15,
+    borderTopLeftRadius: 8,
+    borderBottomLeftRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderRightWidth: 0,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  activeModeButton: {
+  activeModeTab: {
     backgroundColor: 'rgb(255, 224, 195)',
   },
-  modeButtonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '500',
+  modeTabText: {
     marginLeft: 8,
+    fontSize: 14,
+    color: '#aaa',
+  },
+  activeModeTabText: {
+    color: '#000',
+    fontWeight: '500',
   },
   creationContentContainer: {
     flex: 1,
