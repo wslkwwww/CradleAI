@@ -170,25 +170,6 @@ def api_generate():
             }), 400
             
         # 验证必要的参数
-        auth_type = data.get('auth_type')
-        if not auth_type:
-            return jsonify({
-                'success': False,
-                'error': '未指定认证类型'
-            }), 400
-            
-        if auth_type == 'token' and not data.get('token'):
-            return jsonify({
-                'success': False,
-                'error': '未提供有效的 token'
-            }), 400
-            
-        if auth_type == 'login' and (not data.get('email') or not data.get('password')):
-            return jsonify({
-                'success': False,
-                'error': '未提供有效的邮箱或密码'
-            }), 400
-            
         if not data.get('prompt'):
             return jsonify({
                 'success': False,
@@ -207,7 +188,7 @@ def api_generate():
                 user_priority = 10
         except (ValueError, TypeError):
             user_priority = 0
-                
+        
         # 提交 Celery 任务
         task = generate_image.apply_async(
             args=[data],
@@ -424,7 +405,7 @@ def api_token_status():
         # 从Authorization头获取token
         auth_header = request.headers.get('Authorization')
         if (auth_header and auth_header.startswith('Bearer ')):
-            token = auth_header[7:].strip()  # 移除'Bearer '前缀
+            token = auth_header[7:].trip()  # 移除'Bearer '前缀
         
         # 从查询参数获取email
         email = request.args.get('email')

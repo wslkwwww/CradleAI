@@ -11,6 +11,7 @@ from config import (
     RETRY_DELAY
 )
 from novelai import NovelAIClient
+import credentials
 
 # 配置日志
 logger = logging.getLogger('text2image.worker')
@@ -52,43 +53,50 @@ def generate_image(self, request_params):
         # 创建 NovelAI 客户端
         client = NovelAIClient()
         
-        # 登录 NovelAI
-        auth_type = request_params.get('auth_type')
-        logger.info(f"认证类型: {auth_type}")
-        
-        if auth_type == 'token':
-            token = request_params.get('token')
-            if not token:
-                logger.error("未提供有效的令牌")
-                return {
-                    'success': False,
-                    'error': '未提供有效的 token'
-                }
-            
-            logger.info(f"使用令牌认证，令牌长度: {len(token)}")
-            # 清理令牌，移除可能的空格或换行符
-            token = token.strip()
-            client.login_with_token(token)
-            
-        elif auth_type == 'login':
-            email = request_params.get('email')
-            password = request_params.get('password')
-            if not email or not password:
-                logger.error("未提供有效的邮箱或密码")
-                return {
-                    'success': False,
-                    'error': '未提供有效的邮箱或密码'
-                }
-            
-            logger.info(f"使用账号密码认证，邮箱: {email}")
-            client.login_with_email_password(email, password)
-            
+        # 检查服务器存储的凭据
+        if credentials.has_credentials():
+            # 使用服务器存储的凭据
+            creds = credentials.get_credentials()
+            logger.info(f"使用服务器存储的凭据登录 NovelAI (邮箱: {creds['email']})")
+            client.login_with_email_password(creds['email'], creds['password'])
         else:
-            logger.error(f"不支持的认证类型: {auth_type}")
-            return {
-                'success': False,
-                'error': f'不支持的认证类型: {auth_type}'
-            }
+            # 如果服务器没有存储凭据，则尝试使用请求中的认证信息
+            auth_type = request_params.get('auth_type')
+            logger.info(f"服务器未配置凭据，尝试使用请求提供的认证信息 (类型: {auth_type})")
+            
+            if auth_type == 'token':
+                token = request_params.get('token')
+                if not token:
+                    logger.error("未提供有效的令牌")
+                    return {
+                        'success': False,
+                        'error': '未提供有效的 token 且服务器未配置凭据'
+                    }
+                
+                logger.info(f"使用令牌认证，令牌长度: {len(token)}")
+                # 清理令牌，移除可能的空格或换行符
+                token = token.strip()
+                client.login_with_token(token)
+                
+            elif auth_type == 'login':
+                email = request_params.get('email')
+                password = request_params.get('password')
+                if not email or not password:
+                    logger.error("未提供有效的邮箱或密码")
+                    return {
+                        'success': False,
+                        'error': '未提供有效的邮箱或密码且服务器未配置凭据'
+                    }
+                
+                logger.info(f"使用账号密码认证，邮箱: {email}")
+                client.login_with_email_password(email, password)
+                
+            else:
+                logger.error(f"服务器未配置凭据，且请求未提供有效的认证信息")
+                return {
+                    'success': False,
+                    'error': '服务器未配置 NovelAI 凭据，且请求中未提供有效的认证信息'
+                }
         
         # 添加模拟延迟，避免 NovelAI API 速率限制
         logger.info("模拟 API 调用延迟...")
