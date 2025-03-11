@@ -830,60 +830,70 @@ if (!savedCharacter) {
   };
   
   // 添加投喂内容
-  const addFeed = async (characterId: string, content: string, type: 'text' | 'voice' | 'image' = 'text') => {
-    console.log(`[摇篮系统] 向角色 ${characterId} 投喂内容，类型: ${type}`);
-    
-    const character = cradleCharacters.find(char => char.id === characterId);
-    if (!character) {
-      console.error('[摇篮系统] 未找到目标摇篮角色');
-      throw new Error('未找到目标摇篮角色');
-    }
-    
-    // 创建新的投喂记录
-    const newFeed = {
-      id: Date.now().toString(),
-      content,
-      timestamp: Date.now(), // Using number type as defined in the Feed interface
-      type,
-      processed: false
-    };
-    
-    // 添加到角色的投喂历史
-    const updatedCharacter: CradleCharacter = {
-      ...character,
-      feedHistory: [...(character.feedHistory || []), newFeed]
-    };
-    
-    // 更新角色
-    await updateCradleCharacter(updatedCharacter);
-    console.log('[摇篮系统] 投喂内容添加成功');
+const addFeed = async (characterId: string, content: string, type: 'text' | 'voice' | 'image' | 'aboutMe' | 'material' | 'knowledge' = 'text') => {
+  console.log(`[摇篮系统] 向角色 ${characterId} 投喂内容，类型: ${type}`);
+  
+  // 修复: 直接从characters数组中查找该角色，而不是从cradleCharacters中查找
+  // 这样可以确保我们能找到所有标记为inCradleSystem的角色
+  const character = characters.find(char => char.id === characterId && char.inCradleSystem);
+  
+  if (!character) {
+    console.error('[摇篮系统] 未找到目标摇篮角色');
+    throw new Error('未找到目标摇篮角色');
+  }
+  
+  // 将character转换为CradleCharacter类型，确保feedHistory存在
+  const cradleCharacter = character as CradleCharacter;
+  if (!cradleCharacter.feedHistory) {
+    cradleCharacter.feedHistory = [];
+  }
+  
+  // 创建新的投喂记录
+  const newFeed: Feed = {
+    id: Date.now().toString(),
+    content,
+    timestamp: Date.now(),
+    type,
+    processed: false
   };
   
-  // 标记投喂内容为已处理
-  const markFeedAsProcessed = async (characterId: string, feedId: string) => {
-    console.log(`[摇篮系统] 标记角色 ${characterId} 的投喂内容 ${feedId} 为已处理`);
-    
-    const character = cradleCharacters.find(char => char.id === characterId);
-    if (!character || !character.feedHistory) {
-      console.error('[摇篮系统] 未找到目标摇篮角色或投喂历史');
-      return;
-    }
-    
-    // 更新投喂状态
-    const updatedFeedHistory = character.feedHistory.map(feed => 
-      feed.id === feedId ? { ...feed, processed: true } : feed
-    );
-    
-    // 更新角色
-    const updatedCharacter: CradleCharacter = {
-      ...character,
-      feedHistory: updatedFeedHistory
-    };
-    
-    await updateCradleCharacter(updatedCharacter);
-    console.log('[摇篮系统] 投喂内容已标记为已处理');
+  // 添加到角色的投喂历史
+  const updatedCharacter: CradleCharacter = {
+    ...cradleCharacter,
+    feedHistory: [...cradleCharacter.feedHistory, newFeed]
   };
   
+  // 更新角色
+  await updateCradleCharacter(updatedCharacter);
+  console.log('[摇篮系统] 投喂内容添加成功');
+};
+
+// 标记投喂内容为已处理 - 也需要同样的修复
+const markFeedAsProcessed = async (characterId: string, feedId: string) => {
+  console.log(`[摇篮系统] 标记角色 ${characterId} 的投喂内容 ${feedId} 为已处理`);
+  
+  // 同样修复查找逻辑
+  const character = characters.find(char => char.id === characterId && char.inCradleSystem) as CradleCharacter;
+  if (!character || !character.feedHistory) {
+    console.error('[摇篮系统] 未找到目标摇篮角色或投喂历史');
+    return;
+  }
+  
+  // 更新投喂状态
+  const updatedFeedHistory = character.feedHistory.map(feed => 
+    feed.id === feedId ? { ...feed, processed: true } : feed
+  );
+  
+  // 更新角色
+  const updatedCharacter: CradleCharacter = {
+    ...character,
+    feedHistory: updatedFeedHistory
+  };
+  
+  await updateCradleCharacter(updatedCharacter);
+  console.log('[摇篮系统] 投喂内容已标记为已处理');
+};
+
   // 从摇篮生成正式角色
 const generateCharacterFromCradle = async (cradleCharacterId: string): Promise<Character> => {
   console.log('[摇篮系统] 开始从摇篮生成正式角色', cradleCharacterId);
@@ -1019,8 +1029,9 @@ const generateCharacterFromCradle = async (cradleCharacterId: string): Promise<C
       }
     }
     
-    // 构建角色基本信息
+    // 构建角色基本信息 - 确保使用新的唯一ID
     const characterId = Date.now().toString();
+    console.log('[摇篮系统] 为新角色生成ID:', characterId);
     
     // 确保所有必要的展示字段都存在
     const newCharacter: Character = {
@@ -1033,7 +1044,7 @@ const generateCharacterFromCradle = async (cradleCharacterId: string): Promise<C
       interests: interests.length > 0 ? interests : ["聊天", "社交"],
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      conversationId: characterId,
+      conversationId: characterId, // 确保设置conversationId与角色ID相同
       // 添加标记，表明这是从摇篮生成的角色
       isSystem: false,
       isCradleGenerated: true,
@@ -1050,22 +1061,46 @@ const generateCharacterFromCradle = async (cradleCharacterId: string): Promise<C
       gender: extractGenderFromFeeds(processedFeeds) || "未指定",
     };
     
-    // 添加到角色列表
-    await addCharacter(newCharacter);
+    console.log('[摇篮系统] 准备添加角色:', newCharacter.id, newCharacter.name);
     
-    // 创建对话
-    await addConversation({
-      id: characterId,
-      title: newCharacter.name,
-      avatar: newCharacter.avatar ? { uri: newCharacter.avatar } : undefined,
-      description: newCharacter.description
-    });
-    
-    // 从摇篮系统中移除该角色
-    await deleteCradleCharacter(cradleCharacterId);
-    
-    console.log('[摇篮系统] 成功生成角色:', newCharacter.name);
-    return newCharacter;
+    try {
+      // 从摇篮系统中移除该角色 - 在添加新角色之前先删除，避免状态冲突
+      await deleteCradleCharacter(cradleCharacterId);
+      console.log('[摇篮系统] 从摇篮系统中移除角色成功:', cradleCharacterId);
+      
+      // 添加到角色列表 - 确保这个操作完成
+      await addCharacter(newCharacter);
+      console.log('[摇篮系统] 成功添加角色到角色库:', characterId, newCharacter.name);
+      
+      // 为角色创建对话 - 确保有完整的会话数据
+      const conversation: SidebarItemProps = {
+        id: characterId,
+        title: newCharacter.name,
+        name: newCharacter.name,
+        avatar: newCharacter.avatar ? { uri: newCharacter.avatar } : undefined,
+        description: newCharacter.description || "",
+      };
+      
+      await addConversation(conversation);
+      console.log('[摇篮系统] 成功创建角色对话:', characterId, newCharacter.name);
+      
+      // 确保角色已添加到state中
+      setCharacters(prevChars => {
+        const exists = prevChars.some(c => c.id === characterId);
+        if (!exists) {
+          console.log('[摇篮系统] 手动更新角色状态以确保UI刷新');
+          return [...prevChars, newCharacter];
+        }
+        return prevChars;
+      });
+      
+      console.log('[摇篮系统] 成功生成角色:', newCharacter.name);
+      
+      return newCharacter;
+    } catch (error) {
+      console.error('[摇篮系统] 添加角色过程中出错:', error);
+      throw new Error(`添加角色失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
   } catch (error) {
     console.error('[摇篮系统] 生成角色时出错:', error);
     throw new Error(`生成角色失败: ${error instanceof Error ? error.message : '未知错误'}`);
@@ -1378,16 +1413,15 @@ const checkCradleGeneration = (): {
 
 // 从投喂数据中提取关键词
 const extractKeywordsFromFeeds = (text: string): string[] => {
-  // 这是一个简化版的关键词提取，实际应用中可能需要更复杂的NLP处理
+  const result: string[] = [];
+  
+  // 常见性格关键词列表
   const commonTraits = [
-    '友好', '开朗', '内向', '外向', '善良', '热情', '冷静', '理性', 
-    '感性', '务实', '创意', '专注', '好奇', '勇敢', '谨慎', '乐观', '悲观',
-    '温柔', '强势', '独立', '依赖', '自信', '谦虚', '诚实', '狡猾', '聪明',
-    '机智', '幽默', '严肃', '浪漫', '现实', '敏感', '果断', '犹豫'
+    '友好', '开朗', '温柔', '活泼', '安静', '内向', '外向', 
+    '耐心', '热情', '认真', '细心', '幽默', '聪明', '文艺'
   ];
   
-  const result = [];
-  // 遍历特质列表，检查文本中是否包含这些关键词
+  // 检查文本中是否包含这些关键词
   for (const trait of commonTraits) {
     if (text.toLowerCase().includes(trait.toLowerCase())) {
       result.push(trait);
@@ -1505,7 +1539,7 @@ const extractTagsFromFeeds = (feeds: Feed[]): string[] => {
         toggleFavorite,
         getFavorites,
         setCharacters,
-        
+        setIsLoading,
         // 摇篮系统相关方法
         updateCradleSettings,
         getCradleSettings,

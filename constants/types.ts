@@ -43,7 +43,7 @@ export interface CharactersContextType {
   toggleFavorite: (characterId: string, postId: string) => Promise<void>;
   getFavorites: () => CirclePost[];
   setCharacters: (characters: Character[]) => void;
-  
+  setIsLoading : (isLoading: boolean) => void;
   // 摇篮系统相关方法
   updateCradleSettings: (settings: CradleSettings) => Promise<void>;
   getCradleSettings: () => CradleSettings;
@@ -61,7 +61,7 @@ export interface CharactersContextType {
   importCharacterToCradle: (characterId: string) => Promise<void>;
 
   // 投喂相关方法
-  addFeed: (characterId: string, content: string, type?: 'text' | 'voice' | 'image') => Promise<void>;
+  addFeed: (characterId: string, content: string, type?: 'text' | 'voice' | 'image' | 'aboutMe' | 'material' | 'knowledge') => Promise<void>;
   markFeedAsProcessed: (characterId: string, feedId: string) => Promise<void>;
   
   // 生成角色
@@ -132,7 +132,7 @@ export interface Memo {
 export interface Feed {
   id: string;
   content: string;
-  type: 'text' | 'voice' | 'image'; // 投喂类型
+  type: 'text' | 'voice' | 'image' | 'aboutMe'| 'material'| 'knowledge'; // 投喂类型Me' | 'material' | 'knowledge'; // 扩展投喂类型
   timestamp: number;                // 时间戳
   processed: boolean;               // 是否已处理
 }

@@ -146,7 +146,7 @@ interface CradleSettings {
 interface Feed {
   id: string;
   content: string;
-  type: 'text' | 'voice' | 'image'; // 投喂类型
+  type: 'text' | 'voice' | 'image' | 'aboutMe'| 'material'| 'knowledge'; // 投喂类型
   timestamp: number;                // 时间戳
   processed: boolean;               // 是否已处理
 }

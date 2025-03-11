@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -34,6 +34,7 @@ import MessageBox from '@/components/MessageBox';
 import { getCharacterById } from '@/services/character-service';
 import CreateChar from '@/app/pages/create_char';
 import CradleCreateForm from '@/components/CradleCreateForm';
+
 
 // Add view mode constants
 const VIEW_MODE_SMALL = 'small';
@@ -74,7 +75,7 @@ const REGULAR_SIDEBAR_ITEMS = [
 ];
 
 const CharactersScreen: React.FC = () => {
-  const { characters, isLoading, deleteCharacters, addCharacter, updateCharacter } = useCharacters();
+  const { characters, isLoading, setIsLoading, deleteCharacters, addCharacter, updateCharacter } = useCharacters();
   const { user } = useUser();
   const router = useRouter();
   const [isManaging, setIsManaging] = useState(false);
@@ -91,6 +92,19 @@ const CharactersScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('cards');
   const [creationMode, setCreationMode] = useState<string>('regular');
   const [activeSidebarItem, setActiveSidebarItem] = useState<string>('basic');
+
+  // Add state for repair notification
+  const [showRepairNotice, setShowRepairNotice] = useState(false);
+
+
+
+  // Add a function to manually load characters
+  const loadCharacters = useCallback(() => {
+    setIsLoading(true);
+    setTimeout(() => {
+      setIsLoading(false);
+    }, 500);
+  }, []);
 
   // useEffect(() => {
   //   console.log('Characters from Context:', characters);
@@ -465,6 +479,15 @@ const CharactersScreen: React.FC = () => {
           </View>
         )}
       </View>
+
+      {/* Add repair notification */}
+      {showRepairNotice && (
+        <View style={styles.repairNotification}>
+          <Text style={styles.repairNotificationText}>
+            修复了角色数据不一致问题，重新加载...
+          </Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -599,6 +622,8 @@ interface Styles {
   activeSidebarItem: ViewStyle;
   creationMainContent: ViewStyle;
   loader: ViewStyle;
+  repairNotification: ViewStyle;
+  repairNotificationText: TextStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
@@ -835,6 +860,22 @@ const styles = StyleSheet.create<Styles>({
   },
   loader: {
     marginTop: 40,
+  },
+  repairNotification: {
+    position: 'absolute',
+    bottom: 80,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  repairNotificationText: {
+    color: '#fff',
+    fontSize: 14,
   },
 });
 

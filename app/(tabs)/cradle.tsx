@@ -265,11 +265,21 @@ export default function CradlePage() {
       showNotification('开始生成', `正在从摇篮生成角色 "${character.name}"...`);
       
       // Call the generate function from context
-      await generateCharacterFromCradle(character.id);
+      const newCharacter = await generateCharacterFromCradle(character.id);
+      console.log('[摇篮页面] 角色生成成功，新角色ID:', newCharacter.id);
       
-      // Refresh character list and show success notification
+      // Refresh character list
       loadCradleCharacters();
       showNotification('生成成功', `角色 "${character.name}" 已成功生成！`);
+      
+      // Add a delay to ensure the character is fully saved before navigating
+      setTimeout(() => {
+        // Navigate to the new character's chat page
+        if (newCharacter && newCharacter.id) {
+          console.log('[摇篮页面] 导航到新角色的聊天页面:', newCharacter.id);
+          router.push(`/?characterId=${newCharacter.id}`);
+        }
+      }, 1000);
     } catch (error) {
       console.error('[摇篮页面] 生成角色失败:', error);
       showNotification('生成失败', 

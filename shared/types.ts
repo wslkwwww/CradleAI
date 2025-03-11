@@ -288,7 +288,7 @@ export interface FeedQueue {
 export interface Feed {
   id: string;
   content: string;
-  type: 'text' | 'voice' | 'image';
+  type: 'text' | 'voice' | 'image' | 'aboutMe'| 'material'| 'knowledge';
   timestamp: number;
   processed: boolean;
 }
