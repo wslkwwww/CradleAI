@@ -1,7 +1,7 @@
 import { FeedData, FeedType, CharacterGeneratorService, CharacterInitialData, CharacterGenerationResult } from './character-generator-service';
 import { GeminiAdapter } from '../utils/gemini-adapter';
 import { OpenRouterAdapter } from '../utils/openrouter-adapter'; // Add OpenRouter adapter import
-import { RoleCardJson, WorldBookJson } from '../types/types';
+import { RoleCardJson, WorldBookJson } from '@/shared/types';
 
 interface ProcessResult {
   success: boolean;
@@ -238,48 +238,44 @@ export class CradleService {
         };
       }
       
-      // Group feeds by type
-      const feedsByType: Record<FeedType, FeedData[]> = {
-        [FeedType.ABOUT_ME]: [],
-        [FeedType.MATERIAL]: [],
-        [FeedType.KNOWLEDGE]: []
-      };
+      // Process the feeds through CharacterGeneratorService
+      let generationResult: CharacterGenerationResult;
       
+      // Check if we already have a character initialized
+      const currentData = this.characterGenerator.getCurrentCharacterData();
+      if (currentData.roleCard) {
+        // Update existing character with new feeds
+        console.log('[CradleService] Updating existing character with new feeds');
+        generationResult = await this.characterGenerator.updateWithFeeds(unprocessedFeeds);
+      } else {
+        // Create initial character if this is our first processing
+        console.log('[CradleService] Creating initial character from feeds');
+        const initialData: CharacterInitialData = {
+          name: "Cradle Character",
+          description: "A character being developed in the Cradle System",
+          personality: "Personality will be determined based on feed data"
+        };
+        generationResult = await this.characterGenerator.generateInitialCharacter(initialData);
+      }
+      
+      // Check if processing was successful
+      if (!generationResult.success) {
+        console.error('[CradleService] Failed to process feeds:', generationResult.error);
+        return {
+          success: false,
+          errorMessage: generationResult.error
+        };
+      }
+      
+      console.log('[CradleService] Character generation/update successful');
+      
+      // Mark all processed feeds
       unprocessedFeeds.forEach(feed => {
-        if (feedsByType[feed.type]) {
-          feedsByType[feed.type].push(feed);
-        } else {
-          console.warn(`[CradleService] Unknown feed type: ${feed.type}`);
+        const index = this.pendingFeeds.findIndex(f => f.id === feed.id);
+        if (index !== -1) {
+          this.pendingFeeds[index].processed = true;
         }
       });
-      
-      // Using a dummy data structure as this is just a prototype implementation
-      // In a real implementation, this would reference a specific character or cradle
-      const characterData = {
-        name: 'Cradle Character',
-        description: 'A character being developed in the Cradle System',
-        personalityTraits: []
-      };
-      
-      // Process each feed type
-      await Promise.all(Object.keys(feedsByType).map(async (typeKey) => {
-        const type = typeKey as FeedType;
-        const feeds = feedsByType[type];
-        
-        if (feeds.length === 0) return;
-        
-        console.log(`[CradleService] Processing ${feeds.length} feeds of type ${type}`);
-        
-        // Mark these feeds as processed
-        feeds.forEach(feed => {
-          const index = this.pendingFeeds.findIndex(f => f.id === feed.id);
-          if (index !== -1) {
-            this.pendingFeeds[index].processed = true;
-          }
-        });
-      }));
-      
-      console.log('[CradleService] Feeds processed successfully');
       
       return {
         success: true,

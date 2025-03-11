@@ -49,7 +49,8 @@ export default function CradlePage() {
     getCradleSettings,
     updateCradleSettings,
     updateCradleCharacter,
-    deleteCradleCharacter
+    deleteCradleCharacter,
+    generateCharacterFromCradle  // Add this to use the function
   } = useCharacters();
 
   // States for data with proper typing
@@ -130,74 +131,104 @@ export default function CradlePage() {
   const checkImageGenerationStatus = async (character: CradleCharacter) => {
     if (!character.imageGenerationTaskId) return;
     
-    try {
-      console.log(`[摇篮页面] 检查角色 "${character.name}" 的图像生成任务状态: ${character.imageGenerationTaskId}`);
-      
-      // Request status from server
-      const response = await fetch(`http://152.69.219.182:5000/task_status/${character.imageGenerationTaskId}`);
-      if (!response.ok) {
-        console.warn(`[摇篮页面] 获取任务状态失败: HTTP ${response.status}`);
-        return;
-      }
-      
-      const data = await response.json();
-      
-      // If task is done and successful
-      if (data.done && data.success && data.image_url) {
-        console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
+    const MAX_RETRIES = 3;
+    let retries = 0;
+    
+    while (retries < MAX_RETRIES) {
+      try {
+        console.log(`[摇篮页面] 检查角色 "${character.name}" 的图像生成任务状态: ${character.imageGenerationTaskId}`);
         
-        // Download the image to local storage
-        const localImageUri = await downloadAndSaveImage(
-          data.image_url,
-          character.id,
-          'background'
-        );
-        
-        // Update character with image information
-        let updatedCharacter = { ...character };
-        updatedCharacter.localBackgroundImage = localImageUri;
-        updatedCharacter.backgroundImage = localImageUri || data.image_url;
-        updatedCharacter.imageGenerationStatus = 'success';
-        
-        // Save updated character
-        await updateCradleCharacter(updatedCharacter);
-        showNotification('图像生成成功', `角色 ${character.name} 的图像已成功生成！`);
-        
-        // If this is the currently selected character, update it
-        if (selectedCharacter?.id === character.id) {
-          setSelectedCharacter(updatedCharacter);
+        // Request status from server
+        const response = await fetch(`http://152.69.219.182:5000/task_status/${character.imageGenerationTaskId}`);
+        if (!response.ok) {
+          console.warn(`[摇篮页面] 获取任务状态失败: HTTP ${response.status}`);
+          retries++;
+          
+          // Add exponential backoff between retries
+          if (retries < MAX_RETRIES) {
+            const backoffTime = Math.pow(2, retries) * 1000;
+            console.log(`[摇篮页面] 将在 ${backoffTime/1000} 秒后重试...`);
+            await new Promise(resolve => setTimeout(resolve, backoffTime));
+            continue;
+          }
+          
+          // If we've exhausted retries, return without updating
+          console.error(`[摇篮页面] 达到最大重试次数 (${MAX_RETRIES})，放弃检查任务状态`);
+          return;
         }
         
-        // Force refresh character carousel
-        refreshCharacterCards();
-      } 
-      // If task is done but failed
-      else if (data.done && !data.success) {
-        console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
+        const data = await response.json();
         
-        let updatedCharacter = { ...character };
-        updatedCharacter.imageGenerationStatus = 'error';
-        updatedCharacter.imageGenerationError = data.error || '未知错误';
+        // If task is done and successful
+        if (data.done && data.success && data.image_url) {
+          console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
+          
+          // Download the image to local storage
+          const localImageUri = await downloadAndSaveImage(
+            data.image_url,
+            character.id,
+            'background'
+          );
+          
+          // Update character with image information
+          let updatedCharacter = { ...character };
+          updatedCharacter.localBackgroundImage = localImageUri;
+          updatedCharacter.backgroundImage = localImageUri || data.image_url;
+          updatedCharacter.imageGenerationStatus = 'success';
+          
+          // Save updated character
+          await updateCradleCharacter(updatedCharacter);
+          showNotification('图像生成成功', `角色 ${character.name} 的图像已成功生成！`);
+          
+          // If this is the currently selected character, update it
+          if (selectedCharacter?.id === character.id) {
+            setSelectedCharacter(updatedCharacter);
+          }
+          
+          // Force refresh character carousel
+          refreshCharacterCards();
+        } 
+        // If task is done but failed
+        else if (data.done && !data.success) {
+          console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
+          
+          let updatedCharacter = { ...character };
+          updatedCharacter.imageGenerationStatus = 'error';
+          updatedCharacter.imageGenerationError = data.error || '未知错误';
+          
+          // Save updated character
+          await updateCradleCharacter(updatedCharacter);
+          showNotification('图像生成失败', `角色 ${character.name} 的图像生成失败：${data.error || '未知错误'}`);
+          
+          // If this is the currently selected character, update it
+          if (selectedCharacter?.id === character.id) {
+            setSelectedCharacter(updatedCharacter);
+          }
+        }
+        // If task is still in queue
+        else if (data.queue_info) {
+          // Update queue status information
+          const queuePosition = data.queue_info.position;
+          const estimatedWait = data.queue_info.estimated_wait || 0;
+          
+          console.log(`[摇篮页面] 图像生成任务在队列中，位置: ${queuePosition}，预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`);
+        }
         
-        // Save updated character
-        await updateCradleCharacter(updatedCharacter);
-        showNotification('图像生成失败', `角色 ${character.name} 的图像生成失败：${data.error || '未知错误'}`);
+        // If we get here, we've successfully processed the response
+        break;
         
-        // If this is the currently selected character, update it
-        if (selectedCharacter?.id === character.id) {
-          setSelectedCharacter(updatedCharacter);
+      } catch (error) {
+        console.error(`[摇篮页面] 检查图像生成状态失败:`, error);
+        retries++;
+        
+        if (retries < MAX_RETRIES) {
+          const backoffTime = Math.pow(2, retries) * 1000;
+          console.log(`[摇篮页面] 将在 ${backoffTime/1000} 秒后重试...`);
+          await new Promise(resolve => setTimeout(resolve, backoffTime));
+        } else {
+          console.error(`[摇篮页面] 达到最大重试次数 (${MAX_RETRIES})，放弃检查任务状态`);
         }
       }
-      // If task is still in queue
-      else if (data.queue_info) {
-        // Update queue status information
-        const queuePosition = data.queue_info.position;
-        const estimatedWait = data.queue_info.estimated_wait || 0;
-        
-        console.log(`[摇篮页面] 图像生成任务在队列中，位置: ${queuePosition}，预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`);
-      }
-    } catch (error) {
-      console.error(`[摇篮页面] 检查图像生成状态失败:`, error);
     }
   };
 
@@ -226,6 +257,27 @@ export default function CradlePage() {
       loadCradleCharacters();
     });
   }, [deleteCradleCharacter]);
+
+  // Add this function to handle character generation
+  const handleGenerateCharacter = async (character: CradleCharacter) => {
+    try {
+      setRefreshing(true);
+      showNotification('开始生成', `正在从摇篮生成角色 "${character.name}"...`);
+      
+      // Call the generate function from context
+      await generateCharacterFromCradle(character.id);
+      
+      // Refresh character list and show success notification
+      loadCradleCharacters();
+      showNotification('生成成功', `角色 "${character.name}" 已成功生成！`);
+    } catch (error) {
+      console.error('[摇篮页面] 生成角色失败:', error);
+      showNotification('生成失败', 
+        `角色 "${character.name}" 生成失败: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Render the tabs at the top of the screen
   const renderTabs = () => (
@@ -363,6 +415,15 @@ export default function CradlePage() {
                 >
                   <Ionicons name="chatbubble-outline" size={16} color="#fff" />
                   <Text style={styles.characterActionButtonText}>投喂</Text>
+                </TouchableOpacity>
+                
+                {/* Add the new generate button */}
+                <TouchableOpacity 
+                  style={[styles.characterActionButton, styles.generateButton]}
+                  onPress={() => handleGenerateCharacter(selectedCharacter)}
+                >
+                  <Ionicons name="flash-outline" size={16} color="#fff" />
+                  <Text style={styles.characterActionButtonText}>立即生成</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
@@ -828,6 +889,9 @@ const styles = StyleSheet.create({
   },
   viewButton: {
     backgroundColor: '#4A90E2',
+  },
+  generateButton: {
+    backgroundColor: '#FF9800', // Orange color to make it stand out
   },
   characterActionButtonText: {
     color: '#fff',

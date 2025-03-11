@@ -1,4 +1,4 @@
-import { RoleCardJson, WorldBookJson } from '../types/types';
+import { RoleCardJson, WorldBookJson } from '@/shared/types';
 import { GeminiAdapter } from '../utils/gemini-adapter';
 import { OpenRouterAdapter } from '../utils/openrouter-adapter';
 
@@ -350,7 +350,7 @@ export class CharacterGeneratorService {
     "entries": {
       "Alist": {
         "comment": "Character Attributes List",
-        "content": "<attributes>\\n  <personality>性格特点</personality>\\n  <appearance>外观描述</appearance>\\n  <likes>喜好</likes>\\n  <dislikes>厌恶</dislikes>\\n</attributes>",
+        "content": "在这里输出：\\n<attributes>\\n  <personality>性格特点</personality>\\n  <appearance>外观描述</appearance>\\n  <likes>喜好</likes>\\n  <dislikes>厌恶</dislikes>\\n</attributes>",
         "disable": false,
         "position": 4,
         "constant": true,
@@ -361,7 +361,7 @@ export class CharacterGeneratorService {
       },
       "Plist": {
         "comment": "Character Dialogue Examples",
-        "content": "对话示例",
+        "content": "在这里输出对话示例",
         "disable": false,
         "position": 4,
         "constant": true,
@@ -372,7 +372,7 @@ export class CharacterGeneratorService {
       },
       "背景": {
         "comment": "Character Background",
-        "content": "详细的背景故事",
+        "content": "在这里输出详细的背景故事",
         "disable": false,
         "position": 3,
         "constant": true,

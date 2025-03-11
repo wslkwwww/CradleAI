@@ -89,7 +89,7 @@
 │   │   ├── create_char_cradle.tsx  // 摇篮角色创建独立页面
 │   │   └── create_character_tabs.tsx // 角色创建页面（包含摇篮标签页）
 ├── components/
-│   ├── CradleCreateForm.tsx        // 摇篮角色创建表单组件
+│   ├── CradleCreateForm.tsx        // 摇篮角色创建表单组件，包括向服务器请求图片生成的功能
 │   ├── CradleFeedModal.tsx         // 摇篮数据投喂模态框
 │   ├── CradleSettings.tsx          // 摇篮系统设置组件
 │   ├── CradleApiSettings.tsx       // 新增 - 摇篮API设置组件

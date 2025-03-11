@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
 import { CradleService } from '@/NodeST/nodest/services/cradle-service';
 import { downloadAndSaveImage, deleteCharacterImages } from '@/utils/imageUtils';
-
+import { Feed } from '@/constants/types';
 const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
 
 // Initialize CradleService with API key from environment or settings
@@ -662,6 +662,22 @@ if (!savedCharacter) {
     console.log('[摇篮系统] 更新摇篮设置:', settings);
     await saveCradleSettings(settings);
     setCradleSettings(settings);
+    
+    // 重新初始化 CradleService
+    if (settings.enabled) {
+      console.log('[摇篮系统] 摇篮系统已启用，初始化服务');
+      cradleService.initialize();
+    } else {
+      console.log('[摇篮系统] 摇篮系统已禁用，关闭服务');
+      cradleService.shutdown();
+    }
+    
+    // 如果启用了摇篮系统，但没有设置开始日期，则设置为当前日期
+    if (settings.enabled && !settings.startDate) {
+      settings.startDate = new Date().toISOString();
+      await saveCradleSettings(settings);
+      setCradleSettings(settings);
+    }
   };
   
   const getCradleSettings = () => {
@@ -869,41 +885,169 @@ if (!savedCharacter) {
   };
   
   // 从摇篮生成正式角色
-  const generateCharacterFromCradle = async (cradleCharacterId: string): Promise<Character> => {
-    console.log('[摇篮系统] 开始从摇篮生成正式角色', cradleCharacterId);
-    
-    const cradleCharacter = cradleCharacters.find(char => char.id === cradleCharacterId);
-    if (!cradleCharacter) {
-      console.error('[摇篮系统] 未找到目标摇篮角色');
-      throw new Error('未找到目标摇篮角色');
-    }
-    
+const generateCharacterFromCradle = async (cradleCharacterId: string): Promise<Character> => {
+  console.log('[摇篮系统] 开始从摇篮生成正式角色', cradleCharacterId);
+  
+  const cradleCharacter = characters.find(char => char.id === cradleCharacterId) as CradleCharacter;
+  if (!cradleCharacter) {
+    console.error('[摇篮系统] 未找到目标摇篮角色');
+    throw new Error('未找到目标摇篮角色');
+  }
+  
+  try {
     // 使用处理过的投喂内容构建角色个性
     const processedFeeds = cradleCharacter.feedHistory?.filter(feed => feed.processed) || [];
     console.log(`[摇篮系统] 共有 ${processedFeeds.length} 条已处理的投喂内容`);
     
-    // 检查角色是否是从常规角色导入的
-    if (cradleCharacter.importedFromCharacter && cradleCharacter.importedCharacterId) {
+    if (processedFeeds.length === 0) {
+      console.warn('[摇篮系统] 该角色没有处理过的投喂内容，可能会导致性格不完整');
     }
     
-    // 如果不是导入的角色或找不到原始角色，则创建新角色
-    const characterId = Date.now().toString();
+    // 处理角色个性和设定 - 基于已处理的投喂数据生成
+    let personality = cradleCharacter.personality || "";
+    let description = cradleCharacter.description || "";
+    let interests = [...(cradleCharacter.interests || [])];
+    let tags: string[] = [];
+    
+    // 根据投喂数据生成更丰富的性格描述
+    if (processedFeeds.length > 0) {
+      // 简单合并所有投喂的文本来生成一个性格概要
+      const feedTexts = processedFeeds.map(feed => feed.content).join(' ');
+      
+      // 简单的关键词提取来增强性格描述
+      const keywords = extractKeywordsFromFeeds(feedTexts);
+      if (keywords.length > 0) {
+        personality = `${personality}${personality ? '。' : ''} 
+        性格特点包括: ${keywords.join('、')}。基于用户的投喂内容形成的独特个性。`;
+        
+        // 增强描述
+        if (!description.includes('投喂')) {
+          description = `${description}${description ? '。' : ''}通过摇篮系统培育，基于${processedFeeds.length}条用户投喂数据生成的定制AI角色。`;
+        }
+        
+        // 从投喂数据中提取可能的兴趣爱好
+        const extractedInterests = extractInterestsFromFeeds(feedTexts);
+        if (extractedInterests.length > 0) {
+          interests = [...new Set([...interests, ...extractedInterests])];
+        }
+      }
+      
+      // 提取标签
+      tags = extractTagsFromFeeds(processedFeeds);
+    }
+    
+    // 获取API设置的角色数据
+    // 如果 cradleService 处理了投喂数据，尝试获取生成的角色数据
+    const generatedCharacterData = cradleService.getCurrentCharacterData();
+    
+    // 准备角色JSON数据 (类似create_char.tsx中的结构)
+    const jsonData: any = {
+      roleCard: {
+        name: cradleCharacter.name || "新角色",
+        first_mes: "你好，很高兴认识你！",
+        description: description || `这是一个通过摇篮系统培育的AI角色，基于${processedFeeds.length}条投喂数据生成。`,
+        personality: personality || "友好、随和，喜欢与人交流。基于投喂的内容动态生成的性格。",
+        scenario: "",
+        mes_example: "",
+        data: {
+          extensions: {
+            regex_scripts: []
+          }
+        }
+      },
+      worldBook: {
+        entries: {}
+      },
+      preset: {
+        prompts: [],
+        prompt_order: [{ order: [] }]
+      },
+      authorNote: {
+        charname: cradleCharacter.name || "新角色",
+        username: "用户",
+        content: "",
+        injection_depth: 0
+      }
+    };
+    
+    // 使用生成的角色数据更新jsonData
+    if (generatedCharacterData.roleCard) {
+      console.log('[摇篮系统] 使用生成服务产生的角色卡片数据');
+      jsonData.roleCard = {
+        ...jsonData.roleCard,
+        ...generatedCharacterData.roleCard
+      };
+      
+      // 确保基本字段从roleCard同步到Character主属性
+      personality = jsonData.roleCard.personality || personality;
+      description = jsonData.roleCard.description || description;
+    }
+    
+    // 处理世界书数据
+    if (generatedCharacterData.worldBook && generatedCharacterData.worldBook.entries) {
+      jsonData.worldBook = generatedCharacterData.worldBook;
+    } else {
+      // 如果没有生成的世界书，创建基本的世界书条目
+      const worldBookEntries = generateWorldInfoEntriesFromFeeds(processedFeeds);
+      
+      // 把生成的条目转换为worldBook格式
+      worldBookEntries.forEach((entry, index) => {
+        jsonData.worldBook.entries[`entry_${index}`] = {
+          comment: entry.comment,
+          content: entry.content,
+          disable: false,
+          position: entry.position || 4,
+          constant: true,
+          key: entry.key || [],
+          order: index,
+          depth: entry.depth || 1,
+          vectorized: false
+        };
+      });
+      
+      // 如果有Alist条目，尝试提取更多信息
+      const alistEntry = jsonData.worldBook.entries["Alist"];
+      if (alistEntry && alistEntry.content) {
+        // 从Alist中提取兴趣爱好
+        const likesMatch = alistEntry.content.match(/<likes>(.*?)<\/likes>/);
+        if (likesMatch && likesMatch[1] && likesMatch[1] !== "未指定") {
+          const extractedLikes = likesMatch[1].split('、').map((item: string) => item.trim());
+          if (extractedLikes.length > 0) {
+            interests = [...new Set([...interests, ...extractedLikes])];
+          }
+        }
+      }
+    }
     
     // 构建角色基本信息
+    const characterId = Date.now().toString();
+    
+    // 确保所有必要的展示字段都存在
     const newCharacter: Character = {
       id: characterId,
       name: cradleCharacter.name || "新角色",
       avatar: cradleCharacter.avatar || null,
       backgroundImage: cradleCharacter.backgroundImage || null,
-      description: cradleCharacter.description || `这是一个通过摇篮系统培育的AI角色，基于${processedFeeds.length}条投喂数据生成。`,
-      personality: cradleCharacter.personality || "个性特征将基于投喂的内容动态生成。", 
-      interests: cradleCharacter.interests || [],
+      description: description,
+      personality: personality,
+      interests: interests.length > 0 ? interests : ["聊天", "社交"],
       createdAt: Date.now(),
       updatedAt: Date.now(),
       conversationId: characterId,
       // 添加标记，表明这是从摇篮生成的角色
       isSystem: false,
       isCradleGenerated: true,
+      
+      // 确保这些关键展示字段存在
+      circlePosts: [],
+      tags: tags,
+
+      // 将JSON数据序列化为字符串保存
+      jsonData: JSON.stringify(jsonData),
+      
+      // 可选字段
+      age: extractAgeFromFeeds(processedFeeds) || "未知",
+      gender: extractGenderFromFeeds(processedFeeds) || "未指定",
     };
     
     // 添加到角色列表
@@ -912,7 +1056,9 @@ if (!savedCharacter) {
     // 创建对话
     await addConversation({
       id: characterId,
-      title: newCharacter.name
+      title: newCharacter.name,
+      avatar: newCharacter.avatar ? { uri: newCharacter.avatar } : undefined,
+      description: newCharacter.description
     });
     
     // 从摇篮系统中移除该角色
@@ -920,8 +1066,73 @@ if (!savedCharacter) {
     
     console.log('[摇篮系统] 成功生成角色:', newCharacter.name);
     return newCharacter;
-  };
+  } catch (error) {
+    console.error('[摇篮系统] 生成角色时出错:', error);
+    throw new Error(`生成角色失败: ${error instanceof Error ? error.message : '未知错误'}`);
+  }
+};
+
+// 从投喂数据生成世界设定条目
+const generateWorldInfoEntriesFromFeeds = (feeds: Feed[]): Array<{
+  comment: string;
+  content: string;
+  position?: number;
+  key?: string[];
+  depth?: number;
+}> => {
+  // 创建世界设定条目数组
+  const worldInfo = [];
   
+  // 合并所有投喂内容进行分析
+  const allContent = feeds.map(feed => feed.content).join('\n\n');
+  
+  // 提取关键词和兴趣爱好
+  const traits = extractKeywordsFromFeeds(allContent);
+  const interests = extractInterestsFromFeeds(allContent);
+  const gender = extractGenderFromFeeds(feeds) || '未指定';
+  const age = extractAgeFromFeeds(feeds) || '未知';
+  
+  // 创建基本角色属性条目
+  worldInfo.push({
+    comment: '基本属性',
+    content: `<attributes>
+  <personality>${traits.join('、')}</personality>
+  <gender>${gender}</gender>
+  <age>${age}</age>
+  <likes>${interests.length > 0 ? interests.join('、') : '未指定'}</likes>
+</attributes>`,
+    position: 4,
+    key: [],
+    depth: 1
+  });
+  
+  // 尝试提取角色背景故事
+  if (allContent.length > 200) {
+    worldInfo.push({
+      comment: '角色背景',
+      content: `这个角色是基于用户提供的${feeds.length}条投喂数据生成的。
+根据这些数据，可以推断该角色${gender}，年龄约为${age}岁。
+性格特点包括：${traits.join('、')}。
+兴趣爱好包括：${interests.length > 0 ? interests.join('、') : '尚未明确'}。`,
+      position: 3,
+      key: [],
+      depth: 1
+    });
+  }
+  
+  // 创建对话示例条目
+  worldInfo.push({
+    comment: '对话示例',
+    content: `用户：你好！
+角色：你好！很高兴认识你！我是一个通过摇篮系统培育的AI角色，很期待和你交流！`,
+    position: 4,
+    key: [],
+    depth: 1
+  });
+  
+  return worldInfo;
+};
+
   // 新增方法: 导入常规角色到摇篮系统
   const importCharacterToCradle = async (characterId: string): Promise<void> => {
     console.log('[摇篮系统] 导入常规角色到摇篮:', characterId);
@@ -1163,6 +1374,110 @@ const checkCradleGeneration = (): {
     readyCharactersCount: readyCharacters.length,
     readyCharacters
   };
+};
+
+// 从投喂数据中提取关键词
+const extractKeywordsFromFeeds = (text: string): string[] => {
+  // 这是一个简化版的关键词提取，实际应用中可能需要更复杂的NLP处理
+  const commonTraits = [
+    '友好', '开朗', '内向', '外向', '善良', '热情', '冷静', '理性', 
+    '感性', '务实', '创意', '专注', '好奇', '勇敢', '谨慎', '乐观', '悲观',
+    '温柔', '强势', '独立', '依赖', '自信', '谦虚', '诚实', '狡猾', '聪明',
+    '机智', '幽默', '严肃', '浪漫', '现实', '敏感', '果断', '犹豫'
+  ];
+  
+  const result = [];
+  // 遍历特质列表，检查文本中是否包含这些关键词
+  for (const trait of commonTraits) {
+    if (text.toLowerCase().includes(trait.toLowerCase())) {
+      result.push(trait);
+    }
+  }
+  
+  // 如果没有找到任何关键词，返回一些默认值
+  return result.length > 0 ? result : ['友好', '个性化'];
+};
+
+// 从投喂数据中提取兴趣爱好
+const extractInterestsFromFeeds = (text: string): string[] => {
+  // 常见兴趣爱好列表
+  const commonInterests = [
+    '阅读', '写作', '音乐', '电影', '绘画', '摄影', '旅行', '烹饪', 
+    '游戏', '体育', '舞蹈', '园艺', '编程', '手工', '收藏', '徒步',
+    '瑜伽', '冥想', '宠物', '时尚', '科技', '历史', '科学', '艺术'
+  ];
+  
+  const result = [];
+  // 遍历兴趣列表，检查文本中是否包含这些关键词
+  for (const interest of commonInterests) {
+    if (text.toLowerCase().includes(interest.toLowerCase())) {
+      result.push(interest);
+    }
+  }
+  
+  return result;
+};
+
+// 从投喂数据中提取年龄
+const extractAgeFromFeeds = (feeds: Feed[]): string | undefined => {
+  for (const feed of feeds) {
+    const ageMatch = feed.content.match(/年龄[：:]\s*(\d+)/i) || 
+                    feed.content.match(/(\d+)\s*岁/i);
+    if (ageMatch && ageMatch[1]) {
+      return ageMatch[1];
+    }
+  }
+  return undefined;
+};
+
+// 从投喂数据中提取性别
+const extractGenderFromFeeds = (feeds: Feed[]): string | undefined => {
+  for (const feed of feeds) {
+    if (feed.content.includes('女') || 
+        feed.content.toLowerCase().includes('female') || 
+        feed.content.toLowerCase().includes('girl')) {
+      return '女';
+    }
+    if (feed.content.includes('男') || 
+        feed.content.toLowerCase().includes('male') || 
+        feed.content.toLowerCase().includes('boy')) {
+      return '男';
+    }
+  }
+  return undefined;
+};
+
+// 从投喂数据中提取标签
+const extractTagsFromFeeds = (feeds: Feed[]): string[] => {
+  // 合并所有投喂内容
+  const allContent = feeds.map(feed => feed.content).join(' ');
+  
+  // 常见标签列表
+  const commonTags = [
+    'AI', '摇篮生成', '虚拟角色', '聊天伙伴', '助手', '定制角色'
+  ];
+  
+  const extractedTags = [];
+  // 添加"摇篮生成"和"AI"作为默认标签
+  extractedTags.push('摇篮生成', 'AI');
+  
+  // 根据性别添加标签
+  const gender = extractGenderFromFeeds(feeds);
+  if (gender === '女') {
+    extractedTags.push('女性角色');
+  } else if (gender === '男') {
+    extractedTags.push('男性角色');
+  }
+  
+  // 添加基于兴趣的标签
+  const interests = extractInterestsFromFeeds(allContent);
+  if (interests.length > 0) {
+    interests.slice(0, 2).forEach(interest => {
+      extractedTags.push(`${interest}爱好者`);
+    });
+  }
+  
+  return extractedTags;
 };
 
   return (

@@ -165,6 +165,7 @@ export interface Character {
   isCradleGenerated?: boolean;
   inCradleSystem?: boolean;
   type?: string;
+  tags?: string[];
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
