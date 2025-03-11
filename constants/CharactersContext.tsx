@@ -8,6 +8,7 @@ import { Character, Message, CirclePost } from '@/shared/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
 import { CradleService } from '@/NodeST/nodest/services/cradle-service';
+import { downloadAndSaveImage, deleteCharacterImages } from '@/utils/imageUtils';
 
 const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
 
@@ -41,7 +42,8 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [cradleSettings, setCradleSettings] = useState<CradleSettings>({
     enabled: false,
     duration: 7,
-    progress: 0
+    progress: 0,
+    feedInterval: 1
   });
   const [cradleCharacters, setCradleCharacters] = useState<CradleCharacter[]>([]);
   
@@ -296,7 +298,13 @@ if (!savedCharacter) {
 
   const deleteCharacters = async (ids: string[]) => {
     try {
-      // 1. 删除基本信息
+      // 1. 删除本地图片资源
+      for (const id of ids) {
+        await deleteCharacterImages(id);
+      }
+      console.log('[CharactersContext] 已删除角色本地图片资源');
+
+      // 2. 删除基本信息
       const updatedCharacters = characters.filter(char => !ids.includes(char.id));
       await FileSystem.writeAsStringAsync(
         FileSystem.documentDirectory + 'characters.json',
@@ -304,7 +312,7 @@ if (!savedCharacter) {
         { encoding: FileSystem.EncodingType.UTF8 }
       );
 
-      // 2. 删除角色设定文件夹
+      // 3. 删除角色设定文件夹
       for (const id of ids) {
         const charDir = `${FileSystem.documentDirectory}app/characters/${id}`;
         await FileSystem.deleteAsync(charDir, { idempotent: true });
@@ -631,7 +639,8 @@ if (!savedCharacter) {
       setCradleSettings({
         enabled: false,
         duration: 7,
-        progress: 0
+        progress: 0,
+        feedInterval: 1
       });
     }
   };
@@ -781,11 +790,27 @@ if (!savedCharacter) {
   const deleteCradleCharacter = async (id: string) => {
     console.log('[摇篮系统] 删除摇篮角色:', id);
     
-    const updatedCharacters = cradleCharacters.filter(char => char.id !== id);
-    setCradleCharacters(updatedCharacters);
-    await saveCradleCharacters(updatedCharacters);
-    
-    console.log('[摇篮系统] 摇篮角色删除成功');
+    try {
+      // Delete local images for this character
+      await deleteCharacterImages(id);
+      console.log('[摇篮系统] 已删除角色本地图片资源');
+      
+      // Remove character from state
+      const updatedCharacters = characters.filter(char => char.id !== id);
+      setCharacters(updatedCharacters);
+      
+      // Save updated character list to storage
+      await FileSystem.writeAsStringAsync(
+        FileSystem.documentDirectory + 'characters.json',
+        JSON.stringify(updatedCharacters),
+        { encoding: FileSystem.EncodingType.UTF8 }
+      );
+      
+      console.log('[摇篮系统] 摇篮角色删除成功');
+    } catch (error) {
+      console.error('[摇篮系统] 删除摇篮角色失败:', error);
+      throw error;
+    }
   };
   
   // 添加投喂内容
@@ -859,29 +884,6 @@ if (!savedCharacter) {
     
     // 检查角色是否是从常规角色导入的
     if (cradleCharacter.importedFromCharacter && cradleCharacter.importedCharacterId) {
-      // 更新原有角色而不是创建新角色
-      const originalCharacter = characters.find(char => char.id === cradleCharacter.importedCharacterId);
-      
-      if (originalCharacter) {
-        // 合并原有角色与摇篮系统中培育的数据
-        const updatedCharacter: Character = {
-          ...originalCharacter,
-          // 更新性格描述，根据投喂内容增强角色设定
-          personality: `${originalCharacter.personality || ''}\n\n通过摇篮系统培育增强: 基于${processedFeeds.length}条投喂数据`,
-          updatedAt: Date.now(),
-        };
-        
-        // 更新角色
-        await updateCharacter(updatedCharacter);
-        
-        // 从摇篮系统中移除该角色
-        await deleteCradleCharacter(cradleCharacterId);
-        
-        console.log('[摇篮系统] 成功更新导入的角色:', updatedCharacter.name);
-        return updatedCharacter;
-      } else {
-        console.error('[摇篮系统] 未找到原始角色，将创建新角色');
-      }
     }
     
     // 如果不是导入的角色或找不到原始角色，则创建新角色

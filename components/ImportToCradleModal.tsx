@@ -22,6 +22,7 @@ interface ImportToCradleModalProps {
   embedded?: boolean;
   onClose: () => void;
   onImportSuccess?: () => void;
+  isVisible: boolean; 
 }
 
 export default function ImportToCradleModal({ 

@@ -26,6 +26,7 @@ import TagSelector from './TagSelector';
 import { theme } from '@/constants/theme';
 // Add import for tag data
 import tagData from '@/app/data/tag.json';
+import * as FileSystem from 'expo-file-system';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -564,7 +565,6 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
       
       // 记录队列信息
       if (data.queue_info) {
-        console.log(`[摇篮角色创建] 图像生成任务已加入队列，位置: ${data.queue_info.position}/${data.queue_info.total_pending}, 预计等待时间: ${Math.round((data.queue_info.estimated_wait || 0) / 60)} 分钟`);
       }
       
       console.log(`[摇篮角色创建] 图像生成任务已成功提交，任务ID: ${data.task_id}`);

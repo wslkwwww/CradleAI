@@ -322,10 +322,14 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
       stage?: 'egg' | 'growing' | 'mature';
       lastFeedTimestamp?: number;
     };
-    // Explicitly define backgroundImage with the right type
-    backgroundImage: string | null;
+    
+    // Image handling properties
+    backgroundImage: string | null;  // Local or remote image URI
+    remoteBackgroundImage?: string | null; // Remote server image URI
+    localBackgroundImage?: string | null;  // Local filesystem image URI
+    
     imageGenerationTaskId?: string | null;
-    imageGenerationStatus?: 'idle' | 'pending' | 'success' | 'error'; // 使用枚举类型而不是string
+    imageGenerationStatus?: 'idle' | 'pending' | 'success' | 'error'; 
     imageGenerationError?: string | null;
 }
 

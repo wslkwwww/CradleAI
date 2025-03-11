@@ -20,6 +20,8 @@ interface CradleSettingsProps {
   cradleDuration: number;
   onCradleToggle: (enabled: boolean) => void;
   onDurationChange: (duration: number) => void;
+  feedInterval: number;
+  onUpdateSettings: (settings: any) => void;
 }
 
 export default function CradleSettings({
@@ -29,7 +31,8 @@ export default function CradleSettings({
   isCradleEnabled,
   cradleDuration,
   onCradleToggle,
-  onDurationChange
+  onDurationChange,
+  feedInterval
 }: CradleSettingsProps) {
   const [localEnabled, setLocalEnabled] = useState(isCradleEnabled);
   const [localDuration, setLocalDuration] = useState(cradleDuration);

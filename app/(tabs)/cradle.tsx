@@ -1,31 +1,34 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Image, 
-  Alert,
-  Dimensions,
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
   RefreshControl,
-  ActivityIndicator,
   StatusBar,
-  SafeAreaView
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  Image,
+  ImageBackground,
+  Alert
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useCharacters } from '@/constants/CharactersContext';
-import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { CradleCharacter } from '@/shared/types';
-
-// Import components from original cradle page
+import { useCharacters } from '@/constants/CharactersContext';
 import CradleCharacterCarousel from '@/components/CradleCharacterCarousel';
-import CradleApiSettings from '@/components/CradleApiSettings';
-import CradleSettings from '@/components/CradleSettings';
-import ImportToCradleModal from '@/components/ImportToCradleModal';
 import CradleFeedModal from '@/components/CradleFeedModal';
+import ImportToCradleModal from '@/components/ImportToCradleModal';
+import CradleSettings from '@/components/CradleSettings';
+import CradleApiSettings from '@/components/CradleApiSettings';
+import { downloadAndSaveImage } from '@/utils/imageUtils';
+import { confirmDeleteCradleCharacter } from '@/utils/cradleUtils';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -39,12 +42,14 @@ const TABS = [
 
 export default function CradlePage() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   
   const { 
     getCradleCharacters, 
     getCradleSettings,
     updateCradleSettings,
-    updateCradleCharacter
+    updateCradleCharacter,
+    deleteCradleCharacter
   } = useCharacters();
 
   // States for data with proper typing
@@ -52,10 +57,12 @@ export default function CradlePage() {
   const [selectedCharacter, setSelectedCharacter] = useState<CradleCharacter | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const cradleSettings = getCradleSettings();
+  const characterCarouselRef = useRef(null);
   
   // State for tabs
   const [activeTab, setActiveTab] = useState('main');
   const [showFeedModal, setShowFeedModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   
   // State for notifications
   const [notificationVisible, setNotificationVisible] = useState(false);
@@ -65,369 +72,195 @@ export default function CradlePage() {
   useEffect(() => {
     loadCradleCharacters();
     
-    // Set up a refresh interval for checking image generation status
-    const intervalId = setInterval(() => {
-      handleRefresh();
-    }, 60000); // Check every minute
+    // Setup periodic image status check
+    const checkInterval = setInterval(() => {
+      checkCharacterImagesStatus();
+    }, 30000); // Check every 30 seconds
     
-    return () => clearInterval(intervalId);
+    return () => clearInterval(checkInterval);
   }, []);
 
   // Load cradle characters from context
   const loadCradleCharacters = useCallback(() => {
     const characters = getCradleCharacters();
+    console.log('[摇篮页面] 加载了', characters.length, '个摇篮角色');
     setCradleCharacters(characters);
     
-    // If we have characters but none selected, select the first one
-    if (characters.length > 0 && !selectedCharacter) {
-      setSelectedCharacter(characters[0]);
-    } else if (selectedCharacter) {
-      // If we have a selected character, make sure it's updated
-      const updatedSelectedChar = characters.find(c => c.id === selectedCharacter.id);
-      if (updatedSelectedChar) {
-        setSelectedCharacter(updatedSelectedChar);
-      } else if (characters.length > 0) {
-        // If the selected character no longer exists, select the first one
+    // Keep selected character if exists, otherwise select the first one
+    if (selectedCharacter) {
+      const stillExists = characters.find(c => c.id === selectedCharacter.id);
+      if (!stillExists && characters.length > 0) {
         setSelectedCharacter(characters[0]);
-      } else {
+      } else if (!stillExists) {
         setSelectedCharacter(null);
+      } else {
+        // Update selected character with latest data
+        const updatedSelectedChar = characters.find(c => c.id === selectedCharacter.id);
+        setSelectedCharacter(updatedSelectedChar || null);
       }
+    } else if (characters.length > 0) {
+      setSelectedCharacter(characters[0]);
     }
   }, [selectedCharacter, getCradleCharacters]);
 
   // Handle refresh - check character generation status and image generation status
   const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    
     try {
-      console.log('[摇篮页面] 开始刷新角色状态和图像生成状态');
-      // 获取最新角色列表
-      const characters = getCradleCharacters();
-      
-      console.log(`[摇篮页面] 共有 ${characters.length} 个角色，开始检查图像生成状态`);
-      
-      // 检查所有摇篮角色
-      await Promise.all(
-        characters.map(async (character) => {
-          // 如果角色有图像生成任务，检查其状态
-          if (character.imageGenerationTaskId) {
-            console.log(`[摇篮页面] 角色 "${character.name}" 有图像生成任务ID: ${character.imageGenerationTaskId}, 当前状态: ${character.imageGenerationStatus}`);
-            
-            // 计算培育完成状态
-            const { days, hours, ready } = calculateRemainingTime(character);
-            if (ready) {
-              console.log(`[摇篮页面] 角色 "${character.name}" 培育已完成，可以获取图像`);
-            } else {
-              console.log(`[摇篮页面] 角色 "${character.name}" 培育未完成，剩余时间: ${days}天${hours}小时`);
-            }
-            
-            // 检查图像生成状态
-            await checkImageGenerationStatus(character);
-          }
-        })
-      );
-      
-      // 重新加载角色以获取最新更新
+      setRefreshing(true);
       loadCradleCharacters();
-      console.log('[摇篮页面] 角色状态和图像生成状态刷新完成');
+      await checkCharacterImagesStatus();
     } catch (error) {
-      console.error('[摇篮页面] 刷新摇篮角色失败:', error);
+      console.error('[摇篮页面] 刷新失败:', error);
     } finally {
       setRefreshing(false);
     }
   }, [cradleCharacters]);
   
-  // Enhance the checkImageGenerationStatus function
-const checkImageGenerationStatus = async (character: CradleCharacter) => {
-  if (!character.imageGenerationTaskId) return;
-  
-  try {
-    console.log(`[摇篮页面] 检查角色 "${character.name}" 的图像生成任务状态: ${character.imageGenerationTaskId}`);
-    
-    // 请求状态从服务器
-    const response = await fetch(`http://152.69.219.182:5000/task_status/${character.imageGenerationTaskId}`);
-    if (!response.ok) {
-      console.warn(`[摇篮页面] 获取任务状态失败: HTTP ${response.status}`);
-      return;
-    }
-    
-    const data = await response.json();
-    console.log(`[摇篮页面] 任务状态响应:`, data);
-    
-    // 如果任务完成且成功
-    if (data.done && data.success && data.image_url) {
-      console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
-      
-      // 更新角色信息
-      let updatedCharacter = { ...character };
-      updatedCharacter.backgroundImage = data.image_url;
-      updatedCharacter.imageGenerationStatus = 'success';
-      
-      // 保存更新后的角色
-      await updateCradleCharacter(updatedCharacter);
-      
-      // 显示通知
-      showNotification('图像生成成功', `角色 ${character.name} 的图像已成功生成！`);
-      
-      // 重新加载角色列表以刷新UI
-      loadCradleCharacters();
-    } 
-    // 如果任务失败
-    else if (data.done && !data.success) {
-      console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
-      
-      let updatedCharacter = { ...character };
-      updatedCharacter.imageGenerationStatus = 'error';
-      updatedCharacter.imageGenerationError = data.error || '未知错误';
-      
-      // 保存更新后的角色
-      await updateCradleCharacter(updatedCharacter);
-      
-      // 显示错误通知
-      showNotification('图像生成失败', `角色 ${character.name} 的图像生成失败：${data.error || '未知错误'}`);
-    }
-    // 如果任务仍在队列中
-    else if (data.queue_info) {
-      // 更新队列状态信息
-      const queuePosition = data.queue_info.position;
-      const estimatedWait = data.queue_info.estimated_wait || 0;
-      
-      console.log(`[摇篮页面] 图像生成任务在队列中，位置: ${queuePosition}，预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`);
-      
-      // 仅在第一次获取队列状态时显示通知，避免频繁打扰用户
-      if (character.imageGenerationStatus === 'idle') {
-        let updatedCharacter = { ...character };
-        updatedCharacter.imageGenerationStatus = 'pending';
-        await updateCradleCharacter(updatedCharacter);
-        
-        showNotification(
-          '图像生成进行中',
-          `角色 ${character.name} 的图像生成任务已加入队列。\n队列位置: ${queuePosition}\n预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`
-        );
-      }
-    }
-  } catch (error) {
-    console.error(`[摇篮页面] 检查图像生成状态失败:`, error);
-  }
-};
-
-// Add this function to ensure character cards are re-rendered when needed
-const refreshCharacterCards = useCallback(() => {
-  console.log('[摇篮页面] 强制刷新角色卡片');
-  
-  // Get fresh list of characters from context
-  const freshCharacters = getCradleCharacters();
-  setCradleCharacters([...freshCharacters]);
-  
-  // Update selected character if needed
-  if (selectedCharacter) {
-    const updatedSelectedChar = freshCharacters.find(c => c.id === selectedCharacter.id);
-    if (updatedSelectedChar) {
-      setSelectedCharacter(updatedSelectedChar);
-    }
-  }
-}, [getCradleCharacters, selectedCharacter]);
-
-// Modify the handleCreateCharacter callback in CradleFeedModal to refresh the UI
-useEffect(() => {
-  // Set up interval to refresh character cards periodically
-  const refreshInterval = setInterval(() => {
-    refreshCharacterCards();
-    // Check image generation status for all characters
-    cradleCharacters.forEach(character => {
+  // Enhanced function to check image generation status for all characters
+  const checkCharacterImagesStatus = async () => {
+    for (const character of cradleCharacters) {
       if (character.imageGenerationTaskId && 
-          character.imageGenerationStatus !== 'success' && 
-          character.imageGenerationStatus !== 'error') {
-        checkImageGenerationStatus(character);
-      }
-    });
-  }, 30000); // Check every 30 seconds
-  
-  return () => clearInterval(refreshInterval);
-}, [cradleCharacters, refreshCharacterCards]);
-
-// Update the useEffect that handles refresh to also immediately check status
-useEffect(() => {
-  loadCradleCharacters();
-  
-  // Immediately check image generation status for pending characters
-  const checkPendingImageTasks = async () => {
-    const characters = getCradleCharacters();
-    for (const character of characters) {
-      if (character.imageGenerationTaskId && 
-          character.imageGenerationStatus !== 'success' && 
-          character.imageGenerationStatus !== 'error') {
+          character.imageGenerationStatus === 'pending') {
         await checkImageGenerationStatus(character);
       }
     }
   };
   
-  checkPendingImageTasks();
-}, []);
+  // Check the status of a single character's image generation task
+  const checkImageGenerationStatus = async (character: CradleCharacter) => {
+    if (!character.imageGenerationTaskId) return;
+    
+    try {
+      console.log(`[摇篮页面] 检查角色 "${character.name}" 的图像生成任务状态: ${character.imageGenerationTaskId}`);
+      
+      // Request status from server
+      const response = await fetch(`http://152.69.219.182:5000/task_status/${character.imageGenerationTaskId}`);
+      if (!response.ok) {
+        console.warn(`[摇篮页面] 获取任务状态失败: HTTP ${response.status}`);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      // If task is done and successful
+      if (data.done && data.success && data.image_url) {
+        console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
+        
+        // Download the image to local storage
+        const localImageUri = await downloadAndSaveImage(
+          data.image_url,
+          character.id,
+          'background'
+        );
+        
+        // Update character with image information
+        let updatedCharacter = { ...character };
+        updatedCharacter.remoteBackgroundImage = data.image_url;
+        updatedCharacter.localBackgroundImage = localImageUri;
+        updatedCharacter.backgroundImage = localImageUri || data.image_url;
+        updatedCharacter.imageGenerationStatus = 'success';
+        
+        // Save updated character
+        await updateCradleCharacter(updatedCharacter);
+        showNotification('图像生成成功', `角色 ${character.name} 的图像已成功生成！`);
+        
+        // If this is the currently selected character, update it
+        if (selectedCharacter?.id === character.id) {
+          setSelectedCharacter(updatedCharacter);
+        }
+        
+        // Force refresh character carousel
+        refreshCharacterCards();
+      } 
+      // If task is done but failed
+      else if (data.done && !data.success) {
+        console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
+        
+        let updatedCharacter = { ...character };
+        updatedCharacter.imageGenerationStatus = 'error';
+        updatedCharacter.imageGenerationError = data.error || '未知错误';
+        
+        // Save updated character
+        await updateCradleCharacter(updatedCharacter);
+        showNotification('图像生成失败', `角色 ${character.name} 的图像生成失败：${data.error || '未知错误'}`);
+        
+        // If this is the currently selected character, update it
+        if (selectedCharacter?.id === character.id) {
+          setSelectedCharacter(updatedCharacter);
+        }
+      }
+      // If task is still in queue
+      else if (data.queue_info) {
+        // Update queue status information
+        const queuePosition = data.queue_info.position;
+        const estimatedWait = data.queue_info.estimated_wait || 0;
+        
+        console.log(`[摇篮页面] 图像生成任务在队列中，位置: ${queuePosition}，预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`);
+      }
+    } catch (error) {
+      console.error(`[摇篮页面] 检查图像生成状态失败:`, error);
+    }
+  };
 
-// Show notification
+  // Function to force refresh the character cards when needed
+  const refreshCharacterCards = () => {
+    // Re-fetch characters to ensure we have the latest data
+    loadCradleCharacters();
+  };
+  
+  // Show notification function
   const showNotification = (title: string, message: string) => {
     setNotification({ title, message });
     setNotificationVisible(true);
-    
-    // Auto hide after 5 seconds
+    // Auto-hide after 4 seconds
     setTimeout(() => {
       setNotificationVisible(false);
-    }, 5000);
-  };
-
-  // Handle character selection
-  const handleSelectCharacter = (character: CradleCharacter) => {
-    setSelectedCharacter(character);
-  };
-
-  // Handle feed character
-  const handleFeedCharacter = (characterId: string) => {
-    // Find the character
-    const character = cradleCharacters.find(c => c.id === characterId);
-    if (character) {
-      setSelectedCharacter(character);
-      setShowFeedModal(true);
-    }
-  };
-
-  // Fix the scrollToIndex error by making sure we handle onScrollToIndexFailed
-  const handleTabChange = (tabId: string) => {
-    // Reset any flatlist scroll position issues when changing tabs
-    if (tabId === 'main') {
-      // Use setTimeout to ensure the state update happens after the tab change
-      setTimeout(() => {
-        loadCradleCharacters();
-      }, 10);
-    }
-    setActiveTab(tabId);
+    }, 4000);
   };
   
+  // Handle character deletion with confirmation
+  const handleDeleteCharacter = useCallback((character: CradleCharacter) => {
+    confirmDeleteCradleCharacter(character, deleteCradleCharacter, () => {
+      // After successful deletion:
+      showNotification('删除成功', `角色 "${character.name}" 已成功删除`);
+      // Refresh the character list
+      loadCradleCharacters();
+    });
+  }, [deleteCradleCharacter]);
 
-
-  // Calculate remaining cradle time
-  const calculateRemainingTime = (character: CradleCharacter) => {
-    const cradle_duration = cradleSettings.duration || 7; // Default 7 days
-    const createdAt = character.createdAt;
-    const now = Date.now();
-    const elapsedDays = (now - createdAt) / (24 * 60 * 60 * 1000);
-    const remainingDays = Math.max(0, cradle_duration - elapsedDays);
-    
-    return {
-      days: Math.floor(remainingDays),
-      hours: Math.floor((remainingDays % 1) * 24),
-      ready: remainingDays <= 0
-    };
-  };
-
-  // Render character card for carousel
-  const renderCharacterCard = (character: CradleCharacter, isSelected: boolean) => {
-    const { days, hours, ready } = calculateRemainingTime(character);
-    const feedCount = character.feedHistory ? character.feedHistory.length : 0;
-    
-    // Determine character state
-    const isGenerated = character.isCradleGenerated;
-    const isReadyForGeneration = ready && !isGenerated;
-    
-    return (
-      <View style={[
-        styles.characterCard,
-        isReadyForGeneration && styles.characterCardReadyForGeneration,
-        isGenerated && styles.characterCardReady,
-        isSelected && styles.selectedCharacterCard
-      ]}>
-        {/* Character Image */}
-        <View style={styles.characterImageContainer}>
-          {character.backgroundImage ? (
-            <Image 
-              source={{ uri: character.backgroundImage }} 
-              style={styles.characterImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.placeholderImage}>
-              <Ionicons name="image-outline" size={40} color="#555" />
-            </View>
+  // Render the tabs at the top of the screen
+  const renderTabs = () => (
+    <View style={styles.tabsContainer}>
+      {TABS.map((tab) => (
+        <TouchableOpacity
+          key={tab.id}
+          style={[
+            styles.tab, 
+            activeTab === tab.id && styles.activeTab
+          ]}
+          onPress={() => setActiveTab(tab.id)}
+        >
+          <Ionicons 
+            name={tab.icon as any} 
+            size={22} 
+            color={activeTab === tab.id ? theme.colors.primary : '#aaa'} 
+          />
+          <Text style={[
+            styles.tabText,
+            activeTab === tab.id && styles.activeTabText
+          ]}>
+            {tab.title}
+          </Text>
+          
+          {activeTab === tab.id && (
+            <View style={styles.activeTabIndicator} />
           )}
-          
-          {/* Image Generation Status Indicator */}
-          {character.imageGenerationTaskId && character.imageGenerationStatus !== 'idle' && (
-            <View style={[
-              styles.imageStatusBadge,
-              character.imageGenerationStatus === 'pending' && styles.imageStatusPending,
-              character.imageGenerationStatus === 'success' && styles.imageStatusSuccess,
-              character.imageGenerationStatus === 'error' && styles.imageStatusError
-            ]}>
-              {character.imageGenerationStatus === 'pending' ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Ionicons 
-                  name={character.imageGenerationStatus === 'success' ? "checkmark" : "alert"} 
-                  size={12} 
-                  color="#fff" 
-                />
-              )}
-            </View>
-          )}
-          
-          {/* Character Avatar */}
-          <View style={styles.avatarContainer}>
-            {character.avatar ? (
-              <Image 
-                source={{ uri: character.avatar }} 
-                style={styles.avatarImage} 
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Ionicons 
-                  name={character.gender === 'female' ? 'female' : character.gender === 'male' ? 'male' : 'person'} 
-                  size={20} 
-                  color="#aaa" 
-                />
-              </View>
-            )}
-          </View>
-        </View>
-        
-        {/* Character Info */}
-        <View style={styles.characterInfo}>
-          <Text style={styles.characterName} numberOfLines={1}>{character.name}</Text>
-          
-          <View style={styles.statusContainer}>
-            {isGenerated ? (
-              <View style={styles.readyBadge}>
-                <Text style={styles.readyBadgeText}>已生成</Text>
-              </View>
-            ) : isReadyForGeneration ? (
-              <View style={styles.readyForGenBadge}>
-                <Text style={styles.readyForGenBadgeText}>准备生成</Text>
-              </View>
-            ) : (
-              <View style={styles.breedingBadge}>
-                <Text style={styles.breedingBadgeText}>
-                  培育中 ({days}天{hours}小时)
-                </Text>
-              </View>
-            )}
-            
-            <Text style={styles.feedCount}>{feedCount} 次投喂</Text>
-          </View>
-          
-          {/* Feed Button */}
-          <TouchableOpacity 
-            style={styles.feedButton}
-            onPress={() => handleFeedCharacter(character.id)}
-          >
-            <Ionicons name="leaf-outline" size={16} color="#fff" />
-            <Text style={styles.feedButtonText}>投喂</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
-  // Render notification
+  // Render the notification component
   const renderNotification = () => (
     notificationVisible && (
       <View style={styles.notificationContainer}>
@@ -445,280 +278,319 @@ useEffect(() => {
     )
   );
 
-  // Render character details for selected character
-  const renderCharacterDetails = () => {
+  // Render character detail section
+  const renderCharacterDetail = () => {
     if (!selectedCharacter) return null;
     
-    const { days, hours, ready } = calculateRemainingTime(selectedCharacter);
-    const feedCount = selectedCharacter.feedHistory ? selectedCharacter.feedHistory.length : 0;
+    // Calculate feed stats
+    const totalFeeds = selectedCharacter.feedHistory?.length || 0;
+    const processedFeeds = selectedCharacter.feedHistory?.filter(feed => feed.processed).length || 0;
+    const feedPercentage = totalFeeds > 0 ? Math.round((processedFeeds / totalFeeds) * 100) : 0;
+    
+    // Calculate days in cradle
+    const createdAt = selectedCharacter.createdAt;
+    const daysInCradle = createdAt 
+      ? Math.round((Date.now() - createdAt) / (1000 * 60 * 60 * 24) * 10) / 10
+      : 0;
+    
+    // Determine if character has image generation task pending
+    const hasPendingImageTask = selectedCharacter.imageGenerationTaskId && 
+                               selectedCharacter.imageGenerationStatus === 'pending';
+    
+    const hasImageError = selectedCharacter.imageGenerationStatus === 'error';
     
     return (
       <View style={styles.characterDetailSection}>
-        {/* Character Card with Image Background */}
         <View style={styles.characterDetailCard}>
-          {/* Background Image */}
+          {/* Character background */}
           {selectedCharacter.backgroundImage ? (
-            <Image
-              source={{ uri: selectedCharacter.backgroundImage }}
-              style={styles.characterDetailBackground}
+            <Image 
+              source={{ uri: selectedCharacter.backgroundImage }} 
+              style={styles.characterDetailBackground} 
               resizeMode="cover"
             />
           ) : (
             <View style={styles.characterDetailBackgroundPlaceholder}>
-              <Ionicons name="image-outline" size={50} color="#555" />
+              <MaterialCommunityIcons name="image-outline" size={40} color="#666" />
             </View>
           )}
           
-          {/* Gradient overlay */}
+          {/* Overlay gradient */}
           <LinearGradient
-            colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.7)']}
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}
             style={styles.characterDetailGradient}
-          />
-          
-          {/* Image Generation Status */}
-          {selectedCharacter.imageGenerationTaskId && selectedCharacter.imageGenerationStatus !== 'idle' && (
-            <View style={styles.imageGenerationStatusContainer}>
-              {selectedCharacter.imageGenerationStatus === 'pending' && (
-                <>
-                  <ActivityIndicator size="small" color="#FFD700" style={styles.imageStatusIndicator} />
-                  <Text style={styles.imageGenerationStatusText}>图像生成中...</Text>
-                </>
-              )}
-              {selectedCharacter.imageGenerationStatus === 'success' && (
-                <>
-                  <Ionicons name="checkmark-circle" size={16} color="#4CAF50" style={styles.imageStatusIndicator} />
-                  <Text style={[styles.imageGenerationStatusText, { color: '#4CAF50' }]}>图像生成成功</Text>
-                </>
-              )}
-              {selectedCharacter.imageGenerationStatus === 'error' && (
-                <>
-                  <Ionicons name="alert-circle" size={16} color="#F44336" style={styles.imageStatusIndicator} />
-                  <Text style={[styles.imageGenerationStatusText, { color: '#F44336' }]}>
-                    图像生成失败: {selectedCharacter.imageGenerationError?.substring(0, 30) || "未知错误"}
-                  </Text>
-                </>
-              )}
-            </View>
-          )}
-          
-          {/* Character Info Overlay */}
-          <View style={styles.characterDetailInfo}>
-            <Text style={styles.characterDetailName}>{selectedCharacter.name}</Text>
-            <Text style={styles.characterDetailDescription} numberOfLines={3}>
-              {selectedCharacter.description || "暂无角色描述"}
-            </Text>
+          >
+            {/* Show image generation status if applicable */}
+            {(hasPendingImageTask || hasImageError) && (
+              <View style={styles.imageGenerationStatusContainer}>
+                {hasPendingImageTask ? (
+                  <>
+                    <ActivityIndicator size="small" color="#FFD700" style={styles.imageStatusIndicator} />
+                    <Text style={styles.imageGenerationStatusText}>图像生成进行中...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="alert-circle" size={18} color="#FF4444" style={styles.imageStatusIndicator} />
+                    <Text style={styles.imageGenerationStatusText}>图像生成失败</Text>
+                  </>
+                )}
+              </View>
+            )}
             
-            {/* Character Status */}
-            <View style={styles.characterStatusRow}>
-              {/* Remaining Time or Status */}
-              <View style={styles.characterStatusItem}>
-                <Ionicons name="time-outline" size={16} color="#aaa" />
-                <Text style={styles.characterStatusText}>
-                  {selectedCharacter.isCradleGenerated ? '已生成' : 
-                   ready ? '准备生成' : 
-                   `剩余 ${days}天${hours}小时`}
-                </Text>
+            {/* Character info */}
+            <View style={styles.characterDetailInfo}>
+              <Text style={styles.characterDetailName}>{selectedCharacter.name}</Text>
+              
+              <Text style={styles.characterDetailDescription} numberOfLines={2}>
+                {selectedCharacter.description || "这是一个摇篮中的AI角色，等待通过投喂数据塑造个性..."}
+              </Text>
+              
+              <View style={styles.characterStatusRow}>
+                <View style={styles.characterStatusItem}>
+                  <Ionicons name="time-outline" size={16} color="#ddd" />
+                  <Text style={styles.characterStatusText}>培育中: {daysInCradle}天</Text>
+                </View>
+                
+                <View style={styles.characterStatusItem}>
+                  <MaterialCommunityIcons name="food-apple" size={16} color="#ddd" />
+                  <Text style={styles.characterStatusText}>投喂: {processedFeeds}/{totalFeeds}</Text>
+                </View>
               </View>
               
-              {/* Feed Count */}
-              <View style={styles.characterStatusItem}>
-                <Ionicons name="leaf-outline" size={16} color="#aaa" />
-                <Text style={styles.characterStatusText}>
-                  {feedCount} 次投喂
-                </Text>
-              </View>
-            </View>
-            
-            {/* Action Buttons */}
-            <View style={styles.characterActionButtons}>
-              <TouchableOpacity 
-                style={styles.characterActionButton}
-                onPress={() => handleFeedCharacter(selectedCharacter.id)}
-              >
-                <Ionicons name="leaf-outline" size={18} color="#fff" />
-                <Text style={styles.characterActionButtonText}>投喂数据</Text>
-              </TouchableOpacity>
-              
-              {selectedCharacter.isCradleGenerated && (
+              <View style={styles.characterActionButtons}>
                 <TouchableOpacity 
                   style={[styles.characterActionButton, styles.viewButton]}
-                  onPress={() => router.push({
-                    pathname: "/(tabs)",
-                    params: { characterId: selectedCharacter.id }
-                  })}
+                  onPress={() => setShowFeedModal(true)}
                 >
-                  <Ionicons name="eye-outline" size={18} color="#fff" />
-                  <Text style={styles.characterActionButtonText}>查看角色</Text>
+                  <Ionicons name="chatbubble-outline" size={16} color="#fff" />
+                  <Text style={styles.characterActionButtonText}>投喂</Text>
                 </TouchableOpacity>
-              )}
+                
+                <TouchableOpacity 
+                  style={[styles.characterActionButton, { backgroundColor: '#F44336' }]}
+                  onPress={() => handleDeleteCharacter(selectedCharacter)}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#fff" />
+                  <Text style={styles.characterActionButtonText}>删除</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </LinearGradient>
         </View>
       </View>
     );
   };
 
-  // Render the main content for the homepage tab
-  const renderMainContent = () => {
-    if (cradleCharacters.length === 0) {
-      return (
-        <View style={styles.emptyStateContainer}>
-          <MaterialCommunityIcons name="cradle" size={60} color="#555" />
+  // Render main tab content
+  const renderMainTab = () => (
+    <ScrollView 
+      style={styles.tabContent}
+      contentContainerStyle={styles.tabPageContent}
+      refreshControl={
+        <RefreshControl 
+          refreshing={refreshing} 
+          onRefresh={handleRefresh}
+          tintColor="#fff" 
+          colors={["#fff"]}
+        />
+      }
+    >
+      {/* Cradle status bar */}
+      <View style={styles.statusBar}>
+        <View style={styles.statusContainer}>
+          <View style={[
+            styles.statusIndicator,
+            cradleSettings.enabled ? styles.statusActive : styles.statusInactive
+          ]} />
+          <Text style={styles.statusText}>
+            {cradleSettings.enabled ? '摇篮系统已启用' : '摇篮系统已禁用'}
+          </Text>
         </View>
-      );
-    }
-
-    return (
-      <View style={styles.mainContent}>
-        {/* Selected Character Details - Top section */}
-        {renderCharacterDetails()}
-        
-        {/* Character Carousel - Bottom section */}
+      </View>
+      
+      {/* Selected character details */}
+      {selectedCharacter && renderCharacterDetail()}
+      
+      {/* Character carousel */}
+      <Text style={{
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: 'bold',
+        paddingHorizontal: 16,
+        marginTop: 8,
+        marginBottom: 4,
+      }}>
+        角色列表
+      </Text>
+      
+      {/* Render character carousel or empty state */}
+      {cradleCharacters.length > 0 ? (
         <CradleCharacterCarousel
+          ref={characterCarouselRef}
           characters={cradleCharacters}
           selectedCharacterId={selectedCharacter?.id}
-          onSelectCharacter={handleSelectCharacter}
-          onFeedCharacter={handleFeedCharacter}
-          customRenderItem={(character, isSelected) => renderCharacterCard(character, isSelected)}
+          onSelectCharacter={(character) => setSelectedCharacter(character)}
+          onFeedCharacter={(id) => {
+            const character = cradleCharacters.find(c => c.id === id);
+            if (character) {
+              setSelectedCharacter(character);
+              setShowFeedModal(true);
+            }
+          }}
         />
-        
-        {/* Create Character Button */}
-      </View>
-    );
-  };
+      ) : (
+        <View style={styles.emptyStateContainer}>
+          <Ionicons name="egg-outline" size={60} color={theme.colors.primary} />
+          <Text style={styles.emptyTitle}>没有摇篮角色</Text>
+          <Text style={styles.emptyText}>
+            创建新的摇篮角色或从已有角色中导入到摇篮系统
+          </Text>
+          <TouchableOpacity 
+            style={styles.createCharacterButton}
+            onPress={() => router.push('/pages/create_char_cradle')}
+          >
+            <Ionicons name="add" size={20} color="#fff" style={{ marginRight: 6 }} />
+            <Text style={styles.createCharacterButtonText}>创建摇篮角色</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </ScrollView>
+  );
 
-  // Render the appropriate content based on active tab
+  // Render import tab content
+  const renderImportTab = () => (
+    <View style={styles.tabContent}>
+      <ScrollView contentContainerStyle={styles.tabPageContent}>
+        <View style={{ padding: 20, alignItems: 'center' }}>
+          <Ionicons name="cloud-download-outline" size={60} color={theme.colors.primary} />
+          <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold', marginTop: 16 }}>
+            导入角色到摇篮系统
+          </Text>
+          <Text style={{ color: '#aaa', textAlign: 'center', marginVertical: 16, lineHeight: 22 }}>
+            选择您已创建的角色，将其导入到摇篮系统进行培育和完善
+          </Text>
+          <TouchableOpacity 
+            style={{
+              backgroundColor: theme.colors.primary,
+              paddingHorizontal: 20,
+              paddingVertical: 12,
+              borderRadius: 8,
+              marginTop: 16,
+            }}
+            onPress={() => setShowImportModal(true)}
+          >
+            <Text style={{ color: '#000', fontSize: 16, fontWeight: '600' }}>选择角色导入</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+
+  // Render settings tab content
+  const renderSettingsTab = () => (
+    <View style={styles.tabContent}>
+      <CradleSettings 
+        isVisible={activeTab === 'settings'}
+        onClose={() => setActiveTab('main')}
+        isCradleEnabled={cradleSettings.enabled}
+        cradleDuration={cradleSettings.duration}
+        feedInterval={cradleSettings.feedInterval}
+        onUpdateSettings={updateCradleSettings}
+        onCradleToggle={(enabled) => updateCradleSettings({ ...cradleSettings, enabled })}
+        onDurationChange={(duration) => updateCradleSettings({ ...cradleSettings, duration })}
+      />
+        
+    </View>
+  );
+  
+  // State for API settings visibility
+  const [showApiSettings, setShowApiSettings] = useState(false);
+
+  // Render API settings tab content
+  const renderApiSettingsTab = () => (
+    <View style={styles.tabContent}>
+      <CradleApiSettings
+        isVisible={activeTab === 'api'}
+        onClose={() => setActiveTab('main')}
+      />
+    </View>
+  );
+
+  // Determine which tab content to render based on activeTab
   const renderTabContent = () => {
     switch (activeTab) {
       case 'main':
-        return (
-          <ScrollView 
-            style={styles.tabContent}
-            contentContainerStyle={styles.tabPageContent}
-            refreshControl={
-              <RefreshControl 
-                refreshing={refreshing} 
-                onRefresh={handleRefresh}
-                colors={[theme.colors.primary]} 
-                tintColor={theme.colors.primary}
-              />
-            }
-          >
-            <View style={styles.statusBar}>
-              <View style={styles.statusContainer}>
-                <View style={[
-                  styles.statusIndicator, 
-                  cradleSettings.enabled ? styles.statusActive : styles.statusInactive
-                ]} />
-                <Text style={styles.statusText}>
-                  {cradleSettings.enabled 
-                    ? `摇篮系统已启用 · ${cradleSettings.duration || 7}天培育期`
-                    : '摇篮系统未启用'}
-                </Text>
-              </View>
-            </View>
-
-            {renderMainContent()}
-          </ScrollView>
-        );
+        return renderMainTab();
       case 'import':
-        return (
-          <View style={styles.tabContent}>
-            <ImportToCradleModal 
-              embedded={true}
-              visible={true}
-              onClose={() => handleTabChange('main')}
-              onImportSuccess={loadCradleCharacters}
-            />
-          </View>
-        );
+        return renderImportTab();
       case 'settings':
-        return (
-          <View style={styles.tabContent}>
-            <CradleSettings
-              embedded={true}
-              isVisible={true}
-              onClose={() => handleTabChange('main')}
-              isCradleEnabled={cradleSettings.enabled}
-              cradleDuration={cradleSettings.duration}
-              onCradleToggle={(enabled) => {
-                updateCradleSettings({
-                  ...cradleSettings,
-                  enabled,
-                  startDate: enabled ? new Date().toISOString() : undefined
-                });
-              }}
-              onDurationChange={(duration) => {
-                updateCradleSettings({
-                  ...cradleSettings,
-                  duration
-                });
-              }}
-            />
-          </View>
-        );
+        return renderSettingsTab();
       case 'api':
-        return (
-          <View style={styles.tabContent}>
-            <CradleApiSettings
-              embedded={true}
-              isVisible={true}
-              onClose={() => handleTabChange('main')}
-            />
-          </View>
-        );
+        return renderApiSettingsTab();
       default:
-        return null;
+        return renderMainTab();
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#282828" />
+    <KeyboardAvoidingView 
+      style={[styles.safeArea, { paddingTop: insets.top }]}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+    >
+      <StatusBar barStyle="light-content" />
       
-      {/* Header with title and tabs */}
+      {/* Header with tabs */}
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>摇篮系统</Text>
         </View>
-        
-        <View style={styles.tabsContainer}>
-          {TABS.map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <TouchableOpacity
-                key={tab.id}
-                style={[styles.tab, isActive && styles.activeTab]}
-                onPress={() => handleTabChange(tab.id)}
-              >
-                <Text style={[styles.tabText, isActive && styles.activeTabText]}>
-                  {tab.title}
-                </Text>
-                {isActive && <View style={styles.activeTabIndicator} />}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {renderTabs()}
       </View>
       
-      {/* Tab Content */}
+      {/* Main content area */}
       <View style={styles.tabContentContainer}>
         {renderTabContent()}
       </View>
       
-      {/* Feed Modal */}
-      <CradleFeedModal
-        visible={showFeedModal}
+      {/* Floating create button - only on main tab */}
+      {activeTab === 'main' && (
+        <TouchableOpacity
+          style={styles.floatingCreateButton}
+          onPress={() => router.push('/pages/create_char_cradle')}
+        >
+          <Ionicons name="add" size={24} color="#000" />
+        </TouchableOpacity>
+      )}
+      
+      {/* Feed modal - when selectedCharacter exists */}
+      {selectedCharacter && (
+        <CradleFeedModal
+          visible={showFeedModal}
+          isVisible={showFeedModal}
+          character={selectedCharacter}
+          onClose={() => {
+            setShowFeedModal(false);
+            // Refresh character list after closing modal to show updated feed count
+            setTimeout(() => loadCradleCharacters(), 500);
+          }}
+        />
+      )}
+      
+      {/* Import modal */}
+      <ImportToCradleModal
+      visible={showImportModal}
+        isVisible={showImportModal}
         onClose={() => {
-          setShowFeedModal(false);
-          loadCradleCharacters();
+          setShowImportModal(false);
+          // Refresh character list after importing to show new characters
+          setTimeout(() => loadCradleCharacters(), 500); 
         }}
-        characterId={selectedCharacter?.id}
       />
       
-      {/* Notification */}
+      {/* Notification component */}
       {renderNotification()}
-    </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -726,6 +598,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#222',
+  },
+  tabText: {
+    color: '#aaa',
+    fontSize: 14,
   },
   header: {
     backgroundColor: '#282828',
@@ -743,19 +619,15 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
   },
   tab: {
-    paddingVertical: 10,
-    marginRight: 20,
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
     position: 'relative',
   },
   activeTab: {
-    borderBottomWidth: 0,
-  },
-  tabText: {
-    color: '#aaa',
-    fontSize: 15,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   activeTabText: {
     color: '#fff',
@@ -809,10 +681,8 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     flex: 1,
-    paddingBottom: 80, // Space for floating button
+    paddingBottom: 80,
   },
-  
-  // Empty state styles
   emptyStateContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -848,8 +718,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  
-  // Floating create button
   floatingCreateButton: {
     position: 'absolute',
     right: 20,
@@ -866,8 +734,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  
-  // Character detail styles
   characterDetailSection: {
     padding: 16,
     marginBottom: 16,
@@ -970,8 +836,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontSize: 14,
   },
-  
-  // Carousel card styles
   characterCard: {
     width: SCREEN_WIDTH * 0.7,
     height: 180,
@@ -1115,8 +979,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 4,
   },
-  
-  // Notification styles
   notificationContainer: {
     position: 'absolute',
     top: 16,

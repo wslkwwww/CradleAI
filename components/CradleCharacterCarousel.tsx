@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, forwardRef, ForwardRefRenderFunction } from 'react';
 import {
   View,
   Text,
@@ -29,15 +29,20 @@ interface CradleCharacterCarouselProps {
   customRenderItem?: (character: CradleCharacter, isSelected: boolean) => React.ReactElement;
 }
 
-const CradleCharacterCarousel: React.FC<CradleCharacterCarouselProps> = ({
-  characters,
-  onSelectCharacter,
-  selectedCharacterId,
-  onFeedCharacter
-  
-}) => {
+// Change to use forwardRef to support ref passing
+const CradleCharacterCarousel: ForwardRefRenderFunction<FlatList, CradleCharacterCarouselProps> = (
+  {
+    characters,
+    onSelectCharacter,
+    selectedCharacterId,
+    onFeedCharacter
+  },
+  ref
+) => {
   const scrollX = useRef(new Animated.Value(0)).current;
-  const flatListRef = useRef<FlatList>(null);
+  // Only use the internal ref if an external ref isn't provided
+  const internalFlatListRef = useRef<FlatList>(null);
+  const flatListRef = (ref || internalFlatListRef) as React.RefObject<FlatList>;
   const [activeIndex, setActiveIndex] = useState(0);
   
   // Automatically scroll to the selected character if provided
@@ -144,7 +149,15 @@ const CradleCharacterCarousel: React.FC<CradleCharacterCarouselProps> = ({
 
   // Get default background image if none provided
   const getBackgroundImage = (character: CradleCharacter) => {
-    if (character.backgroundImage) return { uri: character.backgroundImage };
+    // First try local image path
+    if (character.localBackgroundImage) {
+      return { uri: character.localBackgroundImage };
+    }
+    
+    // Then try remote image path
+    if (character.backgroundImage) {
+      return { uri: character.backgroundImage };
+    }
     
     // Default background based on stage
     const stage = getCharacterStage(character);
@@ -396,6 +409,9 @@ const CradleCharacterCarousel: React.FC<CradleCharacterCarouselProps> = ({
   );
 };
 
+// Export with forwardRef wrapper
+export default forwardRef(CradleCharacterCarousel);
+
 const styles = StyleSheet.create({
   container: {
     height: ITEM_HEIGHT,
@@ -550,5 +566,3 @@ const styles = StyleSheet.create({
     marginTop: 10,
   }
 });
-
-export default CradleCharacterCarousel;

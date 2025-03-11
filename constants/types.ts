@@ -144,6 +144,7 @@ export interface CradleSettings {
   progress?: number;        // 培育进度（百分比）
   lastInterruption?: string; // 上次中断时间
   cradleConversationId?: string; // 关联的会话ID
+  feedInterval: number;     // 投喂间隔（分钟）
 }
 
 export interface CradleAnimation {

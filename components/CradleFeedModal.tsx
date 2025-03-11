@@ -20,9 +20,12 @@ import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
 import { CradleCharacter } from '@/shared/types';
 
 interface CradleFeedModalProps {
-  visible: boolean;
+  visible: boolean; // Changed from isVisible to visible
   onClose: () => void;
-  characterId?: string; // Optional - if provided, will pre-select this character
+  characterId?: string;
+  isVisible: boolean;
+  character:     CradleCharacter;
+  
 }
 
 export default function CradleFeedModal({ visible, onClose, characterId }: CradleFeedModalProps) {

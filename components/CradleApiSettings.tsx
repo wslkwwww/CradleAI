@@ -16,17 +16,17 @@ import { useCharacters } from '@/constants/CharactersContext';
 import { OpenRouterModel } from '@/shared/types/api-types';
 import DropDownPicker from 'react-native-dropdown-picker';
 
-interface CradleApiSettingsProps {
+export interface CradleApiSettingsProps {
   isVisible: boolean;
   embedded?: boolean;
   onClose: () => void;
 }
 
-export default function CradleApiSettings({ 
+const CradleApiSettings: React.FC<CradleApiSettingsProps> = ({
   isVisible, 
   embedded = false,
   onClose 
-}: CradleApiSettingsProps) {
+}) => {
   const { getCradleApiSettings, updateCradleApiSettings } = useCharacters();
   const [loading, setLoading] = useState(false);
   const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter'>('gemini');
@@ -326,6 +326,8 @@ export default function CradleApiSettings({
     </Modal>
   );
 }
+
+export default CradleApiSettings;
 
 const styles = StyleSheet.create({
   modalContainer: {

@@ -118,6 +118,7 @@ interface CradleSettingsProps {
     onDurationChange: (days: number) => void;
     isCradleEnabled: boolean;
     cradleDuration: number;
+    feedInterval：number;
 }
 
 interface MemoSheetProps {
