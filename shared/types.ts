@@ -324,8 +324,7 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
     };
     
     // Image handling properties
-    backgroundImage: string | null;  // Local or remote image URI
-    remoteBackgroundImage?: string | null; // Remote server image URI
+    backgroundImage: string | null;  // Remote server image URI
     localBackgroundImage?: string | null;  // Local filesystem image URI
     
     imageGenerationTaskId?: string | null;

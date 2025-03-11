@@ -155,7 +155,6 @@ export default function CradlePage() {
         
         // Update character with image information
         let updatedCharacter = { ...character };
-        updatedCharacter.remoteBackgroundImage = data.image_url;
         updatedCharacter.localBackgroundImage = localImageUri;
         updatedCharacter.backgroundImage = localImageUri || data.image_url;
         updatedCharacter.imageGenerationStatus = 'success';

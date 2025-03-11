@@ -955,6 +955,27 @@ if (!savedCharacter) {
       }));
     }
     
+    // 下载并本地保存角色的图像
+    let localAvatarUri = null;
+    let localBackgroundUri = null;
+    
+    try {
+      // 下载头像
+      if (character.avatar) {
+        localAvatarUri = await downloadAndSaveImage(character.avatar, uniqueCradleId, 'avatar');
+        console.log('[摇篮系统] 头像已保存到本地:', localAvatarUri);
+      }
+      
+      // 下载背景图片
+      if (character.backgroundImage) {
+        localBackgroundUri = await downloadAndSaveImage(character.backgroundImage, uniqueCradleId, 'background');
+        console.log('[摇篮系统] 背景图片已保存到本地:', localBackgroundUri);
+      }
+    } catch (error) {
+      console.error('[摇篮系统] 保存图片时出错:', error);
+      // 继续导入流程，即使图片保存失败
+    }
+    
     const cradleCharacter: CradleCharacter = {
       ...character,                         
       id: uniqueCradleId,                   // 使用确保唯一的ID
@@ -963,6 +984,9 @@ if (!savedCharacter) {
       importedFromCharacter: true,          
       importedCharacterId: character.id,
       circlePosts: modifiedCirclePosts,     // 使用修改过的circlePosts
+      backgroundImage: character.backgroundImage, // 保留原始URL
+      localBackgroundImage: localBackgroundUri, // 保存本地文件URI
+      avatar: localAvatarUri || character.avatar, // 优先使用本地头像
       updatedAt: Date.now()
     };
     
