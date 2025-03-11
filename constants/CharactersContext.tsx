@@ -693,45 +693,88 @@ if (!savedCharacter) {
   
   // 获取摇篮角色列表
   const getCradleCharacters = () => {
-    return cradleCharacters;
+    // Filter characters to get only those in the cradle system and cast them to CradleCharacter
+    const cradleChars = characters
+      .filter(char => char.inCradleSystem)
+      .map(char => ({
+        ...char,
+        feedHistory: (char as CradleCharacter).feedHistory || [],
+        inCradleSystem: true,
+        isCradleGenerated: (char as CradleCharacter).isCradleGenerated || false,
+        importedFromCharacter: (char as CradleCharacter).importedFromCharacter || false,
+        importedCharacterId: (char as CradleCharacter).importedCharacterId || null
+      } as CradleCharacter));
+    
+    console.log(`[CharactersContext] 获取摇篮角色列表, 共 ${cradleChars.length} 个角色`);
+    return cradleChars;
   };
   
   // 添加摇篮角色
   const addCradleCharacter = async (character: CradleCharacter) => {
-    console.log('[摇篮系统] 添加新的摇篮角色:', character.name);
-    
-    if (!character.id) {
-      character.id = Date.now().toString();
+    try {
+      console.log(`[CharactersContext] 开始添加摇篮角色: ${character.name}, ID: ${character.id}`);
+      
+      // 确保circlePosts有唯一键
+      if (character.circlePosts && character.circlePosts.length > 0) {
+        character.circlePosts = character.circlePosts.map(post => ({
+          ...post,
+          id: post.id.includes('post-') ? post.id : `post-${Date.now()}-${Math.random().toString(36).substring(2, 9)}` // 确保唯一ID
+        }));
+      }
+      
+      // Ensure the character has all required fields
+      const completeCharacter: CradleCharacter = {
+        ...character,
+        createdAt: character.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        inCradleSystem: true,
+        isCradleGenerated: character.isCradleGenerated || false,
+        feedHistory: character.feedHistory || [],
+        imageGenerationStatus: character.imageGenerationStatus || 'idle',
+        imageGenerationTaskId: character.imageGenerationTaskId || null,
+      };
+  
+      // Add to characters state and persist to storage
+      setCharacters(prevChars => [...prevChars, completeCharacter]);
+      await FileSystem.writeAsStringAsync(
+        FileSystem.documentDirectory + 'characters.json',
+        JSON.stringify([...characters, completeCharacter]),
+        { encoding: FileSystem.EncodingType.UTF8 }
+      );
+      
+      console.log(`[CharactersContext] 摇篮角色添加成功: ${character.name}, ID: ${character.id}`);
+      return character.id;
+    } catch (error) {
+      console.error('[CharactersContext] 添加摇篮角色失败:', error);
+      throw error;
     }
-    
-    if (!character.createdAt) {
-      character.createdAt = Date.now();
-    }
-    
-    // 确保feedHistory存在
-    if (!character.feedHistory) {
-      character.feedHistory = [];
-    }
-    
-    const updatedCharacters = [...cradleCharacters, character];
-    setCradleCharacters(updatedCharacters);
-    await saveCradleCharacters(updatedCharacters);
-    
-    console.log('[摇篮系统] 摇篮角色添加成功');
   };
   
   // 更新摇篮角色
-  const updateCradleCharacter = async (character: CradleCharacter) => {
-    console.log('[摇篮系统] 更新摇篮角色:', character.id);
-    
-    const updatedCharacters = cradleCharacters.map(char => 
-      char.id === character.id ? character : char
-    );
-    
-    setCradleCharacters(updatedCharacters);
-    await saveCradleCharacters(updatedCharacters);
-    
-    console.log('[摇篮系统] 摇篮角色更新成功');
+  const updateCradleCharacter = async (updatedCharacter: CradleCharacter): Promise<void> => {
+    try {
+      console.log(`[CharactersContext] 开始更新摇篮角色: ${updatedCharacter.name}, ID: ${updatedCharacter.id}`);
+      
+      // Update character in state
+      setCharacters(prevChars => prevChars.map(char => 
+        char.id === updatedCharacter.id ? { ...updatedCharacter, updatedAt: Date.now() } : char
+      ));
+      
+      // Update character in storage
+      const updatedCharacters = characters.map(char => 
+        char.id === updatedCharacter.id ? { ...updatedCharacter, updatedAt: Date.now() } : char
+      );
+      await FileSystem.writeAsStringAsync(
+        FileSystem.documentDirectory + 'characters.json',
+        JSON.stringify(updatedCharacters),
+        { encoding: FileSystem.EncodingType.UTF8 }
+      );
+      
+      console.log(`[CharactersContext] 摇篮角色更新成功: ${updatedCharacter.name}, ID: ${updatedCharacter.id}`);
+    } catch (error) {
+      console.error('[CharactersContext] 更新摇篮角色失败:', error);
+      throw error;
+    }
   };
   
   // 删除摇篮角色
@@ -898,14 +941,26 @@ if (!savedCharacter) {
       throw new Error('该角色已在摇篮系统中');
     }
     
-    // 创建一个摇篮角色版本
+    // 创建一个摇篮角色版本并确保唯一ID
+    const uniqueCradleId = `cradle_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    
+    // 确保circlePosts有唯一键
+    let modifiedCirclePosts = [];
+    if (character.circlePosts && character.circlePosts.length > 0) {
+      modifiedCirclePosts = character.circlePosts.map(post => ({
+        ...post,
+        id: `post-${Date.now()}-${Math.random().toString(36).substring(2, 9)}` // 确保唯一ID
+      }));
+    }
+    
     const cradleCharacter: CradleCharacter = {
-      ...character,                         // 复制原有角色的所有属性
-      id: `cradle_${Date.now()}`,           // 新ID以避免冲突
-      inCradleSystem: true,                 // 标记为在摇篮系统中
-      feedHistory: [],                      // 初始化空的投喂历史
-      importedFromCharacter: true,          // 标记为从常规角色导入
-      importedCharacterId: character.id,    // 记录原始角色ID
+      ...character,                         
+      id: uniqueCradleId,                   // 使用确保唯一的ID
+      inCradleSystem: true,                 
+      feedHistory: [],                      
+      importedFromCharacter: true,          
+      importedCharacterId: character.id,
+      circlePosts: modifiedCirclePosts,     // 使用修改过的circlePosts
       updatedAt: Date.now()
     };
     
@@ -1045,6 +1100,45 @@ if (!savedCharacter) {
     return cradleApiSettings;
   };
 
+  // Add this function before the return statement in CharactersProvider
+const checkCradleGeneration = (): {
+  readyCharactersCount: number;
+  readyCharacters: CradleCharacter[];
+} => {
+  console.log('[摇篮系统] 检查摇篮角色的生成状态');
+  
+  const readyCharacters: CradleCharacter[] = [];
+  
+  // Get all cradle characters
+  const allCradleCharacters = getCradleCharacters();
+  const duration = cradleSettings.duration || 7; // Default duration: 7 days
+  
+  // Check which characters are ready based on creation time and cradle duration
+  for (const character of allCradleCharacters) {
+    if (character.isCradleGenerated) {
+      // Skip characters that are already marked as generated
+      continue;
+    }
+    
+    const createdAt = character.createdAt;
+    const now = Date.now();
+    const elapsedDays = (now - createdAt) / (24 * 60 * 60 * 1000); // Convert ms to days
+    
+    if (elapsedDays >= duration) {
+      // This character is ready for generation
+      readyCharacters.push(character);
+      console.log(`[摇篮系统] 角色 "${character.name}" 已经培育了 ${elapsedDays.toFixed(1)} 天，准备好生成`);
+    } else {
+      console.log(`[摇篮系统] 角色 "${character.name}" 培育中，已经 ${elapsedDays.toFixed(1)} 天，总共需要 ${duration} 天`);
+    }
+  }
+  
+  return {
+    readyCharactersCount: readyCharacters.length,
+    readyCharacters
+  };
+};
+
   return (
     <CharactersContext.Provider
       value={{
@@ -1075,6 +1169,7 @@ if (!savedCharacter) {
         updateCradleSettings,
         getCradleSettings,
         getCradleCharacters,
+        checkCradleGeneration,
         addCradleCharacter,
         updateCradleCharacter,
         deleteCradleCharacter,
@@ -1082,15 +1177,18 @@ if (!savedCharacter) {
         addFeed,
         markFeedAsProcessed,
         generateCharacterFromCradle,
-
+        
         // Add these new methods to the context value:
         addFeedToCradle,
         getFeedHistory,
         processFeedsNow,
 
+
         // Add new methods for Cradle API settings
         getCradleApiSettings,
         updateCradleApiSettings,
+
+
       }}
     >
       {children}

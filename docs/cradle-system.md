@@ -19,6 +19,30 @@
 - 优化键盘处理，解决页面偏移问题
 - 修复角色列表刷新和投喂计数更新问题
 
+#### CradleCreateForm 组件更新
+- 修复了创建角色时的数据结构，确保所有必要字段都正确初始化
+- 增强了日志记录，便于调试图像生成过程
+- 优化了角色创建后的页面导航逻辑
+
+#### CharactersContext 更新
+- 完善了`addCradleCharacter`和`updateCradleCharacter`方法
+- 确保角色数据完整性和正确的状态管理
+- 增强了日志记录和错误处理
+
+#### Cradle 页面更新
+- 改进了`checkImageGenerationStatus`函数，正确处理图像生成状态
+- 添加了周期性刷新机制，确保UI反映最新状态
+- 增加了`refreshCharacterCards`函数，强制更新角色卡片显示
+
+#### 类型定义更新
+- 完善了`CradleCharacter`类型定义，添加了图像生成相关字段
+- 确保类型安全和一致性
+
+### 测试结果
+- 创建摇篮角色后，角色卡片立即显示在摇篮页面
+- 图像生成完成后，角色卡片背景自动更新
+- 生成的图像正确更新角色的backgroundImage属性
+
 ## 概述
 
 摇篮系统是一种创新的AI角色生成机制，通过让用户在一段时间内"投喂"数据给未成熟的角色，来培育和塑造具有独特个性的AI角色。与传统的直接创建角色方法相比，摇篮系统能够形成更加丰富、自然且个性化的角色设定。
@@ -155,9 +179,377 @@ interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
     lastFeedTimestamp?: number;
   };
   backgroundImage: string | null;  // 角色背景图片
+  imageGenerationTaskId?: string;  // 图像生成任务ID
+  imageGenerationStatus?: 'pending' | 'completed' | 'failed'; // 图像生成状态
 }
 ```
 
+## 图像生成服务交互流程
+
+### 概述
+
+摇篮系统与图像生成服务的交互主要发生在角色创建和更新过程中。系统采用异步方式处理图像生成请求，允许用户在图像生成过程中继续使用其他功能。
+
+### 架构图
+
+```
+┌─────────────────┐      ┌────────────────┐      ┌──────────────────┐
+│                 │  1   │                │  3   │                  │
+│  移动端应用     ├─────►│  图像生成API   ├─────►│  MinIO存储服务   │
+│  (React Native) │      │  (Flask+Celery)│      │                  │
+│                 │◄─────┤                │◄─────┤                  │
+└─────────────────┘  2,4 └────────────────┘  3   └──────────────────┘
+```
+
+1. 移动应用向图像生成API发送带标签的请求
+2. API返回任务ID
+3. 后台任务处理并将图像保存到MinIO
+4. 移动应用定期查询任务状态，获取图像URL
+
+### 交互流程详解
+
+#### 1. 角色创建时的图像生成流程
+
+当用户在`CradleCreateForm`组件中创建角色并选择"根据Tag生成图片"时:
+
+1. **标签收集与提交**:
+   - 用户从标签库中选择正向标签和负向标签
+   - 调用`submitImageGenerationTask`函数处理请求
+
+```typescript
+// 位于 CradleCreateForm.tsx 中的核心函数
+const submitImageGenerationTask = async (positive: string[], negative: string[]): Promise<string> => {
+  try {
+    // 将标签数组转换为以逗号分隔的字符串
+    const positivePrompt = positive.join(', ');
+    const negativePrompt = negative.join(', ');
+    
+    console.log(`[摇篮角色创建] 准备提交图像生成请求`);
+    console.log(`[摇篮角色创建] 角色名称: ${characterName}, 性别: ${gender}`);
+    console.log(`[摇篮角色创建] 正向提示词 (${positive.length}个标签): ${positivePrompt}`);
+    console.log(`[摇篮角色创建] 负向提示词 (${negative.length}个标签): ${negativePrompt}`);
+    
+    // 构建请求参数
+    const requestData = {
+      prompt: positivePrompt,
+      negative_prompt: negativePrompt,
+      model: 'nai-v4-full',  // 使用NovelAI v4模型
+      sampler: 'k_euler_ancestral',
+      steps: 28,
+      scale: 11,
+      resolution: 'portrait',
+    };
+    
+    // 发送请求到服务器
+    const response = await fetch('http://152.69.219.182:5000/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestData),
+    });
+    
+    const data = await response.json();
+    
+    // 检查响应状态
+    if (!data.success) {
+      throw new Error(`图像生成请求失败: ${data.error || '未知错误'}`);
+    }
+    
+    // 返回任务ID
+    return data.task_id;
+  } catch (error) {
+    console.error('[摇篮角色创建] 提交图像生成请求失败:', error);
+    throw error;
+  }
+};
+```
+
+2. **创建角色对象与保存状态**:
+   - 在`handleCreateCharacter`函数中，将任务ID保存到角色对象
+   - 使用`addCradleCharacter`方法将角色保存到状态
+
+```typescript
+// 保存图像生成任务状态到角色对象
+if (uploadMode === 'generate' && positiveTags.length > 0) {
+  try {
+    const imageTaskId = await submitImageGenerationTask(positiveTags, negativeTags);
+    
+    // 将任务ID存储到角色数据中
+    cradleCharacter.imageGenerationTaskId = imageTaskId;
+    cradleCharacter.imageGenerationStatus = 'pending';
+  } catch (error) {
+    console.error('[摇篮角色创建] 提交图像生成任务失败:', error);
+    setImageGenerationError(error instanceof Error ? error.message : '提交图像生成任务失败');
+    // 即使图片生成请求失败，也继续创建角色
+  }
+}
+```
+
+#### 2. 状态监控与更新流程
+
+在`cradle.tsx`页面中，系统会定期检查图像生成状态:
+
+1. **定时检查任务状态**:
+   - 使用`useEffect`设置定时器，调用`checkImageGenerationStatus`函数
+   - 检查所有具有`imageGenerationTaskId`的角色
+
+```typescript
+useEffect(() => {
+  // 设置定期刷新定时器
+  const refreshInterval = setInterval(() => {
+    // 检查所有角色的图像生成状态
+    cradleCharacters.forEach(character => {
+      if (character.imageGenerationTaskId && 
+          character.imageGenerationStatus !== 'success' && 
+          character.imageGenerationStatus !== 'error') {
+        checkImageGenerationStatus(character);
+      }
+    });
+  }, 30000); // 每30秒检查一次
+  
+  return () => clearInterval(refreshInterval);
+}, [cradleCharacters]);
+```
+
+2. **任务状态检查与响应处理**:
+
+```typescript
+const checkImageGenerationStatus = async (character: CradleCharacter) => {
+  if (!character.imageGenerationTaskId) return;
+  
+  try {
+    console.log(`[摇篮页面] 检查角色 "${character.name}" 的图像生成任务状态: ${character.imageGenerationTaskId}`);
+    
+    // 请求状态从服务器
+    const response = await fetch(`http://152.69.219.182:5000/task_status/${character.imageGenerationTaskId}`);
+    if (!response.ok) {
+      console.warn(`[摇篮页面] 获取任务状态失败: HTTP ${response.status}`);
+      return;
+    }
+    
+    const data = await response.json();
+    
+    // 如果任务完成且成功
+    if (data.done && data.success && data.image_url) {
+      console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
+      
+      // 更新角色信息
+      let updatedCharacter = { ...character };
+      updatedCharacter.backgroundImage = data.image_url;
+      updatedCharacter.imageGenerationStatus = 'success';
+      
+      // 保存更新后的角色
+      await updateCradleCharacter(updatedCharacter);
+      showNotification('图像生成成功', `角色 ${character.name} 的图像已成功生成！`);
+    } 
+    // 如果任务失败
+    else if (data.done && !data.success) {
+      console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
+      
+      let updatedCharacter = { ...character };
+      updatedCharacter.imageGenerationStatus = 'error';
+      updatedCharacter.imageGenerationError = data.error || '未知错误';
+      
+      // 保存更新后的角色
+      await updateCradleCharacter(updatedCharacter);
+      showNotification('图像生成失败', `角色 ${character.name} 的图像生成失败：${data.error || '未知错误'}`);
+    }
+    // 如果任务仍在队列中
+    else if (data.queue_info) {
+      // 更新队列状态信息
+      const queuePosition = data.queue_info.position;
+      const estimatedWait = data.queue_info.estimated_wait || 0;
+      
+      console.log(`[摇篮页面] 图像生成任务在队列中，位置: ${queuePosition}，预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`);
+      
+      // 仅在第一次获取队列状态时显示通知
+      if (character.imageGenerationStatus === 'idle') {
+        let updatedCharacter = { ...character };
+        updatedCharacter.imageGenerationStatus = 'pending';
+        await updateCradleCharacter(updatedCharacter);
+        
+        showNotification(
+          '图像生成进行中',
+          `角色 ${character.name} 的图像生成任务已加入队列。\n队列位置: ${queuePosition}\n预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`
+        );
+      }
+    }
+  } catch (error) {
+    console.error(`[摇篮页面] 检查图像生成状态失败:`, error);
+  }
+};
+```
+
+### 后端服务API接口
+
+图像生成服务提供两个主要的API端点:
+
+#### 1. 图像生成请求 (`/generate`)
+
+- **方法**: POST
+- **URL**: http://152.69.219.182:5000/generate
+- **请求体**:
+  ```json
+  {
+    "prompt": "positive tags separated by commas",
+    "negative_prompt": "negative tags separated by commas",
+    "model": "nai-v4-full",
+    "sampler": "k_euler_ancestral",
+    "steps": 28,
+    "scale": 11,
+    "resolution": "portrait",
+    "is_test_request": false
+  }
+  ```
+- **响应**:
+  ```json
+  {
+    "success": true,
+    "task_id": "unique-task-id",
+    "queue_info": {
+      "position": 2,
+      "total_pending": 5,
+      "estimated_wait": 300
+    }
+  }
+  ```
+
+#### 2. 任务状态检查 (`/task_status/{task_id}`)
+
+- **方法**: GET
+- **URL**: http://152.69.219.182:5000/task_status/{task_id}
+- **响应** (进行中):
+  ```json
+  {
+    "done": false,
+    "queue_info": {
+      "position": 2,
+      "total_pending": 5,
+      "estimated_wait": 300
+    }
+  }
+  ```
+- **响应** (完成):
+  ```json
+  {
+    "done": true,
+    "success": true,
+    "image_url": "https://minio-server.domain/characters/image-uuid.png"
+  }
+  ```
+- **响应** (失败):
+  ```json
+  {
+    "done": true,
+    "success": false,
+    "error": "Error message describing what went wrong"
+  }
+  ```
+
+### 数据流和状态管理
+
+#### 1. 角色状态中的图像相关字段
+
+在`CradleCharacter`类型中:
+```typescript
+export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
+  // ...其他字段...
+  backgroundImage: string | null;
+  imageGenerationTaskId?: string | null;
+  imageGenerationStatus?: 'idle' | 'pending' | 'success' | 'error';
+  imageGenerationError?: string | null;
+}
+```
+
+#### 2. 状态转换流程
+
+图像生成过程中的状态转换:
+
+```
+  ┌─────────┐        提交生成请求         ┌─────────┐      
+  │  idle   │────────────────────────────►│ pending │      
+  └─────────┘                             └────┬────┘      
+                                               │           
+                                               │ 定期检查状态 
+                                               ▼           
+                         ┌──────────────────────────────────┐
+                         │                                  │
+                         ▼                                  ▼
+                    ┌─────────┐        API错误         ┌─────────┐
+                    │ success │◄───────────────────────┤  error  │
+                    └─────────┘                        └─────────┘
+```
+
+### 图像结果展示
+
+当图像生成完成后，系统会:
+
+1. 更新角色的`backgroundImage`字段为生成的图像URL
+2. 更新角色的`imageGenerationStatus`为'success'
+3. 通过`CradleCharacterCarousel`组件展示图像
+4. 显示成功通知给用户
+
+### 错误处理与恢复
+
+系统实现了以下错误处理机制:
+
+1. **提交请求失败**: 
+   - 捕获并记录错误
+   - 设置`imageGenerationError`
+   - 继续创建角色，但不包含生成的图像
+
+2. **任务处理失败**:
+   - 更新角色的`imageGenerationStatus`为'error'
+   - 设置`imageGenerationError`为API返回的错误消息
+   - 显示错误通知给用户
+
+3. **状态查询失败**:
+   - 记录错误但不中断用户操作
+   - 下次定时检查时会重试
+
+### 调试与故障排除
+
+#### 常见问题
+
+1. **图像没有生成**:
+   - 检查角色的`imageGenerationTaskId`是否存在
+   - 检查角色的`imageGenerationStatus`状态
+   - 查看控制台日志中的错误信息
+
+2. **任务提交成功但图像未显示**:
+   - 检查图像URL是否可访问
+   - 检查MinIO存储服务是否正常
+   - 确认`backgroundImage`字段已正确设置
+
+3. **服务连接问题**:
+   - 确认图像生成服务器IP地址正确(当前为152.69.219.182)
+   - 检查网络连接和防火墙设置
+   - 确认服务器端Celery工作线程正常运行
+
+#### 日志记录
+
+系统在关键点添加了丰富的日志记录:
+
+- 提交请求时记录标签和参数
+- 定期检查状态时记录队列位置和等待时间
+- 任务成功或失败时记录结果和URL
+
+#### 推荐测试方法
+
+1. **测试标签组合**:
+   使用不同的正向和负向标签组合，观察图像生成效果
+
+2. **测试错误恢复**:
+   - 在服务器离线时尝试提交请求
+   - 重启应用并检查是否能恢复未完成的任务
+
+3. **队列处理测试**:
+   提交多个并发请求，观察队列行为和状态更新
+```
+
+
+```
 ## OpenRouter API 集成
 
 OpenRouter API是一项服务，它允许通过统一的API访问多种AI大模型，包括OpenAI的GPT模型、Anthropic的Claude以及其他知名AI提供商的模型。我们的摇篮系统现在支持通过OpenRouter API访问这些模型，为用户提供更多选择。

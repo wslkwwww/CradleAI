@@ -23,9 +23,10 @@ const SPACING = 10;
 
 interface CradleCharacterCarouselProps {
   characters: CradleCharacter[];
-  onSelectCharacter: (character: CradleCharacter) => void;
   selectedCharacterId?: string;
+  onSelectCharacter: (character: CradleCharacter) => void;
   onFeedCharacter: (characterId: string) => void;
+  customRenderItem?: (character: CradleCharacter, isSelected: boolean) => React.ReactElement;
 }
 
 const CradleCharacterCarousel: React.FC<CradleCharacterCarouselProps> = ({
@@ -33,6 +34,7 @@ const CradleCharacterCarousel: React.FC<CradleCharacterCarouselProps> = ({
   onSelectCharacter,
   selectedCharacterId,
   onFeedCharacter
+  
 }) => {
   const scrollX = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef<FlatList>(null);
@@ -327,13 +329,16 @@ const CradleCharacterCarousel: React.FC<CradleCharacterCarouselProps> = ({
     );
   }
 
+  // 添加keyExtractor确保使用唯一ID
+  const keyExtractor = (item: CradleCharacter) => `cradle-character-${item.id}`;
+
   return (
     <View style={styles.container}>
       <Animated.FlatList
         ref={flatListRef}
         data={characters}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         horizontal
         showsHorizontalScrollIndicator={false}
         snapToInterval={ITEM_WIDTH}

@@ -324,14 +324,10 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
     };
     // Explicitly define backgroundImage with the right type
     backgroundImage: string | null;
+    imageGenerationTaskId?: string | null;
+    imageGenerationStatus?: 'idle' | 'pending' | 'success' | 'error'; // 使用枚举类型而不是string
+    imageGenerationError?: string | null;
 }
-
-
-
-
-
-
-
 
 export interface RoleCardJson {
     name: string;

@@ -1,241 +1,247 @@
-[{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2345",
-	"severity": 8,
-	"message": "Argument of type '{ relationshipMap: { relationships: {}; lastReviewed: number; }; id: string; name: string; avatar: string | null; backgroundImage: string | null; description: string; personality: string; ... 21 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  Types of property 'relationshipMap' are incompatible.\n    Property 'lastUpdated' is missing in type '{ relationships: {}; lastReviewed: number; }' but required in type 'RelationshipMapData'.",
-	"source": "ts",
-	"startLineNumber": 204,
-	"startColumn": 23,
-	"endLineNumber": 204,
-	"endColumn": 39,
-	"relatedInformation": [
-		{
-			"startLineNumber": 24,
-			"startColumn": 3,
-			"endLineNumber": 24,
-			"endColumn": 14,
-			"message": "'lastUpdated' is declared here.",
-			"resource": "/f:/my-app/shared/types/relationship-types.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "7053",
-	"severity": 8,
-	"message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'.\n  No index signature with a parameter of type 'string' was found on type '{}'.",
-	"source": "ts",
-	"startLineNumber": 221,
-	"startColumn": 9,
-	"endLineNumber": 221,
-	"endColumn": 43
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2345",
-	"severity": 8,
-	"message": "Argument of type '{ relationshipMap: { relationships: {}; lastReviewed: number; }; id: string; name: string; avatar: string | null; backgroundImage: string | null; description: string; personality: string; ... 21 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  Types of property 'relationshipMap' are incompatible.\n    Property 'lastUpdated' is missing in type '{ relationships: {}; lastReviewed: number; }' but required in type 'RelationshipMapData'.",
-	"source": "ts",
-	"startLineNumber": 249,
-	"startColumn": 23,
-	"endLineNumber": 249,
-	"endColumn": 39,
-	"relatedInformation": [
-		{
-			"startLineNumber": 24,
-			"startColumn": 3,
-			"endLineNumber": 24,
-			"endColumn": 14,
-			"message": "'lastUpdated' is declared here.",
-			"resource": "/f:/my-app/shared/types/relationship-types.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "7053",
-	"severity": 8,
-	"message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'.\n  No index signature with a parameter of type 'string' was found on type '{}'.",
-	"source": "ts",
-	"startLineNumber": 270,
-	"startColumn": 20,
-	"endLineNumber": 270,
-	"endColumn": 71
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "2345",
-	"severity": 8,
-	"message": "Argument of type '{ relationshipMap: { relationships: {}; lastReviewed: number; }; id: string; name: string; avatar: string | null; backgroundImage: string | null; description: string; personality: string; ... 21 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  Types of property 'relationshipMap' are incompatible.\n    Property 'lastUpdated' is missing in type '{ relationships: {}; lastReviewed: number; }' but required in type 'RelationshipMapData'.",
-	"source": "ts",
-	"startLineNumber": 281,
-	"startColumn": 31,
-	"endLineNumber": 281,
-	"endColumn": 47,
-	"relatedInformation": [
-		{
-			"startLineNumber": 24,
-			"startColumn": 3,
-			"endLineNumber": 24,
-			"endColumn": 14,
-			"message": "'lastUpdated' is declared here.",
-			"resource": "/f:/my-app/shared/types/relationship-types.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/components/RelationshipGraph.tsx",
-	"owner": "typescript",
-	"code": "7053",
-	"severity": 8,
-	"message": "Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{}'.\n  No index signature with a parameter of type 'string' was found on type '{}'.",
-	"source": "ts",
-	"startLineNumber": 297,
-	"startColumn": 36,
-	"endLineNumber": 297,
-	"endColumn": 55
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2783",
-	"severity": 8,
-	"message": "'recipientId' is specified more than once, so this usage will be overwritten.",
-	"source": "ts",
-	"startLineNumber": 100,
-	"startColumn": 7,
-	"endLineNumber": 100,
-	"endColumn": 32,
-	"relatedInformation": [
-		{
-			"startLineNumber": 101,
-			"startColumn": 7,
-			"endLineNumber": 101,
-			"endColumn": 17,
-			"message": "This spread always overwrites this property.",
-			"resource": "/f:/my-app/services/relationship-service.ts"
-		}
-	]
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "18048",
-	"severity": 8,
-	"message": "'character.relationshipMap' is possibly 'undefined'.",
-	"source": "ts",
-	"startLineNumber": 131,
-	"startColumn": 26,
-	"endLineNumber": 131,
-	"endColumn": 51
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "18048",
-	"severity": 8,
-	"message": "'character.relationshipMap' is possibly 'undefined'.",
-	"source": "ts",
-	"startLineNumber": 166,
-	"startColumn": 12,
-	"endLineNumber": 166,
-	"endColumn": 37
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2345",
-	"severity": 8,
-	"message": "Argument of type '{ relationshipMap: { relationships: { [x: string]: Relationship; }; lastUpdated: number; lastReviewed?: number | undefined; }; id: string; name: string; avatar: string | null; ... 24 more ...; relationshipActions?: RelationshipAction[]; }' is not assignable to parameter of type 'Character'.\n  The types of 'relationshipMap.lastReviewed' are incompatible between these types.\n    Type 'number | undefined' is not assignable to type 'number'.\n      Type 'undefined' is not assignable to type 'number'.",
-	"source": "ts",
-	"startLineNumber": 179,
-	"startColumn": 33,
-	"endLineNumber": 179,
-	"endColumn": 49
-},{
-	"resource": "/f:/my-app/services/relationship-service.ts",
-	"owner": "typescript",
-	"code": "2322",
-	"severity": 8,
-	"message": "Type 'string' is not assignable to type 'RelationshipType'.",
-	"source": "ts",
-	"startLineNumber": 227,
-	"startColumn": 7,
-	"endLineNumber": 227,
-	"endColumn": 24
-}]
+(NOBRIDGE) ERROR  Warning: React has detected a change in the order of Hooks called by ContextNavigator. This will lead to bugs and errors if not fixed. For more information, read the Rules of Hooks: https://react.dev/link/rules-of-hooks
 
+   Previous render            Next render
+   ------------------------------------------------------
+1. useMemo                    useMemo
+2. useRef                     useRef
+3. useMemo                    useMemo
+4. useState                   useSyncExternalStore
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: TypeError: Cannot read property 'inst' of null
 
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: TypeError: Cannot read property 'inst' of null
 
+This error is located at:
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+This error is located at:
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
 
+ (NOBRIDGE) LOG  Bridgeless mode is enabled
+ INFO 
+ 💡 JavaScript logs will be removed from Metro in React Native 0.77! Please use React Native DevTools as your default tool. Tip: Type j in the terminal to open (requires Google Chrome or Microsoft Edge).
+ (NOBRIDGE) LOG  [CradleService] Using Gemini adapter
+ (NOBRIDGE) LOG  初始化摇篮系统服务...
+ (NOBRIDGE) LOG  启动投喂处理器，每30秒处理一次
+ (NOBRIDGE) LOG  【NodeST】创建新实例，apiKey存在: false
+ (NOBRIDGE) LOG  [NodeSTManager] NodeST Manager initialized
+ (NOBRIDGE) ERROR  Warning: Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
 
+ (NOBRIDGE) ERROR  Warning: React has detected a change in the order of Hooks called by ContextNavigator. This will lead to bugs and errors if not fixed. For more information, read the Rules of Hooks: https://react.dev/link/rules-of-hooks
 
+   Previous render            Next render
+   ------------------------------------------------------
+1. useMemo                    useMemo
+2. useRef                     useRef
+3. useMemo                    useMemo
+4. useState                   useSyncExternalStore
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: TypeError: Cannot read property 'inst' of null
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
+ (NOBRIDGE) ERROR  Warning: TypeError: Cannot read property 'inst' of null
+This error is located at:
+    in ContextNavigator (created by ExpoRoot)
+    in ExpoRoot (created by App)
+    in App (created by ErrorOverlay)
+    in ErrorToastContainer (created by ErrorOverlay)
+    in ErrorOverlay (created by withDevTools(ErrorOverlay))
+    in withDevTools(ErrorOverlay)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in RCTView (created by View)
+    in View (created by AppContainer)
+    in AppContainer
+    in main(RootComponent)
 
+# 摇篮系统功能更新日志
 
+## 2023-12-15 摇篮角色创建和导入功能修复
 
-Let's fix the issues in explore.tsx where it's accessing RelationshipData and SocialInteraction types incorrectly:
+### 问题描述
+在摇篮模式创建角色或将角色导入到摇篮页面时遇到键重复错误：
 
-```typescript
-
-
-Made changes.
-
-// Fix for the relationships.after problem (line ~1071)
-
-// Change this code section:
-const relationshipUpdates: {
-  targetId: string;
-  targetName: string;
-  before: Relationship | null;
-  after: Relationship | null;
-}[] = [];
-
-// Get latest author data
-const updatedAuthor = characters.find(c => c.id === author.id);
-if (!updatedAuthor || !updatedAuthor.relationshipMap) {
-  throw new Error('无法获取更新后的作者数据');
-}
-
-// Compare before and after relationships
-interactors.forEach(interactor => {
-  const beforeRel = beforeRelationships[interactor.id];
-  const afterRel = updatedAuthor.relationshipMap?.relationships[interactor.id] || null;
-  
-  relationshipUpdates.push({
-    targetId: interactor.id,
-    targetName: interactor.name,
-    before: beforeRel,
-    after: afterRel
-  });
-  
-  // ...rest of the code
-});
-```
-
-### 4. Fix for SocialInteraction and PostInteraction types
-
-```typescript
-
-
-Made changes.
-
-// Fix for the SocialInteraction and PostInteraction errors (lines ~942 and ~1022)
-
-// For SocialInteraction:
-const socialInteractionExample: SocialInteraction = {
-  userId: interactor.id,
-  userName: interactor.name,
-  isCharacter: true,
-  createdAt: new Date().toISOString()
-};
-const relationshipType = RelationshipService.determineRelationshipType(socialInteractionExample);
-
-// For PostInteraction:
-const postInteractionExample: PostInteraction = {
-  id: testPost.id,
-  userId: interactor.id,
-  userName: interactor.name,
-  content: testPost.content,
-  createdAt: new Date().toISOString(),
-  type: 'post'
-};
-const relationshipType = RelationshipService.determineRelationshipType(postInteractionExample);
-```

@@ -47,20 +47,25 @@ export interface CharactersContextType {
   // 摇篮系统相关方法
   updateCradleSettings: (settings: CradleSettings) => Promise<void>;
   getCradleSettings: () => CradleSettings;
-  
+
+  // 摇篮系统检查图片更新
+  checkCradleGeneration: () => {
+    readyCharactersCount: number;
+    readyCharacters: CradleCharacter[];
+  };
   // 摇篮角色相关方法
   getCradleCharacters: () => CradleCharacter[];
-  addCradleCharacter: (character: CradleCharacter) => Promise<void>;
+  addCradleCharacter: (character: CradleCharacter) => Promise<string>;
   updateCradleCharacter: (character: CradleCharacter) => Promise<void>;
   deleteCradleCharacter: (id: string) => Promise<void>;
-  
+  importCharacterToCradle: (characterId: string) => Promise<void>;
+
   // 投喂相关方法
   addFeed: (characterId: string, content: string, type?: 'text' | 'voice' | 'image') => Promise<void>;
   markFeedAsProcessed: (characterId: string, feedId: string) => Promise<void>;
   
   // 生成角色
   generateCharacterFromCradle: (cradleCharacterId: string) => Promise<Character>;
-  importCharacterToCradle: (characterId: string) => Promise<void>;
 
   // Add these new properties for cradle functionality:
   addFeedToCradle: (content: string, type: FeedType) => Promise<string>;
