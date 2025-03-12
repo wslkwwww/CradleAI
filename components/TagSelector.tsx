@@ -25,6 +25,12 @@ type Category = {
 interface TagSelectorProps {
   onPositiveTagsChange: (tags: string[]) => void;
   onNegativeTagsChange: (tags: string[]) => void;
+  onClose: () => void;
+  onAddPositive: (tag: string) => void;
+  onAddNegative: (tag: string) => void;
+  existingPositiveTags: string[];
+  existingNegativeTags: string[];
+
 }
 
 const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegativeTagsChange }) => {

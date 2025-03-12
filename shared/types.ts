@@ -315,7 +315,10 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
       };
       reference?: string;            // 参考角色ID
       description?: string;          // 描述
-      traits?: any;                  // 添加特质数据的属性
+      traits?: any;     
+      userGender?: "male" | "female" | "other"             // 添加特质数据的属性
+      characterAge?: string;          // 添加年龄数据的属性
+      selectedTraits?: string[];     // 选择的特质
     };
     cradle?: {
       startDate?: string;
@@ -323,7 +326,6 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
       stage?: 'egg' | 'growing' | 'mature';
       lastFeedTimestamp?: number;
     };
-    
     // Image handling properties
     backgroundImage: string | null;  // Remote server image URI
     localBackgroundImage?: string | null;  // Local filesystem image URI
