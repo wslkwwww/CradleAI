@@ -17,6 +17,7 @@ import Sidebar from '@/components/Sidebar';
 import SettingsSidebar from '@/components/SettingsSidebar';
 import MemoOverlay from '@/components/MemoOverlay';  // 替换原来的 MemoSheet 导入
 import NovelAITestModal from '@/components/NovelAITestModal'; // 导入 NovelAI 测试组件
+import VNDBTestModal from '@/src/components/VNDBTestModal'; // 导入 VNDB 测试组件
 import { Message, Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -48,6 +49,9 @@ const App = () => {
 
   // 新增 NovelAI 测试模态框状态
   const [isNovelAITestVisible, setIsNovelAITestVisible] = useState(false);
+
+  // 新增 VNDB 测试模态框状态
+  const [isVNDBTestVisible, setIsVNDBTestVisible] = useState(false);
 
   // 添加一个跟踪处理过的图片URL的集合
   const [processedImageUrls, setProcessedImageUrls] = useState<Set<string>>(new Set());
@@ -340,13 +344,22 @@ const App = () => {
                 onRateMessage={handleRateMessage}
               />
               
-              {/* NovelAI测试按钮 */}
+              {/* 测试按钮容器 */}
               <View style={styles.testButtonContainer}>
+                {/* NovelAI 测试按钮 */}
                 <TouchableOpacity 
-                  style={styles.novelaiButton}
+                  style={styles.testButton}
                   onPress={() => setIsNovelAITestVisible(true)}
                 >
-                  <Text style={styles.novelaiButtonText}>NovelAI 图像测试</Text>
+                  <Text style={styles.testButtonText}>NovelAI 图像测试</Text>
+                </TouchableOpacity>
+                
+                {/* VNDB 测试按钮 */}
+                <TouchableOpacity 
+                  style={[styles.testButton, styles.vndbButton]}
+                  onPress={() => setIsVNDBTestVisible(true)}
+                >
+                  <Text style={styles.testButtonText}>VNDB 角色查询</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -388,6 +401,12 @@ const App = () => {
             onClose={() => setIsMemoSheetVisible(false)}
           />
           
+          {/* VNDB测试模态框 */}
+          <VNDBTestModal
+            visible={isVNDBTestVisible}
+            onClose={() => setIsVNDBTestVisible(false)}
+          />
+
           {/* NovelAI测试模态框 */}
           <NovelAITestModal
             visible={isNovelAITestVisible}
@@ -440,14 +459,17 @@ const styles = StyleSheet.create({
   transparentBackground: {
     backgroundColor: 'transparent',
   },
-  // NovelAI测试按钮样式
+  // 更新测试按钮容器样式
   testButtonContainer: {
     position: 'absolute',
     bottom: 20,
     right: 20,
     zIndex: 100,
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 10,
   },
-  novelaiButton: {
+  testButton: {
     backgroundColor: 'rgba(52, 152, 219, 0.9)', // 半透明蓝色
     paddingHorizontal: 15,
     paddingVertical: 8,
@@ -458,10 +480,13 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  novelaiButtonText: {
+  testButtonText: {
     color: 'white',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  vndbButton: {
+    backgroundColor: 'rgba(155, 89, 182, 0.9)', // 半透明紫色，区分不同按钮
   },
 });
 

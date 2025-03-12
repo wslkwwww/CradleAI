@@ -1,2 +1,1 @@
-```markdown
-DD
+ {"filters":["search","=","saber"],"fields":"name,original,aliases,description,image{id,url,dims},blood_type,height,weight,bust,waist,hips,cup,age,birthday,sex,vns{spoiler,role,vn},traits{spoiler,lie,trait}","sort":"id","reverse":false,"results":5,"page":1,"count":false}

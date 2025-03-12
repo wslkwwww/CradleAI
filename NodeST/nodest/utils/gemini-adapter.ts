@@ -1,4 +1,4 @@
-import { ChatMessage } from '../types/types';
+import { ChatMessage } from '@/shared/types';
 
 export class GeminiAdapter {
     private readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
