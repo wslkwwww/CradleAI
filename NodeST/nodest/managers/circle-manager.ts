@@ -15,6 +15,15 @@ export class CircleManager {
         apiKey?: string;
         model?: string;
     };
+    // Add rate limiting variables
+    private static requestQueue: Array<{
+        resolve: (value: string) => void;
+        reject: (error: any) => void;
+        prompt: string;
+    }> = [];
+    private static isProcessing = false;
+    private static requestInterval = 2000; // 2 seconds between requests
+    private static lastRequestTime = 0;
     
     constructor(
         apiKey?: string,
@@ -115,21 +124,20 @@ export class CircleManager {
                 this.openRouterAdapter ? 'OpenRouter' : 'Gemini'
             );
             
-            // 创建消息内容
-            const message = {
-                role: "user",
-                parts: [{ text: prompt }]
-            };
-            
-            // 使用正确的适配器
-            if (this.openRouterAdapter) {
-                return await this.openRouterAdapter.generateContent([message]);
-            } else if (this.geminiAdapter) {
-                return await this.geminiAdapter.generateContent([message]);
-            } else {
-                console.log('【朋友圈】没有可用的API适配器，使用模拟数据');
-                return this.getMockResponse();
-            }
+            // Return a promise that will be resolved when the request is processed
+            return new Promise((resolve, reject) => {
+                // Add request to queue
+                CircleManager.requestQueue.push({
+                    resolve,
+                    reject,
+                    prompt
+                });
+                
+                // Process queue if not already processing
+                if (!CircleManager.isProcessing) {
+                    this.processRequestQueue();
+                }
+            });
         } catch (error) {
             console.error('【朋友圈】获取AI回复失败:', error);
             console.log('【朋友圈】API调用失败，使用备用模拟数据');
@@ -137,6 +145,60 @@ export class CircleManager {
         }
     }
     
+    // Add a new method to process the request queue
+    private async processRequestQueue(): Promise<void> {
+        // Set processing flag
+        CircleManager.isProcessing = true;
+        
+        while (CircleManager.requestQueue.length > 0) {
+            const now = Date.now();
+            const timeSinceLastRequest = now - CircleManager.lastRequestTime;
+            
+            // If we need to wait, do so
+            if (timeSinceLastRequest < CircleManager.requestInterval) {
+                const waitTime = CircleManager.requestInterval - timeSinceLastRequest;
+                console.log(`【朋友圈】API速率限制：等待 ${waitTime}ms 后发送下一个请求`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+            
+            // Get next request from queue
+            const request = CircleManager.requestQueue.shift();
+            if (!request) continue;
+            
+            try {
+                // Create message content
+                const message = {
+                    role: "user",
+                    parts: [{ text: request.prompt }]
+                };
+                
+                let response: string;
+                
+                // Use the correct adapter
+                if (this.openRouterAdapter) {
+                    response = await this.openRouterAdapter.generateContent([message]);
+                } else if (this.geminiAdapter) {
+                    response = await this.geminiAdapter.generateContent([message]);
+                } else {
+                    console.log('【朋友圈】没有可用的API适配器，使用模拟数据');
+                    response = this.getMockResponse();
+                }
+                
+                // Update last request time
+                CircleManager.lastRequestTime = Date.now();
+                
+                // Resolve the promise
+                request.resolve(response);
+            } catch (error) {
+                console.error('【朋友圈】API请求失败:', error);
+                request.reject(error);
+            }
+        }
+        
+        // Clear processing flag
+        CircleManager.isProcessing = false;
+    }
+
     // 获取模拟响应作为备选方案
     private getMockResponse(): string {
         const mockResponseTypes = [

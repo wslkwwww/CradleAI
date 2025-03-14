@@ -3,7 +3,7 @@ import { Character, GlobalSettings } from '../shared/types';
 import { CirclePost, CircleComment, CircleLike } from '../shared/types/circle-types';
 import { RelationshipService } from './relationship-service';
 import { applyRelationshipUpdates } from '../utils/relationship-utils';
-
+import { CircleScheduler } from './circle-scheduler';
 // 创建具有apiKey的单例实例
 let nodeST: NodeST | null = null;
 
@@ -654,6 +654,112 @@ export class CircleService {
     
     return updatedCharacter;
   }
+
+  // Add method for user posts - adding more detailed implementation
+  // Modify the createUserPost method to accept characters as a parameter
+  static async createUserPost(
+    userNickname: string,
+    userAvatar: string | null,
+    content: string,
+    images?: string[],
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    charactersList?: Character[] // Add this parameter
+  ): Promise<{
+    post: CirclePost,
+    responses: Array<{characterId: string, success: boolean, response?: CircleResponse}>
+  }> {
+    try {
+      console.log(`【朋友圈服务】用户 ${userNickname} 创建新朋友圈帖子`);
+      
+      // Create a post object for the user
+      const newPost: CirclePost = {
+        id: `user-post-${Date.now()}`,
+        characterId: 'user-1',  // Use a fixed ID for the user
+        characterName: userNickname,
+        characterAvatar: userAvatar,
+        content,
+        images,
+        createdAt: new Date().toISOString(),
+        comments: [],
+        likes: 0,
+        likedBy: [],
+        hasLiked: false
+      };
+      
+      // Get all characters with circle interaction enabled
+      // Use charactersList parameter if provided, otherwise use getAllCharacters()
+      const characters = charactersList ? 
+        charactersList.filter(c => c.circleInteraction) : 
+        [];
+        
+      console.log(`【朋友圈服务】找到 ${characters.length} 个启用了朋友圈互动的角色`);
+      
+      if (characters.length === 0) {
+        console.warn("【朋友圈服务】警告：没有找到启用朋友圈互动的角色，无法生成互动");
+        return {
+          post: newPost,
+          responses: []
+        };
+      }
+      
+      // Get the Circle Scheduler instance to manage API rate limits
+      const scheduler = CircleScheduler.getInstance();
+      
+      // Process responses from all enabled characters through the scheduler
+      const responses: Array<{characterId: string, success: boolean, response?: CircleResponse}> = [];
+      
+      for (const character of characters) {
+        try {
+          console.log(`【朋友圈服务】通过调度器处理角色 ${character.name} 对用户帖子的回应`);
+          
+          // Initialize character if needed
+          await this.initCharacterCircle(character, apiKey, apiSettings);
+          
+          // Schedule the interaction
+          const response = await scheduler.scheduleInteraction(
+            character,
+            newPost,
+            apiKey,
+            apiSettings
+          );
+          
+          // Record response
+          responses.push({
+            characterId: character.id,
+            success: response.success,
+            response
+          });
+          
+          // Update post with character's response
+          if (response.success) {
+            const { updatedPost } = this.updatePostWithResponse(newPost, character, response);
+            newPost.comments = updatedPost.comments;
+            newPost.likes = updatedPost.likes;
+            newPost.likedBy = updatedPost.likedBy;
+            
+            console.log(`【朋友圈服务】角色 ${character.name} 成功响应用户帖子: 点赞=${response.action?.like}, 评论=${response.action?.comment ? '是' : '否'}`);
+          } else {
+            console.log(`【朋友圈服务】角色 ${character.name} 回应用户帖子失败: ${response.error || '未知错误'}`);
+          }
+        } catch (error) {
+          console.error(`【朋友圈服务】角色 ${character.name} 处理用户朋友圈帖子时出错:`, error);
+          responses.push({
+            characterId: character.id,
+            success: false
+          });
+        }
+      }
+      
+      return {
+        post: newPost,
+        responses
+      };
+    } catch (error) {
+      console.error('【朋友圈服务】创建用户朋友圈帖子失败:', error);
+      throw error;
+    }
+  }
 }
 
 // Fix for the "characters" variable with implicit any type
@@ -663,30 +769,11 @@ export const processTestInteraction = (
   interactionType: string,
   content?: string
 ): { characters: Character[], success: boolean, message: string } => {
-  // Retrieve all characters from storage
-  let characters: Character[] = getAllCharacters();
-  
-  // Find target character
-  const targetCharacter = characters.find(char => char.id === targetCharacterId);
-  if (!targetCharacter) {
-    return {
-      characters,
-      success: false,
-      message: `未找到ID为${targetCharacterId}的角色`
-    };
-  }
-
-  // Basic functionality for test interactions
+  // Placeholder implementation since we're not using this function
+  // Create a basic return value to satisfy TypeScript
   return {
-    characters,
-    success: true,
-    message: "处理完成"
+    characters: [],
+    success: false,
+    message: `未找到ID为${targetCharacterId}的角色`
   };
-};
-
-// Fix for getAllCharacters implementation
-export const getAllCharacters = (): Character[] => {
-  // This would typically fetch from storage or context
-  // For now returning empty array as a placeholder
-  return [];
 };

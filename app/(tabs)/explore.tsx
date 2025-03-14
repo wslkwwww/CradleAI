@@ -40,6 +40,7 @@ import { format } from 'date-fns';
 import { ActionType } from '@/shared/types/relationship-types';
 import MessageBoxContent from '@/components/MessageBoxContent';
 import ActionCard from '@/components/ActionCard';
+import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -115,6 +116,12 @@ const Explore: React.FC = () => {
   // Add state for message box modal
   const [showMessageBoxModal, setShowMessageBoxModal] = useState(false);
   const [showTestControlsModal, setShowTestControlsModal] = useState(false);
+
+  // Add states for user post creation
+  const [showUserPostModal, setShowUserPostModal] = useState(false);
+  const [userPostText, setUserPostText] = useState('');
+  const [userPostImages, setUserPostImages] = useState<string[]>([]);
+  const [isCreatingPost, setIsCreatingPost] = useState(false);
 
   // Select first character as default when characters are loaded
   useEffect(() => {
@@ -1179,6 +1186,211 @@ const Explore: React.FC = () => {
     }
   };
 
+  // Add function to handle image selection
+  const handleSelectImages = async () => {
+    try {
+      // Request media library permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library');
+        return;
+      }
+      
+      // Launch image picker with Expo API
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: 4,
+        quality: 0.8,
+      });
+      
+      if (!result.canceled && result.assets.length > 0) {
+        // Add selected images to state - extract URIs
+        const imageUris = result.assets.map(asset => asset.uri);
+        setUserPostImages([...userPostImages, ...imageUris]);
+      }
+    } catch (error) {
+      console.error('Error selecting images:', error);
+      Alert.alert('Error', 'Failed to select images');
+    }
+  };
+
+  // Add function to create user post
+  const handleCreateUserPost = async () => {
+    if (!userPostText.trim() && userPostImages.length === 0) {
+      Alert.alert('错误', '请输入文字或选择图片');
+      return;
+    }
+    
+    try {
+      setIsCreatingPost(true);
+      
+      // Get API key and settings
+      const apiKey = user?.settings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
+      
+      // Create user post through CircleService - pass characters array
+      const { post, responses } = await CircleService.createUserPost(
+        user?.settings?.self.nickname || '我',
+        user?.avatar || null,
+        userPostText,
+        userPostImages,
+        apiKey,
+        apiSettings,
+        characters // Pass the characters array from context
+      );
+      
+      // Add post to posts list
+      setPosts([post, ...posts]);
+      
+      // Close modal and reset form
+      setShowUserPostModal(false);
+      setUserPostText('');
+      setUserPostImages([]);
+      
+      // Show success message with info about character responses
+      const respondedCharacters = responses.filter(r => r.success).length;
+      const likedPost = responses.filter(r => r.success && r.response?.action?.like).length;
+      const commentedPost = responses.filter(r => r.success && r.response?.action?.comment).length;
+      
+      Alert.alert(
+        '发布成功',
+        `你的朋友圈已发布。\n${respondedCharacters}个角色响应了你的帖子，其中${likedPost}个点赞，${commentedPost}个评论。`
+      );
+    } catch (error) {
+      console.error('创建用户帖子失败:', error);
+      Alert.alert('错误', '发布失败，请稍后重试');
+    } finally {
+      setIsCreatingPost(false);
+    }
+  };
+
+  const renderCircleHeaderButtons = () => (
+    <View style={styles.circleHeaderButtons}>
+      <TouchableOpacity 
+        style={styles.headerButton} 
+        onPress={() => setShowUserPostModal(true)}
+      >
+        <Text style={styles.headerButtonText}>新建动态</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={[
+          styles.headerButton,
+          publishingPost && styles.headerButtonDisabled
+        ]} 
+        onPress={handlePublishTestPost}
+        disabled={publishingPost}
+      >
+        {publishingPost ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.headerButtonText}>角色发布</Text>
+        )}
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={[
+          styles.headerButton, 
+          testModeEnabled && styles.testButtonActive
+        ]} 
+        onPress={toggleTestMode}
+      >
+        <Text style={styles.headerButtonText}>
+          {testModeEnabled ? '关闭测试' : '互动测试'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderUserPostModal = () => (
+    <Modal
+      visible={showUserPostModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowUserPostModal(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.postModalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>发布新动态</Text>
+            <TouchableOpacity
+              onPress={() => setShowUserPostModal(false)}
+              style={styles.modalCloseButton}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.postInputContainer}>
+            <TextInput
+              style={styles.postTextInput}
+              multiline
+              placeholder="分享你的想法..."
+              placeholderTextColor="#888"
+              value={userPostText}
+              onChangeText={setUserPostText}
+              maxLength={500}
+            />
+            
+            {/* Image preview section */}
+            {userPostImages.length > 0 && (
+              <View style={styles.imagePreviewContainer}>
+                {userPostImages.map((uri, index) => (
+                  <View key={index} style={styles.imagePreviewWrapper}>
+                    <Image source={{ uri }} style={styles.imagePreview} />
+                    <TouchableOpacity
+                      style={styles.removeImageButton}
+                      onPress={() => {
+                        const newImages = [...userPostImages];
+                        newImages.splice(index, 1);
+                        setUserPostImages(newImages);
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+            
+            <View style={styles.postActions}>
+              <TouchableOpacity 
+                style={styles.imagePickerButton}
+                onPress={handleSelectImages}
+                disabled={userPostImages.length >= 4}
+              >
+                <Ionicons 
+                  name="image-outline" 
+                  size={24} 
+                  color={userPostImages.length >= 4 ? "#666" : "#fff"} 
+                />
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.postSubmitButton,
+                  (!userPostText.trim() && userPostImages.length === 0) && styles.disabledButton
+                ]}
+                onPress={handleCreateUserPost}
+                disabled={isCreatingPost || (!userPostText.trim() && userPostImages.length === 0)}
+              >
+                {isCreatingPost ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.postSubmitButtonText}>发布</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (isLoading && activeTab === 'circle') {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -1311,34 +1523,7 @@ const Explore: React.FC = () => {
         {/* Circle Tab Content */}
         {activeTab === 'circle' && (
           <>
-            <View style={styles.circleHeaderButtons}>
-              <TouchableOpacity 
-                style={[
-                  styles.headerButton,
-                  publishingPost && styles.headerButtonDisabled
-                ]} 
-                onPress={handlePublishTestPost}
-                disabled={publishingPost}
-              >
-                {publishingPost ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.headerButtonText}>发布测试</Text>
-                )}
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.headerButton, 
-                  testModeEnabled && styles.testButtonActive
-                ]} 
-                onPress={toggleTestMode}
-              >
-                <Text style={styles.headerButtonText}>
-                  {testModeEnabled ? '关闭测试' : '互动测试'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            {renderCircleHeaderButtons()}
             
             <FlatList
               ref={flatListRef}
@@ -1595,6 +1780,9 @@ const Explore: React.FC = () => {
           onClose={() => setShowRelationshipTestResults(false)}
           results={relationshipTestResults}
         />
+
+        {/* User Post Modal */}
+        {renderUserPostModal()}
       </ImageBackground>
     </KeyboardAvoidingView>
   );
@@ -2260,6 +2448,71 @@ const styles = StyleSheet.create({
   contextContent: {
     color: '#ddd',
     fontSize: 14,
+  },
+
+  // New styles for user post modal
+  postModalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#333',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  postInputContainer: {
+    padding: 16,
+  },
+  postTextInput: {
+    backgroundColor: '#444',
+    borderRadius: 8,
+    padding: 12,
+    color: '#fff',
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  imagePreviewContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+  },
+  imagePreviewWrapper: {
+    position: 'relative',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  imagePreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 4,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+  },
+  postActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  imagePickerButton: {
+    padding: 10,
+  },
+  postSubmitButton: {
+    backgroundColor: '#FF9ECD',
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  disabledButton: {
+    backgroundColor: '#666',
+  },
+  postSubmitButtonText: {
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: 16,
   },
 });
 
