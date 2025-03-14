@@ -1232,37 +1232,64 @@ const Explore: React.FC = () => {
         openrouter: user?.settings?.chat?.openrouter
       };
       
-      // Create user post through CircleService - pass characters array
-      const { post, responses } = await CircleService.createUserPost(
+      // Create the user post object before sending to API
+      const newPost: CirclePost = {
+        id: `user-post-${Date.now()}`,
+        characterId: 'user-1',
+        characterName: user?.settings?.self.nickname || '我',
+        characterAvatar: user?.avatar || null,
+        content: userPostText,
+        images: userPostImages,
+        createdAt: new Date().toISOString(),
+        comments: [],
+        likes: 0,
+        likedBy: [],
+        hasLiked: false
+      };
+      
+      // Add post to posts list immediately for better UX
+      setPosts(prevPosts => [newPost, ...prevPosts]);
+      
+      // Close modal and reset form immediately
+      setShowUserPostModal(false);
+      setUserPostText('');
+      setUserPostImages([]);
+      
+      // Show a temporary toast/alert that the post is being processed
+      Alert.alert('发布成功', '你的朋友圈已发布，角色们将很快响应');
+      
+      // Now process character responses in the background
+      CircleService.createUserPost(
         user?.settings?.self.nickname || '我',
         user?.avatar || null,
         userPostText,
         userPostImages,
         apiKey,
         apiSettings,
-        characters // Pass the characters array from context
-      );
+        characters // Pass the characters array
+      ).then(({ post, responses }) => {
+        // Update the post with character responses after they're ready
+        setPosts(prevPosts => 
+          prevPosts.map(p => p.id === newPost.id ? post : p)
+        );
+        
+        // Optionally show a notification that responses have arrived
+        const respondedCharacters = responses.filter(r => r.success).length;
+        if (respondedCharacters > 0) {
+          const likedPost = responses.filter(r => r.success && r.response?.action?.like).length;
+          const commentedPost = responses.filter(r => r.success && r.response?.action?.comment).length;
+          
+          console.log(`【朋友圈】${respondedCharacters}个角色响应了你的帖子，其中${likedPost}个点赞，${commentedPost}个评论`);
+        }
+      }).catch(error => {
+        console.error('处理角色响应失败:', error);
+        // We don't need to alert the user since the post is already published
+      });
       
-      // Add post to posts list
-      setPosts([post, ...posts]);
-      
-      // Close modal and reset form
-      setShowUserPostModal(false);
-      setUserPostText('');
-      setUserPostImages([]);
-      
-      // Show success message with info about character responses
-      const respondedCharacters = responses.filter(r => r.success).length;
-      const likedPost = responses.filter(r => r.success && r.response?.action?.like).length;
-      const commentedPost = responses.filter(r => r.success && r.response?.action?.comment).length;
-      
-      Alert.alert(
-        '发布成功',
-        `你的朋友圈已发布。\n${respondedCharacters}个角色响应了你的帖子，其中${likedPost}个点赞，${commentedPost}个评论。`
-      );
     } catch (error) {
       console.error('创建用户帖子失败:', error);
       Alert.alert('错误', '发布失败，请稍后重试');
+      setShowUserPostModal(false);
     } finally {
       setIsCreatingPost(false);
     }
