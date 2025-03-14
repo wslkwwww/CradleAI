@@ -566,8 +566,29 @@ export class NodeST {
     async processCircleInteraction(options: CirclePostOptions): Promise<CircleResponse> {
         try {
             console.log(`【NodeST】处理朋友圈互动: ${options.type}, apiKey存在: ${!!this.apiKey}`);
+            
             const circleManager = this.getCircleManager();
-            // Changed postInteraction to circlePost
+            
+            // If we have responderId but the framework hasn't been initialized yet
+            // First check if we have a valid character object in the options
+            if (options.responderCharacter) {
+                console.log(`【NodeST】使用提供的角色数据初始化朋友圈框架: ${options.responderCharacter.name}`);
+                await circleManager.circleInit(options.responderCharacter);
+            } else {
+                // Otherwise initialize using just the ID
+                console.log(`【NodeST】确保角色朋友圈已初始化: ${options.responderId}`);
+                const initialized = await circleManager.initCharacterCircle(options.responderId);
+                
+                if (!initialized) {
+                    console.error(`【NodeST】角色 ${options.responderId} 朋友圈初始化失败`);
+                    return {
+                        success: false,
+                        error: "朋友圈框架初始化失败"
+                    };
+                }
+            }
+            
+            // Now process the interaction
             return await circleManager.circlePost(options, this.apiKey);
         } catch (error) {
             console.error("[NodeST] Error processing circle interaction:", error);

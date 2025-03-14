@@ -98,6 +98,7 @@ export interface CirclePostOptions {
         context?: string;
     };
     responderId: string;  // 添加响应者ID字段，用于加载正确的框架
+    responderCharacter?: Character;  // 可选的响应者角色对象，用于初始化
 }
 
 export interface CircleResponse {

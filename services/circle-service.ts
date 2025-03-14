@@ -84,15 +84,17 @@ export class CircleService {
         };
       }
       
-      // 创建帖子选项
+      // 创建帖子选项，传入角色对象以确保初始化
       const postOptions: CirclePostOptions = {
         type: 'newPost',
         content: {
           authorId: character.id,
+          authorName: character.name,
           text: content,
           context: `这是${character.name}发布的新朋友圈`
         },
-        responderId: character.id // responderId和authorId相同
+        responderId: character.id, // responderId和authorId相同
+        responderCharacter: character // 添加角色对象
       };
       
       return await this.getNodeST(apiKey, apiSettings).processCircleInteraction(postOptions);
@@ -146,7 +148,8 @@ export class CircleService {
             '还没有其他人互动。'
           }`
         },
-        responderId: character.id
+        responderId: character.id,
+        responderCharacter: character // 添加角色对象以确保初始化
       };
 
       // Initialize character for circle interaction if needed
@@ -194,12 +197,14 @@ export class CircleService {
         type: replyTo ? 'replyToComment' : 'replyToPost',
         content: {
           authorId: post.characterId,
+          authorName: post.characterName,
           text: comment,
           context: replyTo ? 
             `回复${replyTo.userName}的评论: ${comment}` : 
             `回复${post.characterName}的朋友圈: ${post.content}`
         },
-        responderId: character.id
+        responderId: character.id,
+        responderCharacter: character // 添加角色对象
       };
 
       // Initialize character for circle interaction if needed
@@ -266,10 +271,12 @@ export class CircleService {
         type: 'replyToComment',
         content: {
           authorId: post.characterId,  // 原帖作者ID
+          authorName: post.characterName,
           text: comment.content,       // 评论内容
           context: context             // 自定义上下文
         },
-        responderId: character.id      // 当前回复者ID
+        responderId: character.id,      // 当前回复者ID
+        responderCharacter: character   // 添加角色对象
       };
       
       // 初始化角色的朋友圈

@@ -211,9 +211,39 @@ export class CircleManager {
         try {
             console.log(`【CircleManager】初始化角色朋友圈: ${characterId}, apiKey存在: ${!!this.apiKey}`);
             
-            // 这里添加实际初始化逻辑
-            // 暂时返回true模拟成功，实际应根据API调用结果
-            return true;
+            // Load character data first (we need the full Character object)
+            const characterData = await this.loadJson<Character>(
+                this.getStorageKey(characterId, '_character_data')
+            );
+            
+            if (!characterData) {
+                console.log(`【CircleManager】未找到角色 ${characterId} 的数据，尝试创建空的基础数据`);
+                
+                // Create minimal character data if it doesn't exist
+                const minimalCharacter: Character = {
+                    id: characterId,
+                    name: "Unknown Character",
+                    avatar: null,
+                    backgroundImage: null,
+                    description: "",
+                    personality: "",
+                    interests: [],
+                    createdAt: Date.now(),
+                    updatedAt: Date.now()
+                };
+                
+                // Save minimal character data
+                await this.saveJson(
+                    this.getStorageKey(characterId, '_character_data'),
+                    minimalCharacter
+                );
+                
+                // Initialize circle framework with minimal data
+                return await this.circleInit(minimalCharacter);
+            }
+            
+            // Initialize circle framework with loaded character data
+            return await this.circleInit(characterData);
         } catch (error) {
             console.error(`【CircleManager】初始化角色朋友圈失败:`, error);
             return false;
@@ -549,7 +579,7 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
-  }
+}
 }`;
                 }
                 break;
@@ -574,7 +604,7 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
-  }
+}
 }`;
                 } else {
                     scenePrompt = `你正在浏览以下朋友圈动态：
@@ -597,7 +627,7 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
-  }
+}
 }`;
                 }
                 break;
@@ -623,7 +653,7 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
-  }
+}
 }`;
                 break;
                 
@@ -672,13 +702,55 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
 
             console.log('【朋友圈】成功提取JSON:', extractedJson);
             
-            return {
-                success: true,
-                action: {
-                    like: Boolean(extractedJson.action.like),
-                    comment: extractedJson.action.comment
-                }
-            };
+            // Handle different response formats based on what fields exist in the JSON
+            if (extractedJson.post) {
+                // This is a post creation response format
+                return {
+                    success: true,
+                    action: {
+                        like: false, // No like for own post
+                        comment: extractedJson.post // Use post content as comment
+                    }
+                };
+            } else if (extractedJson.action) {
+                // This is a standard interaction response format
+                return {
+                    success: true,
+                    action: {
+                        like: Boolean(extractedJson.action.like),
+                        comment: extractedJson.action.comment
+                    }
+                };
+            } else if (extractedJson.reflection) {
+                // This is a reflection response (for self-post viewing)
+                return {
+                    success: true,
+                    action: {
+                        like: false, // Can't like own post
+                        comment: extractedJson.reflection // Use reflection as comment
+                    }
+                };
+            }
+            
+            // If we can't determine the format but have something, try to adapt it
+            if (typeof extractedJson === 'object' && extractedJson !== null) {
+                // Look for any useful fields we might use
+                const possibleComment = 
+                    extractedJson.comment || 
+                    extractedJson.content || 
+                    extractedJson.message || 
+                    extractedJson.text;
+                    
+                return {
+                    success: true,
+                    action: {
+                        like: Boolean(extractedJson.like || false),
+                        comment: typeof possibleComment === 'string' ? possibleComment : undefined
+                    }
+                };
+            }
+
+            throw new Error('无法识别的响应格式');
         } catch (error) {
             console.error('【朋友圈】解析响应失败:', error);
             return {
@@ -687,7 +759,7 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
             };
         }
     }
-    
+
     /**
      * 从文本中提取JSON对象
      */
@@ -699,7 +771,9 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
             // 第2步：直接尝试解析清理后的文本
             try {
                 const directParsed = JSON.parse(cleanText);
-                if (this.validateJsonStructure(directParsed)) {
+                
+                // Modified: Accept different valid structures instead of just action
+                if (this.isValidJsonStructure(directParsed)) {
                     return directParsed;
                 }
             } catch (e) {
@@ -719,9 +793,18 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
             for (const match of matches) {
                 try {
                     const parsed = JSON.parse(match);
-                    if (this.validateJsonStructure(parsed)) {
+                    if (this.isValidJsonStructure(parsed)) {
                         return parsed;
                     }
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            // Fallback: try to return any valid JSON, even if it doesn't match our expected structure
+            for (const match of matches) {
+                try {
+                    return JSON.parse(match);
                 } catch (e) {
                     continue;
                 }
@@ -734,6 +817,54 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
             console.error('【朋友圈】提取JSON时出错:', error);
             return null;
         }
+    }
+
+    /**
+     * 验证JSON结构是否符合预期的任一格式
+     */
+    private isValidJsonStructure(json: any): boolean {
+        // 1. 必须是对象
+        if (!json || typeof json !== 'object') {
+            return false;
+        }
+
+        // 2. 检查是否是"post"格式回复（用于创建新帖子）
+        if (typeof json.post === 'string' && json.post.trim().length > 0) {
+            return true;
+        }
+
+        // 3. 检查是否是"reflection"格式（用于自我帖子反思）
+        if (typeof json.reflection === 'string' && json.reflection.trim().length > 0) {
+            return true;
+        }
+
+        // 4. 检查是否是标准的"action"格式回复
+        if (json.action && typeof json.action === 'object') {
+            // action必须包含like字段
+            if (typeof json.action.like !== 'boolean') {
+                return false;
+            }
+
+            // 如果有comment字段，必须是字符串
+            if ('comment' in json.action && typeof json.action.comment !== 'string') {
+                return false;
+            }
+
+            return true;
+        }
+
+        // 5. 检查是否有其他可用字段（宽松检验，用作最后的尝试）
+        const hasUsableField = 
+            (typeof json.comment === 'string') || 
+            (typeof json.content === 'string') ||
+            (typeof json.message === 'string') ||
+            (typeof json.text === 'string');
+        
+        if (hasUsableField) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -750,7 +881,8 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
             /^请给我看朋友圈(的)?动态内容，.*?(?=\{)/i,
             /^作为[^{]*?(?=\{)/i,
             /^我将(会)?根据[^{]*?(?=\{)/i,
-            /^以下是[^{]*?(?=\{)/i
+            /^以下是[^{]*?(?=\{)/i,
+            /^这是我为.*创作的朋友圈[^{]*?(?=\{)/i
         ];
         
         for (const prefix of prefixesToRemove) {
@@ -772,44 +904,6 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
         text = text.trim().replace(/\s+/g, ' ');
         
         return text;
-    }
-
-    /**
-     * 验证JSON结构是否符合预期
-     */
-    private validateJsonStructure(json: any): boolean {
-        // 1. 必须是对象
-        if (!json || typeof json !== 'object') {
-            return false;
-        }
-
-        // 2. 必须包含action字段
-        if (!json.action || typeof json.action !== 'object') {
-            return false;
-        }
-
-        // 3. action必须包含like字段
-        if (typeof json.action.like !== 'boolean') {
-            return false;
-        }
-
-        // 4. 如果有comment字段，必须是字符串
-        if ('comment' in json.action && typeof json.action.comment !== 'string') {
-            return false;
-        }
-
-        // 5. 验证emotion字段（可选）
-        if (json.emotion) {
-            if (typeof json.emotion !== 'object' ||
-                !['positive', 'neutral', 'negative'].includes(json.emotion.type) ||
-                typeof json.emotion.intensity !== 'number' ||
-                json.emotion.intensity < 0 ||
-                json.emotion.intensity > 1) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     // 新增：生成关系状态检查提示词的方法
