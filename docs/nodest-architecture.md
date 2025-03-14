@@ -1,191 +1,171 @@
 # 更新日志
 
-2025 0305 ：合并了nodest/types下的types文件，到shared/types文件中。
+2025-0305: 合并了nodest/types下的types文件，到shared/types文件中。
+2025-0306: 增强了角色创建流程，优化了D类条目插入规则，实现了摇篮角色生成系统。
 
-# NodeST Architecture Documentation
+# NodeST 架构文档
 
-## Overview
+## 概述
 
-NodeST is a framework for building AI-powered character interactions using the Gemini LLM API. The system consists of several core components that work together to create believable character personalities, manage conversation histories, and enable social interactions.
+NodeST 是一个用于构建基于 Gemini LLM API 的 AI 角色交互框架。该系统包含几个核心组件，这些组件共同工作以创建逼真的角色人格、管理对话历史，并实现社交互动功能。
 
-## Core Components
+## 核心组件
 
 ### 1. NodeSTCore
 
-The central component that handles:
-- Character creation and initialization
-- Character updating
-- Chat processing and conversation management
-- D-entry handling and rframework building
+核心组件，负责处理：
+- 角色创建和初始化（常规和摇篮角色）
+- 角色更新
+- 聊天处理和会话管理
+- D类条目处理和rframework构建
 
-NodeSTCore consolidates the functionality previously split between SessionManager and ChatManager, providing a unified interface for all character-based operations.
+NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功能，为所有角色操作提供统一接口。
 
 ### 2. CircleManager
 
-Handles all social circle interactions:
-- Circle initialization for characters
-- Post handling and responses
-- Comment and like interactions
-- Memory management for social contexts
+处理所有社交圈互动：
+- 初始化角色社交圈
+- 处理发帖和响应
+- 评论和点赞互动
+- 社交上下文的记忆管理
 
-### 3. NodeST (Main interface)
+### 3. NodeST (主接口)
 
-The public interface that applications interact with:
-- Provides simplified API for chat processing
-- Handles JSON parsing and validation
-- Routes requests to appropriate core components
+应用程序交互的公共接口：
+- 提供简化的聊天处理API
+- 处理JSON解析和验证
+- 将请求路由到适当的核心组件
 
-## Data Flow
+## 数据流
 
-### Chat Flow
+### 聊天流程
 
-1. Application calls `NodeST.processChatMessage()` with:
-   - User message
-   - Conversation ID
-   - Status (new character, continue chat, update character)
-   - API key
-   - Character JSON data (for new/update operations)
+1. 应用程序调用 `NodeST.processChatMessage()` 并提供：
+   - 用户消息
+   - 对话ID
+   - 状态（新建角色、继续对话、更新角色）
+   - API密钥
+   - 角色JSON数据（用于新建/更新操作）
+   - 摇篮角色标志（用于指示是否是摇篮生成的角色）
 
-2. NodeST processes the request:
-   - Validates and parses input data
-   - Calls appropriate NodeSTCore methods based on status
-   - Returns response to application
+2. NodeST处理请求：
+   - 验证并解析输入数据
+   - 根据状态调用适当的NodeSTCore方法
+   - 返回响应给应用程序
 
-3. NodeSTCore handles the core logic:
-   - Managing character data and history
-   - Processing D-entries and rframework
-   - Sending requests to Gemini API
-   - Updating and saving conversation state
+3. NodeSTCore处理核心逻辑：
+   - 管理角色数据和历史
+   - 处理D类条目和rframework
+   - 发送请求到Gemini/OpenRouter API
+   - 更新和保存对话状态
 
-### Social Circle Flow
+## 角色创建系统
 
-1. Application calls `NodeST.processCircleInteraction()` with:
-   - Interaction type (post, comment, like)
-   - Content details
-   - Author ID and context
+### 1. 常规角色创建
 
-2. NodeST routes the request to CircleManager
+常规角色创建通过 `NodeSTCore.createNewCharacter()` 方法直接完成：
+- 角色数据从前端界面收集
+- 使用预设模板
+- 系统自动构建rframework和D类条目
+- 聊天历史在框架中按预设顺序放置
 
-3. CircleManager:
-   - Loads character rframework and personality
-   - Builds appropriate prompt
-   - Gets response from LLM
-   - Updates circle memory
-   - Returns formatted response
+### 2. 摇篮角色生成系统
 
-## Key Classes and Responsibilities
+摇篮角色生成是一个特殊的角色创建流程，使角色通过数据培育成长：
+- 角色先创建一个初步框架
+- 用户向角色"投喂"各种类型数据（关于我、材料、知识）
+- 系统处理投喂数据并更新角色设定
+- 经过指定时长培育（默认7天），生成成熟角色
+- 摇篮标志 `isCradleGeneration` 用于区分此类角色
+- 摇篮生成的角色有特殊的chatHistory顺序规则
 
-### NodeSTCore
-- Character creation and management
-- Chat history management
-- D-entry processing
-- rframework building
-- Gemini API interaction
+摇篮生成的流程：
+1. CradleService 管理投喂数据
+2. CharacterGeneratorService 负责生成角色
+3. 生成后通过 NodeST 系统初始化框架
 
-### CircleManager
-- Social interaction processing
-- Circle memory management
-- Character social behavior modeling
+## rFramework 构建
 
-### NodeST
-- Public API exposure
-- Request routing
-- Input validation
-- Error handling
+### rFramework 的基本结构
 
-## Storage Model
+rFramework是与LLM交互的结构化提示框架，通过 `CharacterUtils.buildRFramework` 构建：
 
-The system uses AsyncStorage with a structured key system:
-- `nodest_[conversationId]_role`: Role card data
-- `nodest_[conversationId]_world`: World book data
-- `nodest_[conversationId]_preset`: Preset prompts data
-- `nodest_[conversationId]_note`: Author notes
-- `nodest_[conversationId]_history`: Conversation history
-- `nodest_[conversationId]_contents`: rframework contents
-- `nodest_[conversationId]_circle_framework`: Circle interaction rframework
-- `nodest_[conversationId]_circle_memory`: Circle memory data
+1. 处理输入参数：
+   - 预设配置 (PresetJson)
+   - 角色卡数据 (RoleCardJson)
+   - 世界书数据 (WorldBookJson)
+   - 选项配置 (是否摇篮生成等)
 
-## Integration Guidelines
+2. 构建流程：
+   - 从 preset.prompt_order 读取提示顺序
+   - 处理 prompts 数组，创建框架条目
+   - 确保所有角色卡字段都有对应条目
+   - 按 prompt_order 排序条目
+   - 为 chatHistory 创建占位符，保持正确位置
+   - 处理position-based条目（世界书中的position 0/1条目）
 
-### Basic Chat Integration
+3. 返回 [ChatMessage[], ChatHistoryEntity | null] 元组：
+   - 排序后的框架条目数组
+   - 聊天历史实体（如果存在）
 
-```typescript
-import { NodeST } from '@/NodeST/nodest';
+### 常规角色与摇篮角色的rFramework差异
 
-const nodest = new NodeST();
+两者的主要区别在于：
 
-// Process a chat message
-const result = await nodest.processChatMessage({
-  userMessage: "Hello!",
-  conversationId: "character123",
-  status: "同一角色继续对话",
-  apiKey: "your-gemini-api-key"
-});
+- **chatHistory 的处理**：
+  - 常规角色：chatHistory 按预设中定义的位置放置
+  - 摇篮角色：chatHistory 需要特殊处理，在框架中使用占位符标记位置
 
-if (result.success) {
-  console.log(result.response);
-} else {
-  console.error(result.error);
-}
-```
+无论哪种方式，都确保：
+1. 框架中每个条目有正确的identifier
+2. chatHistory作为聊天历史被正确注入到框架
+3. 始终使用占位符确保chatHistory在框架中的正确位置
 
-### Social Circle Integration
+## D类条目处理
 
-```typescript
-import { NodeST, CirclePostOptions } from '@/NodeST/nodest';
+### D类条目的分类
 
-const nodest = new NodeST();
-
-// Initialize character for circle interactions
-await nodest.initCharacterCircle("character123");
-
-// Process a social interaction
-const options: CirclePostOptions = {
-  type: "post",
-  content: {
-    authorId: "character123",
-    text: "Just had a wonderful day at the beach!",
-    context: "This is a public post visible to all friends"
-  }
-};
-
-const result = await nodest.processCircleInteraction(options);
-
-if (result.success) {
-  console.log(result.action);  // Like/comment actions
-} else {
-  console.error(result.error);
-}
-```
-
-### 重要区别说明
-1. 角色描述相关条目 (Position 0/1):
+1. **角色描述相关条目 (Position 0/1)**:
    - 在框架构建阶段处理
    - 成为固定框架的一部分
    - 不会随用户消息变化而改变位置
    - 使用 order 属性决定相对顺序
 
-2. 作者注释相关条目 (Position 2/3):
+2. **作者注释相关条目 (Position 2/3)**:
    - 在消息处理阶段动态插入
    - 作为 D 类条目处理
    - 位置依赖于作者注释的位置
    - 必须存在作者注释才会被插入
 
-3. 动态深度条目 (Position 4):
+3. **动态深度条目 (Position 4)**:
    - 基于最新用户消息动态计算位置
    - 每次用户发送新消息时重新计算
    - 使用 depth 属性决定相对位置
 
+### D类条目插入规则
+
+插入规则如下：
+
+```
+// 插入深度示意图（在chathistory中）
+[用户消息 -1]  ← depth=1
+[D类条目]
+[基准消息]     ← 最新用户消息
+[D类条目]      ← depth=0
+```
+
+具体流程：
+1. 首先清除所有旧的D类条目（标记为`is_d_entry`的条目）
+2. 找到基准消息（最新用户消息）
+3. 过滤符合条件的D类条目
+4. 根据注入深度(injection_depth)分组
+5. 构建消息序列：
+   - 对于深度>0的条目，插入到相应深度的用户消息前
+   - 对于深度=0的条目，仅在基准消息后插入
+6. 为每个插入的D类条目添加`is_d_entry: true`标记
+
 ### Preset 注入类型条目
-在 Preset 预设中，injection_position=1 的条目有特殊的处理规则：
 
-我来添加关于 preset 中 injection_position=1 条目的处理说明：
-
-```markdown
-
-// ...existing code...
-
-### Preset 注入类型条目
 在 Preset 预设中，injection_position=1 的条目有特殊的处理规则：
 
 1. **定义方式**
@@ -224,64 +204,132 @@ if (result.success) {
    - 遵循与普通 D 类条目相同的深度计算规则
    - 不需要 key 匹配，因为 constant=true
 
-4. **与普通 D 类条目的区别**:
-   - 来源于 preset 而不是 worldBook
-   - 强制 constant=true，不支持条件触发
-   - 保持原始的 injection_depth 值
-   - 可以通过 identifier 追踪来源
+## 存储模型
 
-5. **插入位置计算**:
-   - 与其他 position=4 的 D 类条目一样处理
-   - 基于最新用户消息计算插入位置
-   - injection_depth 决定相对于基准消息的插入位置
-   - 每次新消息时重新计算位置
+系统使用 AsyncStorage 进行结构化数据存储：
+- `nodest_[conversationId]_role`: 角色卡数据
+- `nodest_[conversationId]_world`: 世界书数据
+- `nodest_[conversationId]_preset`: 预设提示数据
+- `nodest_[conversationId]_note`: 作者注释
+- `nodest_[conversationId]_history`: 对话历史
+- `nodest_[conversationId]_contents`: rframework内容
+- `nodest_[conversationId]_circle_framework`: 社交圈交互rframework
+- `nodest_[conversationId]_circle_memory`: 社交圈记忆数据
 
-示例：
+## 集成指南
+
+### 基本聊天集成
+
 ```typescript
-// preset 中的定义
-{
-    name: "特殊提示",
-    content: "这是一个重要提示",
-    enable: true,
-    identifier: "special_hint",
-    injection_position: 1,
-    injection_depth: 2,
-    role: "user"
-}
+import { NodeST } from '@/NodeST/nodest';
 
-// 转换后的 D 类条目
-{
-    name: "特殊提示",
-    parts: [{ text: "这是一个重要提示" }],
-    role: "user",
-    injection_depth: 2,
-    identifier: "special_hint",
-    is_d_entry: true,
-    position: 4,
-    constant: true
+const nodest = new NodeST();
+
+// 处理聊天消息
+const result = await nodest.processChatMessage({
+  userMessage: "你好!",
+  conversationId: "character123",
+  status: "同一角色继续对话",
+  apiKey: "your-gemini-api-key"
+});
+
+if (result.success) {
+  console.log(result.response);
+} else {
+  console.error(result.error);
 }
 ```
 
-这个条目会始终被包含，并且按照 depth=2 的规则插入到倒数第二条消息之前。
+### 摇篮角色创建和投喂
 
+```typescript
+import { CharactersContext } from '@/constants/CharactersContext';
+import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
 
-## Extending The System
+// 创建摇篮角色
+const cradleCharacter = {
+  id: generateUniqueId(),
+  name: "新角色",
+  description: "这是一个摇篮系统中的角色",
+  inCradleSystem: true,
+  feedHistory: []
+};
 
-### Adding New Interaction Types
+// 添加到摇篮系统
+await addCradleCharacter(cradleCharacter);
 
-1. Define new interaction types in `circle-types.ts`
-2. Implement handling logic in CircleManager
-3. Expose new methods through NodeST interface
+// 向角色投喂内容
+await addFeed(
+  cradleCharacter.id,
+  "这个角色喜欢读书和旅行",
+  FeedType.ABOUT_ME
+);
 
-### Enhancing Character Memory
+// 处理投喂数据
+await processFeedsNow();
 
-1. Modify the framework building process in NodeSTCore
-2. Add additional memory structures in storage
-3. Update the prompt generation to include new memory contexts
+// 生成正式角色
+const generatedCharacter = await generateCharacterFromCradle(cradleCharacter.id);
+```
 
-## Performance Considerations
+### 社交圈集成
 
-- Large conversation histories can impact performance
-- Consider implementing conversation summarization for long chats
-- Use proper error handling to prevent data corruption
-- Monitor API usage to stay within Gemini's rate limits
+```typescript
+import { NodeST, CirclePostOptions } from '@/NodeST/nodest';
+
+const nodest = new NodeST();
+
+// 初始化角色社交圈
+await nodest.initCharacterCircle("character123");
+
+// 处理社交互动
+const options: CirclePostOptions = {
+  type: "post",
+  content: {
+    authorId: "character123",
+    text: "今天在海滩度过了愉快的一天！",
+    context: "这是一篇所有朋友可见的公开贴文"
+  }
+};
+
+const result = await nodest.processCircleInteraction(options);
+
+if (result.success) {
+  console.log(result.action);  // 点赞/评论操作
+} else {
+  console.error(result.error);
+}
+```
+
+## API支持拓展
+
+NodeST现在支持多种LLM API：
+
+1. **Gemini API**:
+   - 默认API提供者
+   - 使用GeminiAdapter处理请求
+   - 每次调用前需要设置API Key
+
+2. **OpenRouter API**:
+   - 替代API提供者
+   - 通过OpenRouterAdapter使用不同模型
+   - 可在设置中配置:
+     ```typescript
+     nodest.updateApiSettings(apiKey, {
+       apiProvider: 'openrouter',
+       openrouter: {
+         enabled: true,
+         apiKey: 'your-openrouter-key',
+         model: 'anthropic/claude-3-haiku'
+       }
+     });
+     ```
+
+可根据不同需求选择不同的API提供者，系统会自动处理转换过程。
+
+## 性能考虑
+
+- 大型对话历史会影响性能
+- 考虑实现长对话的总结功能
+- 使用适当的错误处理防止数据损坏
+- 监控API使用情况以保持在Gemini/OpenRouter的速率限制内
