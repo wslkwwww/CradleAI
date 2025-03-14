@@ -104,6 +104,7 @@ interface ChatMessage {
     position?: number;
     insertion_order?: number;
     timestamp?: number;
+    is_chat_history_placeholder ?: boolean;
 }
 ```
 

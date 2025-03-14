@@ -173,19 +173,19 @@ export interface InputFieldProps {
 
 // UI 专用的预设条目类型
 export interface PresetEntryUI {
-    id: string;
-    name: string;
-    content: string;
-    identifier: string;
-    insertType: 'relative' | 'chat';
-    role: 'user' | 'model';
-    order: number;
-    depth?: number;
-    enable: boolean;
-    injection_position?: number;
-    injection_depth?: number;
-    isDefault?: boolean;
-    isEditable: boolean;
+  id: string;
+  name: string;
+  identifier: string;
+  content: string;
+  isEditable: boolean;
+  insertType: 'relative' | 'chat';
+  role: 'user' | 'model';
+  order: number;
+  isDefault: boolean;
+  enable: boolean;
+  depth: number;
+  injection_position?: number;
+  injection_depth?: number;
 }
 
 // UI 专用的世界书条目类型

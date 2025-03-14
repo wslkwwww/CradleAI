@@ -18,6 +18,8 @@ interface CharacterDetailHeaderProps {
   onAvatarPress: () => void;
   onBackgroundPress: () => void;
   onBackPress: () => void;
+  onChatBackgroundPress: () => void;
+  onFullscreenPress: () => void;
 }
 
 const { width } = Dimensions.get('window');

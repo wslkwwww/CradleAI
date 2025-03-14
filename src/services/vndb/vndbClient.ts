@@ -194,8 +194,12 @@ export class VNDBClient {
    */
   private buildFields(options: CharacterQueryOptions): string {
     // 如果提供了自定义字段列表，使用它
-    if (options.fields && options.fields.length > 0) {
-      return options.fields.join(',');
+    if (options.fields) {
+      // Handle both string and array input
+      if (Array.isArray(options.fields)) {
+        return options.fields.join(',');
+      }
+      return options.fields;
     }
     
     // 更正默认字段列表 - 去除vn字段，保留vns对象中的其他有效字段
@@ -212,7 +216,7 @@ export class VNDBClient {
     try {
       // 构建查询参数
       const queryParams: VNDBQueryParams = {
-        filters: this.buildFilter(options),
+        filters: options.filters || this.buildFilter(options),
         fields: this.buildFields(options),
         sort: options.sort || 'id',
         reverse: options.reverse || false,

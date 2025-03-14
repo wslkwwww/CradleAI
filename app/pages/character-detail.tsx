@@ -44,6 +44,7 @@ import {
 } from '@/components/character/CharacterSections';
 import { POSITION_OPTIONS } from '@/components/character/CharacterFormComponents';
 
+// Update the DEFAULT_PRESET_ENTRIES to include all required properties
 const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
   EDITABLE: [
@@ -51,20 +52,56 @@ const DEFAULT_PRESET_ENTRIES = {
       id: "main", 
       name: "Main", 
       identifier: "main",
+      content: "",
       enable: true,
-      role: "user"
+      role: "user" as 'user' | 'model',
+      isEditable: true,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 0,
+      isDefault: true,
+      depth: 0
     },
     { 
       id: "enhance_def", 
       name: "Enhance Definitions", 
       identifier: "enhanceDefinitions",
+      content: "",
       enable: true,
-      role: "user",
+      role: "user" as 'user' | 'model',
+      isEditable: true,
+      insertType: 'chat' as 'relative' | 'chat',
+      order: 1,
+      isDefault: true,
+      depth: 3,
       injection_position: 1,
       injection_depth: 3
     },
-    { id: "aux_prompt", name: "Auxiliary Prompt", identifier: "nsfw" },
-    { id: "post_hist", name: "Post-History Instructions", identifier: "jailbreak" }
+    { 
+      id: "aux_prompt", 
+      name: "Auxiliary Prompt", 
+      identifier: "nsfw", 
+      content: "",
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: true,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 2,
+      isDefault: true,
+      depth: 0
+    },
+    { 
+      id: "post_hist", 
+      name: "Post-History Instructions", 
+      identifier: "jailbreak",
+      content: "", 
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: true,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 3,
+      isDefault: true,
+      depth: 0
+    }
   ],
 
   // 只可排序条目 (与角色卡关联)
@@ -73,15 +110,93 @@ const DEFAULT_PRESET_ENTRIES = {
       id: "world_before",
       name: "World Info (before)",
       identifier: "worldInfoBefore",
+      content: "",
       enable: true,
-      role: "user"
+      role: "user" as 'user' | 'model',
+      isEditable: false,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 4,
+      isDefault: true,
+      depth: 0
     },
-    { id: "char_desc", name: "Char Description", identifier: "charDescription" },
-    { id: "char_pers", name: "Char Personality", identifier: "charPersonality" },
-    { id: "scenario", name: "Scenario", identifier: "scenario" },
-    { id: "world_after", name: "World Info (after)", identifier: "worldInfoAfter" },
-    { id: "chat_ex", name: "Chat Examples", identifier: "dialogueExamples" },
-    { id: "chat_hist", name: "Chat History", identifier: "chatHistory" }
+    { 
+      id: "char_desc", 
+      name: "Char Description", 
+      identifier: "charDescription",
+      content: "",
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: false,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 5,
+      isDefault: true,
+      depth: 0
+    },
+    { 
+      id: "char_pers", 
+      name: "Char Personality", 
+      identifier: "charPersonality",
+      content: "",
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: false,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 6,
+      isDefault: true,
+      depth: 0
+    },
+    { 
+      id: "scenario", 
+      name: "Scenario", 
+      identifier: "scenario",
+      content: "",
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: false,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 7,
+      isDefault: true,
+      depth: 0
+    },
+    { 
+      id: "world_after", 
+      name: "World Info (after)", 
+      identifier: "worldInfoAfter",
+      content: "",
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: false,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 8,
+      isDefault: true,
+      depth: 0
+    },
+    { 
+      id: "chat_ex", 
+      name: "Chat Examples", 
+      identifier: "dialogueExamples",
+      content: "",
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: false,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 9,
+      isDefault: true,
+      depth: 0
+    },
+    { 
+      id: "chat_hist", 
+      name: "Chat History", 
+      identifier: "chatHistory",
+      content: "",
+      enable: true,
+      role: "user" as 'user' | 'model',
+      isEditable: false,
+      insertType: 'relative' as 'relative' | 'chat',
+      order: 10,
+      isDefault: true,
+      depth: 0
+    }
   ]
 };
 
@@ -145,46 +260,200 @@ const CharacterDetail: React.FC = () => {
         }
         
         setCharacter(foundCharacter);
-        const data = JSON.parse(foundCharacter.jsonData);
         
-        // Load roleCard, worldBook, authorNote, preset data...
-        // ... existing loading logic ...
+        console.log('[CharacterDetail] Loading character data for:', foundCharacter.name);
+        console.log('[CharacterDetail] JsonData length:', foundCharacter.jsonData.length);
         
-        setRoleCard(data.roleCard || {});
-        setAuthorNote(data.authorNote || {
-          charname: '',
-          username: user?.settings?.self.nickname || 'User',
-          content: '',
-          injection_depth: 0
-        });
-
-        // Process worldBook entries
-        if (data.worldBook?.entries) {
-          const worldBookEntries = Object.entries(data.worldBook.entries)
-            .map(([name, entry]: [string, any]) => ({
-              id: String(Date.now()) + Math.random(),
-              name,
-              comment: entry.comment || '',
-              content: entry.content || '',
-              disable: !!entry.disable,
-              position: entry.position || 4,
-              constant: !!entry.constant,
-              key: Array.isArray(entry.key) ? entry.key : [],
-              depth: entry.position === 4 ? (entry.depth || 0) : undefined,
-              order: entry.order || 0
-            }));
+        try {
+          const data = JSON.parse(foundCharacter.jsonData);
           
-          setWorldBookEntries(worldBookEntries);
+          console.log('[CharacterDetail] Successfully parsed jsonData:', {
+            hasRoleCard: !!data.roleCard,
+            hasWorldBook: !!data.worldBook,
+            hasPreset: !!data.preset,
+            hasAuthorNote: !!data.authorNote
+          });
+          
+          // 加载角色卡数据，使用默认值确保UI不出错
+          setRoleCard({
+            name: data.roleCard?.name || foundCharacter.name || '',
+            first_mes: data.roleCard?.first_mes || 'Hello!',
+            description: data.roleCard?.description || foundCharacter.description || '',
+            personality: data.roleCard?.personality || foundCharacter.personality || '',
+            scenario: data.roleCard?.scenario || '',
+            mes_example: data.roleCard?.mes_example || ''
+          });
+          
+          // 设置作者注释，为空时使用默认值
+          setAuthorNote(data.authorNote || {
+            charname: data.roleCard?.name || foundCharacter.name || '',
+            username: user?.settings?.self.nickname || 'User',
+            content: '',
+            injection_depth: 0
+          });
+          
+          // 处理世界书条目
+          if (data.worldBook?.entries) {
+            const worldBookEntries = Object.entries(data.worldBook.entries)
+              .map(([name, entry]: [string, any]) => ({
+                id: String(Date.now()) + Math.random(),
+                name,
+                comment: entry.comment || '',
+                content: entry.content || '',
+                disable: !!entry.disable,
+                position: entry.position || 4,
+                constant: !!entry.constant,
+                key: Array.isArray(entry.key) ? entry.key : [],
+                depth: entry.position === 4 ? (entry.depth || 0) : undefined,
+                order: entry.order || 0
+              }));
+            
+            console.log('[CharacterDetail] Loaded worldBook entries:', worldBookEntries.length);
+            setWorldBookEntries(worldBookEntries);
+          } else {
+            console.log('[CharacterDetail] No worldBook entries found, creating default entries');
+            // 创建默认世界书条目
+            setWorldBookEntries([
+              {
+                id: String(Date.now()),
+                name: 'Alist',
+                comment: 'Character Attributes List',
+                content: `<attributes>\n  <personality>${data.roleCard?.personality || 'Friendly'}</personality>\n  <appearance>未指定</appearance>\n  <likes>聊天</likes>\n  <dislikes>未指定</dislikes>\n</attributes>`,
+                disable: false,
+                position: 4,
+                constant: true,
+                key: [],
+                depth: 0,
+                order: 0
+              }
+            ]);
+          }
+          
+          // 处理preset条目
+          if (data.preset?.prompts) {
+            // 现有的preset处理逻辑...
+            const defaultPresetEntries = [...DEFAULT_PRESET_ENTRIES.EDITABLE, ...DEFAULT_PRESET_ENTRIES.FIXED];
+            const presetEntryMap = new Map<string, PresetEntryUI>(
+              defaultPresetEntries.map(entry => [entry.identifier, { ...entry, content: '' }])
+            );
+            
+            // 更新preset条目内容
+            data.preset.prompts.forEach((prompt: any) => {
+              if (presetEntryMap.has(prompt.identifier)) {
+                const entry = presetEntryMap.get(prompt.identifier);
+                if (entry) {
+                  entry.content = prompt.content || '';
+                  entry.enable = prompt.enable !== false;
+                  if (prompt.injection_position === 1) {
+                    entry.depth = prompt.injection_depth || 0;
+                    entry.insertType = 'chat';
+                  }
+                }
+              } else {
+                // 添加自定义preset条目
+                presetEntryMap.set(prompt.identifier, {
+                  id: String(Date.now()) + Math.random(),
+                  name: prompt.name || 'Custom Prompt',
+                  identifier: prompt.identifier,
+                  content: prompt.content || '',
+                  isEditable: true,
+                  insertType: prompt.injection_position === 1 ? 'chat' : 'relative',
+                  role: (prompt.role as 'user' | 'model') || 'user',
+                  order: data.preset.prompt_order?.[0]?.order?.findIndex(
+                    (item: any) => item.identifier === prompt.identifier) ?? 999,
+                  isDefault: false,
+                  enable: prompt.enable !== false,
+                  depth: prompt.injection_depth || 0
+                });
+              }
+            });
+            
+            // 根据prompt_order排序
+            if (data.preset.prompt_order && data.preset.prompt_order[0]) {
+              const orderMap = new Map(
+                data.preset.prompt_order[0].order.map((item: any, index: number) => [item.identifier, index])
+              );
+              
+              const presetEntries = Array.from(presetEntryMap.values())
+                .sort((a, b) => {
+                  const orderA = orderMap.has(a.identifier) ? orderMap.get(a.identifier) : 999;
+                  const orderB = orderMap.has(b.identifier) ? orderMap.get(b.identifier) : 999;
+                  const indexA = orderA !== undefined ? Number(orderA) : 999;
+                  const indexB = orderB !== undefined ? Number(orderB) : 999;
+                  return indexA - indexB;
+                })
+                .map((entry, index) => ({ ...entry, order: index }));
+              
+              setPresetEntries(presetEntries);
+              console.log('[CharacterDetail] Loaded preset entries:', presetEntries.length);
+            } else {
+              setPresetEntries(Array.from(presetEntryMap.values()));
+            }
+          } else {
+            console.log('[CharacterDetail] No preset data found, creating default presets');
+            // 创建默认preset条目
+            setPresetEntries(DEFAULT_PRESET_ENTRIES.EDITABLE.concat(DEFAULT_PRESET_ENTRIES.FIXED)
+              .map((entry, index) => ({
+                ...entry,
+                id: String(Date.now()) + index,
+                order: index
+              })));
+          }
+        } catch (parseError) {
+          console.error('[CharacterDetail] Failed to parse character data:', parseError);
+          
+          // 使用角色的基本信息创建简单的roleCard
+          setRoleCard({
+            name: foundCharacter.name || '',
+            first_mes: '你好，很高兴认识你！',
+            description: foundCharacter.description || '',
+            personality: foundCharacter.personality || '',
+            scenario: '',
+            mes_example: ''
+          });
+          
+          // 创建默认的世界书和preset条目
+          setWorldBookEntries([
+            {
+              id: String(Date.now()),
+              name: 'Alist',
+              comment: 'Character Attributes List',
+              content: `<attributes>\n  <personality>${foundCharacter.personality || 'Friendly'}</personality>\n  <appearance>未指定</appearance>\n  <likes>聊天</likes>\n  <dislikes>未指定</dislikes>\n</attributes>`,
+              disable: false,
+              position: 4,
+              constant: true,
+              key: [],
+              depth: 0,
+              order: 0
+            }
+          ]);
+          
+          setPresetEntries(DEFAULT_PRESET_ENTRIES.EDITABLE.concat(DEFAULT_PRESET_ENTRIES.FIXED)
+            .map((entry, index) => ({
+              ...entry,
+              id: String(Date.now()) + index,
+              content: '',
+              isEditable: DEFAULT_PRESET_ENTRIES.EDITABLE.some(e => e.identifier === entry.identifier),
+              insertType: entry.injection_position === 1 ? 'chat' : 'relative',
+              order: index,
+              isDefault: true,
+              enable: true,
+              depth: entry.injection_depth || 0
+            })));
+            
+          // 使用简单的作者注释
+          setAuthorNote({
+            charname: foundCharacter.name || '',
+            username: user?.settings?.self.nickname || 'User',
+            content: '',
+            injection_depth: 0
+          });
+          
+          Alert.alert('提示', '角色数据格式有误，已创建基础设定');
         }
-        
-        // Process preset entries
-        if (data.preset?.prompts) {
-          // ... existing preset processing ...
-        }
-        
       } catch (error) {
-        console.error('Failed to parse character data:', error);
-        Alert.alert('错误', '角色数据格式错误');
+        console.error('[CharacterDetail] Error loading character:', error);
+        Alert.alert('错误', '加载角色数据失败');
       } finally {
         setIsLoading(false);
       }
@@ -605,6 +874,9 @@ const CharacterDetail: React.FC = () => {
         onBackgroundPress={pickBackground}
         onChatBackgroundPress={pickChatBackground} // 新增聊天背景选择按钮
         onBackPress={handleBack}
+        onFullscreenPress={() => {
+          // Handle fullscreen image viewer
+        }}
       />
       
       {/* Tab Navigation */}
@@ -632,9 +904,6 @@ const CharacterDetail: React.FC = () => {
               value={roleCard.first_mes || ''}
               onChangeText={(text) => handleRoleCardChange('first_mes', text)}
               placeholder="角色与用户的第一次对话内容..."
-              onFullscreenPress={() => {
-                // Handle fullscreen editor
-              }}
             />
             
             <CharacterAttributeEditor

@@ -4,6 +4,8 @@ import { RelationshipAction } from '@/services/action-service';
 import { CradleAnimation } from '@/constants/types';
 import { OpenRouterSettings } from '@/shared/types/api-types';
 import { MessageBoxItem } from '@/shared/types/relationship-types';
+import { VNDBCharacter } from '@/src/services/vndb/types';
+
 // ============= 基础类型 =============
 export interface User {
     id: string;
@@ -92,7 +94,7 @@ export interface PresetJson {
         identifier: string;
         injection_position?: 0 | 1;
         injection_depth?: number;
-        role: "user" | "model";
+        role: "user" | "model" | "assistant";
     }>;
     prompt_order: PromptOrder[];
 }
@@ -130,12 +132,14 @@ export interface ChatMessage {
     is_d_entry?: boolean;
     name?: string;
     identifier?: string;
+    injection_position?: number;
     injection_depth?: number;
     constant?: boolean;
     key?: string[];
     position?: number;
     insertion_order?: number;
-    timestamp?: number;
+    timestamp?: number; 
+    is_chat_history_placeholder ?: boolean;
 }
 
 export interface SidebarItemProps {
@@ -187,7 +191,15 @@ export interface Character {
       targetId?: string;
     };
   }>;
-  
+  generationData?: {
+    appearanceTags?: { positive: string[]; negative: string[]; };
+    traits?: string[];
+    vndbResults?: any;
+  };
+  initialSettings?: {
+    userGender?: 'male' | 'female' | 'other';
+    characterGender?: 'male' | 'female' | 'other';
+  };
   // Relationship system fields
   relationshipMap?: RelationshipMapData;
   messageBox?: MessageBoxItem[];
@@ -333,6 +345,19 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
     imageGenerationTaskId?: string | null;
     imageGenerationStatus?: 'idle' | 'pending' | 'success' | 'error'; 
     imageGenerationError?: string | null;
+
+    // Add VNDB search results property
+    vndbSearchResults?: VNDBCharacter[];
+
+    // Add generation data for LLM
+    generationData?: {
+      appearanceTags?:
+       { positive: string[]; negative: string[]; }; 
+      traits?: string[];
+      vndbResults?: any;
+      description?: string;
+      userGender?: "male" | "female" | "other" | undefined
+    }
 }
 
 export interface RoleCardJson {

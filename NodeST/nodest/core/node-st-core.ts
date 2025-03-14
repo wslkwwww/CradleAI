@@ -13,7 +13,7 @@ import {
     RegexScript,
     GlobalSettings
 } from '../../../shared/types';
-
+import { MessagePart } from '@/shared/types';
 export class NodeSTCore {
     private geminiAdapter: GeminiAdapter | null = null;
     private openRouterAdapter: OpenRouterAdapter | null = null;
@@ -144,92 +144,325 @@ export class NodeSTCore {
         worldBook: WorldBookJson,
         preset: PresetJson,
         authorNote?: AuthorNoteJson,
+        chatHistory?: ChatHistoryEntity,  // Add parameter for chatHistory
+        options?: { isCradleGeneration?: boolean }
     ): Promise<boolean> {
         try {
-            console.log('[NodeSTCore] Creating new character with data:', {
+            // Log the input parameters fully to verify what we're getting
+            console.log('[NodeSTCore] createNewCharacter received parameters:', {
                 conversationId,
-                roleCard: {
-                    name: roleCard.name,
-                    description: roleCard.description?.substring(0, 100) + '...',
-                    personality: roleCard.personality?.substring(0, 100) + '...',
-                    scenario: roleCard.scenario?.substring(0, 100) + '...',
-                    mes_example: roleCard.mes_example?.substring(0, 100) + '...',
-                },
-                worldBook: {
-                    entriesCount: Object.keys(worldBook.entries).length
-                },
-                preset: {
-                    promptsCount: preset.prompts.length,
-                    orderCount: preset.prompt_order[0]?.order.length
-                },
-                hasAuthorNote: !!authorNote
+                roleCardDefined: roleCard !== undefined && roleCard !== null,
+                roleCardType: typeof roleCard,
+                roleCardKeys: roleCard ? Object.keys(roleCard) : 'undefined roleCard',
+                worldBookDefined: worldBook !== undefined && worldBook !== null,
+                presetDefined: preset !== undefined && preset !== null,
+                authorNoteDefined: !!authorNote,
+                chatHistoryDefined: !!chatHistory
             });
 
-            // 保存角色相关文件
+            // CRITICAL: Create a defensive copy of roleCard to prevent modification issues
+            const safeRoleCard: RoleCardJson = roleCard ? {
+                name: roleCard.name || "Unnamed Character",
+                first_mes: roleCard.first_mes || "Hello!",
+                description: roleCard.description || "No description provided.",
+                personality: roleCard.personality || "Friendly",
+                scenario: roleCard.scenario || "",
+                mes_example: roleCard.mes_example || "",
+                background: roleCard.background,
+                data: roleCard.data
+            } : {
+                name: "Unnamed Character",
+                first_mes: "Hello! (Default message)",
+                description: "This character was created with missing information.",
+                personality: "Friendly",
+                scenario: "",
+                mes_example: ""
+            };
+
+            console.log('[NodeSTCore] Using safe roleCard:', {
+                name: safeRoleCard.name,
+                hasMesExample: !!safeRoleCard.mes_example,
+                hasDescription: !!safeRoleCard.description
+            });
+
+            // Safety check for worldBook
+            const safeWorldBook: WorldBookJson = worldBook || { entries: {} };
+            
+            // Safety check for preset
+            const safePreset: PresetJson = preset || { 
+                prompts: [],
+                prompt_order: [{ order: [] }]
+            };
+
+            // 保存角色相关文件 - use safe versions
             await Promise.all([
-                this.saveJson(this.getStorageKey(conversationId, '_role'), roleCard),
-                this.saveJson(this.getStorageKey(conversationId, '_world'), worldBook),
-                this.saveJson(this.getStorageKey(conversationId, '_preset'), preset)
+                this.saveJson(this.getStorageKey(conversationId, '_role'), safeRoleCard),
+                this.saveJson(this.getStorageKey(conversationId, '_world'), safeWorldBook),
+                this.saveJson(this.getStorageKey(conversationId, '_preset'), safePreset)
             ]);
 
             if (authorNote) {
                 await this.saveJson(this.getStorageKey(conversationId, '_note'), authorNote);
             }
 
-            // 构建初始框架
-            const [rFramework, chatHistory] = CharacterUtils.buildRFramework(preset, roleCard, worldBook);
-            
-            console.log('[NodeSTCore] Framework built:', {
-                rFrameworkLength: rFramework.length,
-                hasChatHistory: !!chatHistory,
-                chatHistoryParts: chatHistory?.parts?.length
-            });
-
-            // 确保保存完整的框架内容
-            await this.saveJson(
-                this.getStorageKey(conversationId, '_contents'),
-                rFramework
-            );
-
-            const dEntries = CharacterUtils.extractDEntries(preset, worldBook, authorNote);
-
             // 初始化聊天历史
             if (chatHistory) {
-                // 添加开场白
-                let historyParts: ChatMessage[] = [];
+                try {
+                    console.log('[NodeSTCore] 初始化聊天历史，使用传入的聊天历史');
+                    
+                    // Ensure chatHistory has all required fields
+                    const historyEntity: ChatHistoryEntity = {
+                        name: chatHistory.name || "Chat History",
+                        role: chatHistory.role || "system",
+                        parts: chatHistory.parts || [],
+                        identifier: chatHistory.identifier || "chatHistory"
+                    };
+                    
+                    // If no first_mes in chatHistory but roleCard has it, add it
+                    if (safeRoleCard.first_mes && 
+                        !historyEntity.parts.some(p => p.is_first_mes)) {
+                        
+                        console.log('[NodeSTCore] 添加缺失的first_mes到聊天历史');
+                        historyEntity.parts.unshift({
+                            role: "model",
+                            parts: [{ text: safeRoleCard.first_mes }],
+                            is_first_mes: true
+                        });
+                    }
+                    
+                    // Extract D-entries to ensure they're properly injected
+                    const dEntries = CharacterUtils.extractDEntries(
+                        safePreset,
+                        safeWorldBook,
+                        authorNote
+                    );
+                    
+                    // Insert D-entries if there are any
+                    if (dEntries.length > 0) {
+                        console.log('[NodeSTCore] 向聊天历史注入D类条目，数量:', dEntries.length);
+                        const updatedHistory = this.insertDEntriesToHistory(
+                            historyEntity,
+                            dEntries,
+                            ""  // No user message for initial history
+                        );
+                        
+                        // Save the updated history with D-entries
+                        await this.saveJson(
+                            this.getStorageKey(conversationId, '_history'),
+                            updatedHistory
+                        );
+                        
+                        console.log('[NodeSTCore] 聊天历史（含D类条目）初始化成功');
+                    } else {
+                        // Save the history without D-entries
+                        await this.saveJson(
+                            this.getStorageKey(conversationId, '_history'),
+                            historyEntity
+                        );
+                        
+                        console.log('[NodeSTCore] 聊天历史（无D类条目）初始化成功');
+                    }
+                } catch (historyError) {
+                    console.error('[NodeSTCore] Error initializing chat history:', historyError);
+                    // Create default chat history as a fallback
+                    this.createDefaultChatHistory(conversationId, safeRoleCard, safePreset, safeWorldBook, authorNote);
+                }
+            } else {
+                console.log('[NodeSTCore] 未提供聊天历史，创建默认聊天历史');
+                // Create default chat history when none is provided
+                this.createDefaultChatHistory(conversationId, safeRoleCard, safePreset, safeWorldBook, authorNote);
+            }
+
+            try {
+                // 构建初始框架 - wrap in try/catch to isolate errors
+                console.log('[NodeSTCore] Building initial framework...');
+                const [rFramework, chatHistory] = CharacterUtils.buildRFramework(
+                    safePreset,
+                    safeRoleCard,
+                    safeWorldBook,
+                    { isCradleGeneration: options?.isCradleGeneration || false }
+                );
                 
-                if (roleCard.first_mes) {
-                    historyParts.push({
-                        role: "model",
-                        parts: [{ text: roleCard.first_mes }],
-                        is_first_mes: true
-                    });
+                console.log('[NodeSTCore] Framework built successfully:', {
+                    rFrameworkLength: rFramework?.length || 0,
+                    hasChatHistory: !!chatHistory
+                });
+
+                // 确保保存完整的框架内容
+                await this.saveJson(
+                    this.getStorageKey(conversationId, '_contents'),
+                    rFramework
+                );
+
+                // Safely extract D-entries
+                const dEntries = CharacterUtils.extractDEntries(safePreset, safeWorldBook, authorNote);
+
+                // 初始化聊天历史
+                if (chatHistory) {
+                    try {
+                        // 添加开场白
+                        let historyParts: ChatMessage[] = [];
+                        
+                        if (safeRoleCard.first_mes) {
+                            historyParts.push({
+                                role: "model",
+                                parts: [{ text: safeRoleCard.first_mes }],
+                                is_first_mes: true
+                            });
+                        }
+
+                        const historyEntity: ChatHistoryEntity = {
+                            name: chatHistory.name || "Chat History",
+                            role: chatHistory.role || "system",
+                            parts: historyParts,
+                            identifier: chatHistory.identifier
+                        };
+
+                        // 插入D类条目
+                        const updatedHistory = this.insertDEntriesToHistory(
+                            historyEntity,
+                            dEntries,
+                            ""
+                        );
+                        
+                        await this.saveJson(
+                            this.getStorageKey(conversationId, '_history'),
+                            updatedHistory
+                        );
+                        
+                        console.log('[NodeSTCore] Chat history initialized successfully');
+                    } catch (historyError) {
+                        console.error('[NodeSTCore] Error initializing chat history:', historyError);
+                        // Continue even if history initialization fails
+                    }
                 }
 
-                const historyEntity: ChatHistoryEntity = {
-                    name: chatHistory.name || "Chat History",
-                    role: chatHistory.role || "system",
-                    parts: historyParts,
-                    identifier: chatHistory.identifier
-                };
-
-                // 插入D类条目
+                return true;
+            } catch (frameworkError) {
+                console.error('[NodeSTCore] Error in framework creation:', frameworkError);
+                
+                // Try a minimal framework as fallback
+                try {
+                    console.log('[NodeSTCore] Attempting to create minimal framework as fallback...');
+                    
+                    // Create very simple framework
+                    const minimalFramework: ChatMessage[] = [
+                        {
+                            name: "Character Info",
+                            role: "user",
+                            parts: [{ text: `Name: ${safeRoleCard.name}\nPersonality: ${safeRoleCard.personality}\nDescription: ${safeRoleCard.description}` }]
+                        },
+                        {
+                            name: "Chat History",
+                            role: "system",
+                            parts: [{
+                                role: "model", 
+                                parts: [{ text: safeRoleCard.first_mes || "Hello!" }],
+                                is_first_mes: true
+                            } as unknown as MessagePart]
+                        }
+                    ];
+                    
+                    await this.saveJson(
+                        this.getStorageKey(conversationId, '_contents'),
+                        minimalFramework
+                    );
+                    
+                    const minimalHistoryEntity: ChatHistoryEntity = {
+                        name: "Chat History",
+                        role: "system",
+                        parts: [{
+                            role: "model",
+                            parts: [{ text: safeRoleCard.first_mes || "Hello!" }],
+                            is_first_mes: true
+                        } as ChatMessage],
+                        identifier: "chatHistory"
+                    };
+                    
+                    await this.saveJson(
+                        this.getStorageKey(conversationId, '_history'),
+                        minimalHistoryEntity
+                    );
+                    
+                    console.log('[NodeSTCore] Minimal framework created as fallback');
+                    return true;
+                } catch (fallbackError) {
+                    console.error('[NodeSTCore] Even fallback framework creation failed:', fallbackError);
+                    throw frameworkError; // Throw the original error
+                }
+            }
+        } catch (error) {
+            console.error('[NodeSTCore] Error creating new character:', error);
+            return false;
+        }
+    }
+    
+    // Helper method to create a default chat history
+    private async createDefaultChatHistory(
+        conversationId: string, 
+        roleCard: RoleCardJson,
+        preset: PresetJson,
+        worldBook: WorldBookJson,
+        authorNote?: AuthorNoteJson
+    ): Promise<void> {
+        try {
+            console.log('[NodeSTCore] 创建默认聊天历史...');
+            
+            // Find Chat History identifier from preset if available
+            let chatHistoryIdentifier = "chatHistory";
+            if (preset && preset.prompt_order && preset.prompt_order[0]) {
+                const order = preset.prompt_order[0].order || [];
+                const chatHistoryEntry = order.find(entry => 
+                    entry.identifier.toLowerCase().includes('chathistory'));
+                if (chatHistoryEntry) {
+                    chatHistoryIdentifier = chatHistoryEntry.identifier;
+                }
+            }
+            
+            // Create messages array with first_mes if available
+            const historyParts: ChatMessage[] = [];
+            if (roleCard.first_mes) {
+                historyParts.push({
+                    role: "model",
+                    parts: [{ text: roleCard.first_mes }],
+                    is_first_mes: true
+                });
+                console.log('[NodeSTCore] 添加角色第一条消息到默认聊天历史');
+            }
+            
+            const historyEntity: ChatHistoryEntity = {
+                name: "Chat History",
+                role: "system",
+                parts: historyParts,
+                identifier: chatHistoryIdentifier
+            };
+            
+            // Extract and insert D-entries (worldbook entries)
+            const dEntries = CharacterUtils.extractDEntries(preset, worldBook, authorNote);
+            
+            if (dEntries.length > 0) {
+                console.log('[NodeSTCore] 向默认聊天历史注入D类条目，数量:', dEntries.length);
                 const updatedHistory = this.insertDEntriesToHistory(
                     historyEntity,
                     dEntries,
-                    ""
+                    ""  // No user message for initial history
                 );
                 
                 await this.saveJson(
                     this.getStorageKey(conversationId, '_history'),
                     updatedHistory
                 );
+            } else {
+                await this.saveJson(
+                    this.getStorageKey(conversationId, '_history'),
+                    historyEntity
+                );
             }
-
-            return true;
+            
+            console.log('[NodeSTCore] 默认聊天历史创建完成');
         } catch (error) {
-            console.error('Error creating new character:', error);
-            return false;
+            console.error('[NodeSTCore] Error creating default chat history:', error);
+            throw error;
         }
     }
 
@@ -499,14 +732,10 @@ export class NodeSTCore {
             baseMessage: userMessage.substring(0, 30)
         });
 
-        // 1. 获取纯聊天消息（排除D类条目）
-        const chatMessages = chatHistory.parts.filter(msg => 
-            !msg.is_d_entry && (
-                msg.role === "user" || 
-                msg.role === "model" || 
-                msg.is_first_mes
-            )
-        );
+        // 1. 先移除所有旧的D类条目，确保不会重复
+        const chatMessages = chatHistory.parts.filter(msg => !msg.is_d_entry);
+        
+        console.log(`[NodeSTCore] Removed ${chatHistory.parts.length - chatMessages.length} old D-entries`);
 
         // 2. 找到基准消息（最新的用户消息）的索引
         const baseMessageIndex = chatMessages.findIndex(
@@ -515,7 +744,10 @@ export class NodeSTCore {
 
         if (baseMessageIndex === -1) {
             console.warn('[NodeSTCore] Base message not found in history');
-            return chatHistory;
+            return {
+                ...chatHistory,
+                parts: chatMessages // 返回没有D类条目的干净历史
+            };
         }
 
         // 3. 先过滤符合条件的 D 类条目
@@ -523,48 +755,59 @@ export class NodeSTCore {
             this.shouldIncludeDEntry(entry, chatMessages)
         );
 
-        // 对过滤后的条目进行分组
-        const position4Entries = validDEntries
+        console.log(`[NodeSTCore] Filtered D-entries: ${validDEntries.length} valid out of ${dEntries.length} total`);
+
+        // 对过滤后的条目按注入深度分组，确保只在正确的位置插入
+        const position4EntriesByDepth = validDEntries
             .filter(entry => entry.position === 4)
             .reduce((acc, entry) => {
-                const depth = entry.injection_depth || 0;
+                // 确保注入深度是有效数字，默认为0
+                const depth = typeof entry.injection_depth === 'number' ? entry.injection_depth : 0;
                 if (!acc[depth]) acc[depth] = [];
-                acc[depth].push(entry);
+                acc[depth].push({
+                    ...entry,
+                    // 确保明确标记为D类条目，以便下一次更新时可以清除
+                    is_d_entry: true
+                });
                 return acc;
             }, {} as Record<number, ChatMessage[]>);
 
         // 4. 构建新的消息序列
         const finalMessages: ChatMessage[] = [];
         
-        // 4.1 从基准消息开始，往前遍历插入消息和D类条目
-        for (let i = 0; i <= baseMessageIndex; i++) {
+        // 4.1 从第一条消息开始，往后遍历插入消息和D类条目
+        for (let i = 0; i < chatMessages.length; i++) {
             const msg = chatMessages[i];
-            const depthFromBase = baseMessageIndex - i;
 
-            // 如果在当前位置有对应深度的D类条目，先插入D类条目
-            if (position4Entries[depthFromBase]) {
-                console.log(`[NodeSTCore] Inserting D-entries with depth=${depthFromBase} before message at position ${i}`);
-                finalMessages.push(...position4Entries[depthFromBase]);
+            // 只有非基准消息（不是最新用户消息）且在基准消息之前的消息可能有D类条目插入前面
+            if (i < baseMessageIndex) {
+                // 计算与基准消息的深度差
+                const depthFromBase = baseMessageIndex - i;
+                // 只有深度大于0时才在消息前插入D类条目（depth=0的条目只在基准消息后插入）
+                if (depthFromBase > 0 && position4EntriesByDepth[depthFromBase]) {
+                    console.log(`[NodeSTCore] Inserting ${position4EntriesByDepth[depthFromBase].length} D-entries with depth=${depthFromBase} before message at position ${i}`);
+                    finalMessages.push(...position4EntriesByDepth[depthFromBase]);
+                }
             }
 
             // 插入当前消息
             finalMessages.push(msg);
 
-            // 如果是基准消息且有depth=0的条目，在其后插入
-            if (i === baseMessageIndex && position4Entries[0]) {
-                console.log('[NodeSTCore] Inserting depth=0 D-entries after base message');
-                finalMessages.push(...position4Entries[0]);
+            // 如果是基准消息（最新用户消息），在其后插入depth=0的条目
+            if (i === baseMessageIndex && position4EntriesByDepth[0]) {
+                console.log(`[NodeSTCore] Inserting ${position4EntriesByDepth[0].length} D-entries with depth=0 after base message`);
+                finalMessages.push(...position4EntriesByDepth[0]);
             }
         }
 
-        // 4.2 添加基准消息之后的消息（如果有的话）
-        for (let i = baseMessageIndex + 1; i < chatMessages.length; i++) {
-            finalMessages.push(chatMessages[i]);
-        }
-
         // 5. 处理其他position的条目（从validDEntries中筛选）
-        const otherDEntries = validDEntries.filter(entry => entry.position !== 4);
+        const otherDEntries = validDEntries.filter(entry => entry.position !== 4).map(entry => ({
+            ...entry,
+            is_d_entry: true // 确保明确标记为D类条目
+        }));
+        
         for (const entry of otherDEntries) {
+            // 对于authorNote相关条目（position=2或3），如果存在作者注释，则在前后插入
             const authorNoteIndex = finalMessages.findIndex(msg => msg.is_author_note);
             if (authorNoteIndex !== -1) {
                 if (entry.position === 2) {
@@ -574,16 +817,24 @@ export class NodeSTCore {
                     finalMessages.splice(authorNoteIndex + 1, 0, entry);
                     console.log(`[NodeSTCore] Inserted position=3 entry after author note: ${entry.name}`);
                 }
+            } else if (entry.is_author_note) {
+                // 如果条目本身是作者注释且历史中尚不存在，添加到末尾
+                finalMessages.push(entry);
+                console.log(`[NodeSTCore] Added missing author note: ${entry.name}`);
             }
         }
 
-        // 6. 添加详细的调试日志
+        // 6. 检查最终的消息序列中的D类条目数量，确保正确标记
+        const dEntryCount = finalMessages.filter(msg => msg.is_d_entry).length;
+        console.log(`[NodeSTCore] Final message sequence has ${dEntryCount} D-entries out of ${finalMessages.length} total messages`);
+
+        // 7. 添加详细的调试日志，显示消息顺序和类型以及D类条目的注入深度
         console.log('[NodeSTCore] Message sequence after D-entry insertion:', 
             finalMessages.map((msg, idx) => ({
                 index: idx,
                 type: msg.is_d_entry ? 'D-entry' : 'chat',
                 role: msg.role,
-                depth: msg.injection_depth,
+                depth: msg.is_d_entry ? msg.injection_depth || 0 : 'N/A',
                 position: msg.position,
                 isBaseMessage: msg.parts[0]?.text === userMessage,
                 preview: msg.parts[0]?.text?.substring(0, 30)
@@ -602,8 +853,11 @@ export class NodeSTCore {
         aiResponse: string,
         dEntries: ChatMessage[]
     ): ChatHistoryEntity {
+        console.log('[NodeSTCore] Updating chat history with new messages and D-entries');
+        
         // 1. 保留非D类条目的历史消息
         const cleanHistory = chatHistory.parts.filter(msg => !msg.is_d_entry);
+        console.log(`[NodeSTCore] Removed ${chatHistory.parts.length - cleanHistory.length} old D-entries from history`);
 
         // 2. 添加新的用户消息（如果不存在）
         const userMessageExists = cleanHistory.some(msg => 
@@ -615,6 +869,7 @@ export class NodeSTCore {
                 role: "user",
                 parts: [{ text: userMessage }]
             });
+            console.log('[NodeSTCore] Added new user message to history');
         }
 
         // 3. 添加AI响应（如果有且不存在）
@@ -628,10 +883,12 @@ export class NodeSTCore {
                     role: "model",
                     parts: [{ text: aiResponse }]
                 });
+                console.log('[NodeSTCore] Added new AI response to history');
             }
         }
 
         // 4. 使用最新的消息作为基准，重新插入D类条目
+        // 确保传递的是干净历史（没有D类条目的）
         const updatedHistory = this.insertDEntriesToHistory(
             {
                 ...chatHistory,
@@ -641,10 +898,11 @@ export class NodeSTCore {
             userMessage
         );
 
-        console.log('[NodeSTCore] Updated chat history:', {
+        console.log('[NodeSTCore] Updated chat history summary:', {
             originalMessagesCount: chatHistory.parts.length,
             cleanHistoryCount: cleanHistory.length,
             finalMessagesCount: updatedHistory.parts.length,
+            dEntriesCount: updatedHistory.parts.filter(msg => msg.is_d_entry).length,
             hasUserMessage: userMessageExists,
             hasAiResponse: aiResponse ? true : false
         });
@@ -662,15 +920,10 @@ export class NodeSTCore {
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChat with:', {
-                userMessage,
-                chatHistoryStatus: {
-                    exists: !!chatHistory,
-                    messagesCount: chatHistory?.parts?.length,
-                    identifier: chatHistory?.identifier
-                },
+                userMessage: userMessage.substring(0, 30) + (userMessage.length > 30 ? '...' : ''),
+                chatHistoryMessagesCount: chatHistory?.parts?.length,
                 dEntriesCount: dEntries.length,
-                apiProvider: this.apiSettings?.apiProvider,
-                usingExplicitAdapter: !!adapter
+                apiProvider: this.apiSettings?.apiProvider
             });
 
             // 1. 加载框架内容
@@ -689,27 +942,29 @@ export class NodeSTCore {
 
             // 3. 将更新后的聊天历史插入框架
             const contents = [...rFramework];
-            const promptOrder = preset.prompt_order[0]?.order || [];
-            const chatHistoryIndex = promptOrder.findIndex(
-                item => item.identifier === chatHistory.identifier
+
+            // 查找聊天历史占位符的位置 
+            const chatHistoryPlaceholderIndex = contents.findIndex(
+                item => item.is_chat_history_placeholder || 
+                       (item.identifier === chatHistory.identifier)
             );
 
-            console.log('[NodeSTCore] Framework and chat history status:', {
-                rFrameworkLength: contents.length,
-                promptOrderLength: promptOrder.length,
-                chatHistoryIndex,
-                chatHistoryIdentifier: chatHistory.identifier
-            });
+            console.log('[NodeSTCore] Found chat history placeholder at index:', chatHistoryPlaceholderIndex);
+
+            // 确保已经清除旧的D类条目并基于最新消息插入新的D类条目
+            const historyWithDEntries = this.insertDEntriesToHistory(
+                // 确保传入的历史不包含旧的D类条目
+                {
+                    ...chatHistory,
+                    parts: chatHistory.parts.filter(msg => !msg.is_d_entry)
+                },
+                dEntries,
+                userMessage
+            );
 
             // 确保正确插入聊天历史
-            if (chatHistoryIndex !== -1) {
-                const historyWithDEntries = this.insertDEntriesToHistory(
-                    chatHistory,
-                    dEntries,
-                    userMessage
-                );
-
-                // 将处理后的历史插入到框架中
+            if (chatHistoryPlaceholderIndex !== -1) {
+                // 将处理后的历史插入到框架中，替换占位符
                 const historyMessage: ChatMessage = {
                     name: "Chat History",
                     role: "system",
@@ -717,7 +972,17 @@ export class NodeSTCore {
                     identifier: chatHistory.identifier
                 };
 
-                contents.splice(chatHistoryIndex, 1, historyMessage);
+                console.log(`[NodeSTCore] Replacing chat history placeholder at index ${chatHistoryPlaceholderIndex} with chat history containing ${historyWithDEntries.parts.length} messages`);
+                contents[chatHistoryPlaceholderIndex] = historyMessage;
+            } else {
+                // 如果找不到占位符，追加到末尾（应该不会发生，但作为安全措施）
+                console.warn("[NodeSTCore] Chat history placeholder not found, appending to end");
+                contents.push({
+                    name: "Chat History",
+                    role: "system",
+                    parts: historyWithDEntries.parts,
+                    identifier: chatHistory.identifier
+                });
             }
 
             // 清理内容用于Gemini
@@ -738,6 +1003,15 @@ export class NodeSTCore {
                     depth: msg.injection_depth,
                     preview: msg.parts[0]?.text?.substring(0, 30)
                 }))
+            });
+            
+            // 打印完整的请求内容以便检查
+            console.log('[NodeSTCore] COMPLETE API REQUEST CONTENT:');
+            cleanedContents.forEach((msg, i) => {
+                console.log(`[Message ${i+1}] Role: ${msg.role}`);
+                msg.parts.forEach((part, j) => {
+                    console.log(`[Message ${i+1}][Part ${j+1}] Content: "${part.text}"`);
+                });
             });
 
             // 验证是否还有消息要发送

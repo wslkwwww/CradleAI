@@ -6,6 +6,7 @@ import {
     AuthorNoteJson, 
     Character,
     GlobalSettings,
+    ChatHistoryEntity
 } from '../../shared/types';
 import { CircleManager, CirclePostOptions, CircleResponse } from './managers/circle-manager';
 export interface ProcessChatResponse {
@@ -21,6 +22,7 @@ export interface ProcessChatRequest {
     apiKey: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
     jsonString?: string;
+    isCradleGeneration?: boolean; 
 }
 
 export { CirclePostOptions, CircleResponse };
@@ -143,25 +145,51 @@ export class NodeST {
                     throw new Error("Character data is required for creating a new character");
                 }
 
-                const characterData = this.parseCharacterJson(params.jsonString);
-                const created = await core.createNewCharacter(
-                    params.conversationId,
-                    characterData.roleCard,
-                    characterData.worldBook,
-                    characterData.preset,
-                    characterData.authorNote
-                );
+                // 解析角色数据并详细记录，帮助诊断问题
+                try {
+                    console.log("[NodeST] 解析角色JSON数据...");
+                    const characterData = this.parseCharacterJson(params.jsonString);
+                    
+                    // 验证所有必要的数据都存在
+                    console.log("[NodeST] 验证角色数据完整性:", {
+                        hasRoleCard: !!characterData.roleCard,
+                        hasWorldBook: !!characterData.worldBook,
+                        hasPreset: !!characterData.preset,
+                        roleCardName: characterData.roleCard?.name,
+                        worldBookEntries: Object.keys(characterData.worldBook?.entries || {}).length,
+                        hasChatHistory: !!characterData.chatHistory,
+                        chatHistoryMessagesCount: characterData.chatHistory?.parts.length || 0,
+                        isCradleGeneration: params.isCradleGeneration || false
+                    });
+                    
+                    // 创建新角色
+                    console.log("[NodeST] 开始创建新角色...");
+                    const created = await core.createNewCharacter(
+                        params.conversationId,
+                        characterData.roleCard,
+                        characterData.worldBook,
+                        characterData.preset,
+                        characterData.authorNote,
+                        characterData.chatHistory,
+                        { isCradleGeneration: params.isCradleGeneration || false }
+                    );
 
-                if (!created) {
-                    throw new Error("Failed to create new character");
+                    if (!created) {
+                        console.error("[NodeST] 创建新角色失败");
+                        throw new Error("Failed to create new character");
+                    }
+
+                    // 返回角色的第一条消息
+                    const response = characterData.roleCard.first_mes || "Hello!";
+                    console.log("[NodeST] 角色创建成功，返回第一条消息");
+                    return { 
+                        success: true, 
+                        response: response 
+                    };
+                } catch (parseError) {
+                    console.error("[NodeST] 解析或创建角色时出错:", parseError);
+                    throw parseError;
                 }
-
-                // 返回角色的第一条消息
-                const response = characterData.roleCard.first_mes || "Hello!";
-                return { 
-                    success: true, 
-                    response: response 
-                };
             }
             else if (params.status === "更新人设") {
                 if (!params.jsonString) {
@@ -228,19 +256,298 @@ export class NodeST {
         worldBook: WorldBookJson;
         preset: PresetJson;
         authorNote?: AuthorNoteJson;
+        chatHistory?: ChatHistoryEntity;  // Add chatHistory to return type
     } {
         try {
+            console.log("[NodeST] 开始解析角色JSON数据，长度:", jsonString.length);
+            
+            // 尝试解析JSON
             const data = JSON.parse(jsonString);
+            
+            // 检查并确保关键字段存在
+            if (!data.roleCard || !data.worldBook || !data.preset) {
+                console.error("[NodeST] 角色数据缺少必要字段:", {
+                    hasRoleCard: !!data.roleCard,
+                    hasWorldBook: !!data.worldBook,
+                    hasPreset: !!data.preset
+                });
+                
+                // 创建基础数据
+                const safeRoleCard = data.roleCard || {
+                    name: "未命名角色",
+                    first_mes: "你好，很高兴认识你！",
+                    description: "这是一个角色",
+                    personality: "友好",
+                    scenario: "",
+                    mes_example: ""
+                };
+                
+                const safeWorldBook = data.worldBook || {
+                    entries: {
+                        "Alist": {
+                            "comment": "Character Attributes List",
+                            "content": `<attributes>\n  <personality>友好、随和</personality>\n  <appearance>未指定</appearance>\n  <likes>聊天</likes>\n  <dislikes>未指定</dislikes>\n</attributes>`,
+                            "disable": false,
+                            "position": 4,
+                            "constant": true,
+                            "key": [],
+                            "order": 1,
+                            "depth": 1,
+                            "vectorized": false
+                        }
+                    }
+                };
+                
+                const safePreset = data.preset || this.createDefaultPreset();
+                
+                // Create default chatHistory entity with first message
+                const chatHistoryEntity: ChatHistoryEntity = {
+                    name: "Chat History",
+                    role: "system",
+                    parts: safeRoleCard.first_mes ? [
+                        {
+                            role: "model",
+                            parts: [{ text: safeRoleCard.first_mes }],
+                            is_first_mes: true
+                        }
+                    ] : [],
+                    identifier: "chatHistory"
+                };
+                
+                return {
+                    roleCard: safeRoleCard,
+                    worldBook: safeWorldBook,
+                    preset: safePreset,
+                    authorNote: data.authorNote,
+                    chatHistory: chatHistoryEntity
+                };
+            }
+            
+            // Verify preset has proper structure and add missing properties if needed
+            if (data.preset) {
+                console.log("[NodeST] 验证preset数据结构...");
+                // If no prompts array, create it
+                if (!Array.isArray(data.preset.prompts)) {
+                    console.log("[NodeST] 创建默认的prompts数组");
+                    data.preset.prompts = this.createDefaultPreset().prompts;
+                }
+                
+                // If no prompt_order array, create it  
+                if (!data.preset.prompt_order || !Array.isArray(data.preset.prompt_order) || 
+                    data.preset.prompt_order.length === 0) {
+                    console.log("[NodeST] 创建默认的prompt_order");
+                    data.preset.prompt_order = this.createDefaultPreset().prompt_order;
+                }
+                
+                // Check that required system prompts exist
+                const requiredPrompts = [
+                    {name: "Character System", identifier: "characterSystem", role: "user"},
+                    {name: "Character Confirmation", identifier: "characterConfirmation", role: "model"},
+                    {name: "Character Introduction", identifier: "characterIntro", role: "user"},
+                    {name: "Context Instruction", identifier: "contextInstruction", role: "user"},
+                    {name: "Continue", identifier: "continuePrompt", role: "user"}
+                ];
+                
+                // Add any missing required prompts
+                for (const required of requiredPrompts) {
+                    interface RequiredPrompt {
+                        name: string;
+                        identifier: string;
+                        role: string;
+                    }
+                    
+                    interface Prompt {
+                        name: string;
+                        content: string;
+                        enable: boolean;
+                        identifier: string;
+                        role: string;
+                        injection_position?: number;
+                        injection_depth?: number;
+                    }
+
+                    if (!data.preset.prompts.some((p: Prompt) => p.identifier === required.identifier)) {
+                        console.log(`[NodeST] 添加缺失的必要prompt: ${required.identifier}`);
+                        const defaultPrompt: Prompt | undefined = this.createDefaultPreset().prompts.find(
+                            (p: Prompt) => p.identifier === required.identifier
+                        );
+                        if (defaultPrompt) {
+                            data.preset.prompts.push(defaultPrompt);
+                        }
+                    }
+                }
+                
+                // Ensure chatHistory is in the prompt_order
+                const firstOrder = data.preset.prompt_order[0];
+                if (firstOrder && Array.isArray(firstOrder.order)) {
+                    // Define interfaces for the order entries
+                    interface PromptOrderEntry {
+                        identifier: string;
+                        enabled: boolean;
+                    }
+
+                    interface PromptOrder {
+                        order: PromptOrderEntry[];
+                    }
+
+                    if (!firstOrder.order.some((o: PromptOrderEntry) => o.identifier === "chatHistory")) {
+                        console.log("[NodeST] 在prompt_order中添加chatHistory");
+                        // Find where to insert chatHistory (typically before contextInstruction)
+                        const contextInstructionIndex: number = firstOrder.order.findIndex(
+                            (o: PromptOrderEntry) => o.identifier === "contextInstruction"
+                        );
+                        
+                        if (contextInstructionIndex !== -1) {
+                            firstOrder.order.splice(contextInstructionIndex, 0, 
+                                {identifier: "chatHistory", enabled: true} as PromptOrderEntry);
+                        } else {
+                            // Add it near the end
+                            firstOrder.order.push({identifier: "chatHistory", enabled: true} as PromptOrderEntry);
+                        }
+                    }
+                }
+            }
+            
+            // If JSON data exists but doesn't have chatHistory, create it
+            let chatHistory: ChatHistoryEntity ;
+            
+            if (!data.chatHistory) {
+                console.log("[NodeST] 角色数据中未找到chatHistory，创建默认的chatHistory");
+                
+                // Look for a Chat History entry in the preset
+                let chatHistoryIdentifier = "chatHistory";
+                let chatHistoryName = "Chat History";
+                
+                // Try to find the chatHistory identifier in the preset
+                if (data.preset && data.preset.prompt_order && data.preset.prompt_order[0]) {
+                    const order = data.preset.prompt_order[0].order || [];
+                    interface PromptOrderEntry {
+                        identifier: string;
+                        enabled: boolean;
+                    }
+                    const chatHistoryEntry: PromptOrderEntry | undefined = order.find((entry: PromptOrderEntry) => entry.identifier.toLowerCase().includes('chathistory'));
+                    if (chatHistoryEntry) {
+                        chatHistoryIdentifier = chatHistoryEntry.identifier;
+                    }
+                }
+                
+                // Create a chatHistory entity with the character's first message
+                chatHistory = {
+                    name: chatHistoryName,
+                    role: "system",
+                    parts: data.roleCard.first_mes ? [
+                        {
+                            role: "model",
+                            parts: [{ text: data.roleCard.first_mes }],
+                            is_first_mes: true
+                        }
+                    ] : [],
+                    identifier: chatHistoryIdentifier
+                };
+                
+                console.log("[NodeST] 已创建默认chatHistory，包含角色第一条消息");
+            } else {
+                // Use existing chatHistory but ensure it has the first message
+                chatHistory = data.chatHistory;
+                
+                // Check if first message exists, if not add it
+                const hasFirstMessage = chatHistory.parts.some(msg => msg.is_first_mes);
+                if (!hasFirstMessage && data.roleCard && data.roleCard.first_mes) {
+                    chatHistory.parts.unshift({
+                        role: "model",
+                        parts: [{ text: data.roleCard.first_mes }],
+                        is_first_mes: true
+                    });
+                    console.log("[NodeST] 在chatHistory中添加了缺失的first_mes");
+                }
+            }
+            
+            console.log("[NodeST] 角色JSON数据解析成功，chatHistory状态:", {
+                exists: !!chatHistory,
+                messagesCount: chatHistory?.parts?.length || 0,
+                hasFirstMessage: chatHistory?.parts?.some(p => p.is_first_mes) || false
+            });
+            
             return {
                 roleCard: data.roleCard,
                 worldBook: data.worldBook,
                 preset: data.preset,
-                authorNote: data.authorNote
+                authorNote: data.authorNote,
+                chatHistory: chatHistory  // Return the processed chatHistory
             };
         } catch (error) {
             console.error("[NodeST] Error parsing character JSON:", error);
             throw new Error("Invalid character data");
         }
+    }
+
+    // Add a helper method to create the default preset structure
+    private createDefaultPreset(): PresetJson {
+        return {
+            prompts: [
+                {
+                    name: "Character System",
+                    content: "You are a Roleplayer who is good at playing various types of roles. Regardless of the genre, you will ensure the consistency and authenticity of the role based on the role settings I provide, so as to better fulfill the role.",
+                    enable: true,
+                    identifier: "characterSystem", 
+                    role: "user"
+                },
+                {
+                    name: "Character Confirmation",
+                    content: "[Understood]",
+                    enable: true,
+                    identifier: "characterConfirmation",
+                    role: "model"
+                },
+                {
+                    name: "Character Introduction",
+                    content: "The following are some information about the character you will be playing. Additional information will be given in subsequent interactions.",
+                    enable: true,
+                    identifier: "characterIntro",
+                    role: "user"
+                },
+                {
+                    name: "Enhance Definitions",
+                    content: "",
+                    enable: true,
+                    identifier: "enhanceDefinitions",
+                    injection_position: 1,
+                    injection_depth: 3,
+                    role: "user"
+                },
+                {
+                    name: "Context Instruction",
+                    content: "推荐以下面的指令&剧情继续：\n{{lastMessage}}",
+                    enable: true,
+                    identifier: "contextInstruction",
+                    role: "user"
+                },
+                {
+                    name: "Continue",
+                    content: "继续",
+                    enable: true,
+                    identifier: "continuePrompt", 
+                    role: "user"
+                }
+            ],
+            prompt_order: [{
+                order: [
+                    { identifier: "characterSystem", enabled: true },
+                    { identifier: "characterConfirmation", enabled: true },
+                    { identifier: "characterIntro", enabled: true },
+                    { identifier: "enhanceDefinitions", enabled: true },
+                    { identifier: "worldInfoBefore", enabled: true },
+                    { identifier: "charDescription", enabled: true },
+                    { identifier: "charPersonality", enabled: true },
+                    { identifier: "scenario", enabled: true },
+                    { identifier: "worldInfoAfter", enabled: true },
+                    { identifier: "dialogueExamples", enabled: true },
+                    { identifier: "chatHistory", enabled: true },
+                    { identifier: "contextInstruction", enabled: true },
+                    { identifier: "continuePrompt", enabled: true }
+                ]
+            }]
+        };
     }
 
     // Circle 相关方法

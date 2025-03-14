@@ -62,6 +62,30 @@ class NodeSTManagerClass {
         action: params.status === "更新人设" ? "更新人设" : (params.status === "新建角色" ? "新建角色" : "继续对话")
       });
 
+      // Add detailed logging of character data when creating a new character
+      if (params.status === "新建角色" && params.character) {
+        console.log('[NodeSTManager] 新建角色详细信息:', {
+          characterId: params.character.id,
+          name: params.character.name,
+          description: params.character?.description?.substring(0, 20) + '...'
+        });
+        
+        // Parse and log the JSON data to diagnose issues
+        if (jsonString) {
+          try {
+            const parsedJson = JSON.parse(jsonString);
+            console.log('[NodeSTManager] 角色JSON数据解析结果:', {
+              hasRoleCard: !!parsedJson.roleCard,
+              roleCardName: parsedJson.roleCard?.name,
+              roleCardKeys: parsedJson.roleCard ? Object.keys(parsedJson.roleCard) : [],
+              worldBookEntries: parsedJson.worldBook?.entries ? Object.keys(parsedJson.worldBook.entries) : []
+            });
+          } catch (parseError) {
+            console.error('[NodeSTManager] 角色JSON数据解析失败:', parseError);
+          }
+        }
+      }
+
       // If OpenRouter is configured, ensure we're using the latest settings
       if (params.apiSettings?.apiProvider === 'openrouter' && params.apiSettings?.openrouter?.enabled) {
         // Update settings before processing to ensure correct adapter is used
@@ -75,6 +99,15 @@ class NodeSTManagerClass {
         console.log('[NodeSTManager] Updating character data for:', characterId);
       }
       
+      // For new characters, ensure jsonString is actually passed correctly
+      if (params.status === "新建角色") {
+        if (!jsonString) {
+          console.error('[NodeSTManager] 错误: 新建角色时缺少jsonData');
+        } else {
+          console.log('[NodeSTManager] 新建角色，jsonString长度:', jsonString.length);
+        }
+      }
+      
       // Call NodeST with all params including apiSettings
       const response = await this.nodeST.processChatMessage({
         userMessage: params.userMessage,
@@ -82,7 +115,7 @@ class NodeSTManagerClass {
         status: params.status || "同一角色继续对话",
         apiKey: params.apiKey,
         apiSettings: params.apiSettings,
-        jsonString
+        jsonString: jsonString  // Ensure this is explicitly passed
       });
 
       if (response.success) {
@@ -127,7 +160,244 @@ class NodeSTManagerClass {
       };
     }
   }
+
+  static async processChatMessage(options: ProcessChatOptions): Promise<Message> {
+    try {
+        console.log(`[NodeSTManager] 处理聊天消息，状态: ${options.status}, conversationId: ${options.conversationId}`);
+        
+        // 创建NodeST实例来处理实际请求
+        const nodeST = new NodeST();
+        
+        // 更新API设置
+        if (options.apiKey) {
+            nodeST.updateApiSettings(options.apiKey, options.apiSettings);
+        }
+        
+        // 针对"新建角色"情况进行特殊处理
+        if (options.status === "新建角色") {
+            console.log("[NodeSTManager] 检测到新建角色操作");
+            
+            // 检查character参数
+            if (!options.character) {
+                console.error("[NodeSTManager] 新建角色时缺少character参数");
+                throw new Error("新建角色时需要提供character参数");
+            }
+            
+            // 打印character数据以排查问题
+            console.log(`[NodeSTManager] character.id: ${options.character.id}`);
+            console.log(`[NodeSTManager] character.name: ${options.character.name}`);
+            console.log(`[NodeSTManager] jsonData长度: ${options.character.jsonData?.length || 0}`);
+            
+            // 检查jsonData是否存在
+            if (!options.character.jsonData) {
+                console.error("[NodeSTManager] 新建角色时缺少jsonData");
+                throw new Error("新建角色时character需要包含jsonData");
+            }
+            
+            // 验证jsonData格式和内容
+            try {
+                const jsonData = JSON.parse(options.character.jsonData);
+                console.log("[NodeSTManager] 成功解析jsonData, 检查关键字段...");
+                
+                // 深度检查和验证角色数据结构
+                const hasRoleCard = !!jsonData.roleCard;
+                const hasWorldBook = !!jsonData.worldBook;
+                const hasPreset = !!jsonData.preset;
+                const roleCardHasName = jsonData.roleCard?.name;
+                
+                console.log("[NodeSTManager] 角色数据校验结果:", {
+                    hasRoleCard,
+                    hasWorldBook,
+                    hasPreset,
+                    roleCardHasName
+                });
+                
+                if (!hasRoleCard || !hasWorldBook || !hasPreset || !roleCardHasName) {
+                    console.warn("[NodeSTManager] 角色数据缺少必要字段，尝试修复");
+                    
+                    // 尝试修复不完整的数据
+                    jsonData.roleCard = jsonData.roleCard || {
+                        name: options.character.name || "未命名角色",
+                        first_mes: "你好，很高兴认识你！",
+                        description: options.character.description || "这是一个角色",
+                        personality: options.character.personality || "友好",
+                        scenario: "",
+                        mes_example: ""
+                    };
+                    
+                    jsonData.worldBook = jsonData.worldBook || {
+                        entries: {
+                            "Alist": {
+                                "comment": "Character Attributes List",
+                                "content": `<attributes>\n  <personality>友好、随和</personality>\n  <appearance>未指定</appearance>\n  <likes>聊天</likes>\n  <dislikes>未指定</dislikes>\n</attributes>`,
+                                "disable": false,
+                                "position": 4,
+                                "constant": true,
+                                "key": [],
+                                "order": 1,
+                                "depth": 1,
+                                "vectorized": false
+                            },
+                            "Plist": {
+                                "comment": "Character Dialogue Examples",
+                                "content": "用户: 你好\n角色: 你好，很高兴见到你！",
+                                "disable": false,
+                                "position": 4,
+                                "constant": true,
+                                "key": [],
+                                "order": 2,
+                                "depth": 1,
+                                "vectorized": false
+                            },
+                            "背景": {
+                                "comment": "Character Background",
+                                "content": "这是一个AI生成的角色，背景故事待补充。",
+                                "disable": false,
+                                "position": 3,
+                                "constant": true,
+                                "key": [],
+                                "order": 3,
+                                "depth": 1,
+                                "vectorized": false
+                            }
+                        }
+                    };
+                    
+                    jsonData.preset = jsonData.preset || {
+                        prompts: [
+                            {
+                                name: "Main",
+                                content: "",
+                                enable: true,
+                                identifier: "main",
+                                role: "user"
+                            },
+                            {
+                                name: "Enhance Definitions",
+                                content: "",
+                                enable: true,
+                                identifier: "enhanceDefinitions",
+                                injection_position: 1,
+                                injection_depth: 3,
+                                role: "user"
+                            }
+                        ],
+                        prompt_order: [{
+                            order: [
+                                { identifier: "main", enabled: true },
+                                { identifier: "enhanceDefinitions", enabled: true },
+                                { identifier: "worldInfoBefore", enabled: true },
+                                { identifier: "charDescription", enabled: true },
+                                { identifier: "charPersonality", enabled: true },
+                                { identifier: "scenario", enabled: true },
+                                { identifier: "worldInfoAfter", enabled: true },
+                                { identifier: "dialogueExamples", enabled: true },
+                                { identifier: "chatHistory", enabled: true }
+                            ]
+                        }]
+                    };
+                    
+                    // 确保世界书条目中的关键字段存在
+                    if (jsonData.worldBook && jsonData.worldBook.entries) {
+                        for (const entryKey in jsonData.worldBook.entries) {
+                            const entry = jsonData.worldBook.entries[entryKey];
+                            if (!entry.position) entry.position = 4;
+                            if (!entry.key) entry.key = [];
+                            if (entry.constant === undefined) entry.constant = true;
+                            if (!entry.order) entry.order = 0;
+                            if (!entry.depth) entry.depth = 1;
+                        }
+                    }
+                    
+                    // 确保roleCard中的字段不为空
+                    if (jsonData.roleCard) {
+                        if (!jsonData.roleCard.first_mes) {
+                            jsonData.roleCard.first_mes = "你好，很高兴认识你！";
+                        }
+                        if (!jsonData.roleCard.description) {
+                            jsonData.roleCard.description = "这是一个角色";
+                        }
+                        if (!jsonData.roleCard.personality) {
+                            jsonData.roleCard.personality = "友好";
+                        }
+                    }
+                    
+                    // 更新character的jsonData
+                    options.character.jsonData = JSON.stringify(jsonData);
+                    console.log("[NodeSTManager] 角色数据已修复");
+                }
+                
+                // 确保character的基本字段与roleCard一致
+                if (options.character && jsonData.roleCard) {
+                    if (options.character.name !== jsonData.roleCard.name) {
+                        console.log(`[NodeSTManager] 更新角色名称: ${options.character.name} -> ${jsonData.roleCard.name}`);
+                        options.character.name = jsonData.roleCard.name;
+                    }
+                    
+                    if (options.character.description !== jsonData.roleCard.description) {
+                        options.character.description = jsonData.roleCard.description;
+                    }
+                    
+                    if (options.character.personality !== jsonData.roleCard.personality) {
+                        options.character.personality = jsonData.roleCard.personality;
+                    }
+                }
+                
+            } catch (parseError) {
+                console.error("[NodeSTManager] 解析jsonData失败:", parseError);
+                throw new Error(`解析角色jsonData失败: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+            }
+        }
+        
+        // 调用nodeST的processChatMessage方法处理请求
+        console.log("[NodeSTManager] 发送请求到NodeST处理...");
+        
+        const response = await nodeST.processChatMessage({
+            userMessage: options.userMessage,
+            conversationId: options.conversationId,
+            status: options.status || "同一角色继续对话",
+            apiKey: options.apiKey,
+            apiSettings: options.apiSettings,
+            jsonString: options.character?.jsonData
+        });
+        
+        if (response.success) {
+            console.log(`[NodeSTManager] NodeST处理成功, 响应: ${response.response?.substring(0, 30)}...`);
+            return {
+                success: true,
+                text: response.response
+            };
+        } else {
+            console.error(`[NodeSTManager] NodeST处理失败: ${response.error}`);
+            return {
+                success: false,
+                error: response.error || "未知错误"
+            };
+        }
+    } catch (error) {
+        console.error("[NodeSTManager] 处理聊天消息时出错:", error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : "未知错误"
+        };
+    }
+  }
 }
 
 // Create and export a singleton instance
+interface ProcessChatOptions {
+  userMessage: string;
+  status?: "更新人设" | "新建角色" | "同一角色继续对话";
+  conversationId: string;
+  apiKey: string;
+  apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+  character?: Character;
+}
+
+interface Message {
+  success: boolean;
+  text?: string;
+  error?: string;
+}
+
 export const NodeSTManager = new NodeSTManagerClass();

@@ -63,6 +63,9 @@ export interface VNDBCharacterVN {
 export interface VNDBCharacterTrait {
   spoiler: number;
   lie: boolean;
+  group_name?: string;
+  name?: string;
+  description?: string;
 }
 
 // API错误接口
@@ -94,10 +97,14 @@ export interface CharacterQueryOptions {
   birthday?: [number, number] | null;
   seiyuu?: any;
   vn?: any;
-  fields?: string[];
+  // Update fields to support both string and string array
+  fields?: string | string[];
   sort?: string;
   reverse?: boolean;
   results?: number;
   page?: number;
   count?: boolean;
+  
+  // Support direct filters
+  filters?: any;
 }

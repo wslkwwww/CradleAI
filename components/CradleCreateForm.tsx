@@ -13,7 +13,8 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
-  FlatList
+  FlatList,
+  Switch
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -30,6 +31,12 @@ import tagData from '@/app/data/tag.json';
 // Import vndb data for traits
 import vndbData from '@/app/data/vndb.json';
 import * as FileSystem from 'expo-file-system';
+// Import VNDB API service
+import { defaultClient as vndb } from '@/src/services/vndb';
+import { VNDBCharacter, VNDBCharacterResponse } from '@/src/services/vndb/types';
+// Add import for the new formatter utility
+import { processVNDBResponse } from '@/src/utils/vndbFormatters';
+import { formatVNDBCharactersForLLM } from '@/src/utils/vndbLLMFormatter';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -287,6 +294,18 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   // State for trait selection modal
   const [traitModalVisible, setTraitModalVisible] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
+  // Add new state for VNDB search results
+  const [vndbSearchResults, setVndbSearchResults] = useState<VNDBCharacter[]>([]);
+  const [vndbSearchError, setVndbSearchError] = useState<string | null>(null);
+  const [isVndbSearching, setIsVndbSearching] = useState(false);
+  // Add new state for retry management
+  const [vndbSearchRetryCount, setVndbSearchRetryCount] = useState(0);
+  const MAX_RETRY_ATTEMPTS = 3;
+
+  // Add new state variables for enhanced filtering options
+  const [traitFilterOperator, setTraitFilterOperator] = useState<'and' | 'or'>('and');
+  const [ageFilterOperator, setAgeFilterOperator] = useState<'=' | '>' | '>=' | '<' | '<='>('>');
+  const [ageFilterValue, setAgeFilterValue] = useState<string>('');
 
   // Reset state when form closes
   useEffect(() => {
@@ -421,6 +440,161 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
       throw error;
     }
   };
+  // Add a new function to perform VNDB search based on user inputs
+const performVndbSearch = async () => {
+  try {
+    setIsVndbSearching(true);
+    setVndbSearchError(null);
+    setVndbSearchRetryCount(0); // Reset retry counter on new search
+    
+    console.log('[摇篮角色创建] 正在发起VNDB角色检索...');
+    
+    // Convert character age range to numeric range for VNDB
+    let ageFilter: any = null;
+    
+    // Use the custom age filter if value is provided, otherwise fall back to presets
+    if (ageFilterValue && !isNaN(parseInt(ageFilterValue))) {
+      const ageVal = parseInt(ageFilterValue);
+      ageFilter = ["age", ageFilterOperator, ageVal];
+      console.log(`[摇篮角色创建] 使用自定义年龄过滤：${ageFilterOperator} ${ageVal}`);
+    } else {
+      switch(characterAge) {
+        case 'child':
+          ageFilter = ["age", ">=", 0];
+          break;
+        case 'teen':
+          ageFilter = ["age", ">=", 13];
+          break;
+        case 'young-adult':
+          ageFilter = ["age", ">=", 18];
+          break;
+        case 'adult':
+          ageFilter = ["age", ">=", 26];
+          break;
+        case 'middle-aged':
+          ageFilter = ["age", ">=", 40];
+          break;
+        case 'elderly':
+          ageFilter = ["age", ">=", 60];
+          break;
+      }
+    }
+    
+    // Build filter for traits based on user-selected operator (AND/OR)
+    let traitFilter: any = null;
+    if (selectedTraits.length > 0) {
+      const traitFilters = selectedTraits.map(traitId => ["trait", "=", traitId]);
+      
+      // Use the selected logical operator for combining traits
+      if (traitFilters.length > 1) {
+        traitFilter = [traitFilterOperator, ...traitFilters];
+        console.log(`[摇篮角色创建] 使用 ${traitFilterOperator.toUpperCase()} 组合 ${traitFilters.length} 个特征过滤器`);
+      } else {
+        traitFilter = traitFilters[0];
+      }
+    }
+    
+    // Build gender filter
+    let sexFilter: any = null;
+    switch(gender) {
+      case 'male':
+        sexFilter = ["sex", "=", "m"];
+        break;
+      case 'female':
+        sexFilter = ["sex", "=", "f"];
+        break;
+      case 'other':
+        sexFilter = ["sex", "=", "b"];
+        break;
+    }
+    
+    // Build VN filter with default conditions
+    const vnFilter = ["vn", "=", [
+      "and",
+      ["rating", ">", 50.0],
+      ["has_description", "=", 1],
+      // Add Otome game tag if user is female
+      ...(userGender === 'female' ? [["tag", "=", "g542"]] : [])
+    ]];
+    
+    // Combine all filters
+    const combinedFilters = ["and"];
+    
+    // Add each filter if it exists
+    if (sexFilter) combinedFilters.push(sexFilter);
+    if (ageFilter) combinedFilters.push(ageFilter);
+    if (traitFilter) combinedFilters.push(traitFilter);
+    
+    // Add empty search filter for searchrank sorting
+    combinedFilters.push(["search", "=", ""]);
+    
+    // Add VN filter
+    if (combinedFilters.length > 1) {
+      combinedFilters.push(vnFilter);
+    }
+    
+    console.log(`[摇篮角色创建] VNDB检索过滤器: ${JSON.stringify(combinedFilters)}`);
+    
+    // Include group_name and name sub-fields for traits
+    const fieldsString = 'id,name,image.url,age,description,traits{name,group_name}';
+    
+    // Only perform search if we have at least one filter condition
+    if (combinedFilters.length > 1) {
+      console.log('[摇篮角色创建] 正在执行VNDB检索...');
+      
+      // Add retry logic for better error handling
+      const executeSearch = async (attempt = 1): Promise<VNDBCharacter[]> => {
+        try {
+          console.log(`[摇篮角色创建] VNDB检索尝试 #${attempt}`);
+          const response = await vndb.getCharacters({
+            filters: combinedFilters,
+            fields: fieldsString,
+            results: 5,
+
+          });
+          
+          // Log the complete response for debugging
+          console.log('[摇篮角色创建] 完整VNDB响应数据:');
+          console.log(JSON.stringify(response, null, 2));
+          
+          // Format and log character information in the requested format
+          console.log('[摇篮角色创建] 格式化角色信息:');
+          console.log(processVNDBResponse(response));
+          
+          console.log(`[摇篮角色创建] VNDB检索完成，找到${response.results.length}个结果`);
+          return response.results;
+        } catch (error) {
+          console.error(`[摇篮角色创建] VNDB检索尝试 #${attempt} 失败:`, error);
+          
+          if (attempt < MAX_RETRY_ATTEMPTS) {
+            // Exponential backoff with 1s, 2s, 4s...
+            const backoffTime = Math.pow(2, attempt - 1) * 1000;
+            console.log(`[摇篮角色创建] 将在 ${backoffTime}ms 后重试 (${attempt}/${MAX_RETRY_ATTEMPTS})`);
+            
+            await new Promise(resolve => setTimeout(resolve, backoffTime));
+            setVndbSearchRetryCount(attempt);
+            return executeSearch(attempt + 1);
+          } else {
+            throw error;
+          }
+        }
+      };
+      
+      const results = await executeSearch();
+      setVndbSearchResults(results);
+      return results;
+    } else {
+      console.log('[摇篮角色创建] 过滤条件不足，跳过VNDB检索');
+      return [];
+    }
+  } catch (error) {
+    console.error('[摇篮角色创建] VNDB检索失败:', error);
+    setVndbSearchError(error instanceof Error ? error.message : '检索角色数据失败');
+    return [];
+  } finally {
+    setIsVndbSearching(false);
+  }
+};
 
   const handleCreateCharacter = async () => {
     if (!characterName.trim()) {
@@ -433,10 +607,21 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
     try {
       console.log(`[摇篮角色创建] 开始创建角色: ${characterName}, 性别: ${gender}`);
       
+      // Perform VNDB search before creating character
+      const vndbResults = await performVndbSearch();
+      
+      // Format VNDB results for LLM consumption
+      const formattedVndbResults = formatVNDBCharactersForLLM(vndbResults);
+      console.log(`[摇篮角色创建] 格式化的VNDB结果供LLM使用:`, formattedVndbResults);
+      
+      // 生成稳定的、唯一的ID
+      const characterId = generateUniqueId();
+      console.log(`[摇篮角色创建] 生成的角色ID: ${characterId}`);
+      
       // Create a complete cradle character object with all necessary fields
       const cradleCharacter: CradleCharacter = {
         // Character base properties
-        id: Date.now().toString(),
+        id: characterId, // 使用生成的稳定ID
         name: characterName,
         avatar: avatarUri,
         backgroundImage: cardImageUri || backgroundUri, // Use card image as priority
@@ -458,7 +643,22 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
         },
         isCradleGenerated: false, // Start as false, will be set to true when generated
         imageGenerationTaskId: null,
-        imageGenerationStatus: 'idle'
+        imageGenerationStatus: 'idle',
+        
+        // Add formatted data for character generation
+        generationData: {
+          appearanceTags: uploadMode === 'generate' ? {
+            positive: positiveTags,
+            negative: negativeTags
+          } : undefined,
+          traits: selectedTraits.map(id => {
+            const trait = findTraitById(id);
+            return trait ? getTranslatedName(trait.name) : id;
+          }),
+          vndbResults: formattedVndbResults,
+          description: description || '',
+          userGender: userGender
+        }
       };
 
       console.log(`[摇篮角色创建] 图像创建模式: ${uploadMode}, 是否立即生成角色: ${generateImmediately ? "是" : "否"}`);
@@ -486,30 +686,37 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
       // 如果选择立即生成，则跳过摇篮过程
       if (generateImmediately) {
         console.log(`[摇篮角色创建] 选择立即生成角色，跳过摇篮培育期`);
-        cradleCharacter.isCradleGenerated = true; // Mark as generated
         
         // First add the character to the cradle system
         await addCradleCharacter(cradleCharacter);
         
-        // Then generate it
-        const character = await generateCharacterFromCradle(cradleCharacter.id);
-        console.log(`[摇篮角色创建] 角色已立即生成，ID: ${character.id}`);
-        
-        Alert.alert('成功', '角色已创建并生成', [
-          { text: '确定', onPress: () => {
-            onClose();
-            // Fix the pathname to use correct format
-            router.replace({
-              pathname: "/(tabs)",
-              params: { characterId: character.id }
-            });
-            if (onSuccess) onSuccess();
-          }}
-        ]);
+        try {
+          // Then generate it
+          console.log(`[摇篮角色创建] 立即开始生成角色，ID: ${characterId}`);
+          const character = await generateCharacterFromCradle(characterId);
+          console.log(`[摇篮角色创建] 角色已立即生成，ID: ${character.id}`);
+          
+          Alert.alert('成功', '角色已创建并生成', [
+            { text: '确定', onPress: () => {
+              onClose();
+              // Fix the pathname to use correct format
+              router.replace({
+                pathname: "/(tabs)",
+                params: { characterId: character.id }
+              });
+              if (onSuccess) onSuccess();
+            }}
+          ]);
+        } catch (genError) {
+          console.error('[摇篮角色创建] 生成角色失败:', genError);
+          Alert.alert('错误', '角色创建成功，但生成失败。您可以在摇篮系统中稍后重试。');
+          onClose();
+          router.replace({ pathname: "/(tabs)/cradle" });
+        }
       } else {
         console.log(`[摇篮角色创建] 将角色放入摇篮系统进行培育，培育期: ${cradleSettings.duration || 7} 天`);
         await addCradleCharacter(cradleCharacter);
-        console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${cradleCharacter.id}`);
+        console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${characterId}`);
         
         Alert.alert('成功', '摇篮角色已创建，请前往摇篮页面投喂数据', [
           { text: '确定', onPress: () => {
@@ -892,38 +1099,125 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
           </View>
         </View>
         
-        {/* Character age range */}
+        {/* Character age range - MODIFIED to include both preset and custom */}
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>角色年龄范围</Text>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.ageRangeContainer}
-          >
-            {AGE_RANGES.map(age => (
-              <TouchableOpacity
-                key={age.id}
-                style={[
-                  styles.ageRangeButton,
-                  characterAge === age.id && styles.selectedAgeRange
-                ]}
-                onPress={() => setCharacterAge(age.id)}
-              >
-                <Text style={[
-                  styles.ageRangeText,
-                  characterAge === age.id && styles.selectedAgeRangeText
-                ]}>
-                  {age.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          <View style={styles.filterHeader}>
+            <Text style={styles.inputLabel}>角色年龄范围</Text>
+            <View style={styles.customFilterSwitch}>
+              <Text style={[styles.filterTypeText, !ageFilterValue && styles.activeFilterType]}>预设</Text>
+              <Switch
+                value={!!ageFilterValue}
+                onValueChange={(val) => {
+                  if (!val) setAgeFilterValue('');
+                  else setAgeFilterValue('18');
+                }}
+                trackColor={{ false: '#767577', true: '#bfe8ff' }}
+                thumbColor={!!ageFilterValue ? '#007bff' : '#f4f3f4'}
+              />
+              <Text style={[styles.filterTypeText, !!ageFilterValue && styles.activeFilterType]}>自定义</Text>
+            </View>
+          </View>
+          
+          {!ageFilterValue ? (
+            // Show preset age ranges
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.ageRangeContainer}
+            >
+              {AGE_RANGES.map(age => (
+                <TouchableOpacity
+                  key={age.id}
+                  style={[
+                    styles.ageRangeButton,
+                    characterAge === age.id && styles.selectedAgeRange
+                  ]}
+                  onPress={() => setCharacterAge(age.id)}
+                >
+                  <Text style={[
+                    styles.ageRangeText,
+                    characterAge === age.id && styles.selectedAgeRangeText
+                  ]}>
+                    {age.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            // Show custom age filter with operator
+            <View style={styles.customAgeFilterContainer}>
+              <View style={styles.ageOperatorSelector}>
+                {['=', '>', '>=', '<', '<='].map(op => (
+                  <TouchableOpacity
+                    key={op}
+                    style={[
+                      styles.operatorButton,
+                      ageFilterOperator === op && styles.selectedOperator
+                    ]}
+                    onPress={() => setAgeFilterOperator(op as any)}
+                  >
+                    <Text style={[
+                      styles.operatorText,
+                      ageFilterOperator === op && styles.selectedOperatorText
+                    ]}>
+                      {op}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={styles.ageFilterInput}
+                value={ageFilterValue}
+                onChangeText={setAgeFilterValue}
+                placeholder="输入年龄"
+                placeholderTextColor="#aaa"
+                keyboardType="numeric"
+              />
+            </View>
+          )}
         </View>
         
-        {/* Character traits section */}
+        {/* Character traits section - ENHANCED with AND/OR selection */}
         <View style={styles.inputGroup}>
           <View style={styles.traitHeaderRow}>
-            <Text style={styles.inputLabel}>角色特征</Text>
+            <View style={styles.traitHeaderLeft}>
+              <Text style={styles.inputLabel}>角色特征</Text>
+              
+              {/* Add AND/OR operator selector */}
+              {selectedTraits.length > 1 && (
+                <View style={styles.traitOperatorSelector}>
+                  <TouchableOpacity
+                    style={[
+                      styles.traitOperatorButton,
+                      traitFilterOperator === 'and' && styles.selectedTraitOperator
+                    ]}
+                    onPress={() => setTraitFilterOperator('and')}
+                  >
+                    <Text style={[
+                      styles.traitOperatorText,
+                      traitFilterOperator === 'and' && styles.selectedTraitOperatorText
+                    ]}>
+                      AND
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.traitOperatorButton,
+                      traitFilterOperator === 'or' && styles.selectedTraitOperator
+                    ]}
+                    onPress={() => setTraitFilterOperator('or')}
+                  >
+                    <Text style={[
+                      styles.traitOperatorText,
+                      traitFilterOperator === 'or' && styles.selectedTraitOperatorText
+                    ]}>
+                      OR
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+            
             <TouchableOpacity
               style={styles.selectTraitsButton}
               onPress={() => setTraitModalVisible(true)}
@@ -960,6 +1254,17 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
               />
             ) : (
               <Text style={styles.noTraitsText}>请点击"选择特征"按钮来添加角色特征</Text>
+            )}
+            
+            {/* Add explanation of selected filtering method */}
+            {selectedTraits.length > 1 && (
+              <View style={styles.filterExplanation}>
+                <Text style={styles.filterExplanationText}>
+                  {traitFilterOperator === 'and' 
+                    ? '当前设置：角色必须同时拥有所有选定的特征' 
+                    : '当前设置：角色至少拥有一个选定的特征'}
+                </Text>
+              </View>
             )}
           </View>
         </View>
@@ -1860,7 +2165,98 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginTop: 4,
-  }
+  },
+  // New styles for enhanced filtering UI
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  customFilterSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterTypeText: {
+    color: '#aaa',
+    fontSize: 12,
+    marginHorizontal: 8,
+  },
+  activeFilterType: {
+    color: '#007bff',
+    fontWeight: '500',
+  },
+  customAgeFilterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  ageOperatorSelector: {
+    flexDirection: 'row',
+    marginRight: 12,
+  },
+  operatorButton: {
+    padding: 8,
+    marginHorizontal: 2,
+    borderRadius: 4,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+  },
+  selectedOperator: {
+    backgroundColor: '#4A90E2',
+  },
+  operatorText: {
+    color: '#aaa',
+    fontSize: 12,
+  },
+  selectedOperatorText: {
+    color: '#fff',
+  },
+  traitHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  traitOperatorSelector: {
+    flexDirection: 'row',
+    marginLeft: 12,
+  },
+  traitOperatorButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    marginRight: 6,
+  },
+  selectedTraitOperator: {
+    backgroundColor: '#4A90E2',
+  },
+  traitOperatorText: {
+    color: '#aaa',
+    fontSize: 12,
+  },
+  selectedTraitOperatorText: {
+    color: '#fff',
+  },
+  filterExplanation: {
+    marginTop: 12,
+    padding: 8,
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+    borderRadius: 6,
+  },
+  filterExplanationText: {
+    color: '#aaa',
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  ageFilterInput: {
+    flex: 1,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    color: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginLeft: 8,
+  },
 });
 
 export default CradleCreateForm;
