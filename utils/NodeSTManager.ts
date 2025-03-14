@@ -382,6 +382,116 @@ class NodeSTManagerClass {
         };
     }
   }
+
+  /**
+   * 生成文本 - 用于角色创作助手对话
+   * @param messages 消息数组，包含对话历史
+   * @param apiKey API密钥
+   * @param apiSettings API设置选项
+   * @returns 生成的文本响应
+   */
+  async generateText(
+    messages: Array<{ role: string; parts: Array<{ text: string }> }>,
+    apiKey: string,
+    apiSettings?: {
+      apiProvider: 'gemini' | 'openrouter';
+      openrouter?: {
+        enabled: boolean;
+        apiKey: string;
+        model: string;
+      }
+    }
+  ): Promise<string> {
+    try {
+      console.log('[NodeSTManager] 生成文本请求:', {
+        messagesCount: messages.length,
+        apiProvider: apiSettings?.apiProvider || 'gemini'
+      });
+      
+      // 处理OpenRouter API的情况
+      if (apiSettings?.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled) {
+        console.log('[NodeSTManager] 使用OpenRouter API');
+        
+        // OpenRouter使用不同的role名称，需要转换
+        const convertedMessages = messages.map(msg => ({
+          ...msg,
+          role: msg.role === 'user' ? 'user' : 
+                msg.role === 'model' ? 'assistant' : 
+                msg.role === 'system' ? 'system' : 'assistant'
+        }));
+        
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiSettings.openrouter.apiKey}`,
+            'HTTP-Referer': 'https://my-app.com',
+            'X-Title': 'My App Character Editor'
+          },
+          body: JSON.stringify({
+            model: apiSettings.openrouter.model || 'anthropic/claude-3-haiku',
+            messages: convertedMessages.map(msg => ({
+              role: msg.role,
+              content: msg.parts[0].text
+            })),
+            temperature: 0.7,
+            max_tokens: 2000
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(`OpenRouter API错误 (${response.status}): ${JSON.stringify(errorData) || response.statusText}`);
+        }
+        
+        const data = await response.json();
+        return data.choices[0].message.content;
+      } 
+      // 默认使用Gemini API
+      else {
+        console.log('[NodeSTManager] 使用Gemini API');
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + apiKey, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: messages,
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 2000,
+              topP: 0.95,
+              topK: 40,
+            }
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(`Gemini API错误 (${response.status}): ${JSON.stringify(errorData) || response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        // 检查是否有candidateCount
+        if (data.candidates && data.candidates.length > 0) {
+          if (data.candidates[0].content && 
+              data.candidates[0].content.parts && 
+              data.candidates[0].content.parts.length > 0) {
+            return data.candidates[0].content.parts[0].text;
+          }
+        } else if (data.promptFeedback) {
+          // 处理被屏蔽的内容
+          throw new Error('内容被过滤：可能包含敏感或不适当的内容');
+        }
+        
+        throw new Error('无法从API响应中解析生成的文本');
+      }
+    } catch (error) {
+      console.error('[NodeSTManager] 生成文本失败:', error);
+      throw error;
+    }
+  }
 }
 
 // Create and export a singleton instance
@@ -401,3 +511,20 @@ interface Message {
 }
 
 export const NodeSTManager = new NodeSTManagerClass();
+
+// 添加静态方法
+NodeSTManager.generateText = async function(
+  messages: Array<{ role: string; parts: Array<{ text: string }> }>,
+  apiKey: string,
+  apiSettings?: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    }
+  }
+): Promise<string> {
+  const instance = new NodeSTManagerClass();
+  return await instance.generateText(messages, apiKey, apiSettings);
+};

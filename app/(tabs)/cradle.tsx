@@ -29,7 +29,8 @@ import CradleApiSettings from '@/components/CradleApiSettings';
 import { downloadAndSaveImage } from '@/utils/imageUtils';
 import { confirmDeleteCradleCharacter } from '@/utils/cradleUtils';
 import { LinearGradient } from 'expo-linear-gradient';
-
+import CradleCharacterDetail from '@/components/CradleCharacterDetail';
+import CharacterEditDialog from '@/components/CharacterEditDialog'; // 导入角色编辑对话框
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Updated tabs to match original cradle page
@@ -68,6 +69,8 @@ export default function CradlePage() {
   // State for notifications
   const [notificationVisible, setNotificationVisible] = useState(false);
   const [notification, setNotification] = useState({ title: '', message: '' });
+
+  const [showEditDialog, setShowEditDialog] = useState(false); // 添加显示编辑对话框状态
 
   // Load characters when component mounts or refreshes
   useEffect(() => {
@@ -339,114 +342,19 @@ export default function CradlePage() {
     )
   );
 
-  // Render character detail section
+  // Render character detail section - 修改使用新的组件
   const renderCharacterDetail = () => {
     if (!selectedCharacter) return null;
     
-    // Calculate feed stats
-    const totalFeeds = selectedCharacter.feedHistory?.length || 0;
-    const processedFeeds = selectedCharacter.feedHistory?.filter(feed => feed.processed).length || 0;
-    const feedPercentage = totalFeeds > 0 ? Math.round((processedFeeds / totalFeeds) * 100) : 0;
-    
-    // Calculate days in cradle
-    const createdAt = selectedCharacter.createdAt;
-    const daysInCradle = createdAt 
-      ? Math.round((Date.now() - createdAt) / (1000 * 60 * 60 * 24) * 10) / 10
-      : 0;
-    
-    // Determine if character has image generation task pending
-    const hasPendingImageTask = selectedCharacter.imageGenerationTaskId && 
-                               selectedCharacter.imageGenerationStatus === 'pending';
-    
-    const hasImageError = selectedCharacter.imageGenerationStatus === 'error';
-    
     return (
       <View style={styles.characterDetailSection}>
-        <View style={styles.characterDetailCard}>
-          {/* Character background */}
-          {selectedCharacter.backgroundImage ? (
-            <Image 
-              source={{ uri: selectedCharacter.backgroundImage }} 
-              style={styles.characterDetailBackground} 
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.characterDetailBackgroundPlaceholder}>
-              <MaterialCommunityIcons name="image-outline" size={40} color="#666" />
-            </View>
-          )}
-          
-          {/* Overlay gradient */}
-          <LinearGradient
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}
-            style={styles.characterDetailGradient}
-          >
-            {/* Show image generation status if applicable */}
-            {(hasPendingImageTask || hasImageError) && (
-              <View style={styles.imageGenerationStatusContainer}>
-                {hasPendingImageTask ? (
-                  <>
-                    <ActivityIndicator size="small" color="#FFD700" style={styles.imageStatusIndicator} />
-                    <Text style={styles.imageGenerationStatusText}>图像生成进行中...</Text>
-                  </>
-                ) : (
-                  <>
-                    <Ionicons name="alert-circle" size={18} color="#FF4444" style={styles.imageStatusIndicator} />
-                    <Text style={styles.imageGenerationStatusText}>图像生成失败</Text>
-                  </>
-                )}
-              </View>
-            )}
-            
-            {/* Character info */}
-            <View style={styles.characterDetailInfo}>
-              <Text style={styles.characterDetailName}>{selectedCharacter.name}</Text>
-              
-              <Text style={styles.characterDetailDescription} numberOfLines={2}>
-                {selectedCharacter.description || "这是一个摇篮中的AI角色，等待通过投喂数据塑造个性..."}
-              </Text>
-              
-              <View style={styles.characterStatusRow}>
-                <View style={styles.characterStatusItem}>
-                  <Ionicons name="time-outline" size={16} color="#ddd" />
-                  <Text style={styles.characterStatusText}>培育中: {daysInCradle}天</Text>
-                </View>
-                
-                <View style={styles.characterStatusItem}>
-                  <MaterialCommunityIcons name="food-apple" size={16} color="#ddd" />
-                  <Text style={styles.characterStatusText}>投喂: {processedFeeds}/{totalFeeds}</Text>
-                </View>
-              </View>
-              
-              <View style={styles.characterActionButtons}>
-                <TouchableOpacity 
-                  style={[styles.characterActionButton, styles.viewButton]}
-                  onPress={() => setShowFeedModal(true)}
-                >
-                  <Ionicons name="chatbubble-outline" size={16} color="#fff" />
-                  <Text style={styles.characterActionButtonText}>投喂</Text>
-                </TouchableOpacity>
-                
-                {/* Add the new generate button */}
-                <TouchableOpacity 
-                  style={[styles.characterActionButton, styles.generateButton]}
-                  onPress={() => handleGenerateCharacter(selectedCharacter)}
-                >
-                  <Ionicons name="flash-outline" size={16} color="#fff" />
-                  <Text style={styles.characterActionButtonText}>立即生成</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.characterActionButton, { backgroundColor: '#F44336' }]}
-                  onPress={() => handleDeleteCharacter(selectedCharacter)}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#fff" />
-                  <Text style={styles.characterActionButtonText}>删除</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
+        <CradleCharacterDetail
+          character={selectedCharacter}
+          onFeed={() => setShowFeedModal(true)}
+          onGenerate={() => handleGenerateCharacter(selectedCharacter)}
+          onDelete={() => handleDeleteCharacter(selectedCharacter)}
+          onEdit={() => setShowEditDialog(true)} // 添加对话修改按钮回调
+        />
       </View>
     );
   };
@@ -660,6 +568,27 @@ export default function CradlePage() {
       
       {/* Notification component */}
       {renderNotification()}
+
+      {/* 添加角色编辑对话框 */}
+      {selectedCharacter && (
+        <CharacterEditDialog 
+          isVisible={showEditDialog}
+          character={selectedCharacter}
+          onClose={() => setShowEditDialog(false)}
+          onUpdateCharacter={async (updatedCharacter) => {
+            try {
+              await updateCradleCharacter(updatedCharacter as CradleCharacter);
+              setSelectedCharacter(updatedCharacter as CradleCharacter);
+              setShowEditDialog(false);
+              showNotification('角色更新成功', `角色 "${updatedCharacter.name}" 已通过对话成功更新！`);
+            } catch (error) {
+              console.error('[摇篮页面] 更新角色失败:', error);
+              showNotification('更新失败', 
+                `角色 "${selectedCharacter.name}" 更新失败: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }

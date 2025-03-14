@@ -6,7 +6,7 @@
 
 1.1.  **背景**
 
-*   当前 App 直接与 OpenRouter API 交互，存在安全风险（API Key 暴露）和难以集中管理的问题。 本项目旨在通过引入服务器端代理和用户鉴权机制，提高 App 的安全性和可维护性，并为后续功能扩展奠定基础。
+*   当前 App的聊天消息 直接与 OpenRouter API 交互，存在安全风险（API Key 暴露）和难以集中管理的问题。 本项目旨在通过引入服务器端代理和用户鉴权机制，提高 App 的安全性和可维护性，并为后续功能扩展奠定基础。
 *   `Openrouter provision key`：`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` 用于对APIkey池的维护，包括创建，删除，更新APIkey。
 
 
@@ -47,7 +47,7 @@ curl -X POST https://openrouter.ai/api/v1/keys \
 }
 ```
 
-并安全地在数据库中存储这些key
+并安全地在数据库中存储这些key，它们将在后续的流程中，被调取并且被轮询
 
 2.1.  **用户注册/登录**
 
@@ -100,7 +100,7 @@ curl -X POST https://openrouter.ai/api/v1/keys \
 
 3.1.  **客户端 (App)**
 
-    *   编程语言：(与现有 App 保持一致)
+    *   编程语言：(Typescript)
     *   需要实现的功能：
         *   UI：`在global-setting.tsx`页面注册、登录界面。
         *   基于`BLAKE2``Argon2` 进行密钥派生。完全按照`util_ref.py`的方式执行。
@@ -209,19 +209,11 @@ curl -X POST https://openrouter.ai/api/v1/keys \
 *   `/login` (POST): 用户登录
 *   `/api/proxy/openrouter` (POST): OpenRouter API 代理
 
-**8.  开发规范**
+**8.  部署**
 
-*   代码风格：(指定代码风格规范，例如 PEP 8, Google Java Style Guide 等)
-*   版本控制：(指定版本控制系统，例如 Git)
-*   代码审查：(指定代码审查流程)
-*   测试：(指定测试框架和测试覆盖率要求)
+*   部署环境：云服务器
 
-**9.  部署**
-
-*   部署环境：(指定部署环境，例如 AWS, Azure, Google Cloud Platform)
-*   部署方式：(指定部署方式，例如 Docker 容器化)
-
-**10. 验收标准**
+**9. 验收标准**
 
 *   所有功能需求都已实现。
 *   所有安全需求都已满足。
@@ -230,10 +222,9 @@ curl -X POST https://openrouter.ai/api/v1/keys \
 *   已编写详细的文档。
 *   已编写单元测试和集成测试。
 
-**11. 交付物**
+**10. 交付物**
 
 *   完整的源代码 (客户端和服务器)。
 *   API 文档。
 *   数据库 schema。
 *   部署文档。
-*   测试报告。
