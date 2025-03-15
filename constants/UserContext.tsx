@@ -8,7 +8,6 @@ interface UserContextProps {
   updateSettings: (settings: Partial<GlobalSettings>) => Promise<void>;
   loading: boolean;
   updateAvatar: (uri: string) => Promise<void>;
-  
 }
 
 const UserContext = createContext<UserContextProps | undefined>(undefined);

@@ -216,8 +216,6 @@ const CharacterDetail: React.FC = () => {
     mes_example: ''
   });
   
-  // ... existing state variables ...
-  
   const [worldBookEntries, setWorldBookEntries] = useState<WorldBookEntryUI[]>([]);
   const [presetEntries, setPresetEntries] = useState<PresetEntryUI[]>([]);
   const [authorNote, setAuthorNote] = useState<Partial<AuthorNoteJson>>({

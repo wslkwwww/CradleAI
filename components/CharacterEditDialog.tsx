@@ -1,344 +1,1055 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Modal,
+  TouchableOpacity,
   TextInput,
-  ActivityIndicator,
   ScrollView,
-  SafeAreaView,
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
+  Switch,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Character, CradleCharacter } from '@/shared/types';
+import { Character } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
-import { theme } from '@/constants/theme';
 import { NodeSTManager } from '@/utils/NodeSTManager';
-import { parseCharacterJson } from '../utils/characterUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCharacters } from '@/constants/CharactersContext';
 
 interface CharacterEditDialogProps {
   isVisible: boolean;
-  character: Character | CradleCharacter;
+  character: Character;
   onClose: () => void;
-  onUpdateCharacter: (updatedCharacter: Character | CradleCharacter) => Promise<void>;
+  onUpdateCharacter: (updatedCharacter: Character) => void;
 }
 
-const CharacterEditDialog: React.FC<CharacterEditDialogProps> = ({
+// Define a message type for our chat
+interface ChatMessage {
+  id: string;
+  text: string;
+  sender: 'user' | 'bot';
+  timestamp: number;
+}
+
+export default function CharacterEditDialog({
   isVisible,
   character,
   onClose,
   onUpdateCharacter
-}) => {
+}: CharacterEditDialogProps) {
   const { user } = useUser();
-  const [messages, setMessages] = useState<Array<{ role: string; content: string; timestamp: number }>>([]);
-  const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [updatedJsonData, setUpdatedJsonData] = useState<string | null>(null);
-  const [isPreviewing, setIsPreviewing] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const apiKey = user?.settings?.chat?.characterApiKey || '';
+  const apiSettings = {
+    apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+    openrouter: user?.settings?.chat?.openrouter
+  };
+  
+  // State for chat UI
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Character update related states
+  const [updatedCharacter, setUpdatedCharacter] = useState<Character | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [isGeneratingUpdate, setIsGeneratingUpdate] = useState(false);
+  
+  // Refs
   const scrollViewRef = useRef<ScrollView>(null);
-
-  // Initialize with system prompt when dialog opens
+  
+  // Keep track of the character's dialog history key for storage
+  const dialogHistoryKey = `character_edit_dialog_${character.id}`;
+  
+  // Log when hasChanges or updatedCharacter changes
   useEffect(() => {
-    if (isVisible) {
-      // Add system prompt as the first message
-      const systemPrompt = createSystemPrompt(character);
-      setMessages([
-        {
-          role: 'system',
-          content: systemPrompt,
-          timestamp: Date.now()
-        },
-        {
-          role: 'assistant',
-          content: `我是角色设计助手，可以帮你修改"${character.name}"的人设。请告诉我你想如何调整这个角色？例如：\n\n- 改变性格特点\n- 修改背景故事\n- 调整对话风格\n- 添加新的技能或爱好\n\n请直接描述你的需求，我会基于当前角色设定进行修改。`,
-          timestamp: Date.now()
-        }
-      ]);
+    console.log('[CharacterEditDialog] hasChanges:', hasChanges);
+    console.log('[CharacterEditDialog] updatedCharacter exists:', !!updatedCharacter);
+  }, [hasChanges, updatedCharacter]);
+  
+  // Initialize when dialog opens with character data and load chat history
+  useEffect(() => {
+    if (isVisible && character) {
+      // Reset states when dialog opens
+      setHasChanges(false);
+      setUpdatedCharacter(null);
+      setShowPreview(false);
       
-      // Reset states
-      setUpdatedJsonData(null);
-      setIsPreviewing(false);
-      setPreviewError(null);
+      // Log the character data we received directly
+      console.log('[CharacterEditDialog] Received character data:', {
+        id: character.id,
+        name: character.name,
+        hasJsonData: !!character.jsonData,
+        jsonDataLength: character.jsonData?.length || 0
+      });
+      
+      // Load saved chat history for this character
+      loadChatHistory();
+      
+      // If we don't have any messages yet, send a welcome message
+      if (messages.length === 0) {
+        // Send initial system message
+        const initialMessage = getInitialSystemMessage();
+        
+        setMessages([
+          {
+            id: 'system-1',
+            text: initialMessage,
+            sender: 'bot' as const,
+            timestamp: Date.now()
+          }
+        ]);
+      }
     }
-  }, [isVisible, character]);
-
-  // Create the system prompt for LLM
-  const createSystemPrompt = (character: Character | CradleCharacter): string => {
-    // Original character JSON data
-    const originalData = character.jsonData || '{}';
-    
-    return `你是一位专业的AI角色设计师，擅长根据用户需求修改角色设定。
-
-正在编辑的角色：${character.name}
-
-你的任务是：
-1. 理解用户对角色的修改需求
-2. 基于当前角色设定和用户的指示，生成修改后的角色数据
-3. 使用正确的格式输出角色数据，确保JSON结构完整且有效
-
-当前角色数据：
-${originalData}
-
-请注意：
-- 只修改用户明确要求改变的部分，保留其他原有设定
-- 输出必须是有效的JSON格式
-- 结构必须与原始数据保持一致（包括roleCard、worldBook、preset等关键字段）
-- 请保持原有的数据结构，避免添加或删除顶级字段
-
-当用户要求查看修改结果或应用修改时，请以以下格式输出修改后的完整角色数据：
-
-\`\`\`json
-{
-  "roleCard": { ... },
-  "worldBook": { ... },
-  "preset": { ... },
-  "authorNote": { ... }
-}
-\`\`\`
-
-在输出JSON前，请先用1-2句话简单总结你做了哪些修改。`;
+  }, [isVisible, character.id]);
+  
+  // Load chat history from AsyncStorage
+  const loadChatHistory = async () => {
+    try {
+      const savedHistory = await AsyncStorage.getItem(dialogHistoryKey);
+      
+      if (savedHistory) {
+        const parsedMessages = JSON.parse(savedHistory) as ChatMessage[];
+        setMessages(parsedMessages);
+      }
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+    }
+  };
+  
+  // Save chat history to AsyncStorage
+  const saveChatHistory = async (updatedMessages: ChatMessage[]) => {
+    try {
+      await AsyncStorage.setItem(dialogHistoryKey, JSON.stringify(updatedMessages));
+    } catch (error) {
+      console.error('Failed to save chat history:', error);
+    }
   };
 
-  // Handle sending a message
-  const handleSendMessage = async () => {
-    if (inputText.trim() === '') return;
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
     
-    const userMessage = {
-      role: 'user',
-      content: inputText.trim(),
+    // Save messages to AsyncStorage
+    if (messages.length > 0) {
+      saveChatHistory(messages);
+    }
+  }, [messages]);
+
+  // Handle user message send
+  const handleSendMessage = async () => {
+    if (input.trim() === '') return;
+    
+    const trimmedInput = input.trim();
+    setInput('');
+    
+    // Add user message to chat
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      text: trimmedInput,
+      sender: 'user' as const,
       timestamp: Date.now()
     };
     
-    setMessages(prev => [...prev, userMessage]);
-    setInputText('');
-    setIsLoading(true);
+    // Create a new messages array with the user message
+    const updatedMessages = [...messages, userMessage as ChatMessage];
+    setMessages(updatedMessages);
+    
+    // Show loading state
+    setIsProcessing(true);
     
     try {
-      // Get API settings
-      const apiKey = user?.settings?.chat?.characterApiKey || '';
-      const apiProvider = user?.settings?.chat?.apiProvider || 'gemini';
+      // Format messages for the LLM
+      const formattedMessages = formatMessagesForLLM(updatedMessages);
       
-      if (!apiKey) {
-        throw new Error('API密钥未设置，请在全局设置中配置');
+      // Verify character data was included in the system prompt
+      const systemPrompt = formattedMessages[0].parts[0].text;
+      const hasCharacterJson = systemPrompt.includes('```') && 
+                              (systemPrompt.includes('roleCard') || 
+                               systemPrompt.includes('worldBook'));
+      
+      console.log('[CharacterEditDialog] System prompt contains character JSON data:', hasCharacterJson);
+      
+      if (!hasCharacterJson) {
+        // Add a warning message if no JSON data was included
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `warning-${Date.now()}`,
+            text: '⚠️ 警告: 无法加载完整的角色数据。编辑功能可能受限。请尝试关闭并重新打开编辑对话框，或联系技术支持。',
+            sender: 'bot',
+            timestamp: Date.now()
+          }
+        ]);
       }
       
-      // Prepare messages for API
-      const apiMessages = messages.concat(userMessage).map(msg => ({
-        role: msg.role,
-        parts: [{ text: msg.content }]
-      }));
+      // Send to LLM
+      const response = await NodeSTManager.generateText(
+        formattedMessages,
+        apiKey,
+        apiSettings
+      );
       
-      // Send to LLM via NodeSTManager
-      const response = await NodeSTManager.generateText(apiMessages, apiKey, {
-        apiProvider,
-        openrouter: user?.settings?.chat?.openrouter
-      });
-      
-      // Add LLM response to messages
-      const assistantMessage = {
-        role: 'assistant',
-        content: response,
+      // Add bot response to chat
+      const botMessage: ChatMessage = {
+        id: `bot-${Date.now()}`,
+        text: response,
+        sender: 'bot',
         timestamp: Date.now()
       };
       
-      setMessages(prev => [...prev, assistantMessage]);
+      const finalMessages: ChatMessage[] = [...updatedMessages, botMessage];
+      setMessages(finalMessages);
       
-      // Check if response contains JSON data for preview
-      if (response.includes('```json')) {
-        const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch && jsonMatch[1]) {
-          setUpdatedJsonData(jsonMatch[1].trim());
-        }
-      }
+      // Check if the response contains update instructions
+      checkForUpdateInstructions(response);
     } catch (error) {
-      console.error('发送消息失败:', error);
-      setMessages(prev => [
-        ...prev,
+      console.error('Error processing message:', error);
+      
+      // Add error message to chat
+      setMessages([
+        ...updatedMessages,
         {
-          role: 'assistant',
-          content: `发生错误：${error instanceof Error ? error.message : '未知错误'}`,
+          id: `error-${Date.now()}`,
+          text: `错误: ${error instanceof Error ? error.message : '处理请求时出错，请稍后再试。'}`,
+          sender: 'bot',
           timestamp: Date.now()
         }
       ]);
     } finally {
-      setIsLoading(false);
-      
-      // Scroll to bottom after message is added
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      setIsProcessing(false);
     }
   };
-
-  // Handle previewing character changes
-  const handlePreviewChanges = async () => {
-    if (!updatedJsonData) return;
+  
+  // Format messages for LLM - convert our chat messages to the LLM API format
+  const formatMessagesForLLM = (chatMessages: ChatMessage[]) => {
+    // First, create a system prompt that includes the character data
+    console.log('[CharacterEditDialog] Formatting messages for LLM, character:', character.name);
     
-    setIsLoading(true);
-    setPreviewError(null);
+    const systemPrompt = getSystemPrompt();
+    console.log('[CharacterEditDialog] System prompt created, length:', systemPrompt.length);
     
-    try {
-      // Parse and validate the JSON data
-      const parsedData = parseCharacterJson(updatedJsonData);
-      
-      if (!parsedData.roleCard || !parsedData.worldBook) {
-        throw new Error('数据结构不完整，缺少roleCard或worldBook字段');
-      }
-      
-      // Update preview state
-      setIsPreviewing(true);
-      
-      // Add a confirmation message
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'system',
-          content: '⚠️ 注意：这只是预览效果，角色数据尚未保存。请点击"确认应用"按钮来保存更改，或点击"取消修改"返回编辑状态。',
-          timestamp: Date.now()
-        }
-      ]);
-    } catch (error) {
-      console.error('预览修改失败:', error);
-      setPreviewError(error instanceof Error ? error.message : '未知错误');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle applying character changes
-  const handleApplyChanges = async () => {
-    if (!updatedJsonData) return;
-    
-    setIsLoading(true);
-    
-    try {
-      // Parse the updated JSON data
-      const parsedData = parseCharacterJson(updatedJsonData);
-      
-      // Create updated character object
-      const updatedCharacter = {
-        ...character,
-        jsonData: updatedJsonData,
-        name: parsedData.roleCard.name,
-        description: parsedData.roleCard.description,
-        personality: parsedData.roleCard.personality,
-        // Update any other fields from the JSON data
-        interests: extractInterestsFromWorldBook(parsedData.worldBook) || character.interests
-      };
-      
-      // Call the parent's update function
-      await onUpdateCharacter(updatedCharacter);
-      
-      // Add success message
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'system',
-          content: '✅ 修改已成功应用并保存！',
-          timestamp: Date.now()
-        }
-      ]);
-      
-      // Reset states
-      setUpdatedJsonData(null);
-      setIsPreviewing(false);
-    } catch (error) {
-      console.error('应用修改失败:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'system',
-          content: `❌ 应用修改失败：${error instanceof Error ? error.message : '未知错误'}`,
-          timestamp: Date.now()
-        }
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle canceling changes
-  const handleCancelChanges = () => {
-    setIsPreviewing(false);
-    setUpdatedJsonData(null);
-    setMessages(prev => [
-      ...prev,
+    // Convert our messages to LLM format
+    const formattedMessages = [
       {
-        role: 'system',
-        content: '🔄 已取消修改，可以继续编辑。',
-        timestamp: Date.now()
-      }
-    ]);
-  };
-
-  // Handle resetting the conversation
-  const handleResetConversation = () => {
-    const systemPrompt = createSystemPrompt(character);
-    setMessages([
-      {
-        role: 'system',
-        content: systemPrompt,
-        timestamp: Date.now()
+        role: 'user',
+        parts: [{ text: systemPrompt }]
       },
       {
-        role: 'assistant',
-        content: `我是角色设计助手，可以帮你修改"${character.name}"的人设。请告诉我你想如何调整这个角色？`,
-        timestamp: Date.now()
-      }
-    ]);
-    setUpdatedJsonData(null);
-    setIsPreviewing(false);
-    setPreviewError(null);
+        role: 'model',
+        parts: [{ text: '我理解了。我会检查角色设定并帮助你修改。请告诉我你想要如何更改角色设定。' }]
+      },
+      // Then include all user messages and bot responses
+      ...chatMessages.map(msg => ({
+        role: msg.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.text }]
+      }))
+    ];
+    
+    console.log('[CharacterEditDialog] Formatted', formattedMessages.length, 'messages for LLM');
+    return formattedMessages;
   };
-
-  // Extract interests from world book
-  const extractInterestsFromWorldBook = (worldBook: any): string[] => {
-    if (!worldBook?.entries?.Alist?.content) return [];
+  
+  // Build system prompt that includes character data
+  const getSystemPrompt = () => {
+    let characterJsonData: any = null;
+    let jsonDataLog = '未找到JSON数据';
     
     try {
-      const content = worldBook.entries.Alist.content;
-      const likesMatch = content.match(/<likes>(.*?)<\/likes>/s);
+      if (character.jsonData) {
+        console.log('[CharacterEditDialog] Parsing JSON data, length:', character.jsonData.length);
+        characterJsonData = JSON.parse(character.jsonData);
+        jsonDataLog = `成功解析, 包含字段: ${Object.keys(characterJsonData).join(', ')}`;
+        console.log('[CharacterEditDialog] Successfully parsed character JSON data');
+      } else {
+        console.warn('[CharacterEditDialog] Character does not have jsonData property');
+      }
+    } catch (error) {
+      console.error('[CharacterEditDialog] Failed to parse character JSON data:', error);
+      jsonDataLog = `解析失败: ${error instanceof Error ? error.message : '未知错误'}`;
+    }
+    
+    // Add debug info at the end of prompt for development
+    const debugInfo = `
+DEBUG INFO (仅开发使用):
+- 角色ID: ${character.id}
+- JSON数据: ${jsonDataLog}
+- 创建时间: ${new Date(character.createdAt).toLocaleString()}
+- 更新时间: ${new Date(character.updatedAt).toLocaleString()}
+`;
+    
+    return `你是一位专业的角色设计师助手，负责帮助用户修改和改进角色设定。你现在需要检查一个名为"${character.name}"的角色，并根据用户的要求帮助修改角色设定。
+
+当前角色数据：
+角色名称: ${character.name}
+描述: ${character.description}
+性格: ${character.personality || '未指定'}
+性别: ${character.gender || '未指定'}
+兴趣爱好: ${character.interests?.join(', ') || '未指定'}
+
+${characterJsonData ? `角色的详细设定JSON数据如下:
+\`\`\`
+${JSON.stringify(characterJsonData, null, 2)}
+\`\`\`
+` : '角色没有详细的JSON数据或数据无法解析。请根据其他可用信息来帮助用户。'}
+
+你的任务是：
+1. 仔细分析角色的现有设定
+2. 根据对话上下文，主动提出改进建议
+3. 当用户请求特定修改时，帮助实现并提供具体建议
+4. 当有合理的变更请求时，提供符合要求的更新代码
+
+重要规则：
+- 对角色设定的更改应保持基本结构不变
+- 在用户没有明确指令时，主动提供有建设性的建议，比如丰富角色背景、完善设定细节等
+- 当用户请求修改时，给出具体的实施方案和预期效果
+- 使用<CHARACTER_JSON_UPDATE>标签包裹JSON更新代码
+- 仅生成必要的内容字段，无需生成技术参数，系统会自动补充其他参数
+- 使用口语化、友好的语气与用户交流
+- 禁止生成有害、违规或不适当的内容${__DEV__ ? debugInfo : ''}
+
+当需要提供更新时，请使用以下简化格式：
+<CHARACTER_JSON_UPDATE>
+{
+  "roleCard": {
+    "name": "角色名称",
+    "first_mes": "初始消息",
+    "description": "角色描述",
+    "personality": "角色性格",
+    "scenario": "场景设定",
+    "mes_example": "对话示例"
+  },
+  "worldBook": {
+    "entries": {
+      "条目名称1": {
+        "comment": "条目说明",
+        "content": "条目内容"
+      },
+      "条目名称2": {
+        "comment": "条目说明",
+        "content": "条目内容"
+      }
+    }
+  },
+  "preset": {
+    "prompts": [
+      {
+        "name": "提示名称",
+        "content": "提示内容",
+        "role": "user或model"
+      }
+    ]
+  }
+}
+</CHARACTER_JSON_UPDATE>
+
+注意：只需提供roleCard的完整信息和worldBook条目的comment和content属性，以及preset中prompts的name、content和role属性。系统会自动补充其他所需参数。`;
+  };
+  
+  // Get initial system message for welcoming the user
+  const getInitialSystemMessage = () => {
+    return `👋 你好！我是角色设计助手。我已经加载了"${character.name}"的角色数据。
+
+我可以帮你：
+• 修改角色个性、背景故事或对话风格
+• 调整角色设定中的具体细节
+• 提出改进建议以丰富角色
+• 实现你想要的任何合理变更
+
+有什么我可以帮你修改的吗？或者需要我对当前角色设定进行分析并提供改进建议吗？`;
+  };
+  
+  // Check if the response contains update instructions
+  const checkForUpdateInstructions = (response: string): { success: boolean } => {
+    // Look for special tags that indicate JSON update instructions
+    const regex = /<CHARACTER_JSON_UPDATE>([\s\S]*?)<\/CHARACTER_JSON_UPDATE>/;
+    const match = response.match(regex);
+    console.log('[CharacterEditDialog] Checking for JSON updates:', !!match);
+    
+    if (match && match[1]) {
+      try {
+        // Parse the JSON update
+        const jsonString = match[1].trim();
+        console.log('[CharacterEditDialog] Found JSON update, length:', jsonString.length);
+        let updatedData: any;
+        
+        try {
+          updatedData = JSON.parse(jsonString);
+          console.log('[CharacterEditDialog] Successfully parsed JSON update');
+          
+          // Debug log for checking worldBook data
+          console.log('[CharacterEditDialog] Update contains worldBook:', !!updatedData.worldBook);
+          if (updatedData.worldBook) {
+            console.log('[CharacterEditDialog] worldBook entries count:', 
+              Object.keys(updatedData.worldBook.entries || {}).length);
+          }
+        } catch (parseError) {
+          console.error('[CharacterEditDialog] Failed to parse JSON update:', parseError);
+          throw new Error(`无法解析JSON更新内容: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+        }
+        
+        // Ensure we have a valid JSON structure
+        if (!updatedData || typeof updatedData !== 'object') {
+          throw new Error('生成的JSON格式无效，缺少必要的角色数据');
+        }
+        
+        // Get original JSON data if available
+        let originalData: any = {};
+        if (character.jsonData) {
+          try {
+            originalData = JSON.parse(character.jsonData);
+            console.log('[CharacterEditDialog] Loaded original character JSON data');
+            console.log('[CharacterEditDialog] Original worldBook entries count:', 
+              Object.keys(originalData.worldBook?.entries || {}).length);
+          } catch (err) {
+            console.warn('[CharacterEditDialog] Could not parse original character JSON:', err);
+            // Continue with empty originalData if parsing fails
+          }
+        }
+        
+        // Keep track of the top-level fields in both objects for debugging
+        console.log('[CharacterEditDialog] Original data fields:', Object.keys(originalData));
+        console.log('[CharacterEditDialog] Updated data fields:', Object.keys(updatedData));
+        
+        // Process and enhance worldBook entries with default parameters
+        let enhancedWorldBook: any = { entries: {} };
+        
+        // First, keep all original entries that aren't being updated
+        if (originalData.worldBook && originalData.worldBook.entries) {
+          Object.keys(originalData.worldBook.entries).forEach(key => {
+            if (updatedData.worldBook?.entries && !updatedData.worldBook.entries[key]) {
+              enhancedWorldBook.entries[key] = originalData.worldBook.entries[key];
+            }
+          });
+        }
+        
+        // Now add all updated entries with default parameters
+        if (updatedData.worldBook && updatedData.worldBook.entries) {
+          Object.keys(updatedData.worldBook.entries).forEach(key => {
+            const entry = updatedData.worldBook.entries[key];
+            
+            // Enhance entry with default parameters if they're missing
+            enhancedWorldBook.entries[key] = {
+              comment: entry.comment || "Character Information",
+              content: entry.content || "",
+              disable: false,
+              position: 4,
+              constant: true,
+              key: [],
+              order: Object.keys(enhancedWorldBook.entries).length, // Use incrementing order
+              depth: 4,
+              vectorized: false
+            };
+          });
+        }
+        
+        // Process and enhance preset prompts with default parameters
+        let enhancedPreset: any = {
+          prompts: [],
+          prompt_order: originalData.preset?.prompt_order || []
+        };
+        
+        // Keep original prompts that aren't being updated
+        if (originalData.preset && originalData.preset.prompts) {
+          enhancedPreset.prompts = [...originalData.preset.prompts];
+        }
+        
+        // Add updated prompts with default parameters
+        if (updatedData.preset && updatedData.preset.prompts) {
+          const timestamp = Date.now();
+          updatedData.preset.prompts.forEach((prompt: any, index: number) => {
+            const newPrompt = {
+              name: prompt.name || "Custom Prompt",
+              content: prompt.content || "",
+              identifier: `cradle-edition-${timestamp}-${index}`,
+              isEditable: true,
+              insertType: 'relative',
+              role: (prompt.role as 'user' | 'model') || 'user',
+              order: enhancedPreset.prompts.length + index,
+              isDefault: false,
+              enable: true,
+              depth: 4
+            };
+            
+            enhancedPreset.prompts.push(newPrompt);
+          });
+        }
+        
+        // Create a proper merged JSON structure
+        const mergedData = {
+          ...originalData,
+          ...updatedData,
+          roleCard: updatedData.roleCard || originalData.roleCard || {},
+          worldBook: enhancedWorldBook,
+          preset: enhancedPreset,
+          authorNote: updatedData.authorNote || originalData.authorNote || {},
+          chatHistory: updatedData.chatHistory || originalData.chatHistory || {}
+        };
+        
+        // Ensure critical fields are present in roleCard
+        if (mergedData.roleCard) {
+          const roleCard = mergedData.roleCard;
+          roleCard.name = roleCard.name || character.name;
+          roleCard.description = roleCard.description || character.description;
+          roleCard.personality = roleCard.personality || character.personality;
+          roleCard.first_mes = roleCard.first_mes || "你好，很高兴认识你！";
+        }
+        
+        // Convert the merged data back to JSON string
+        const mergedJsonString = JSON.stringify(mergedData);
+        console.log('[CharacterEditDialog] Created merged JSON data, length:', mergedJsonString.length);
+        console.log('[CharacterEditDialog] Final worldBook entries count:', 
+          Object.keys(mergedData.worldBook.entries || {}).length);
+        
+        // Create an updated character with the new data
+        const newCharacter = {
+          ...character,
+          id: character.id, // Explicitly ensure same ID
+          jsonData: mergedJsonString,
+          name: mergedData.roleCard?.name || character.name,
+          description: mergedData.roleCard?.description || character.description,
+          personality: mergedData.roleCard?.personality || character.personality
+        };
+        
+        // Set the updated character and show preview
+        setUpdatedCharacter(newCharacter);
+        setHasChanges(true); // Explicitly set hasChanges to true
+        console.log('[CharacterEditDialog] Set hasChanges to true');
+        
+        // Alert the user that changes are ready to preview
+        Alert.alert(
+          '角色设定更新准备就绪',
+          '已根据你的要求生成了角色设定更新。请点击"预览更改"按钮查看更新内容，并决定是否应用这些更改。',
+          [
+            { text: '确定', style: 'default' }
+          ]
+        );
+        
+        return { success: true };
+      } catch (error) {
+        console.error('[CharacterEditDialog] Failed to process character update:', error);
+        // Add error message to chat
+        setMessages(prevMessages => [
+          ...prevMessages,
+          {
+            id: `error-${Date.now()}`,
+            text: `错误: 处理角色更新失败: ${error instanceof Error ? error.message : '未知错误'}`,
+            sender: 'bot',
+            timestamp: Date.now()
+          }
+        ]);
+        return { success: false };
+      }
+    }
+    return { success: false };
+  };
+  
+  // Apply the character updates
+  const handleApplyChanges = () => {
+    // If we already have an updated character, apply it
+    if (updatedCharacter) {
+      try {
+        console.log('[CharacterEditDialog] Applying character changes');
+        console.log('[CharacterEditDialog] Updated character JSON data length:', updatedCharacter.jsonData?.length || 0);
+        
+        // Verify the JSON is valid before applying
+        if (updatedCharacter.jsonData) {
+          try {
+            const parsedJson = JSON.parse(updatedCharacter.jsonData);
+            if (!parsedJson.roleCard || !parsedJson.worldBook) {
+              throw new Error('角色数据缺少必要的roleCard或worldBook结构');
+            }
+          } catch (parseError) {
+            console.error('[CharacterEditDialog] Invalid JSON data:', parseError);
+            Alert.alert(
+              '更新失败',
+              '角色数据格式无效，无法应用更改。请重试或联系支持。',
+              [{ text: '确定', style: 'default' }]
+            );
+            return;
+          }
+        }
+        
+        // Update character with new metadata and the current date
+        // IMPORTANT: Ensure we preserve the original ID
+        const finalCharacter = {
+          ...updatedCharacter,
+          id: character.id, // Explicitly use original ID
+          updatedAt: Date.now()
+        };
+        
+        // Call the onUpdateCharacter callback with the updated character
+        onUpdateCharacter(finalCharacter);
+        
+        // Reset states after successful update
+        setShowPreview(false);
+        setHasChanges(false);
+        
+        // Add a success message to the chat
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `system-${Date.now()}`,
+            text: '✅ 已成功应用角色更改！你可以继续修改角色或关闭此对话框。',
+            sender: 'bot',
+            timestamp: Date.now()
+          }
+        ]);
+      } catch (error) {
+        console.error('[CharacterEditDialog] Error applying changes:', error);
+        Alert.alert(
+          '更新失败',
+          `应用角色更改时出错: ${error instanceof Error ? error.message : '未知错误'}`,
+          [{ text: '确定', style: 'default' }]
+        );
+      }
+    } 
+    // If no updated character exists yet, but we have chat messages, try to generate one first
+    else if (messages.length > 2) {
+      Alert.alert(
+        '需要生成更改',
+        '需要先根据对话生成角色更改，然后才能应用。是否现在生成更改？',
+        [
+          { text: '取消', style: 'cancel' },
+          { 
+            text: '生成更改', 
+            style: 'default',
+            onPress: requestCharacterUpdate
+          }
+        ]
+      );
+    } 
+    // If we don't have enough chat history yet
+    else {
+      Alert.alert(
+        '无法更新角色',
+        '请先与AI助手进行一些对话，讨论您希望对角色进行的修改。',
+        [{ text: '我明白了', style: 'default' }]
+      );
+      console.log('[CharacterEditDialog] No updated character to apply, and not enough chat history');
+    }
+  };
+  
+  // Toggle preview mode
+  const togglePreview = () => {
+    // If we have character updates, toggle preview
+    if (updatedCharacter) {
+      setShowPreview(!showPreview);
+    }
+    // If no updates but we have chat history, offer to generate updates
+    else if (messages.length > 2) {
+      Alert.alert(
+        '需要生成更改',
+        '需要先根据对话生成角色更改，然后才能预览。是否现在生成更改？',
+        [
+          { text: '取消', style: 'cancel' },
+          { 
+            text: '生成更改', 
+            style: 'default',
+            onPress: async () => {
+              await requestCharacterUpdate();
+              // When updates are successfully generated, show preview
+              if (updatedCharacter) {
+                setShowPreview(true);
+              }
+            }
+          }
+        ]
+      );
+    }
+    // Not enough chat history
+    else {
+      Alert.alert(
+        '无法预览更改',
+        '请先与AI助手进行一些对话，讨论您希望对角色进行的修改。',
+        [{ text: '我明白了', style: 'default' }]
+      );
+    }
+  };
+  
+  // Reset chat history
+  const resetChatHistory = async () => {
+    Alert.alert(
+      '清除聊天记录',
+      '确定要清除所有聊天记录吗？这将不会影响已保存的角色设定。',
+      [
+        { text: '取消', style: 'cancel' },
+        { 
+          text: '确定', 
+          style: 'destructive',
+          onPress: async () => {
+            setMessages([]);
+            await AsyncStorage.removeItem(dialogHistoryKey);
+            
+            // Send initial system message
+            const initialMessage = getInitialSystemMessage();
+            setMessages([
+              {
+                id: 'system-1',
+                text: initialMessage,
+                sender: 'bot',
+                timestamp: Date.now()
+              }
+            ]);
+          }
+        }
+      ]
+    );
+  };
+
+  // Function to request character updates from LLM
+  const requestCharacterUpdate = async () => {
+    if (isGeneratingUpdate || messages.length < 2) {
+      Alert.alert(
+        '无法生成更新',
+        '请先与AI助手进行对话，讨论您希望对角色进行的修改。',
+        [{ text: '我知道了', style: 'default' }]
+      );
+      return;
+    }
+    
+    setIsGeneratingUpdate(true);
+    setIsProcessing(true);
+    
+    try {
+      // Add a system message to request summary
+      const summarizeMessage: ChatMessage = {
+        id: `system-${Date.now()}`,
+        text: "请根据我们的对话，总结所有应该对角色进行的修改，并生成更新后的角色数据。请只提供roleCard的完整信息，worldBook条目的comment和content属性，以及preset中prompts的name、content和role属性。系统会自动补充其他所需参数。请使用<CHARACTER_JSON_UPDATE>标签包裹JSON代码。",
+        sender: 'user',
+        timestamp: Date.now()
+      };
       
-      if (likesMatch && likesMatch[1]) {
-        return likesMatch[1]
-          .split(/[,，]/)
-          .map((item: string): string => item.trim())
-          .filter((item: string): boolean => item.length > 0 && item !== "未指定");
+      // Add the message to chat
+      const updatedMessages = [...messages, summarizeMessage];
+      setMessages(updatedMessages);
+      
+      // Format messages for LLM
+      const formattedMessages = formatMessagesForLLM(updatedMessages);
+      
+      // Send to LLM
+      console.log('[CharacterEditDialog] 请求生成角色更新');
+      const response = await NodeSTManager.generateText(
+        formattedMessages,
+        apiKey,
+        apiSettings
+      );
+      
+      // Add bot response to chat
+      const botMessage: ChatMessage = {
+        id: `bot-${Date.now()}`,
+        text: response,
+        sender: 'bot',
+        timestamp: Date.now()
+      };
+      
+      setMessages([...updatedMessages, botMessage]);
+      
+      // Check if the response contains update instructions
+      const updateResult = checkForUpdateInstructions(response);
+      
+      if (!updateResult.success) {
+        // If no proper JSON was detected, try to create a basic update
+        console.log('[CharacterEditDialog] 未检测到有效的JSON更新，尝试生成基础更新');
+        await createBasicCharacterUpdate();
+      }
+    } catch (error) {
+      console.error('[CharacterEditDialog] 生成角色更新失败:', error);
+      
+      // Add error message to chat
+      setMessages(prevMessages => [
+        ...prevMessages,
+        {
+          id: `error-${Date.now()}`,
+          text: `错误: 生成角色更新失败: ${error instanceof Error ? error.message : '未知错误'}`,
+          sender: 'bot',
+          timestamp: Date.now()
+        }
+      ]);
+      
+      Alert.alert(
+        '生成更新失败',
+        '无法生成角色更新，请重试或手动编辑。',
+        [{ text: '确定', style: 'default' }]
+      );
+    } finally {
+      setIsGeneratingUpdate(false);
+      setIsProcessing(false);
+    }
+  };
+  
+  // Create a basic character update from chat history if JSON update fails
+  const createBasicCharacterUpdate = async () => {
+    try {
+      console.log('[CharacterEditDialog] 创建基础角色更新');
+      
+      // Get original character data
+      let originalData: any = {};
+      try {
+        if (character.jsonData) {
+          originalData = JSON.parse(character.jsonData);
+        }
+      } catch (err) {
+        console.warn('[CharacterEditDialog] Cannot parse original character JSON:', err);
       }
       
-      return [];
+      // If we have no original data, we can't update
+      if (!originalData.roleCard || !originalData.worldBook) {
+        throw new Error('无法读取原始角色数据，无法进行更新');
+      }
+      
+      // Send a request to LLM to extract key changes from the conversation
+      const extractionPrompt = `
+请分析我们的对话，提取关键的角色修改信息，格式如下:
+
+\`\`\`json
+{
+  "roleCard": {
+    "name": "角色名称（如有变化）",
+    "description": "角色描述（如有变化）",
+    "personality": "角色性格（如有变化）",
+    "scenario": "角色场景（如有变化）",
+    "first_mes": "初始消息（如有变化）",
+    "background": "背景故事（如有变化）"
+  }
+}
+\`\`\`
+      `;
+      
+      // Create extraction message
+      const extractionMessage = {
+        role: 'user',
+        parts: [{ text: extractionPrompt }]
+      };
+      
+      // Create a simplified message history for extraction
+      const simpleHistory = messages.map(msg => ({
+        role: msg.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.text }]
+      }));
+      
+      // Send to LLM
+      const extractionResponse = await NodeSTManager.generateText(
+        [...simpleHistory, extractionMessage],
+        apiKey,
+        apiSettings
+      );
+      
+      // Extract JSON from response
+      const jsonMatch = extractionResponse.match(/```json\s*([\s\S]*?)\s*```/);
+      if (!jsonMatch || !jsonMatch[1]) {
+        throw new Error('无法提取角色修改信息');
+      }
+      
+      const extractedData = JSON.parse(jsonMatch[1]);
+      
+      // Merge extracted data with original data - FIX: Be careful with worldBook
+      const mergedData = {
+        ...originalData,
+        roleCard: {
+          ...originalData.roleCard,
+          ...extractedData.roleCard
+        },
+        // Explicitly keep the original worldBook
+        worldBook: originalData.worldBook
+      };
+      
+      // Convert the merged data back to JSON string
+      const mergedJsonString = JSON.stringify(mergedData);
+      console.log('[CharacterEditDialog] Created merged JSON data, length:', mergedJsonString.length);
+      console.log('[CharacterEditDialog] Basic update worldBook entries count:', 
+        Object.keys(mergedData.worldBook?.entries || {}).length);
+      
+      // Create an updated character with the new data
+      const newCharacter = {
+        ...character,
+        jsonData: mergedJsonString,
+        name: mergedData.roleCard?.name || character.name,
+        description: mergedData.roleCard?.description || character.description,
+        personality: mergedData.roleCard?.personality || character.personality
+      };
+      
+      // Set the updated character and show preview
+      setUpdatedCharacter(newCharacter);
+      setHasChanges(true); // Explicitly set hasChanges to true
+      console.log('[CharacterEditDialog] Set hasChanges to true');
+      
+      // Alert the user that changes are ready to preview
+      Alert.alert(
+        '角色设定更新准备就绪',
+        '已根据你的要求生成了角色设定更新。请点击"预览更改"按钮查看更新内容，并决定是否应用这些更改。',
+        [
+          { text: '确定', style: 'default' }
+        ]
+      );
     } catch (error) {
-      console.error('[角色创作助手] 从世界书提取兴趣爱好时出错:', error);
-      return [];
+      console.error('[CharacterEditDialog] 创建基础角色更新失败:', error);
+      // Add error message to chat
+      setMessages(prevMessages => [
+        ...prevMessages,
+        {
+          id: `error-${Date.now()}`,
+          text: `错误: 创建基础角色更新失败: ${error instanceof Error ? error.message : '未知错误'}`,
+          sender: 'bot',
+          timestamp: Date.now()
+        }
+      ]);
     }
   };
 
-  // Render a message bubble
-  const renderMessage = (message: { role: string; content: string; timestamp: number }, index: number) => {
-    const isUser = message.role === 'user';
-    const isSystem = message.role === 'system';
-    
-    if (isSystem) {
+  // Render chat bubbles
+  const renderChatBubbles = () => {
+    return messages.map((message) => {
+      const isUser = message.sender === 'user';
+      
       return (
-        <View key={index} style={styles.systemMessageContainer}>
-          <Text style={styles.systemMessage}>{message.content}</Text>
+        <View
+          key={message.id}
+          style={[
+            styles.messageBubbleContainer,
+            isUser ? styles.userMessageContainer : styles.botMessageContainer
+          ]}
+        >
+          <View
+            style={[
+              styles.messageBubble,
+              isUser ? styles.userMessageBubble : styles.botMessageBubble
+            ]}
+          >
+            <Text style={styles.messageText}>{message.text}</Text>
+          </View>
         </View>
       );
+    });
+  };
+  
+  // Render preview of updated character - Enhanced to show more character details
+  const renderPreview = () => {
+    if (!updatedCharacter) return null;
+    
+    let jsonData: any = null;
+    try {
+      jsonData = JSON.parse(updatedCharacter.jsonData || '{}');
+    } catch (error) {
+      console.error('Failed to parse updated character data:', error);
     }
     
     return (
-      <View
-        key={index}
-        style={[
-          styles.messageBubble,
-          isUser ? styles.userMessage : styles.assistantMessage
-        ]}
-      >
-        <Text style={styles.messageText}>{message.content}</Text>
+      <View style={styles.previewContainer}>
+        <ScrollView style={styles.previewScroll}>
+          <Text style={styles.previewTitle}>预览角色更改</Text>
+          
+          {/* Role Card Basic Information Section */}
+          <View style={styles.previewSectionContainer}>
+            <Text style={styles.previewSectionTitle}>基本信息</Text>
+            
+            <View style={styles.previewSection}>
+              <Text style={styles.previewLabel}>名称:</Text>
+              <Text style={styles.previewValue}>{updatedCharacter.name}</Text>
+            </View>
+            
+            <View style={styles.previewSection}>
+              <Text style={styles.previewLabel}>描述:</Text>
+              <Text style={styles.previewValue}>{updatedCharacter.description}</Text>
+            </View>
+            
+            <View style={styles.previewSection}>
+              <Text style={styles.previewLabel}>性格:</Text>
+              <Text style={styles.previewValue}>{updatedCharacter.personality || "未设置"}</Text>
+            </View>
+            
+            {jsonData?.roleCard?.scenario && (
+              <View style={styles.previewSection}>
+                <Text style={styles.previewLabel}>场景:</Text>
+                <Text style={styles.previewValue}>{jsonData.roleCard.scenario}</Text>
+              </View>
+            )}
+          </View>
+          
+          {/* Initial Message Section */}
+          {jsonData?.roleCard?.first_mes && (
+            <View style={styles.previewSectionContainer}>
+              <Text style={styles.previewSectionTitle}>初始消息</Text>
+              <View style={styles.previewSection}>
+                <Text style={styles.previewValue}>{jsonData.roleCard.first_mes}</Text>
+              </View>
+            </View>
+          )}
+          
+          {/* Message Examples Section */}
+          {jsonData?.roleCard?.mes_example && (
+            <View style={styles.previewSectionContainer}>
+              <Text style={styles.previewSectionTitle}>对话示例</Text>
+              <View style={styles.previewSection}>
+                <Text style={styles.previewValue}>{jsonData.roleCard.mes_example}</Text>
+              </View>
+            </View>
+          )}
+          
+          {/* World Book Section */}
+          {jsonData?.worldBook?.entries && Object.keys(jsonData.worldBook.entries).length > 0 && (
+            <View style={styles.previewSectionContainer}>
+              <Text style={styles.previewSectionTitle}>世界书条目</Text>
+              
+              {Object.entries(jsonData.worldBook.entries).map(([key, entry]: [string, any]) => (
+                <View key={key} style={styles.previewSection}>
+                  <View style={styles.worldBookEntryHeader}>
+                    <Text style={styles.worldBookEntryTitle}>{key}</Text>
+                    <Text style={styles.worldBookEntryType}>{entry.comment}</Text>
+                  </View>
+                  <Text style={styles.previewValue}>{entry.content}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          
+          {/* Prompts Section */}
+          {jsonData?.preset?.prompts && jsonData.preset.prompts.length > 0 && (
+            <View style={styles.previewSectionContainer}>
+              <Text style={styles.previewSectionTitle}>自定义提示</Text>
+              
+              {jsonData.preset.prompts.map((prompt: any, index: number) => (
+                <View key={index} style={styles.previewSection}>
+                  <View style={styles.promptHeader}>
+                    <Text style={styles.promptTitle}>{prompt.name}</Text>
+                    <Text style={[
+                      styles.promptRole, 
+                      prompt.role === 'user' ? styles.userRole : styles.modelRole
+                    ]}>
+                      {prompt.role === 'user' ? '用户' : '模型'}
+                    </Text>
+                  </View>
+                  <Text style={styles.previewValue}>{prompt.content}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          
+          {/* Action Buttons */}
+          <View style={styles.previewButtonContainer}>
+            <TouchableOpacity
+              style={styles.cancelPreviewButton}
+              onPress={togglePreview}
+            >
+              <Text style={styles.cancelPreviewButtonText}>关闭预览</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.applyChangesButton}
+              onPress={handleApplyChanges}
+            >
+              <Text style={styles.applyChangesButtonText}>应用更改</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     );
   };
@@ -347,253 +1058,381 @@ ${originalData}
     <Modal
       visible={isVisible}
       animationType="slide"
-      transparent={false}
+      transparent={true}
+      onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>编辑"{character.name}"</Text>
-          <TouchableOpacity onPress={handleResetConversation} style={styles.resetButton}>
-            <Ionicons name="refresh" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-        
-        {/* Chat messages */}
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
-          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-        >
-          {messages.filter(msg => msg.role !== 'system' || msg.role === 'system' && messages.indexOf(msg) > 0).map(renderMessage)}
-          {isLoading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.container}
+      >
+        <View style={styles.modalContent}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>编辑角色：{character.name}</Text>
+            <View style={styles.headerButtons}>
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={resetChatHistory}
+              >
+                <Ionicons name="refresh" size={22} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={onClose}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
             </View>
-          )}
-        </ScrollView>
-        
-        {/* Preview error message */}
-        {previewError && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{previewError}</Text>
           </View>
-        )}
-        
-        {/* Action buttons */}
-        {updatedJsonData && !isPreviewing && (
-          <View style={styles.actionButtonsContainer}>
+          
+          {/* Action buttons bar - Improved to show the current button state better */}
+          <View style={styles.actionBar}>
             <TouchableOpacity
-              style={[styles.actionButton, styles.previewButton]}
-              onPress={handlePreviewChanges}
-              disabled={isLoading}
+              style={[
+                styles.actionButton,
+                styles.actionButtonActive // Always make the button active
+              ]}
+              onPress={togglePreview}
             >
-              <Ionicons name="eye-outline" size={20} color="#fff" style={styles.buttonIcon} />
-              <Text style={styles.actionButtonText}>预览修改</Text>
+              <Ionicons 
+                name="eye-outline" 
+                size={18} 
+                color="#fff" 
+                style={styles.actionButtonIcon} 
+              />
+              <Text style={styles.actionButtonTextActive}>
+                预览更改{hasChanges ? '' : ''}
+              </Text>
             </TouchableOpacity>
-          </View>
-        )}
-        
-        {/* Preview action buttons */}
-        {isPreviewing && (
-          <View style={styles.actionButtonsContainer}>
+            
             <TouchableOpacity
-              style={[styles.actionButton, styles.applyButton]}
+              style={[
+                styles.actionButton,
+                styles.actionButtonActive // Always make the button active
+              ]}
               onPress={handleApplyChanges}
-              disabled={isLoading}
             >
-              <Ionicons name="checkmark" size={20} color="#fff" style={styles.buttonIcon} />
-              <Text style={styles.actionButtonText}>确认应用</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.cancelButton]}
-              onPress={handleCancelChanges}
-              disabled={isLoading}
-            >
-              <Ionicons name="close" size={20} color="#fff" style={styles.buttonIcon} />
-              <Text style={styles.actionButtonText}>取消修改</Text>
+              <Ionicons 
+                name="checkmark-circle-outline" 
+                size={18} 
+                color="#fff" 
+                style={styles.actionButtonIcon} 
+              />
+              <Text style={styles.actionButtonTextActive}>
+                应用更改{hasChanges ? '' : ''}
+              </Text>
             </TouchableOpacity>
           </View>
-        )}
-        
-        {/* Input area */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={100}
-          style={styles.inputContainer}
-        >
-          <TextInput
-            style={styles.input}
-            placeholder="描述你想对角色做的修改..."
-            placeholderTextColor="#999"
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={2000}
-            editable={!isLoading && !isPreviewing}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, (isLoading || inputText.trim() === '' || isPreviewing) && styles.disabledButton]}
-            onPress={handleSendMessage}
-            disabled={isLoading || inputText.trim() === '' || isPreviewing}
-          >
-            <Ionicons name="send" size={24} color="#fff" />
-          </TouchableOpacity>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+
+          {/* Preview (conditionally rendered) */}
+          {showPreview ? renderPreview() : (
+            <>
+              {/* Chat area */}
+              <ScrollView
+                ref={scrollViewRef}
+                style={styles.chatArea}
+                contentContainerStyle={styles.chatContainer}
+              >
+                {renderChatBubbles()}
+                {isProcessing && (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#4CAF50" />
+                    <Text style={styles.loadingText}>处理中...</Text>
+                  </View>
+                )}
+              </ScrollView>
+
+              {/* Input area */}
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.input}
+                  value={input}
+                  onChangeText={setInput}
+                  placeholder="输入要修改的内容..."
+                  placeholderTextColor="#888"
+                  multiline
+                  numberOfLines={3}
+                  maxLength={1000}
+                />
+                <TouchableOpacity
+                  style={[styles.sendButton, !input.trim() && styles.sendButtonDisabled]}
+                  disabled={!input.trim() || isProcessing}
+                  onPress={handleSendMessage}
+                >
+                  <Ionicons name="send" size={24} color={input.trim() && !isProcessing ? "#4CAF50" : "#666"} />
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    flex: 1,
+    backgroundColor: '#1E1E1E',
+    margin: 0,
+    marginTop: 40,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
   },
   header: {
-    height: 60,
+    backgroundColor: '#333',
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: '#333',
-  },
-  closeButton: {
-    padding: 8,
+    borderBottomColor: '#444',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    flex: 1,
-    textAlign: 'center',
   },
-  resetButton: {
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
     padding: 8,
+    marginLeft: 8,
   },
-  messagesContainer: {
+  actionBar: {
+    flexDirection: 'row',
+    padding: 8,
+    backgroundColor: '#282828',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  actionButtonActive: {
+    backgroundColor: '#4A90E2',
+  },
+  actionButtonDisabled: {
+    backgroundColor: '#444',
+  },
+  actionButtonIcon: {
+    marginRight: 6,
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  actionButtonTextActive: {
+    color: '#fff',
+  },
+  actionButtonTextDisabled: {
+    color: '#888',
+  },
+  chatArea: {
     flex: 1,
-    padding: 16,
+    backgroundColor: '#1E1E1E',
   },
-  messagesContent: {
-    paddingBottom: 16,
+  chatContainer: {
+    padding: 16,
+    paddingBottom: 24,
+  },
+  messageBubbleContainer: {
+    marginBottom: 16,
+    flexDirection: 'row',
+  },
+  userMessageContainer: {
+    justifyContent: 'flex-end',
+  },
+  botMessageContainer: {
+    justifyContent: 'flex-start',
   },
   messageBubble: {
     borderRadius: 16,
     padding: 12,
-    marginBottom: 12,
     maxWidth: '80%',
   },
-  userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: theme.colors.primary,
+  userMessageBubble: {
+    backgroundColor: '#4A90E2',
   },
-  assistantMessage: {
-    alignSelf: 'flex-start',
+  botMessageBubble: {
     backgroundColor: '#444',
-  },
-  systemMessageContainer: {
-    padding: 8,
-    marginVertical: 8,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.colors.primary,
-  },
-  systemMessage: {
-    color: '#ccc',
-    fontSize: 14,
   },
   messageText: {
     color: '#fff',
     fontSize: 16,
   },
-  loadingContainer: {
-    alignItems: 'center',
-    padding: 16,
-  },
   inputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: '#333',
+    padding: 12,
+    backgroundColor: '#2A2A2A',
+    alignItems: 'flex-end',
   },
   input: {
     flex: 1,
-    backgroundColor: '#444',
+    backgroundColor: '#333',
     borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    padding: 12,
     color: '#fff',
     fontSize: 16,
-    maxHeight: 100,
+    maxHeight: 120,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.colors.primary,
-    justifyContent: 'center',
+    marginLeft: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#333',
     alignItems: 'center',
-    marginLeft: 8,
+    justifyContent: 'center',
   },
-  disabledButton: {
+  sendButtonDisabled: {
     opacity: 0.5,
   },
-  actionButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    padding: 12,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.05)',
-  },
-  actionButton: {
+  loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginHorizontal: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: '#333',
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 16,
   },
-  previewButton: {
-    backgroundColor: '#2196F3',
+  loadingText: {
+    color: '#ccc',
+    marginLeft: 8,
   },
-  applyButton: {
-    backgroundColor: '#4CAF50',
+  previewContainer: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#1E1E1E',
   },
-  cancelButton: {
-    backgroundColor: '#F44336',
+  previewScroll: {
+    flex: 1,
   },
-  actionButtonText: {
-    fontSize: 16,
+  previewTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
     color: '#fff',
-    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
   },
-  buttonIcon: {
-    marginRight: 8,
+  previewSectionContainer: {
+    marginBottom: 24,
+    borderRadius: 8,
+    backgroundColor: '#262626',
+    padding: 12,
   },
-  errorContainer: {
-    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+  previewSectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#444',
+    paddingBottom: 8,
+  },
+  previewSection: {
+    marginBottom: 16,
+    backgroundColor: '#2A2A2A',
     padding: 12,
     borderRadius: 8,
-    margin: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#F44336',
   },
-  errorText: {
-    color: '#F44336',
+  previewLabel: {
     fontSize: 14,
+    color: '#aaa',
+    marginBottom: 4,
+  },
+  previewValue: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  worldBookEntryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  worldBookEntryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4A90E2',
+  },
+  worldBookEntryType: {
+    fontSize: 12,
+    color: '#aaa',
+    backgroundColor: '#333',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  promptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  promptTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4A90E2',
+  },
+  promptRole: {
+    fontSize: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  userRole: {
+    backgroundColor: '#2C5282',
+    color: '#fff',
+  },
+  modelRole: {
+    backgroundColor: '#276749',
+    color: '#fff',
+  },
+  previewButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 32,
+  },
+  cancelPreviewButton: {
+    backgroundColor: '#555',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  cancelPreviewButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  applyChangesButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flex: 1,
+    marginLeft: 8,
+    alignItems: 'center',
+  },
+  applyChangesButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
-
-export default CharacterEditDialog;

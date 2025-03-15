@@ -11,14 +11,15 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { CradleCharacter } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import CharacterEditDialog from './CharacterEditDialog'; // 导入角色编辑对话框
+import { useRouter } from 'expo-router';
 
 interface CradleCharacterDetailProps {
   character: CradleCharacter;
   onFeed: () => void;
   onGenerate: () => void;
   onDelete: () => void;
-  onEdit?: () => void; // 新增编辑回调
+  onEdit?: () => void; // 编辑回调
+  isEditable?: boolean; // 控制编辑按钮是否可见
 }
 
 const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
@@ -26,8 +27,11 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   onFeed,
   onGenerate,
   onDelete,
-  onEdit
+  onEdit,
+  isEditable = false
 }) => {
+  const router = useRouter();
+  
   // 计算角色在摇篮中的天数
   const calculateDaysInCradle = () => {
     const createdAt = character.createdAt;
@@ -56,6 +60,16 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   
   const feedStats = calculateFeedStats();
   const daysInCradle = calculateDaysInCradle();
+  
+  // 判断角色是否已生成
+  const isGenerated = character.isCradleGenerated === true;
+
+  // 前往聊天页面
+  const navigateToChat = () => {
+    if (character.generatedCharacterId) {
+      router.push(`/?characterId=${character.generatedCharacterId}`);
+    }
+  };
 
   return (
     <View style={styles.characterDetailCard}>
@@ -94,6 +108,16 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
           </View>
         )}
         
+        {/* 显示生成状态标签 */}
+        {isGenerated && (
+          <View style={styles.generatedBadgeContainer}>
+            <View style={styles.generatedBadge}>
+              <Ionicons name="checkmark-circle" size={16} color="#fff" style={{marginRight: 4}} />
+              <Text style={styles.generatedBadgeText}>已生成</Text>
+            </View>
+          </View>
+        )}
+        
         {/* 角色信息 */}
         <View style={styles.characterDetailInfo}>
           <Text style={styles.characterDetailName}>{character.name}</Text>
@@ -117,32 +141,49 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
             </View>
           </View>
           
-          {/* 角色操作按钮 */}
+          {/* 角色操作按钮 - 根据生成状态显示不同按钮 */}
           <View style={styles.characterActionButtons}>
-            <TouchableOpacity 
-              style={[styles.characterActionButton, styles.feedButton]}
-              onPress={onFeed}
-            >
-              <Ionicons name="chatbubble-outline" size={16} color="#fff" />
-              <Text style={styles.characterActionButtonText}>投喂</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.characterActionButton, styles.generateButton]}
-              onPress={onGenerate}
-            >
-              <Ionicons name="flash-outline" size={16} color="#fff" />
-              <Text style={styles.characterActionButtonText}>立即生成</Text>
-            </TouchableOpacity>
-            
-            {/* 新增对话修改按钮 */}
-            <TouchableOpacity 
-              style={[styles.characterActionButton, styles.editButton]}
-              onPress={onEdit}
-            >
-              <Ionicons name="create-outline" size={16} color="#fff" />
-              <Text style={styles.characterActionButtonText}>对话修改</Text>
-            </TouchableOpacity>
+            {/* 已生成角色的按钮 */}
+            {isGenerated ? (
+              <>
+                <TouchableOpacity 
+                  style={[styles.characterActionButton, styles.chatButton]}
+                  onPress={navigateToChat}
+                >
+                  <Ionicons name="chatbubble-outline" size={16} color="#fff" />
+                  <Text style={styles.characterActionButtonText}>聊天</Text>
+                </TouchableOpacity>
+                
+                {/* 对话修改按钮 */}
+                {isEditable && (
+                  <TouchableOpacity 
+                    style={[styles.characterActionButton, styles.editButton]}
+                    onPress={onEdit}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#fff" />
+                    <Text style={styles.characterActionButtonText}>对话修改</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <>
+                <TouchableOpacity 
+                  style={[styles.characterActionButton, styles.feedButton]}
+                  onPress={onFeed}
+                >
+                  <Ionicons name="restaurant-outline" size={16} color="#fff" />
+                  <Text style={styles.characterActionButtonText}>投喂</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.characterActionButton, styles.generateButton]}
+                  onPress={onGenerate}
+                >
+                  <Ionicons name="flash-outline" size={16} color="#fff" />
+                  <Text style={styles.characterActionButtonText}>立即生成</Text>
+                </TouchableOpacity>
+              </>
+            )}
             
             <TouchableOpacity 
               style={[styles.characterActionButton, styles.deleteButton]}
@@ -196,6 +237,24 @@ const styles = StyleSheet.create({
   imageGenerationStatusText: {
     color: '#FFD700',
     fontSize: 14,
+  },
+  generatedBadgeContainer: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+  },
+  generatedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  generatedBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   characterDetailInfo: {
     position: 'absolute',
@@ -254,6 +313,9 @@ const styles = StyleSheet.create({
   },
   generateButton: {
     backgroundColor: '#FF9800',
+  },
+  chatButton: {
+    backgroundColor: '#2196F3',
   },
   editButton: {
     backgroundColor: '#9C27B0', // 紫色，与其他按钮区分

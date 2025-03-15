@@ -170,7 +170,9 @@ export interface Character {
   inCradleSystem?: boolean;
   type?: string;
   tags?: string[];
-  // Circle-related fields (existing)
+  feedHistory?: Feed[];
+  cradleCharacterId? : string; 
+  // Circle-related filds (existing)
   conversationId?: string;
   jsonData?: string;
   circlePosts?: any[];
@@ -310,6 +312,7 @@ export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
     feedHistory: Feed[];             // 投喂历史
     inCradleSystem: boolean;         // 是否在摇篮系统中
     isCradleGenerated?: boolean;     // 是否由摇篮生成的角色
+    generatedCharacterId?: string;   // 生成后角色的ID，用于链接到正式角色
     cradleAnimation?: CradleAnimation;
     importedFromCharacter?: boolean; // 是否从常规角色导入
     importedCharacterId?: string;    // 导入来源的角色ID

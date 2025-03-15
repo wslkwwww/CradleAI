@@ -31,7 +31,19 @@ import { confirmDeleteCradleCharacter } from '@/utils/cradleUtils';
 import { LinearGradient } from 'expo-linear-gradient';
 import CradleCharacterDetail from '@/components/CradleCharacterDetail';
 import CharacterEditDialog from '@/components/CharacterEditDialog'; // 导入角色编辑对话框
+import { NodeSTManager } from '@/utils/NodeSTManager'; // 导入NodeSTManager
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { User, GlobalSettings } from '@/shared/types';
+import { useUser } from '@/constants/UserContext';
+
+interface UserContextProps {
+  user: User | null;
+  setUser: React.Dispatch<React.SetStateAction<User | null>>;
+  updateSettings: (settings: Partial<GlobalSettings>) => Promise<void>;
+  loading: boolean;
+  updateAvatar: (uri: string) => Promise<void>;
+}
+
 
 // Updated tabs to match original cradle page
 const TABS = [
@@ -44,6 +56,7 @@ const TABS = [
 export default function CradlePage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useUser(); // Access the user context properly
   
   const { 
     getCradleCharacters, 
@@ -51,12 +64,15 @@ export default function CradlePage() {
     updateCradleSettings,
     updateCradleCharacter,
     deleteCradleCharacter,
-    generateCharacterFromCradle  // Add this to use the function
+    generateCharacterFromCradle,
+    updateCharacter,
+    characters // Add characters to the destructured values from useCharacters
   } = useCharacters();
 
   // States for data with proper typing
   const [cradleCharacters, setCradleCharacters] = useState<CradleCharacter[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<CradleCharacter | null>(null);
+  const [editingCharacter, setEditingCharacter] = useState<CradleCharacter | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const cradleSettings = getCradleSettings();
   const characterCarouselRef = useRef(null);
@@ -342,9 +358,12 @@ export default function CradlePage() {
     )
   );
 
-  // Render character detail section - 修改使用新的组件
+  // Render character detail section
   const renderCharacterDetail = () => {
     if (!selectedCharacter) return null;
+    
+    // Check if character is fully generated
+    const isGenerated = selectedCharacter.isCradleGenerated === true;
     
     return (
       <View style={styles.characterDetailSection}>
@@ -353,7 +372,63 @@ export default function CradlePage() {
           onFeed={() => setShowFeedModal(true)}
           onGenerate={() => handleGenerateCharacter(selectedCharacter)}
           onDelete={() => handleDeleteCharacter(selectedCharacter)}
-          onEdit={() => setShowEditDialog(true)} // 添加对话修改按钮回调
+          onEdit={() => {
+            // Only show edit dialog if character is generated
+            if (isGenerated) {
+              // SIMPLIFIED APPROACH: Instead of trying to fetch/lookup data
+              // Just prepare the editing character directly with all necessary data
+              
+              // 1. Start with the selected cradle character
+              const cradleChar = {...selectedCharacter};
+              
+              // 2. Check if this character has jsonData directly
+              if (cradleChar.jsonData && cradleChar.jsonData.length > 0) {
+                console.log('[摇篮页面] 角色有直接的JSON数据，长度:', cradleChar.jsonData.length);
+                // Use it directly
+                setEditingCharacter(cradleChar);
+                setShowEditDialog(true);
+              } 
+              // 3. Check if it has a reference to a generated character
+              else if (cradleChar.generatedCharacterId) {
+                console.log('[摇篮页面] 查找关联的正常角色:', cradleChar.generatedCharacterId);
+                
+                // Find the normal character
+                const normalChar = characters.find(c => c.id === cradleChar.generatedCharacterId);
+                
+                if (normalChar && normalChar.jsonData) {
+                  console.log('[摇篮页面] 找到关联角色的JSON数据，长度:', normalChar.jsonData.length);
+                  
+                  // Create a merged character with cradle ID but normal character's data
+                  const mergedChar: CradleCharacter = {
+                    ...cradleChar,
+                    jsonData: normalChar.jsonData
+                  };
+                  
+                  setEditingCharacter(mergedChar);
+                  setShowEditDialog(true);
+                } else {
+                  Alert.alert(
+                    "数据未找到", 
+                    "无法找到角色的完整数据，请刷新页面后重试。",
+                    [{ text: "确定", style: "default" }]
+                  );
+                }
+              } else {
+                Alert.alert(
+                  "数据不完整",
+                  "该角色缺少必要的数据，无法编辑。请尝试重新生成角色。",
+                  [{ text: "确定", style: "default" }]
+                );
+              }
+            } else {
+              Alert.alert(
+                "角色尚未生成",
+                "请先完成角色培育并生成，然后才能通过对话修改角色数据。",
+                [{ text: "了解", style: "default" }]
+              );
+            }
+          }}
+          isEditable={isGenerated} // Make edit button visible for generated characters
         />
       </View>
     );
@@ -569,22 +644,111 @@ export default function CradlePage() {
       {/* Notification component */}
       {renderNotification()}
 
-      {/* 添加角色编辑对话框 */}
-      {selectedCharacter && (
+      {/* 添加角色编辑对话框 - Use editingCharacter instead of selectedCharacter */}
+      {editingCharacter && (
         <CharacterEditDialog 
           isVisible={showEditDialog}
-          character={selectedCharacter}
-          onClose={() => setShowEditDialog(false)}
+          character={editingCharacter}
+          onClose={() => {
+            setShowEditDialog(false);
+            // Clear editing character when closing dialog
+            setEditingCharacter(null);
+          }}
           onUpdateCharacter={async (updatedCharacter) => {
             try {
-              await updateCradleCharacter(updatedCharacter as CradleCharacter);
-              setSelectedCharacter(updatedCharacter as CradleCharacter);
+              console.log('[摇篮页面] 准备更新角色:', updatedCharacter.name);
+              console.log('[摇篮页面] 更新数据长度:', updatedCharacter.jsonData?.length || 0);
+              
+              // Verify character data before updating
+              if (!updatedCharacter.jsonData) {
+                console.error('[摇篮页面] 角色数据为空，无法更新');
+                throw new Error('角色数据为空，无法更新');
+              }
+              
+              // Basic JSON validation
+              try {
+                const parsedJson = JSON.parse(updatedCharacter.jsonData);
+                console.log('[摇篮页面] JSON数据解析成功，包含字段:', Object.keys(parsedJson).join(', '));
+                
+                // Check for presence of worldBook data
+                console.log('[摇篮页面] 检查worldBook数据存在性:', !!parsedJson.worldBook);
+                if (parsedJson.worldBook) {
+                  console.log('[摇篮页面] worldBook条目数量:', 
+                    Object.keys(parsedJson.worldBook.entries || {}).length);
+                }
+                
+                if (!parsedJson.roleCard || !parsedJson.worldBook) {
+                  console.error('[摇篮页面] JSON数据缺少必要的字段');
+                  throw new Error('角色数据缺少必要的roleCard或worldBook结构');
+                }
+              } catch (parseError) {
+                console.error('[摇篮页面] JSON数据解析失败:', parseError);
+                throw new Error(`角色数据格式无效: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+              }
+              
+              // Apply the update to the cradle character
+              const updatedCradleCharacter: CradleCharacter = {
+                ...(updatedCharacter as CradleCharacter),
+                inCradleSystem: true, // Ensure it remains in the cradle system
+                isCradleGenerated: true, // Keep the generated flag
+                updatedAt: Date.now() // Add updated timestamp
+              };
+              
+              // CRITICAL FIX: Use updateCharacter instead of onUpdateCharacter for the normal character
+              // to ensure we're updating, not creating a new entry
+              if (updatedCradleCharacter.generatedCharacterId) {
+                console.log('[摇篮页面] 也更新关联的正常角色:', updatedCradleCharacter.generatedCharacterId);
+                
+                const normalChar = characters.find(c => c.id === updatedCradleCharacter.generatedCharacterId);
+                if (normalChar) {
+                  // Create updated normal character with the SAME ID (important)
+                  const updatedNormalChar = {
+                    ...normalChar,
+                    id: normalChar.id, // Explicitly ensure same ID
+                    jsonData: updatedCharacter.jsonData,
+                    name: updatedCharacter.name,
+                    description: updatedCharacter.description,
+                    personality: updatedCharacter.personality,
+                    updatedAt: Date.now()
+                  };
+                  
+                  // Get user API key and settings
+                  const apiKey = user?.settings?.chat?.characterApiKey || '';
+                  const apiSettings = user?.settings?.chat;
+                  
+                  // Update the normal character in storage first
+                  await updateCharacter(updatedNormalChar);
+                  console.log('[摇篮页面] 已更新关联的正常角色');
+                  
+                  // Send update to NodeST if API key is available
+                  if (apiKey) {
+                    console.log('[摇篮页面] 向NodeST发送角色更新');
+                    await NodeSTManager.processChatMessage({
+                      userMessage: "",
+                      status: "更新人设",
+                      conversationId: updatedNormalChar.id,
+                      apiKey: apiKey,
+                      apiSettings: {
+                        apiProvider: apiSettings?.apiProvider || 'gemini',
+                        openrouter: apiSettings?.openrouter
+                      },
+                      character: updatedNormalChar
+                    });
+                    console.log('[摇篮页面] NodeST角色更新完成');
+                  }
+                }
+              }
+              
+              // Now update the cradle character
+              await updateCradleCharacter(updatedCradleCharacter);
+              setSelectedCharacter(updatedCradleCharacter);
               setShowEditDialog(false);
+              setEditingCharacter(null); // Clear the editing character
               showNotification('角色更新成功', `角色 "${updatedCharacter.name}" 已通过对话成功更新！`);
             } catch (error) {
               console.error('[摇篮页面] 更新角色失败:', error);
               showNotification('更新失败', 
-                `角色 "${selectedCharacter.name}" 更新失败: ${error instanceof Error ? error.message : String(error)}`);
+                `角色 "${editingCharacter.name}" 更新失败: ${error instanceof Error ? error.message : String(error)}`);
             }
           }}
         />

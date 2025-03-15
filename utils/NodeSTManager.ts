@@ -14,6 +14,22 @@ class NodeSTManagerClass {
     console.log('[NodeSTManager] NodeST Manager initialized');
   }
 
+  static generateContent(
+    messages: Array<{ role: string; parts: Array<{ text: string }> }>,
+    apiKey: string,
+    apiSettings?: {
+      apiProvider: 'gemini' | 'openrouter';
+      openrouter?: {
+        enabled: boolean;
+        apiKey: string;
+        model: string;
+      }
+    }
+  ): Promise<string> {
+    const instance = new NodeSTManagerClass();
+    return instance.generateText(messages, apiKey, apiSettings);
+  }
+
   // Update API settings with full apiSettings object support
   updateApiSettings(
     apiKey: string, 
@@ -450,7 +466,7 @@ class NodeSTManagerClass {
       // 默认使用Gemini API
       else {
         console.log('[NodeSTManager] 使用Gemini API');
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + apiKey, {
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + apiKey, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -528,3 +544,4 @@ NodeSTManager.generateText = async function(
   const instance = new NodeSTManagerClass();
   return await instance.generateText(messages, apiKey, apiSettings);
 };
+

@@ -21,6 +21,8 @@ export class CradleService {
   private initialized: boolean = false;
   private geminiAdapter: GeminiAdapter;
   private openRouterAdapter: OpenRouterAdapter | null = null;
+  private roleCard: RoleCardJson | null = null;
+  private worldBook: WorldBookJson | null = null;
 
   // Add apiSettings as an optional parameter
   constructor(apiKey: string, apiSettings?: {
@@ -238,36 +240,88 @@ export class CradleService {
         };
       }
       
-      // Process the feeds through CharacterGeneratorService
-      let generationResult: CharacterGenerationResult;
+      // Segregate feeds by type
+      const knowledgeFeeds = unprocessedFeeds.filter(feed => feed.type === FeedType.KNOWLEDGE);
+      const otherFeeds = unprocessedFeeds.filter(feed => feed.type !== FeedType.KNOWLEDGE);
       
-      // Check if we already have a character initialized
-      const currentData = this.characterGenerator.getCurrentCharacterData();
-      if (currentData.roleCard) {
-        // Update existing character with new feeds
-        console.log('[CradleService] Updating existing character with new feeds');
-        generationResult = await this.characterGenerator.updateWithFeeds(unprocessedFeeds);
+      let result: CharacterGenerationResult | null = null;
+      let knowledgeEntry = null;
+      
+      // Process knowledge feeds if any
+      if (knowledgeFeeds.length > 0) {
+        console.log(`[CradleService] 处理 ${knowledgeFeeds.length} 条知识投喂`);
+        const knowledgeResult = await this.summarizeKnowledgeFeeds(knowledgeFeeds);
+        
+        if (knowledgeResult.success && knowledgeResult.knowledgeEntry) {
+          knowledgeEntry = knowledgeResult.knowledgeEntry;
+          console.log('[CradleService] 知识总结成功:', knowledgeEntry);
+        } else {
+          console.warn('[CradleService] 知识总结失败:', knowledgeResult.error);
+        }
+      }
+      
+      // Process regular feeds through the character generator
+      if (otherFeeds.length > 0 || !this.roleCard) {
+        // Check if we already have a character initialized
+        const currentData = this.characterGenerator.getCurrentCharacterData();
+        if (currentData.roleCard) {
+          // Update existing character with new feeds
+          console.log('[CradleService] Updating existing character with new feeds');
+          result = await this.characterGenerator.updateWithFeeds(otherFeeds);
+        } else {
+          // Create initial character if this is our first processing
+          console.log('[CradleService] Creating initial character from feeds');
+          const initialData: CharacterInitialData = {
+            name: "Cradle Character",
+            description: "A character being developed in the Cradle System",
+            personality: "Personality will be determined based on feed data"
+          };
+          result = await this.characterGenerator.generateInitialCharacter(initialData);
+        }
       } else {
-        // Create initial character if this is our first processing
-        console.log('[CradleService] Creating initial character from feeds');
-        const initialData: CharacterInitialData = {
-          name: "Cradle Character",
-          description: "A character being developed in the Cradle System",
-          personality: "Personality will be determined based on feed data"
+        result = {
+          success: true,
+          roleCard: this.roleCard,
+          worldBook: this.worldBook || { entries: {} } 
         };
-        generationResult = await this.characterGenerator.generateInitialCharacter(initialData);
+      }
+      
+      // If we have a knowledge entry, add it to the worldbook
+      if (result && result.success && result.worldBook && knowledgeEntry) {
+        // Create a unique key for the knowledge entry
+        const knowledgeKey = `知识_${Date.now()}`;
+        
+        // Add the knowledge entry to the worldbook
+        result.worldBook.entries["知识"] = {
+          comment: "Character Knowledge",
+          content: knowledgeEntry.content,
+          disable: false,
+          position: 4,
+          constant: false, // Non-constant, triggered by keywords
+          key: knowledgeEntry.keywords,
+          order: 1,
+          depth: 2,
+          vectorized: false
+        };
+        
+        console.log('[CradleService] 已添加知识条目到角色世界书', knowledgeEntry.keywords);
       }
       
       // Check if processing was successful
-      if (!generationResult.success) {
-        console.error('[CradleService] Failed to process feeds:', generationResult.error);
+      if (!result || !result.success) {
+        const errorMessage = result ? result.error : 'Unknown error in character generation';
+        console.error('[CradleService] Failed to process feeds:', errorMessage);
         return {
           success: false,
-          errorMessage: generationResult.error
+          errorMessage
         };
       }
       
       console.log('[CradleService] Character generation/update successful');
+      
+      // Update internal state with processed character data
+      this.roleCard = result.roleCard || this.roleCard;
+      this.worldBook = result.worldBook || this.worldBook;
       
       // Mark all processed feeds
       unprocessedFeeds.forEach(feed => {
@@ -286,6 +340,103 @@ export class CradleService {
       return {
         success: false,
         errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  // Add a new method for summarizing knowledge feeds
+  async summarizeKnowledgeFeeds(feeds: FeedData[]): Promise<{
+    success: boolean;
+    knowledgeEntry?: {
+      content: string;
+      keywords: string[];
+    };
+    error?: string;
+  }> {
+    if (!feeds || feeds.length === 0) {
+      return {
+        success: false,
+        error: "没有可用的知识投喂数据进行总结"
+      };
+    }
+    
+    try {
+      console.log(`[CradleService] 开始总结 ${feeds.length} 条知识投喂`);
+      
+      // Select the adapter based on settings
+      const adapter = this.getActiveAdapter();
+      
+      // Prepare prompt for knowledge summarization
+      const knowledgeContent = feeds.map(feed => feed.content).join('\n\n');
+      
+      const systemPrompt = `你是一个专业的AI知识整理助手，你的任务是将用户输入的多条知识片段总结为一个连贯、精炼的知识条目。
+  这个知识条目将被添加到角色的世界书(WorldBook)中，用于增强角色的行为和回应。
+  请确保保留重要的事实、概念和关系，删除冗余和重复信息。
+  同时，你需要生成3-5个关键词，这些关键词将触发这个知识在对话中被使用。
+  关键词应该准确反映这些知识的核心主题，并在用户提及相关话题时触发。`;
+
+      const userPrompt = `请帮我总结以下知识内容，并生成适当的关键词：
+
+  ${knowledgeContent}
+
+  请按照以下JSON格式输出：
+  \`\`\`json
+  {
+    "summary": "这里是总结后的知识内容...",
+    "keywords": ["关键词1", "关键词2", "关键词3"]
+  }
+  \`\`\`
+
+  关键词应该是能触发这个知识应用的词组，比如主题、人名、概念名等。`;
+
+      // Build messages array for API call
+      const messages = [
+        { role: "user", parts: [{ text: systemPrompt }] },
+        { role: adapter instanceof GeminiAdapter ? "model" : "assistant", parts: [{ text: "我明白了，我将帮您总结知识内容并生成关键词。请提供需要总结的知识片段。" }] },
+        { role: "user", parts: [{ text: userPrompt }] }
+      ];
+      
+      // Call the LLM API to generate the summary
+      console.log("[CradleService] 调用LLM生成知识总结");
+      const response = await adapter.generateContent(messages);
+      
+      // Extract JSON from response
+      const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || 
+                       response.match(/\{[\s\S]*"summary"[\s\S]*"keywords"[\s\S]*\}/);
+                       
+      if (!jsonMatch) {
+        console.error("[CradleService] 无法从响应中提取JSON");
+        return {
+          success: false,
+          error: "无法从LLM响应中提取知识总结JSON"
+        };
+      }
+      
+      // Parse the JSON
+      const jsonStr = jsonMatch[1] || jsonMatch[0];
+      const parsedData = JSON.parse(jsonStr);
+      
+      if (!parsedData.summary || !Array.isArray(parsedData.keywords) || parsedData.keywords.length === 0) {
+        return {
+          success: false,
+          error: "生成的知识总结数据不完整"
+        };
+      }
+      
+      console.log("[CradleService] 知识总结成功，关键词:", parsedData.keywords);
+      
+      return {
+        success: true,
+        knowledgeEntry: {
+          content: parsedData.summary,
+          keywords: parsedData.keywords
+        }
+      };
+    } catch (error) {
+      console.error("[CradleService] 总结知识投喂失败:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "未知错误"
       };
     }
   }

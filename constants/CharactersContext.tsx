@@ -10,13 +10,12 @@ import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
 import { CradleService } from '@/NodeST/nodest/services/cradle-service';
 import { downloadAndSaveImage, deleteCharacterImages } from '@/utils/imageUtils';
 import { Feed } from '@/constants/types';
-const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
 import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter'; 
 import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
 import { CharacterGeneratorService } from '@/NodeST/nodest/services/character-generator-service';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 
-
+const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
 // Initialize CradleService with API key from environment or settings
 const API_KEY = "YOUR_API_KEY_HERE"; // In production, load from secure storage
 const cradleService = new CradleService(API_KEY);
@@ -234,72 +233,66 @@ if (!savedCharacter) {
     }
   };
 
-  const updateCharacter = async (character: Character) => {
-    Alert.alert('更新角色',
-      `正在更新角色:\n` +
-      `ID: ${character.id}\n` +
-      `名称: ${character.name}\n` +
-      `朋友圈数量: ${character.circlePosts?.length || 0}`
+const updateCharacter = async (character: Character) => {
+  try {
+    console.log('[CharactersContext] Updating character:', character.id);
+    
+    // First check if the character exists
+    const existingCharIndex = characters.findIndex(char => char.id === character.id);
+    
+    if (existingCharIndex === -1) {
+      console.warn('[CharactersContext] Character not found in state, cannot update:', character.id);
+      
+      // If this is part of a cradle update, we should check if there's a duplicate with different ID
+      // This could happen if the character was created through other means
+      const possibleDuplicate = characters.find(
+        char => char.name === character.name && char.cradleCharacterId === character.cradleCharacterId
+      );
+      
+      if (possibleDuplicate) {
+        console.log('[CharactersContext] Found possible duplicate with different ID, will update that instead:', possibleDuplicate.id);
+        // Update the duplicate instead
+        character.id = possibleDuplicate.id;
+      } else {
+        // No existing character found, so we need to add it instead of updating
+        console.log('[CharactersContext] No existing character found, adding new character');
+        await addCharacter(character);
+        return;
+      }
+    }
+    
+    // Now update the character in state
+    const updatedCharacters = characters.map(char =>
+      char.id === character.id ? character : char
+    );
+    
+    // Save to filesystem
+    await FileSystem.writeAsStringAsync(
+      FileSystem.documentDirectory + 'characters.json',
+      JSON.stringify(updatedCharacters),
+      { encoding: FileSystem.EncodingType.UTF8 }
     );
 
-    try {
-      const updatedCharacters = characters.map(char =>
-        char.id === character.id ? character : char
-      );
-      
-      Alert.alert('写入存储', '正在保存角色数据到文件系统...');
-      
-      await FileSystem.writeAsStringAsync(
-        FileSystem.documentDirectory + 'characters.json',
-        JSON.stringify(updatedCharacters),
-        { encoding: FileSystem.EncodingType.UTF8 }
-      );
-
-      const savedContent = await FileSystem.readAsStringAsync(
-        FileSystem.documentDirectory + 'characters.json',
-        { encoding: FileSystem.EncodingType.UTF8 }
-      );
-      const savedCharacters = JSON.parse(savedContent);
-      const savedCharacter = savedCharacters.find((c: Character) => c.id === character.id);
-      
-      if (!savedCharacter) {
-        throw new Error('Failed to verify character save');
-      }
-
-      Alert.alert('保存成功',
-        `成功保存角色 ${character.name} 的数据\n` +
-        `朋友圈数量: ${savedCharacter.circlePosts?.length || 0}`
-      );
-
-      setCharacters(updatedCharacters);
-    } catch (error) {
-      Alert.alert('错误',
-        `更新角色时发生错误:\n${error}\n\n` +
-        `正在尝试修复...\n`
-      );
-
-      try {
-        const currentContent = await FileSystem.readAsStringAsync(
-          FileSystem.documentDirectory + 'characters.json',
-          { encoding: FileSystem.EncodingType.UTF8 }
-        );
-        const currentCharacters = JSON.parse(currentContent);
-        const currentCharacter = currentCharacters.find((c: Character) => c.id === character.id);
-
-        Alert.alert('当前存储状态',
-          `角色: ${currentCharacter?.name}\n` +
-          `朋友圈数量: ${currentCharacter?.circlePosts?.length || 0}\n` +
-          `保存状态: ${currentCharacter ? '已找到' : '未找到'}`
-        );
-      } catch (readError) {
-        Alert.alert('读取失败',
-          `无法读取当前存储状态:\n${readError}`
-        );
-      }
-      
-      throw error;
+    // Double-check that the character was properly saved
+    const savedContent = await FileSystem.readAsStringAsync(
+      FileSystem.documentDirectory + 'characters.json',
+      { encoding: FileSystem.EncodingType.UTF8 }
+    );
+    const savedCharacters = JSON.parse(savedContent);
+    const savedCharacter = savedCharacters.find((c: Character) => c.id === character.id);
+    
+    if (!savedCharacter) {
+      throw new Error('Failed to verify character save');
     }
-  };
+    
+    console.log('[CharactersContext] Character updated successfully:', character.id);
+    setCharacters(updatedCharacters);
+    
+  } catch (error) {
+    console.error('[CharactersContext] Error updating character:', error);
+    throw error;
+  }
+};
 
   const deleteCharacters = async (ids: string[]) => {
     try {
@@ -785,6 +778,35 @@ if (!savedCharacter) {
     try {
       console.log(`[CharactersContext] 开始更新摇篮角色: ${updatedCharacter.name}, ID: ${updatedCharacter.id}`);
       
+      // Check for and maintain ID relationships
+      if (updatedCharacter.isCradleGenerated && updatedCharacter.generatedCharacterId) {
+        console.log(`[CharactersContext] 摇篮角色已生成，关联的角色ID: ${updatedCharacter.generatedCharacterId}`);
+        
+        // If the cradle character has jsonData, make sure the normal character has it too
+        if (updatedCharacter.jsonData && updatedCharacter.jsonData.length > 0) {
+          // Find the associated normal character
+          const normalCharIndex = characters.findIndex(c => c.id === updatedCharacter.generatedCharacterId);
+          if (normalCharIndex !== -1) {
+            console.log(`[CharactersContext] 找到关联的普通角色，更新其JSON数据`);
+            // Update the normal character's jsonData to match
+            const updatedCharacters = [...characters];
+            updatedCharacters[normalCharIndex] = {
+              ...updatedCharacters[normalCharIndex],
+              jsonData: updatedCharacter.jsonData,
+              updatedAt: Date.now()
+            };
+            
+            // Save the updated character list
+            setCharacters(updatedCharacters);
+            await FileSystem.writeAsStringAsync(
+              FileSystem.documentDirectory + 'characters.json',
+              JSON.stringify(updatedCharacters),
+              { encoding: FileSystem.EncodingType.UTF8 }
+            );
+          }
+        }
+      }
+      
       // Update character in state
       setCharacters(prevChars => prevChars.map(char => 
         char.id === updatedCharacter.id ? { ...updatedCharacter, updatedAt: Date.now() } : char
@@ -910,6 +932,16 @@ const generateCharacterFromCradle = async (cradleId: string): Promise<Character>
       console.error(`[摇篮生成] 找不到ID为 ${cradleId} 的摇篮角色`);
       throw new Error(`找不到ID为 ${cradleId} 的摇篮角色`);
     }
+    
+    // Log character data for debugging
+    console.log('[摇篮生成] 摇篮角色基本信息:', {
+      id: cradleCharacter.id,
+      name: cradleCharacter.name,
+      description: cradleCharacter.description?.substring(0, 30) + '...',
+      feedsCount: cradleCharacter.feedHistory?.length || 0,
+      hasJsonData: !!cradleCharacter.jsonData,
+      jsonDataLength: cradleCharacter.jsonData?.length || 0
+    });
     
     // Get user API settings
     const userSettings = user?.settings;
@@ -1075,24 +1107,31 @@ const generateCharacterFromCradle = async (cradleId: string): Promise<Character>
       // 记录完整的JSON数据字符串，用于排查问题
       const jsonDataString = JSON.stringify(characterJsonData);
       console.log('[摇篮生成] 生成的JSON数据长度:', jsonDataString.length);
-      console.log('[摇篮生成] 校验JSON数据是否可解析');
+      
+      // Log the structure of the JSON data to help with debugging
+      console.log('[摇篮生成] JSON数据包含以下顶级字段:', Object.keys(characterJsonData).join(', '));
+      console.log('[摇篮生成] roleCard包含字段:', Object.keys(characterJsonData.roleCard).join(', '));
+      console.log('[摇篮生成] worldBook包含条目:', Object.keys(characterJsonData.worldBook.entries).length);
       
       // 校验JSON数据
       try {
-        JSON.parse(jsonDataString);
-        console.log('[摇篮生成] JSON数据校验成功');
+        const parsed = JSON.parse(jsonDataString);
+        console.log('[摇篮生成] JSON数据校验成功,', 
+          '包含roleCard:', !!parsed.roleCard, 
+          '包含worldBook:', !!parsed.worldBook);
       } catch (jsonError) {
         console.error('[摇篮生成] JSON数据无效:', jsonError);
         throw new Error('生成的角色数据格式无效，无法进行JSON解析');
       }
 
-      // 关键修复：使用相同的ID创建角色，避免ID不匹配问题
-      const characterId = cradleId; // 使用与摇篮角色相同的ID
-      console.log('[摇篮生成] 将使用与摇篮相同的ID创建正式角色:', characterId);
+      // 创建一个新ID，用于普通角色列表中的角色
+      const normalCharacterId = `char_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      console.log('[摇篮生成] 为普通角色列表创建新ID:', normalCharacterId);
+      console.log('[摇篮生成] 关联到摇篮角色ID:', cradleId);
       
-      // 创建正式角色数据
+      // 创建正式角色数据（用于普通角色列表）
       const generatedCharacter: Character = {
-        id: characterId, // 关键修复：使用相同的ID
+        id: normalCharacterId, // 使用新ID
         name: result.roleCard.name,
         avatar: cradleCharacter.avatar,
         backgroundImage: cradleCharacter.backgroundImage,
@@ -1103,19 +1142,35 @@ const generateCharacterFromCradle = async (cradleId: string): Promise<Character>
         updatedAt: Date.now(),
         gender: cradleCharacter.gender,
         isCradleGenerated: true,
-        jsonData: jsonDataString // 保存完整JSON数据
+        inCradleSystem: false, // 普通角色列表的角色，不在摇篮系统中
+        jsonData: jsonDataString, // 保存完整JSON数据
+        cradleCharacterId: cradleId // 添加反向引用，指向摇篮角色ID
       };
       
       // 记录生成的角色数据
-      console.log('[摇篮生成] 生成的角色数据:', 
+      console.log('[摇篮生成] 生成的普通角色数据:', 
                  `id=${generatedCharacter.id}, name=${generatedCharacter.name}`);
+      
+      // 同时更新摇篮角色的数据，将其标记为已生成但仍保留在摇篮系统中
+      const updatedCradleCharacter = {
+        ...cradleCharacter,
+        isCradleGenerated: true, // 标记为已生成
+        inCradleSystem: true, // 保持在摇篮系统中
+        updatedAt: Date.now(),
+        generatedCharacterId: normalCharacterId, // 存储关联的普通角色ID
+        jsonData: jsonDataString, // 同时更新摇篮角色的jsonData，确保两边数据一致
+        feedHistory: cradleCharacter.feedHistory || [], // Ensure feedHistory is included
+      };
+      
+      console.log('[摇篮生成] 更新摇篮角色数据:', 
+                 `id=${updatedCradleCharacter.id}, generatedCharacterId=${normalCharacterId}`);
       
       try {
         // 先初始化角色数据（使用NodeST的静态方法）
         console.log('[摇篮生成] 初始化角色数据结构');
         const initResult = await NodeSTManager.processChatMessage({
           userMessage: "你好！",
-          conversationId: characterId, // 保持与角色ID一致
+          conversationId: normalCharacterId, // 使用新的角色ID
           status: "新建角色",
           apiKey,
           apiSettings: {
@@ -1137,28 +1192,25 @@ const generateCharacterFromCradle = async (cradleId: string): Promise<Character>
       }
       
       // 将生成的角色添加到角色库
-      // 关键修复：确保我们更新现有的角色记录，而不是添加新的
-      const existingIndex = characters.findIndex(c => c.id === characterId);
-
-      if (existingIndex >= 0) {
-        // 如果角色已存在，则更新它
-        console.log('[摇篮生成] 更新现有角色:', characterId);
-        const updatedCharacters = [...characters];
-        updatedCharacters[existingIndex] = generatedCharacter;
-        await FileSystem.writeAsStringAsync(
-          FileSystem.documentDirectory + 'characters.json',
-          JSON.stringify(updatedCharacters),
-          { encoding: FileSystem.EncodingType.UTF8 }
-        );
-        setCharacters(updatedCharacters);
-      } else {
-        // 如果角色不存在，添加新角色
-        console.log('[摇篮生成] 添加新角色:', characterId);
-        await addCharacter(generatedCharacter);
-      }
+      console.log('[摇篮生成] 添加新角色到普通角色列表:', normalCharacterId);
+      await addCharacter(generatedCharacter);
       
-      // 更新原始摇篮角色的状态 - 在这里可以移除，因为我们实际上是替换了它
-      console.log('[摇篮生成] 角色生成完成，已添加到角色库');
+      // 双重校验生成的角色数据是否包含JSON数据
+      console.log('[摇篮生成] 验证生成的角色JSON数据:', {
+        id: generatedCharacter.id,
+        hasJsonData: !!generatedCharacter.jsonData,
+        jsonDataLength: generatedCharacter.jsonData?.length || 0
+      });
+      
+      // 更新摇篮角色状态，但保留在摇篮系统中
+      console.log('[摇篮生成] 更新摇篮角色状态，保持在摇篮系统中:', cradleId);
+      await updateCradleCharacter(updatedCradleCharacter);
+      
+      console.log('[摇篮生成] 验证双向ID关联:',
+        'CradleID -> NormalID:', updatedCradleCharacter.generatedCharacterId === normalCharacterId,
+        'NormalID -> CradleID:', generatedCharacter.cradleCharacterId === cradleId);
+      
+      console.log('[摇篮生成] 角色生成完成，已添加到角色库并保留在摇篮中');
       
       return generatedCharacter;
     } catch (error) {
@@ -1168,28 +1220,6 @@ const generateCharacterFromCradle = async (cradleId: string): Promise<Character>
   } catch (error) {
     console.error('[摇篮生成] 处理角色时出错:', error);
     throw error;
-  }
-};
-
-// Helper function to extract interests from world book
-const extractInterestsFromWorldBook = (worldBook?: WorldBookJson): string[] => {
-  if (!worldBook?.entries?.Alist?.content) return [];
-  
-  try {
-    const content = worldBook.entries.Alist.content;
-    const likesMatch = content.match(/<likes>(.*?)<\/likes>/s);
-    
-    if (likesMatch && likesMatch[1]) {
-      return likesMatch[1]
-        .split(/[,，]/)  // Split by both English and Chinese commas
-        .map(item => item.trim())
-        .filter(item => item.length > 0 && item !== "未指定");
-    }
-    
-    return [];
-  } catch (error) {
-    console.error('[摇篮生成] 从世界书提取兴趣爱好时出错:', error);
-    return [];
   }
 };
 
@@ -1439,6 +1469,30 @@ const checkCradleGeneration = (): {
     readyCharactersCount: readyCharacters.length,
     readyCharacters
   };
+};
+
+// Add this function to fix the TypeScript error
+const extractInterestsFromWorldBook = (worldBook: WorldBookJson): string[] => {
+  try {
+    // Try to find interests in Alist entry
+    const alistEntry = worldBook.entries['Alist'];
+    if (alistEntry && alistEntry.content) {
+      // Extract likes from <attributes> section if it exists
+      const likesMatch = alistEntry.content.match(/<likes>(.*?)<\/likes>/);
+      if (likesMatch && likesMatch[1]) {
+        return likesMatch[1]
+          .split(',')
+          .map(item => item.trim())
+          .filter(item => item.length > 0);
+      }
+    }
+    
+    // Return empty array if no interests found
+    return [];
+  } catch (error) {
+    console.error('[提取兴趣爱好] 从WorldBook提取兴趣爱好时出错:', error);
+    return [];
+  }
 };
 
   return (

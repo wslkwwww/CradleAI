@@ -109,6 +109,27 @@ export default function CradleFeedModal({ visible, onClose, characterId }: Cradl
     return characters.find(c => c.id === selectedCharacterId);
   };
 
+  // Replace the feed type options or update them
+  const feedTypeOptions = [
+    { label: '知识投喂', value: 'knowledge', description: '为角色提供专业知识、常识或其他信息，帮助角色更好地理解用户' },
+    { label: '关于我', value: 'aboutMe', description: '关于角色自身的信息，包括性格、背景、特点等' },
+    { label: '素材', value: 'material', description: '角色的灵感来源、参考素材等' }
+  ];
+
+  // Update the description for knowledge feed
+  const getFeedTypeDescription = (type: 'text' | 'voice' | 'image' | 'aboutMe' | 'material' | 'knowledge' = 'text') => {
+    switch (type) {
+      case 'knowledge':
+        return '投喂知识将帮助角色更好地理解你的问题和需求。这些知识会被总结并添加到角色的世界书中，当你在对话中提到相关关键词时，角色就能调用这些知识。';
+      case 'aboutMe':
+        return '关于角色自身的描述、性格、背景故事等信息。';
+      case 'material':
+        return '角色的灵感来源、参考资料等内容。';
+      default:
+        return '帮助角色成长的各类信息。';
+    }
+  };
+
   return (
     <Modal
       visible={visible}
@@ -192,9 +213,14 @@ export default function CradleFeedModal({ visible, onClose, characterId }: Cradl
                   style={styles.picker}
                   dropdownIconColor="#4A90E2"
                 >
-                  <Picker.Item label="关于我" value={FeedType.ABOUT_ME} color="#fff" />
-                  <Picker.Item label="素材" value={FeedType.MATERIAL} color="#fff" />
-                  <Picker.Item label="知识" value={FeedType.KNOWLEDGE} color="#fff" />
+                  {feedTypeOptions.map(option => (
+                    <Picker.Item 
+                      key={option.value}
+                      label={option.label} 
+                      value={option.value} 
+                      color="#fff"
+                    />
+                  ))}
                 </Picker>
               </View>
             </View>
@@ -228,9 +254,7 @@ export default function CradleFeedModal({ visible, onClose, characterId }: Cradl
             <View style={styles.tipContainer}>
               <Ionicons name="information-circle-outline" size={16} color="#aaa" />
               <Text style={styles.tipText}>
-                {feedType === FeedType.ABOUT_ME && "「关于我」类型适合投喂角色的个性、性格、背景故事等内容"}
-                {feedType === FeedType.MATERIAL && "「素材」类型适合投喂各种参考资料、文献、小说片段等内容"}
-                {feedType === FeedType.KNOWLEDGE && "「知识」类型适合投喂角色需要掌握的专业知识、常识等内容"}
+                {getFeedTypeDescription(feedType)}
               </Text>
             </View>
             

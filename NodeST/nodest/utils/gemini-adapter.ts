@@ -3,7 +3,7 @@ import { ChatMessage } from '@/shared/types';
 export class GeminiAdapter {
     private readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
     private readonly apiKey: string;
-    private readonly model = "gemini-1.5-pro";  // Updated to use a more powerful model for characters
+    private readonly model = "gemini-2.0-flash-exp";  // Updated to use a more powerful model for characters
     private readonly headers = {
         "Content-Type": "application/json"
     };
