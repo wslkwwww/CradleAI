@@ -55,7 +55,8 @@ export interface CharactersContextType {
   };
   // 摇篮角色相关方法
   getCradleCharacters: () => CradleCharacter[];
-  addCradleCharacter: (character: CradleCharacter) => Promise<string>;
+  // 更新 addCradleCharacter 函数类型签名，返回值从 Promise<string> 改为 Promise<CradleCharacter>
+  addCradleCharacter: (character: CradleCharacter) => Promise<CradleCharacter>;
   updateCradleCharacter: (character: CradleCharacter) => Promise<void>;
   deleteCradleCharacter: (id: string) => Promise<void>;
   importCharacterToCradle: (characterId: string) => Promise<void>;
@@ -65,7 +66,8 @@ export interface CharactersContextType {
   markFeedAsProcessed: (characterId: string, feedId: string) => Promise<void>;
   
   // 生成角色
-  generateCharacterFromCradle: (cradleCharacterId: string) => Promise<Character>;
+  // 更新 generateCharacterFromCradle 函数签名，接受字符串或角色对象
+  generateCharacterFromCradle: (cradleIdOrCharacter: string | CradleCharacter) => Promise<Character>;
 
   // Add these new properties for cradle functionality:
   addFeedToCradle: (content: string, type: FeedType) => Promise<string>;

@@ -16,17 +16,18 @@ import {
   Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Character } from '@/shared/types';
+import { Character, CradleCharacter } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCharacters } from '@/constants/CharactersContext';
+import { theme } from '@/constants/theme';
 
 interface CharacterEditDialogProps {
   isVisible: boolean;
-  character: Character;
+  character: Character | CradleCharacter;
   onClose: () => void;
-  onUpdateCharacter: (updatedCharacter: Character) => void;
+  onUpdateCharacter?: (updatedCharacter: Character | CradleCharacter) => Promise<void>;
 }
 
 // Define a message type for our chat
@@ -44,6 +45,7 @@ export default function CharacterEditDialog({
   onUpdateCharacter
 }: CharacterEditDialogProps) {
   const { user } = useUser();
+  const { updateCharacter, characters } = useCharacters(); // Add characters to get the full list
   const apiKey = user?.settings?.chat?.characterApiKey || '';
   const apiSettings = {
     apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
@@ -56,7 +58,7 @@ export default function CharacterEditDialog({
   const [isProcessing, setIsProcessing] = useState(false);
   
   // Character update related states
-  const [updatedCharacter, setUpdatedCharacter] = useState<Character | null>(null);
+  const [updatedCharacter, setUpdatedCharacter] = useState<Character | CradleCharacter | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isGeneratingUpdate, setIsGeneratingUpdate] = useState(false);
@@ -73,6 +75,19 @@ export default function CharacterEditDialog({
     console.log('[CharacterEditDialog] updatedCharacter exists:', !!updatedCharacter);
   }, [hasChanges, updatedCharacter]);
   
+  // Add new state for tracking character relationships
+  const [characterRelationships, setCharacterRelationships] = useState<{
+    isCradleCharacter: boolean;
+    hasGeneratedVersion: boolean;
+    generatedCharacterId: string | null;
+    normalCharacter: Character | null;
+  }>({
+    isCradleCharacter: false,
+    hasGeneratedVersion: false,
+    generatedCharacterId: null,
+    normalCharacter: null
+  });
+  
   // Initialize when dialog opens with character data and load chat history
   useEffect(() => {
     if (isVisible && character) {
@@ -81,10 +96,31 @@ export default function CharacterEditDialog({
       setUpdatedCharacter(null);
       setShowPreview(false);
       
+      // Check character relationships
+      const isCradleCharacter = 'inCradleSystem' in character && character.inCradleSystem === true;
+      const generatedCharacterId = (character as CradleCharacter).generatedCharacterId || null;
+      let normalCharacter: Character | null = null;
+      
+      if (isCradleCharacter && generatedCharacterId) {
+        // Try to find the generated character in the characters array
+        normalCharacter = characters.find(c => c.id === generatedCharacterId) || null;
+      }
+      
+      // Update relationship state
+      setCharacterRelationships({
+        isCradleCharacter,
+        hasGeneratedVersion: generatedCharacterId !== null,
+        generatedCharacterId,
+        normalCharacter
+      });
+      
       // Log the character data we received directly
       console.log('[CharacterEditDialog] Received character data:', {
         id: character.id,
         name: character.name,
+        isCradleCharacter,
+        generatedCharacterId,
+        hasNormalCharacter: !!normalCharacter,
         hasJsonData: !!character.jsonData,
         jsonDataLength: character.jsonData?.length || 0
       });
@@ -107,7 +143,7 @@ export default function CharacterEditDialog({
         ]);
       }
     }
-  }, [isVisible, character.id]);
+  }, [isVisible, character.id, characters]);
   
   // Load chat history from AsyncStorage
   const loadChatHistory = async () => {
@@ -552,8 +588,8 @@ ${JSON.stringify(characterJsonData, null, 2)}
     return { success: false };
   };
   
-  // Apply the character updates
-  const handleApplyChanges = () => {
+  // Apply the character updates using NodeSTManager with "更新人设" status
+  const handleApplyChanges = async () => {
     // If we already have an updated character, apply it
     if (updatedCharacter) {
       try {
@@ -576,18 +612,156 @@ ${JSON.stringify(characterJsonData, null, 2)}
             );
             return;
           }
+        } else {
+          throw new Error('角色数据为空，无法应用更改');
         }
         
-        // Update character with new metadata and the current date
-        // IMPORTANT: Ensure we preserve the original ID
-        const finalCharacter = {
-          ...updatedCharacter,
-          id: character.id, // Explicitly use original ID
-          updatedAt: Date.now()
-        };
+        // UPDATED LOGIC: Handle different character types properly
+        console.log('[CharacterEditDialog] Character relationships:', characterRelationships);
+        setIsProcessing(true);
         
-        // Call the onUpdateCharacter callback with the updated character
-        onUpdateCharacter(finalCharacter);
+        // 1. Determine which characters need to be updated
+        if (characterRelationships.isCradleCharacter && characterRelationships.hasGeneratedVersion) {
+          // This is a cradle character that has a generated version
+          // We need to update both the cradle character and the generated character
+          console.log('[CharacterEditDialog] This is a cradle character with a generated version');
+          
+          // 1a. First, update the generated character if it exists
+          if (characterRelationships.normalCharacter) {
+            const generatedCharacter = characterRelationships.normalCharacter;
+            console.log('[CharacterEditDialog] Updating generated character:', generatedCharacter.id);
+            
+            // Create updated version of the generated character with the new JSON data
+            const updatedGeneratedCharacter = {
+              ...generatedCharacter,
+              jsonData: updatedCharacter.jsonData,
+              name: updatedCharacter.name,
+              description: updatedCharacter.description,
+              personality: updatedCharacter.personality || generatedCharacter.personality,
+              updatedAt: Date.now()
+            };
+            
+            // Send to NodeSTManager with "更新人设" status
+            console.log('[CharacterEditDialog] Sending normal character update to NodeSTManager');
+            const response = await NodeSTManager.processChatMessage({
+              userMessage: "",
+              conversationId: updatedGeneratedCharacter.id,
+              status: "更新人设",
+              apiKey,
+              apiSettings,
+              character: updatedGeneratedCharacter
+            });
+            
+            if (!response.success) {
+              console.error('[CharacterEditDialog] NodeSTManager update failed for normal character:', response.error);
+              throw new Error(`更新普通角色失败: ${response.error}`);
+            }
+            
+            console.log('[CharacterEditDialog] Successfully updated normal character via NodeSTManager');
+            
+            // Update in storage
+            await updateCharacter(updatedGeneratedCharacter);
+            console.log('[CharacterEditDialog] Successfully updated normal character in storage');
+          }
+          
+          // 1b. Then, update the cradle character too
+          console.log('[CharacterEditDialog] Now updating cradle character:', character.id);
+          
+          // Create final cradle character with updated data but preserve cradle-specific fields
+          const finalCradleCharacter: CradleCharacter = {
+            ...(character as CradleCharacter),
+            jsonData: updatedCharacter.jsonData,
+            name: updatedCharacter.name,
+            description: updatedCharacter.description,
+            personality: updatedCharacter.personality || character.personality,
+            updatedAt: Date.now(),
+            cradleUpdatedAt: Date.now(),
+            inCradleSystem: true, // Ensure it stays in cradle system
+            isCradleGenerated: true
+          };
+          
+          // Use onUpdateCharacter which was passed from cradle.tsx
+          if (onUpdateCharacter) {
+            await onUpdateCharacter(finalCradleCharacter);
+            console.log('[CharacterEditDialog] Successfully updated cradle character via onUpdateCharacter');
+          } else {
+            console.warn('[CharacterEditDialog] onUpdateCharacter not provided, cannot update cradle character');
+          }
+        } else if (characterRelationships.isCradleCharacter) {
+          // This is a regular cradle character without a generated version
+          console.log('[CharacterEditDialog] This is a regular cradle character without a generated version');
+          
+          // Create final cradle character with updated data
+          const finalCradleCharacter: CradleCharacter = {
+            ...(character as CradleCharacter),
+            jsonData: updatedCharacter.jsonData,
+            name: updatedCharacter.name,
+            description: updatedCharacter.description,
+            personality: updatedCharacter.personality || character.personality,
+            updatedAt: Date.now(),
+            cradleUpdatedAt: Date.now(),
+            inCradleSystem: true // Ensure it stays in cradle system
+          };
+          
+          // Send update to NodeSTManager
+          console.log('[CharacterEditDialog] Sending cradle character update to NodeSTManager');
+          const response = await NodeSTManager.processChatMessage({
+            userMessage: "",
+            conversationId: finalCradleCharacter.id,
+            status: "更新人设",
+            apiKey,
+            apiSettings,
+            character: finalCradleCharacter
+          });
+          
+          if (!response.success) {
+            console.error('[CharacterEditDialog] NodeSTManager update failed for cradle character:', response.error);
+            throw new Error(`NodeSTManager处理失败: ${response.error}`);
+          }
+          
+          // Use onUpdateCharacter from props
+          if (onUpdateCharacter) {
+            await onUpdateCharacter(finalCradleCharacter);
+            console.log('[CharacterEditDialog] Successfully updated cradle character via onUpdateCharacter');
+          } else {
+            console.warn('[CharacterEditDialog] onUpdateCharacter not provided, falling back to updateCharacter');
+            // Fall back to context's updateCharacter
+            await updateCharacter(finalCradleCharacter as Character);
+          }
+        } else {
+          // This is a regular character, not a cradle character
+          console.log('[CharacterEditDialog] This is a regular character, not a cradle character');
+          
+          // Create the final character for update
+          const finalCharacter = {
+            ...character,
+            jsonData: updatedCharacter.jsonData,
+            name: updatedCharacter.name,
+            description: updatedCharacter.description,
+            personality: updatedCharacter.personality || character.personality,
+            updatedAt: Date.now()
+          };
+          
+          // Send to NodeSTManager
+          console.log('[CharacterEditDialog] Sending regular character update to NodeSTManager');
+          const response = await NodeSTManager.processChatMessage({
+            userMessage: "",
+            conversationId: finalCharacter.id,
+            status: "更新人设",
+            apiKey,
+            apiSettings,
+            character: finalCharacter
+          });
+          
+          if (!response.success) {
+            console.error('[CharacterEditDialog] NodeSTManager update failed for regular character:', response.error);
+            throw new Error(`NodeSTManager处理失败: ${response.error}`);
+          }
+          
+          // Update in storage
+          await updateCharacter(finalCharacter);
+          console.log('[CharacterEditDialog] Successfully updated regular character in storage');
+        }
         
         // Reset states after successful update
         setShowPreview(false);
@@ -603,6 +777,12 @@ ${JSON.stringify(characterJsonData, null, 2)}
             timestamp: Date.now()
           }
         ]);
+        
+        Alert.alert(
+          '更新成功',
+          `角色 "${updatedCharacter.name}" 已成功更新！`,
+          [{ text: '确定', style: 'default' }]
+        );
       } catch (error) {
         console.error('[CharacterEditDialog] Error applying changes:', error);
         Alert.alert(
@@ -610,6 +790,8 @@ ${JSON.stringify(characterJsonData, null, 2)}
           `应用角色更改时出错: ${error instanceof Error ? error.message : '未知错误'}`,
           [{ text: '确定', style: 'default' }]
         );
+      } finally {
+        setIsProcessing(false);
       }
     } 
     // If no updated character exists yet, but we have chat messages, try to generate one first
@@ -1085,41 +1267,71 @@ ${JSON.stringify(characterJsonData, null, 2)}
             </View>
           </View>
           
-          {/* Action buttons bar - Improved to show the current button state better */}
+          {/* Action buttons bar */}
           <View style={styles.actionBar}>
             <TouchableOpacity
               style={[
                 styles.actionButton,
-                styles.actionButtonActive // Always make the button active
+                hasChanges ? styles.actionButtonActive : styles.actionButtonDisabled
               ]}
               onPress={togglePreview}
+              disabled={!hasChanges && !updatedCharacter}
             >
               <Ionicons 
                 name="eye-outline" 
                 size={18} 
-                color="#fff" 
+                color={hasChanges ? "#fff" : "#888"} 
                 style={styles.actionButtonIcon} 
               />
-              <Text style={styles.actionButtonTextActive}>
-                预览更改{hasChanges ? '' : ''}
+              <Text style={[
+                styles.actionButtonText, 
+                hasChanges ? styles.actionButtonTextActive : styles.actionButtonTextDisabled
+              ]}>
+                预览更改{hasChanges ? ' ✓' : ''}
               </Text>
             </TouchableOpacity>
             
             <TouchableOpacity
               style={[
                 styles.actionButton,
-                styles.actionButtonActive // Always make the button active
+                hasChanges ? styles.actionButtonActive : styles.actionButtonDisabled
               ]}
               onPress={handleApplyChanges}
+              disabled={!hasChanges && !updatedCharacter}
             >
               <Ionicons 
                 name="checkmark-circle-outline" 
                 size={18} 
-                color="#fff" 
+                color={hasChanges ? "#fff" : "#888"} 
                 style={styles.actionButtonIcon} 
               />
-              <Text style={styles.actionButtonTextActive}>
-                应用更改{hasChanges ? '' : ''}
+              <Text style={[
+                styles.actionButtonText, 
+                hasChanges ? styles.actionButtonTextActive : styles.actionButtonTextDisabled
+              ]}>
+                应用更改{hasChanges ? ' ✓' : ''}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                messages.length > 2 ? styles.actionButtonActive : styles.actionButtonDisabled
+              ]}
+              onPress={requestCharacterUpdate}
+              disabled={messages.length <= 2 || isGeneratingUpdate}
+            >
+              <Ionicons 
+                name="refresh-outline" 
+                size={18} 
+                color={messages.length > 2 ? "#fff" : "#888"} 
+                style={styles.actionButtonIcon} 
+              />
+              <Text style={[
+                styles.actionButtonText, 
+                messages.length > 2 ? styles.actionButtonTextActive : styles.actionButtonTextDisabled
+              ]}>
+                {isGeneratingUpdate ? '生成中...' : '生成更改'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1153,13 +1365,18 @@ ${JSON.stringify(characterJsonData, null, 2)}
                   multiline
                   numberOfLines={3}
                   maxLength={1000}
+                  editable={!isProcessing}
                 />
                 <TouchableOpacity
-                  style={[styles.sendButton, !input.trim() && styles.sendButtonDisabled]}
+                  style={[styles.sendButton, (!input.trim() || isProcessing) && styles.sendButtonDisabled]}
                   disabled={!input.trim() || isProcessing}
                   onPress={handleSendMessage}
                 >
-                  <Ionicons name="send" size={24} color={input.trim() && !isProcessing ? "#4CAF50" : "#666"} />
+                  <Ionicons 
+                    name="send" 
+                    size={24} 
+                    color={input.trim() && !isProcessing ? "#4CAF50" : "#666"} 
+                  />
                 </TouchableOpacity>
               </View>
             </>

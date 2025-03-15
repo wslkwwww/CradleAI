@@ -166,13 +166,23 @@ export interface Character {
   metadata?: CharacterMetadata;
   age?: string;
   gender?: string;
+  
+  // Add unified cradle fields directly to Character
+  inCradleSystem?: boolean; // Whether this character is in the cradle system
+  cradleStatus?: 'growing' | 'mature' | 'ready'; // The status of the character in the cradle
+  cradleCreatedAt?: number; // When the character was added to cradle
+  cradleUpdatedAt?: number; // Last time cradle status was updated
+  cradleProgress?: number; // Progress percentage (0-100)
+  feedHistory?: Feed[]; // History of feeds to this character
+  imageGenerationTaskId?: string | null; // Reference to image generation task
+  imageGenerationStatus?: 'idle' | 'pending' | 'success' | 'error'; 
+  imageGenerationError?: string | null;
+  localBackgroundImage?: string | null;  // Local filesystem image URI
+  generatedCharacterId?: string;
   isCradleGenerated?: boolean;
-  inCradleSystem?: boolean;
-  type?: string;
-  tags?: string[];
-  feedHistory?: Feed[];
-  cradleCharacterId? : string; 
-  // Circle-related filds (existing)
+  cradleCharacterId?: string; // Reference to a Cradle character if this character was generated from one
+  
+  // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
   circlePosts?: any[];
@@ -197,10 +207,28 @@ export interface Character {
     appearanceTags?: { positive: string[]; negative: string[]; };
     traits?: string[];
     vndbResults?: any;
+    description?: string;
+    userGender?: string
   };
   initialSettings?: {
     userGender?: 'male' | 'female' | 'other';
     characterGender?: 'male' | 'female' | 'other';
+    axis?: {
+      [key: string]: {
+        x: number;
+        y: number;
+        xLabel?: string;
+        yLabel?: string;
+      }
+    };
+    sliders?: {
+      [key: string]: number;
+    };
+    reference?: string;
+    description?: string;
+    traits?: any;
+    characterAge?: string;
+    selectedTraits?: string[];
   };
   // Relationship system fields
   relationshipMap?: RelationshipMapData;
@@ -208,8 +236,6 @@ export interface Character {
   relationshipEnabled?: boolean;
   relationshipActions?: RelationshipAction[];
 }
-
-
 
 export interface Message {
     id: string;
@@ -307,60 +333,22 @@ export interface Feed {
   processed: boolean;
 }
 
-// Fix the CradleCharacter interface, remove duplicate declarations and fix type issues
-export interface CradleCharacter extends Omit<Character, 'backgroundImage'> {
-    feedHistory: Feed[];             // 投喂历史
-    inCradleSystem: boolean;         // 是否在摇篮系统中
-    isCradleGenerated?: boolean;     // 是否由摇篮生成的角色
-    generatedCharacterId?: string;   // 生成后角色的ID，用于链接到正式角色
-    cradleAnimation?: CradleAnimation;
-    importedFromCharacter?: boolean; // 是否从常规角色导入
-    importedCharacterId?: string;    // 导入来源的角色ID
-    initialSettings?: {              // 初始设定
-      axis?: {
-        [key: string]: {
-          x: number;
-          y: number;
-          xLabel?: string;
-          yLabel?: string;
-        }
-      };
-      sliders?: {
-        [key: string]: number;
-      };
-      reference?: string;            // 参考角色ID
-      description?: string;          // 描述
-      traits?: any;     
-      userGender?: "male" | "female" | "other"             // 添加特质数据的属性
-      characterAge?: string;          // 添加年龄数据的属性
-      selectedTraits?: string[];     // 选择的特质
-    };
-    cradle?: {
-      startDate?: string;
-      progress?: number;
-      stage?: 'egg' | 'growing' | 'mature';
-      lastFeedTimestamp?: number;
-    };
-    // Image handling properties
-    backgroundImage: string | null;  // Remote server image URI
-    localBackgroundImage?: string | null;  // Local filesystem image URI
-    
-    imageGenerationTaskId?: string | null;
-    imageGenerationStatus?: 'idle' | 'pending' | 'success' | 'error'; 
-    imageGenerationError?: string | null;
-
-    // Add VNDB search results property
-    vndbSearchResults?: VNDBCharacter[];
-
-    // Add generation data for LLM
-    generationData?: {
-      appearanceTags?:
-       { positive: string[]; negative: string[]; }; 
-      traits?: string[];
-      vndbResults?: any;
-      description?: string;
-      userGender?: "male" | "female" | "other" | undefined
-    }
+// Fix the CradleCharacter interface by making it extend Character
+// Now it's just an extension with some specialized cradle fields
+export interface CradleCharacter extends Character {
+  inCradleSystem: boolean; // Must be true for cradle characters
+  importedFromCharacter?: boolean; // Was this imported from a normal character
+  importedCharacterId?: string; // ID of the original character if imported
+  cradleAnimation?: CradleAnimation;
+  cradle?: {
+    startDate?: string;
+    progress?: number;
+    stage?: 'egg' | 'growing' | 'mature';
+    lastFeedTimestamp?: number;
+  };
+  
+  // Add VNDB search results property (move from specific implementation to interface)
+  vndbSearchResults?: VNDBCharacter[];
 }
 
 export interface RoleCardJson {

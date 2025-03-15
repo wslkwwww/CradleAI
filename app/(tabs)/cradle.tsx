@@ -104,6 +104,14 @@ export default function CradlePage() {
   const loadCradleCharacters = useCallback(() => {
     const characters = getCradleCharacters();
     console.log('[摇篮页面] 加载了', characters.length, '个摇篮角色');
+    
+    // Log character statuses to help debug
+    if (characters.length > 0) {
+      characters.forEach(char => {
+        console.log(`[摇篮页面] 角色 "${char.name}" (${char.id}) - 状态: ${char.cradleStatus || '未知'}, 已生成: ${char.isCradleGenerated}`);
+      });
+    }
+    
     setCradleCharacters(characters);
     
     // Keep selected character if exists, otherwise select the first one
@@ -283,22 +291,45 @@ export default function CradlePage() {
       setRefreshing(true);
       showNotification('开始生成', `正在从摇篮生成角色 "${character.name}"...`);
       
-      // Call the generate function from context
-      const newCharacter = await generateCharacterFromCradle(character.id);
-      console.log('[摇篮页面] 角色生成成功，新角色ID:', newCharacter.id);
+      // Expand logging to help with debugging
+      console.log('[摇篮页面] 开始生成角色，详细信息:', {
+        id: character.id,
+        name: character.name,
+        inCradleSystem: character.inCradleSystem,
+        isCradleGenerated: character.isCradleGenerated,
+        createdAt: new Date(character.createdAt).toISOString(),
+        hasAvatar: !!character.avatar,
+        hasBackgroundImage: !!character.backgroundImage,
+        hasLocalBackgroundImage: !!character.localBackgroundImage,
+        feedCount: character.feedHistory?.length || 0
+      });
+      
+      // Check if character is already generated
+      if (character.isCradleGenerated && character.generatedCharacterId) {
+        console.log('[摇篮页面] 角色已经生成过，刷新数据:', character.generatedCharacterId);
+        showNotification('角色已生成', `角色 "${character.name}" 已经生成过`);
+        
+        // Refresh character list to show latest data
+        loadCradleCharacters();
+        return;
+      }
+      
+      // Call generation function with full character object
+      const newCharacter = await generateCharacterFromCradle(character);
+      
+      console.log('[摇篮页面] 角色生成成功，ID:', newCharacter.id);
+      console.log('[摇篮页面] 生成的角色信息:', {
+        name: newCharacter.name,
+        hasAvatar: !!newCharacter.avatar,
+        hasBackgroundImage: !!newCharacter.backgroundImage,
+        hasJsonData: !!newCharacter.jsonData,
+        jsonDataLength: newCharacter.jsonData?.length || 0
+      });
       
       // Refresh character list
       loadCradleCharacters();
-      showNotification('生成成功', `角色 "${character.name}" 已成功生成！`);
+      showNotification('生成成功', `角色 "${newCharacter.name}" 已成功生成！`);
       
-      // Add a delay to ensure the character is fully saved before navigating
-      setTimeout(() => {
-        // Navigate to the new character's chat page
-        if (newCharacter && newCharacter.id) {
-          console.log('[摇篮页面] 导航到新角色的聊天页面:', newCharacter.id);
-          router.push(`/?characterId=${newCharacter.id}`);
-        }
-      }, 1000);
     } catch (error) {
       console.error('[摇篮页面] 生成角色失败:', error);
       showNotification('生成失败', 
@@ -373,7 +404,7 @@ export default function CradlePage() {
           onGenerate={() => handleGenerateCharacter(selectedCharacter)}
           onDelete={() => handleDeleteCharacter(selectedCharacter)}
           onEdit={() => {
-            // Only show edit dialog if character is generated
+            // Only enable edit for generated characters
             if (isGenerated) {
               // SIMPLIFIED APPROACH: Instead of trying to fetch/lookup data
               // Just prepare the editing character directly with all necessary data
@@ -400,8 +431,8 @@ export default function CradlePage() {
                   
                   // Create a merged character with cradle ID but normal character's data
                   const mergedChar: CradleCharacter = {
-                    ...cradleChar,
-                    jsonData: normalChar.jsonData
+                    ...cradleChar, // Keep cradle character properties
+                    jsonData: normalChar.jsonData // Use normal character's jsonData
                   };
                   
                   setEditingCharacter(mergedChar);
@@ -686,6 +717,16 @@ export default function CradlePage() {
                 throw new Error(`角色数据格式无效: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
               }
               
+              // Determine if this is a cradle character with a generated normal character
+              const isCradleCharacter = (updatedCharacter as CradleCharacter).inCradleSystem === true;
+              const generatedCharacterId = (updatedCharacter as CradleCharacter).generatedCharacterId;
+              
+              console.log('[摇篮页面] 角色更新信息:', {
+                isCradleCharacter,
+                generatedCharacterId,
+                characterId: updatedCharacter.id
+              });
+              
               // Apply the update to the cradle character
               const updatedCradleCharacter: CradleCharacter = {
                 ...(updatedCharacter as CradleCharacter),
@@ -694,17 +735,16 @@ export default function CradlePage() {
                 updatedAt: Date.now() // Add updated timestamp
               };
               
-              // CRITICAL FIX: Use updateCharacter instead of onUpdateCharacter for the normal character
-              // to ensure we're updating, not creating a new entry
-              if (updatedCradleCharacter.generatedCharacterId) {
-                console.log('[摇篮页面] 也更新关联的正常角色:', updatedCradleCharacter.generatedCharacterId);
+              // If there's a generated character reference, also update that character
+              if (generatedCharacterId) {
+                const normalChar = characters.find(c => c.id === generatedCharacterId);
                 
-                const normalChar = characters.find(c => c.id === updatedCradleCharacter.generatedCharacterId);
                 if (normalChar) {
-                  // Create updated normal character with the SAME ID (important)
+                  console.log('[摇篮页面] 更新关联的正常角色:', generatedCharacterId);
+                  
+                  // Create updated normal character 
                   const updatedNormalChar = {
                     ...normalChar,
-                    id: normalChar.id, // Explicitly ensure same ID
                     jsonData: updatedCharacter.jsonData,
                     name: updatedCharacter.name,
                     description: updatedCharacter.description,

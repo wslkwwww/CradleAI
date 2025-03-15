@@ -365,6 +365,38 @@ class NodeSTManagerClass {
             }
         }
         
+        // 针对"更新人设"情况进行特殊处理
+        if (options.status === "更新人设") {
+            console.log("[NodeSTManager] 检测到更新人设请求");
+            
+            if (!options.character?.jsonData) {
+                console.error("[NodeSTManager] 更新人设时缺少jsonData");
+                throw new Error("更新人设时character需要包含jsonData");
+            }
+            
+            // 验证jsonData结构
+            try {
+                const jsonData = JSON.parse(options.character.jsonData);
+                console.log("[NodeSTManager] 成功解析jsonData，检查角色数据结构...");
+                
+                const hasRoleCard = !!jsonData.roleCard;
+                const hasWorldBook = !!jsonData.worldBook;
+                
+                console.log("[NodeSTManager] 角色数据验证结果:", {
+                    hasRoleCard,
+                    hasWorldBook,
+                    roleCardName: jsonData.roleCard?.name
+                });
+                
+                if (!hasRoleCard || !hasWorldBook) {
+                    console.warn("[NodeSTManager] 警告：角色数据结构不完整，可能会影响更新结果");
+                }
+            } catch (parseError) {
+                console.error("[NodeSTManager] 解析jsonData失败:", parseError);
+                throw new Error(`解析角色jsonData失败: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+            }
+        }
+        
         // 调用nodeST的processChatMessage方法处理请求
         console.log("[NodeSTManager] 发送请求到NodeST处理...");
         
@@ -518,6 +550,7 @@ interface ProcessChatOptions {
   apiKey: string;
   apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
   character?: Character;
+  
 }
 
 interface Message {

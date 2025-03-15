@@ -596,146 +596,173 @@ const performVndbSearch = async () => {
   }
 };
 
-  const handleCreateCharacter = async () => {
-    if (!characterName.trim()) {
-      Alert.alert('信息不完整', '请输入角色名称');
-      return;
-    }
+  // 修改 handleCreateCharacter 函数，解决角色创建后立即找不到的问题
+const handleCreateCharacter = async () => {
+  if (!characterName.trim()) {
+    Alert.alert('信息不完整', '请输入角色名称');
+    return;
+  }
 
-    setIsLoading(true);
+  setIsLoading(true);
 
-    try {
-      console.log(`[摇篮角色创建] 开始创建角色: ${characterName}, 性别: ${gender}`);
-      
-      // Perform VNDB search before creating character
-      const vndbResults = await performVndbSearch();
-      
-      // Format VNDB results for LLM consumption
-      const formattedVndbResults = formatVNDBCharactersForLLM(vndbResults);
-      console.log(`[摇篮角色创建] 格式化的VNDB结果供LLM使用:`, formattedVndbResults);
-      
-      // 生成稳定的、唯一的ID
-      const characterId = generateUniqueId();
-      console.log(`[摇篮角色创建] 生成的角色ID: ${characterId}`);
-      
-      // Create a complete cradle character object with all necessary fields
-      const cradleCharacter: CradleCharacter = {
-        // Character base properties
-        id: characterId, // 使用生成的稳定ID
-        name: characterName,
-        avatar: avatarUri,
-        backgroundImage: cardImageUri || backgroundUri, // Use card image as priority
-        description: description || '',
-        personality: '', // Will be developed through cradle system
-        interests: [],
-        gender,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+  try {
+    console.log(`[摇篮角色创建] 开始创建角色: ${characterName}, 性别: ${gender}`);
+    
+    // Perform VNDB search before creating character
+    const vndbResults = await performVndbSearch();
+    
+    // Format VNDB results for LLM consumption
+    const formattedVndbResults = formatVNDBCharactersForLLM(vndbResults);
+    console.log(`[摇篮角色创建] 格式化的VNDB结果供LLM使用:`, formattedVndbResults);
+    
+    // 生成稳定的、唯一的ID
+    const characterId = generateUniqueId();
+    console.log(`[摇篮角色创建] 生成的角色ID: ${characterId}`);
+    
+    // 准备图像生成请求
+    let imageTaskId = null;
+    if (uploadMode === 'generate' && positiveTags.length > 0) {
+      try {
+        console.log(`[摇篮角色创建] 检测到需要AI生成图片，已选择标签: 正向=${positiveTags.length}个, 负向=${negativeTags.length}个`);
         
-        // Cradle specific properties
-        inCradleSystem: true,
-        feedHistory: [],
-        initialSettings: {
-          userGender, // Add user gender
-          characterAge, // Add character age
-          selectedTraits, // Add selected traits
-          description,
-        },
-        isCradleGenerated: false, // Start as false, will be set to true when generated
-        imageGenerationTaskId: null,
-        imageGenerationStatus: 'idle',
+        // 提交生图请求到服务器
+        imageTaskId = await submitImageGenerationTask(positiveTags, negativeTags);
+        console.log(`[摇篮角色创建] 已提交图像生成任务，ID: ${imageTaskId}`);
         
-        // Add formatted data for character generation
-        generationData: {
-          appearanceTags: uploadMode === 'generate' ? {
-            positive: positiveTags,
-            negative: negativeTags
-          } : undefined,
-          traits: selectedTraits.map(id => {
-            const trait = findTraitById(id);
-            return trait ? getTranslatedName(trait.name) : id;
-          }),
-          vndbResults: formattedVndbResults,
-          description: description || '',
-          userGender: userGender
-        }
-      };
-
-      console.log(`[摇篮角色创建] 图像创建模式: ${uploadMode}, 是否立即生成角色: ${generateImmediately ? "是" : "否"}`);
-      
-      // 如果选择使用图片生成功能（uploadMode === 'generate'）并且有标签，则提交生图请求
-      if (uploadMode === 'generate' && positiveTags.length > 0) {
-        try {
-          console.log(`[摇篮角色创建] 检测到需要AI生成图片，已选择标签: 正向=${positiveTags.length}个, 负向=${negativeTags.length}个`);
-          
-          // 提交生图请求到服务器
-          const imageTaskId = await submitImageGenerationTask(positiveTags, negativeTags);
-          
-          // 将任务ID存储到角色数据中
-          cradleCharacter.imageGenerationTaskId = imageTaskId;
-          cradleCharacter.imageGenerationStatus = 'pending';
-          
-          console.log(`[摇篮角色创建] 已提交图像生成任务，ID: ${imageTaskId}, 状态已设置为pending`);
-        } catch (error) {
-          console.error('[摇篮角色创建] 提交图像生成任务失败:', error);
-          setImageGenerationError(error instanceof Error ? error.message : '提交图像生成任务失败');
-          // 即使图片生成请求失败，也继续创建角色
-        }
+      } catch (error) {
+        console.error('[摇篮角色创建] 提交图像生成任务失败:', error);
+        setImageGenerationError(error instanceof Error ? error.message : '提交图像生成任务失败');
+        // 即使图片生成请求失败，也继续创建角色
       }
-
-      // 如果选择立即生成，则跳过摇篮过程
+    }
+    
+    // Create a complete cradle character object with all necessary fields
+    const cradleCharacter: CradleCharacter = {
+      // Character base properties
+      id: characterId,
+      name: characterName,
+      avatar: avatarUri,
+      backgroundImage: cardImageUri || backgroundUri, // Use card image as priority
+      description: description || '',
+      personality: '', // Will be developed through cradle system
+      interests: [],
+      gender,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      
+      // Cradle specific properties
+      inCradleSystem: true,
+      cradleStatus: 'growing', // Character is in "growing" state
+      cradleCreatedAt: Date.now(),
+      cradleUpdatedAt: Date.now(),
+      feedHistory: [],
+      initialSettings: {
+        userGender, // Add user gender
+        characterAge, // Add character age
+        selectedTraits, // Add selected traits
+        description,
+      },
+      isCradleGenerated: false,
+      imageGenerationTaskId: imageTaskId,
+      imageGenerationStatus: imageTaskId ? 'pending' : 'idle',
+      
+      // Add formatted data for character generation
+      generationData: {
+        appearanceTags: uploadMode === 'generate' ? {
+          positive: positiveTags,
+          negative: negativeTags
+        } : undefined,
+        traits: selectedTraits.map(id => {
+          const trait = findTraitById(id);
+          return trait ? getTranslatedName(trait.name) : id;
+        }),
+        vndbResults: formattedVndbResults,
+        description: description || '',
+        userGender: userGender
+      }
+    };
+    
+    console.log(`[摇篮角色创建] 图像创建模式: ${uploadMode}`);
+    
+    // UPDATED LOGIC: Now handle either immediate generation or normal cradle flow
+    try {
       if (generateImmediately) {
-        console.log(`[摇篮角色创建] 选择立即生成角色，跳过摇篮培育期`);
+        // If generating immediately, we first add the character to the cradle system
+        console.log('[摇篮角色创建] 选择了立即生成，先添加角色到摇篮系统');
+        const addedCharacter = await addCradleCharacter(cradleCharacter);
+        console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${addedCharacter.id}`);
         
-        // First add the character to the cradle system
-        await addCradleCharacter(cradleCharacter);
+        // Give filesystem time to complete writing before proceeding to generation
+        // This helps prevent race conditions
+        await new Promise(resolve => setTimeout(resolve, 300));
         
+        // Then immediately generate final character
+        console.log(`[摇篮角色创建] 立即开始生成角色: ${addedCharacter.id}`);
         try {
-          // Then generate it
-          console.log(`[摇篮角色创建] 立即开始生成角色，ID: ${characterId}`);
-          const character = await generateCharacterFromCradle(characterId);
-          console.log(`[摇篮角色创建] 角色已立即生成，ID: ${character.id}`);
+          const generatedCharacter = await generateCharacterFromCradle(addedCharacter);
+          console.log(`[摇篮角色创建] 角色已成功生成，ID: ${generatedCharacter.id}`);
           
-          Alert.alert('成功', '角色已创建并生成', [
-            { text: '确定', onPress: () => {
-              onClose();
-              // Fix the pathname to use correct format
-              router.replace({
-                pathname: "/(tabs)",
-                params: { characterId: character.id }
-              });
-              if (onSuccess) onSuccess();
-            }}
+          // CHANGED: Modified behavior to go to cradle page instead of chat
+          Alert.alert('成功', '角色已创建并生成成功！', [
+            { 
+              text: '前往摇篮页面', 
+              onPress: () => {
+                onClose();
+                // Navigate to cradle page instead of chat
+                router.replace({ pathname: "/(tabs)/cradle" });
+                if (onSuccess) onSuccess();
+              }
+            },
+            {
+              text: '与角色聊天',
+              onPress: () => {
+                onClose();
+                // Navigate to character chat
+                router.replace({
+                  pathname: "/(tabs)",
+                  params: { characterId: generatedCharacter.id }
+                });
+                if (onSuccess) onSuccess();
+              }
+            }
           ]);
         } catch (genError) {
           console.error('[摇篮角色创建] 生成角色失败:', genError);
-          Alert.alert('错误', '角色创建成功，但生成失败。您可以在摇篮系统中稍后重试。');
-          onClose();
-          router.replace({ pathname: "/(tabs)/cradle" });
+          // Even if generation fails, the character is still in cradle
+          Alert.alert('警告', '角色已创建但生成过程出错。您可以在摇篮中找到该角色，稍后重试生成。', [
+            { text: '进入摇篮页面', onPress: () => {
+              onClose();
+              router.replace({ pathname: "/(tabs)/cradle" });
+              if (onSuccess) onSuccess();
+            }}
+          ]);
         }
       } else {
-        console.log(`[摇篮角色创建] 将角色放入摇篮系统进行培育，培育期: ${cradleSettings.duration || 7} 天`);
-        await addCradleCharacter(cradleCharacter);
-        console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${characterId}`);
+        // Normal cradle flow - just add to cradle system
+        console.log('[摇篮角色创建] 添加角色到摇篮系统，等待培育');
+        const addedCharacter = await addCradleCharacter(cradleCharacter);
+        console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${addedCharacter.id}`);
         
-        Alert.alert('成功', '摇篮角色已创建，请前往摇篮页面投喂数据', [
+        Alert.alert('成功', '角色已添加到摇篮系统！正在跳转到摇篮页面...', [
           { text: '确定', onPress: () => {
             onClose();
-            // Navigate to cradle page to see the new character
-            router.replace({
-              pathname: "/(tabs)/cradle"
-            });
+            // Navigate to cradle page
+            router.replace({ pathname: "/(tabs)/cradle" });
             if (onSuccess) onSuccess();
           }}
         ]);
       }
     } catch (error) {
       console.error('[摇篮角色创建] 创建角色失败:', error);
-      Alert.alert('错误', '创建角色失败');
-    } finally {
-      setIsLoading(false);
+      Alert.alert('错误', '创建角色失败: ' + (error instanceof Error ? error.message : String(error)));
     }
-  };
+  } catch (error) {
+    console.error('[摇篮角色创建] 创建角色失败:', error);
+    Alert.alert('错误', '创建角色失败: ' + (error instanceof Error ? error.message : String(error)));
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   // Helper function to toggle trait selection
   const toggleTrait = (traitId: string) => {
@@ -753,22 +780,6 @@ const performVndbSearch = async () => {
         ? prev.filter(id => id !== categoryId)
         : [...prev, categoryId]
     );
-  };
-
-  // Helper function to find a trait by ID in the vndb data
-  const findTraitById = (id: string, traits: VndbTrait[] = vndbData as unknown as VndbTrait[]): VndbTrait | null => {
-    for (const trait of traits) {
-      if (trait.id === id) {
-        return trait;
-      }
-      if (trait.children && trait.children.length > 0) {
-        const found = findTraitById(id, trait.children);
-        if (found) {
-          return found;
-        }
-      }
-    }
-    return null;
   };
 
   // Render functions for each section
@@ -1281,6 +1292,24 @@ const performVndbSearch = async () => {
             multiline
             numberOfLines={4}
           />
+        </View>
+
+        {/* Add after personality sliders in character settings section */}
+        <View style={styles.inputGroup}>
+          <View style={styles.switchContainer}>
+            <Text style={styles.switchLabel}>立即生成角色，跳过摇篮培育</Text>
+            <Switch
+              value={generateImmediately}
+              onValueChange={setGenerateImmediately}
+              trackColor={{ false: '#767577', true: '#bfe8ff' }}
+              thumbColor={generateImmediately ? '#007bff' : '#f4f3f4'}
+            />
+          </View>
+          {generateImmediately && (
+            <Text style={styles.switchHint}>
+              立即生成将跳过摇篮培育过程，直接生成完整角色。图像生成仍会在后台进行。
+            </Text>
+          )}
         </View>
       </ScrollView>
       
@@ -2257,7 +2286,60 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 8,
   },
+  switchContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  switchLabel: {
+    color: '#fff',
+    fontSize: 16,
+    flex: 1,
+  },
+  switchHint: {
+    color: '#aaa',
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
 });
 
 export default CradleCreateForm;
+
+function findTraitById(id: string): VndbTrait | null {
+  // Helper function to search through trait hierarchy
+  const searchInTraits = (traits: VndbTrait[]): VndbTrait | null => {
+    for (const trait of traits) {
+      // Check if current trait matches
+      if (trait.id === id) {
+        return trait;
+      }
+      // If trait has children, search them
+      if (trait.children && trait.children.length > 0) {
+        const found = searchInTraits(trait.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  // Map the vndbData to include isCategory property before searching
+  const mappedData: VndbTrait[] = vndbData.map(category => ({
+    ...category,
+    isCategory: true,
+    children: category.children.map(subCategory => ({
+      ...subCategory,
+      isCategory: true,
+      children: subCategory.children.map(trait => ({
+        ...trait,
+        isCategory: false,
+        children: []
+      }))
+    }))
+  }));
+
+  // Search through the mapped traits
+  return searchInTraits(mappedData);
+}
 
