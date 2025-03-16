@@ -22,21 +22,18 @@ import { CradleCharacter } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import Slider from '@react-native-community/slider';
-import { LinearGradient } from 'expo-linear-gradient';
 import TagSelector from './TagSelector';
-import { theme } from '@/constants/theme';
-// Add import for tag data
-import tagData from '@/app/data/tag.json';
 // Import vndb data for traits
 import vndbData from '@/app/data/vndb.json';
-import * as FileSystem from 'expo-file-system';
 // Import VNDB API service
 import { defaultClient as vndb } from '@/src/services/vndb';
-import { VNDBCharacter, VNDBCharacterResponse } from '@/src/services/vndb/types';
+import { VNDBCharacter } from '@/src/services/vndb/types';
 // Add import for the new formatter utility
 import { processVNDBResponse } from '@/src/utils/vndbFormatters';
 import { formatVNDBCharactersForLLM } from '@/src/utils/vndbLLMFormatter';
+import ArtistReferenceSelector from './ArtistReferenceSelector';
+// Add import for default negative prompts
+import { DEFAULT_NEGATIVE_PROMPTS } from '@/constants/defaultPrompts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -306,6 +303,9 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   const [traitFilterOperator, setTraitFilterOperator] = useState<'and' | 'or'>('and');
   const [ageFilterOperator, setAgeFilterOperator] = useState<'=' | '>' | '>=' | '<' | '<='>('>');
   const [ageFilterValue, setAgeFilterValue] = useState<string>('');
+
+  // Add new state for artist reference selection
+  const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
 
   // Reset state when form closes
   useEffect(() => {
@@ -625,8 +625,20 @@ const handleCreateCharacter = async () => {
       try {
         console.log(`[摇篮角色创建] 检测到需要AI生成图片，已选择标签: 正向=${positiveTags.length}个, 负向=${negativeTags.length}个`);
         
+        // Add artist prompt to positive tags if selected
+        let finalPositiveTags = [...positiveTags];
+        if (selectedArtistPrompt) {
+          console.log(`[摇篮角色创建] 使用画师风格提示词`);
+          if (!finalPositiveTags.includes(selectedArtistPrompt)) {
+            finalPositiveTags.push(selectedArtistPrompt);
+          }
+        }
+        
+        // Combine with default negative prompts
+        const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
+        
         // 提交生图请求到服务器
-        imageTaskId = await submitImageGenerationTask(positiveTags, negativeTags);
+        imageTaskId = await submitImageGenerationTask(finalPositiveTags, finalNegativeTags);
         console.log(`[摇篮角色创建] 已提交图像生成任务，ID: ${imageTaskId}`);
         
       } catch (error) {
@@ -670,7 +682,8 @@ const handleCreateCharacter = async () => {
       generationData: {
         appearanceTags: uploadMode === 'generate' ? {
           positive: positiveTags,
-          negative: negativeTags
+          negative: negativeTags,
+          artistPrompt: selectedArtistPrompt || undefined
         } : undefined,
         traits: selectedTraits.map(id => {
           const trait = findTraitById(id);
@@ -886,6 +899,13 @@ const handleCreateCharacter = async () => {
             请选择描述角色外观的正面和负面标签，正面标签会被包含在生成中，负面标签会被排除
           </Text>
           
+          {/* Add artist reference selector */}
+          <ArtistReferenceSelector 
+            selectedGender={gender}
+            onSelectArtist={setSelectedArtistPrompt}
+            selectedArtistPrompt={selectedArtistPrompt}
+          />
+          
           {/* Tag selection summary */}
           <View style={styles.tagSummaryContainer}>
             <Text style={styles.tagSummaryTitle}>已选标签</Text>
@@ -930,14 +950,17 @@ const handleCreateCharacter = async () => {
                 <Text style={styles.noTagsSelectedText}>未选择负面标签</Text>
               )}
             </View>
+            
+            {/* Add hint for default negative prompts */}
+            <Text style={styles.defaultTagsInfo}>
+              系统已添加默认的负面标签，以避免常见生成问题
+            </Text>
           </View>
           
-          {/* Open tag selector button */}
+          {/* Open tag selector button - updated to match ImageRegenerationModal approach */}
           <TouchableOpacity 
             style={styles.openTagSelectorButton}
-            onPress={() => {
-              setTagSelectorVisible(true);
-            }}
+            onPress={() => setTagSelectorVisible(true)}
           >
             <Ionicons name="pricetag-outline" size={20} color="#fff" />
             <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
@@ -945,18 +968,38 @@ const handleCreateCharacter = async () => {
         </View>
       )}
       
-      {/* Tag selector sidebar */}
-      {tagSelectorVisible && (
-        <TagSelector 
-          onClose={() => setTagSelectorVisible(false)}
-          onAddPositive={(tag) => setPositiveTags(prev => [...prev, tag])}
-          onAddNegative={(tag) => setNegativeTags(prev => [...prev, tag])}
-          existingPositiveTags={positiveTags}
-          existingNegativeTags={negativeTags}
-          onPositiveTagsChange={setPositiveTags}
-          onNegativeTagsChange={setNegativeTags}
-        />
-      )}
+      {/* Tag selector modal - replace sidebar approach with modal approach */}
+      <Modal
+        visible={tagSelectorVisible}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setTagSelectorVisible(false)}
+      >
+        <View style={styles.tagSelectorModalContainer}>
+          <View style={styles.tagSelectorHeader}>
+            <Text style={styles.tagSelectorTitle}>选择标签</Text>
+            <TouchableOpacity 
+              style={styles.tagSelectorCloseButton}
+              onPress={() => setTagSelectorVisible(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.tagSelectorContent}>
+            <TagSelector 
+              onClose={() => setTagSelectorVisible(false)}
+              onAddPositive={(tag) => setPositiveTags(prev => [...prev, tag])}
+              onAddNegative={(tag) => setNegativeTags(prev => [...prev, tag])}
+              existingPositiveTags={positiveTags}
+              existingNegativeTags={negativeTags}
+              onPositiveTagsChange={setPositiveTags}
+              onNegativeTagsChange={setNegativeTags}
+              sidebarWidth="auto" // Add this prop to control sidebar width
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 
@@ -1038,7 +1081,7 @@ const handleCreateCharacter = async () => {
                 styles.genderText,
                 userGender === 'other' && styles.selectedGenderText
               ]}>
-                其他
+                 其他
               </Text>
             </TouchableOpacity>
           </View>
@@ -2302,6 +2345,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     marginTop: 4,
+  },
+  // Add new style for default tags info
+  defaultTagsInfo: {
+    color: '#888',
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  // New styles for tag selector modal
+  tagSelectorModalContainer: {
+    flex: 1,
+    backgroundColor: '#222',
+  },
+  tagSelectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#333',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    position: 'relative',
+    // Add status bar height adjustment for iOS
+    paddingTop: Platform.OS === 'ios' ? 44 : 16,
+  },
+  tagSelectorTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  tagSelectorCloseButton: {
+    position: 'absolute',
+    right: 16,
+    // Adjust for iOS status bar
+    top: Platform.OS === 'ios' ? 44 : 16,
+    padding: 4,
+  },
+  tagSelectorContent: {
+    flex: 1, // This ensures the TagSelector fills the available space
   },
 });
 

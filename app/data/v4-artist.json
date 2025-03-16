@@ -1,0 +1,27 @@
+[
+    {
+      "image_filename": "002.png",
+      "artist_prompt": "artist:ratatatat74,{{artist:ciloranko}},[[[artist:Rella]]],[[ask(askzy)]],[[artist:harogen pabirion]]",
+      "gender": "male" 
+    },
+    {
+      "image_filename": "006.png",
+      "artist_prompt": "artist:diaodiao",
+      "gender": "male" 
+    },
+    {
+      "image_filename": "007.png",
+      "artist_prompt": "artist:mulihaohao",
+      "gender": "male" 
+    },
+    {
+      "image_filename": "0011.png",
+      "artist_prompt": "[artist:diaodiao],artist:doran_(doran7280)",
+      "gender" :"male"  
+    },
+    {
+      "image_filename": "0013.png",
+      "artist_prompt": "artist:kazutake_hazano, artist:danimaru,[artist:ask_(askzy)], artist:wanke, artist:wlop, artist:fujiyama, artisit:yuyu_(yuyuworks),artist:hiten_(hitenkei),atrisit:dishwasher1910",
+      "gender" :"female"  
+    }
+  ]

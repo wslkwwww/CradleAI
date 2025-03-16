@@ -18,6 +18,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { theme } from '@/constants/theme';
 import { Picker } from '@react-native-picker/picker';
+import { memoryService } from '@/services/memory-service';
+import Slider from '@react-native-community/slider';
 
 const SIDEBAR_WIDTH_EXPANDED = 280;
 const SWIPE_THRESHOLD = 50; // 向下滑动超过这个距离时关闭侧边栏
@@ -34,6 +36,12 @@ interface CircleInteractionSettingsProps {
   updateCharacter: (character: Character) => Promise<void>;
 }
 
+// Add this interface for MemorySummarySettings props
+interface MemorySummarySettingsProps {
+  character: Character;
+  updateCharacter: (character: Character) => Promise<void>;
+}
+
 export default function SettingsSidebar({
   isVisible,
   onClose,
@@ -43,7 +51,11 @@ export default function SettingsSidebar({
   const slideYAnim = useRef(new Animated.Value(0)).current; // 用于向下滑动动画
   const { updateCharacter } = useCharacters();
 
-  const [isPermanentMemoryEnabled, setIsPermanentMemoryEnabled] = useState(selectedCharacter?.memX === 1);
+  // Replace isPermanentMemoryEnabled with isMemorySummaryEnabled
+  const [isMemorySummaryEnabled, setIsMemorySummaryEnabled] = useState(false);
+  const [summaryThreshold, setSummaryThreshold] = useState(6000); // Default: 6000 characters
+  const [summaryLength, setSummaryLength] = useState(1000); // Default: 1000 characters
+  
   const [isAutoMessageEnabled, setIsAutoMessageEnabled] = useState(selectedCharacter?.autoMessage || false);
   const [isNotificationEnabled, setIsNotificationEnabled] = useState(false);
   const [isCircleInteractionEnabled, setIsCircleInteractionEnabled] = useState(
@@ -89,9 +101,26 @@ export default function SettingsSidebar({
     })
   ).current;
 
+  // Load memory settings when character changes
+  useEffect(() => {
+    if (selectedCharacter?.id) {
+      const loadMemorySettings = async () => {
+        try {
+          const settings = await memoryService.loadSettings(selectedCharacter.id);
+          setIsMemorySummaryEnabled(settings.enabled);
+          setSummaryThreshold(settings.summaryThreshold);
+          setSummaryLength(settings.summaryLength);
+        } catch (error) {
+          console.error('Error loading memory settings:', error);
+        }
+      };
+      
+      loadMemorySettings();
+    }
+  }, [selectedCharacter?.id]);
+
   // Sync states with character properties
   useEffect(() => {
-    setIsPermanentMemoryEnabled(selectedCharacter?.memX === 1);
     setIsAutoMessageEnabled(selectedCharacter?.autoMessage || false);
     setIsCircleInteractionEnabled(selectedCharacter?.circleInteraction || false);
     setIsRelationshipEnabled(selectedCharacter?.relationshipEnabled || false);
@@ -111,14 +140,50 @@ export default function SettingsSidebar({
     }
   }, [isVisible]);
 
-  const handleMemoryToggle = async () => {
+  // Replace memory toggle with memory summary toggle
+  const handleMemorySummaryToggle = async () => {
     if (selectedCharacter) {
-      const updatedCharacter = {
-        ...selectedCharacter,
-        memX: isPermanentMemoryEnabled ? 0 : 1,
-      };
-      await updateCharacter(updatedCharacter);
-      setIsPermanentMemoryEnabled(!isPermanentMemoryEnabled);
+      try {
+        // Save memory summary settings
+        await memoryService.saveSettings(selectedCharacter.id, {
+          enabled: !isMemorySummaryEnabled,
+          summaryThreshold,
+          summaryLength,
+          lastSummarizedAt: 0
+        });
+        
+        setIsMemorySummaryEnabled(!isMemorySummaryEnabled);
+        
+        if (!isMemorySummaryEnabled) {
+          Alert.alert(
+            '记忆总结已启用', 
+            `当聊天记录达到 ${summaryThreshold} 字符时，系统将自动总结对话内容，帮助角色记住重要信息。这对长对话特别有用。`,
+            [{ text: '知道了', style: 'default' }]
+          );
+        }
+      } catch (error) {
+        console.error('Error saving memory settings:', error);
+        Alert.alert('错误', '无法保存记忆设置');
+      }
+    }
+  };
+
+  // Add handler to update memory summary settings
+  const updateMemorySummarySettings = async () => {
+    if (selectedCharacter) {
+      try {
+        await memoryService.saveSettings(selectedCharacter.id, {
+          enabled: isMemorySummaryEnabled,
+          summaryThreshold,
+          summaryLength,
+          lastSummarizedAt: 0 // Reset last summarized timestamp
+        });
+        
+        Alert.alert('成功', '记忆总结设置已更新');
+      } catch (error) {
+        console.error('Error saving memory settings:', error);
+        Alert.alert('错误', '无法保存记忆设置');
+      }
     }
   };
 
@@ -300,6 +365,66 @@ export default function SettingsSidebar({
     );
   };
 
+  // Memory Summary Settings Component
+  const MemorySummarySettings: React.FC<MemorySummarySettingsProps> = ({ character }) => {
+    if (!isMemorySummaryEnabled) return null;
+    
+    return (
+      <View style={styles.settingSection}>
+        <Text style={styles.settingSectionTitle}>记忆总结设置</Text>
+        
+        <View style={styles.sliderContainer}>
+          <Text style={styles.settingLabel}>总结阈值：{summaryThreshold} 字符</Text>
+          <Slider
+            style={styles.slider}
+            minimumValue={3000}
+            maximumValue={10000}
+            step={1000}
+            value={summaryThreshold}
+            onValueChange={setSummaryThreshold}
+            minimumTrackTintColor="rgb(255, 224, 195)"
+            maximumTrackTintColor="#767577"
+            thumbTintColor="rgb(255, 224, 195)"
+          />
+          <Text style={styles.sliderRangeText}>
+            <Text style={styles.sliderMinText}>较少 (3000)</Text>
+            <Text style={styles.sliderMaxText}>较多 (10000)</Text>
+          </Text>
+        </View>
+        
+        <View style={styles.sliderContainer}>
+          <Text style={styles.settingLabel}>总结长度：{summaryLength} 字符</Text>
+          <Slider
+            style={styles.slider}
+            minimumValue={500}
+            maximumValue={2000}
+            step={100}
+            value={summaryLength}
+            onValueChange={setSummaryLength}
+            minimumTrackTintColor="rgb(255, 224, 195)"
+            maximumTrackTintColor="#767577"
+            thumbTintColor="rgb(255, 224, 195)"
+          />
+          <Text style={styles.sliderRangeText}>
+            <Text style={styles.sliderMinText}>简洁 (500)</Text>
+            <Text style={styles.sliderMaxText}>详细 (2000)</Text>
+          </Text>
+        </View>
+        
+        <TouchableOpacity
+          style={styles.applyButton}
+          onPress={updateMemorySummarySettings}
+        >
+          <Text style={styles.applyButtonText}>保存设置</Text>
+        </TouchableOpacity>
+        
+        <Text style={styles.settingDescription}>
+          记忆总结功能会在对话达到阈值时，自动总结对话历史，避免模型遗忘早期对话内容。总结的部分对用户不可见，只有AI能看到。
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <Animated.View
       style={[
@@ -330,13 +455,14 @@ export default function SettingsSidebar({
       >
         <Text style={styles.title}>角色设置</Text>
 
+        {/* Replace Permanent Memory with Memory Summary */}
         <View style={styles.settingItem}>
-          <Text style={styles.settingLabel}>永久记忆</Text>
+          <Text style={styles.settingLabel}>记忆总结</Text>
           <Switch
-            value={isPermanentMemoryEnabled}
-            onValueChange={handleMemoryToggle}
-            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
-            thumbColor={isPermanentMemoryEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
+            value={isMemorySummaryEnabled}
+            onValueChange={handleMemorySummaryToggle}
+            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+            thumbColor={isMemorySummaryEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
           />
         </View>
 
@@ -388,7 +514,11 @@ export default function SettingsSidebar({
           <Text style={styles.backgroundButtonText}>更换聊天背景</Text>
         </TouchableOpacity>
 
-        {selectedCharacter && (
+        {selectedCharacter && isMemorySummaryEnabled && (
+          <MemorySummarySettings character={selectedCharacter} updateCharacter={updateCharacter} />
+        )}
+
+        {selectedCharacter && isCircleInteractionEnabled && (
           <CircleInteractionSettings character={selectedCharacter} updateCharacter={updateCharacter} />
         )}
         
@@ -524,6 +654,43 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
     paddingHorizontal: 8,
+  },
+  sliderContainer: {
+    marginVertical: 10,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: theme.borderRadius.md,
+    padding: 15,
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
+  sliderRangeText: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  sliderMinText: {
+    color: '#ccc',
+    fontSize: 12,
+  },
+  sliderMaxText: {
+    color: '#ccc',
+    fontSize: 12,
+    textAlign: 'right',
+  },
+  applyButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  applyButtonText: {
+    color: 'rgb(255, 224, 195)',
+    fontWeight: '600',
   },
 });
 

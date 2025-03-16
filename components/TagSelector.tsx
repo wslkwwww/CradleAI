@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   TextInput,
   FlatList,
+  SafeAreaView,
+  Dimensions
 } from 'react-native';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import tagData from '@/app/data/tag.json';
@@ -30,10 +32,19 @@ interface TagSelectorProps {
   onAddNegative: (tag: string) => void;
   existingPositiveTags: string[];
   existingNegativeTags: string[];
-
+  sidebarWidth?: number | "auto"; // Add a new prop for sidebar width
 }
 
-const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegativeTagsChange }) => {
+const TagSelector: React.FC<TagSelectorProps> = ({ 
+  onPositiveTagsChange, 
+  onNegativeTagsChange, 
+  onClose, 
+  onAddPositive, 
+  onAddNegative, 
+  existingPositiveTags, 
+  existingNegativeTags,
+  sidebarWidth = 100 // Default width if not specified
+}) => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
@@ -43,17 +54,38 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [showSelectedTags, setShowSelectedTags] = useState(true);
   const [tagWeightMode, setTagWeightMode] = useState<'none' | 'increase' | 'decrease'>('none');
+  
+  // Add state to track the longest category name for auto width calculation
+  const [longestCategoryWidth, setLongestCategoryWidth] = useState<number>(100);
+  
+  // Calculate the actual sidebar width based on the prop
+  const actualSidebarWidth = sidebarWidth === "auto" ? longestCategoryWidth : sidebarWidth;
 
   // Load tag data
   useEffect(() => {
     if (tagData?.general_categories) {
       setCategories(tagData.general_categories as unknown as Category[]);
+      
+      // Determine the longest category name if sidebarWidth is "auto"
+      if (sidebarWidth === "auto") {
+        // This is a rough estimate - in a real app you would measure text width
+        // Find the longest category name
+        const longestName = tagData.general_categories.reduce((longest, category) => {
+          return category.name.length > longest.length ? category.name : longest;
+        }, "");
+        
+        // Estimate width based on character count (this is imprecise but gives an idea)
+        // For a more precise measurement, you'd need to use onLayout or a text measurement solution
+        const estimatedWidth = Math.min(150, Math.max(80, longestName.length * 8 + 20)); // 8 pixels per character + padding
+        setLongestCategoryWidth(estimatedWidth);
+      }
+      
       // Select first category by default
       if (tagData.general_categories.length > 0) {
         setSelectedCategory(tagData.general_categories[0] as unknown as Category);
       }
     }
-  }, []);
+  }, [sidebarWidth]);
 
   // Create a flat list of all tags for searching
   const allTags = React.useMemo(() => {
@@ -484,7 +516,7 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#aaa" style={styles.searchIcon} />
@@ -505,23 +537,23 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
         )}
       </View>
 
-      {/* Selected Tags Summary */}
+      {/* Selected Tags Summary - Make sure it scrolls properly */}
       {renderSelectedTags()}
 
-      {/* Tag Browser layout with fixed category sidebar */}
+      {/* Make sure this container is scrollable when not searching */}
       {!showSearchResults && (
         <View style={styles.browsingContainer}>
-          {/* Category Selector - fixed, no scrolling */}
-          <View style={styles.fixedCategorySidebar}>
+          {/* Category Selector - with dynamic width */}
+          <ScrollView style={[styles.fixedCategorySidebar, { width: actualSidebarWidth }]}>
             {renderCategorySelector()}
-          </View>
+          </ScrollView>
           
           {/* Scrollable content area */}
           <View style={styles.scrollableContentArea}>
             {/* Subcategory Selector */}
             {renderSubCategorySelector()}
             
-            {/* Tags List */}
+            {/* Tags List - Make sure it's in a scrollable container */}
             <ScrollView style={styles.tagBrowser}>
               {renderTags()}
             </ScrollView>
@@ -529,9 +561,9 @@ const TagSelector: React.FC<TagSelectorProps> = ({ onPositiveTagsChange, onNegat
         </View>
       )}
 
-      {/* Search Results */}
+      {/* Search Results - Make sure it's in a scrollable container */}
       {renderSearchResults()}
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -763,14 +795,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   fixedCategorySidebar: {
-    width: 100,
     backgroundColor: '#333',
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.1)',
-    paddingTop: 8,
   },
   scrollableContentArea: {
     flex: 1,
+    flexDirection: 'column',
   },
   // Add styles for tag weighting UI
   weightingContainer: {

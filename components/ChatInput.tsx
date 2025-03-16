@@ -151,7 +151,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           apiProvider: user?.settings?.chat.apiProvider || 'gemini',
           openrouter: user?.settings?.chat.openrouter
         },
-        character: selectedCharacter
+        character: selectedCharacter // Pass full character to access character ID for memory service
       });
       
       // Remove the temp loading message and add the real response

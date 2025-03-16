@@ -14,6 +14,8 @@ import {
     GlobalSettings
 } from '../../../shared/types';
 import { MessagePart } from '@/shared/types';
+import { memoryService } from '@/services/memory-service';
+
 export class NodeSTCore {
     private geminiAdapter: GeminiAdapter | null = null;
     private openRouterAdapter: OpenRouterAdapter | null = null;
@@ -542,7 +544,8 @@ export class NodeSTCore {
     async continueChat(
         conversationId: string,
         userMessage: string,
-        apiKey: string
+        apiKey: string,
+        characterId?: string // Add characterId as optional parameter
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting continueChat:', {
@@ -633,6 +636,29 @@ export class NodeSTCore {
                     } as ChatMessage
                 ]
             };
+            
+            // NEW: Check if we need to summarize the chat history
+            if (characterId) {
+                try {
+                    console.log('[NodeSTCore] Checking if chat history needs summarization...');
+                    const summarizedHistory = await memoryService.checkAndSummarize(
+                        conversationId,
+                        characterId,
+                        updatedChatHistory,
+                        apiKey,
+                        this.apiSettings
+                    );
+                    
+                    // Use the potentially summarized history
+                    if (summarizedHistory !== updatedChatHistory) {
+                        console.log('[NodeSTCore] Chat history was summarized');
+                        updatedChatHistory.parts = summarizedHistory.parts;
+                    }
+                } catch (summaryError) {
+                    console.error('[NodeSTCore] Error in chat summarization:', summaryError);
+                    // Continue with unsummarized history
+                }
+            }
 
             // 处理对话
             console.log('[NodeSTCore] Processing chat...');
@@ -1090,6 +1116,18 @@ export class NodeSTCore {
                 // 遍历历史消息
                 for (const historyMessage of historyParts) {
                     if (!historyMessage.parts?.[0]?.text) continue;
+                    
+                    // Skip processing memory summary messages for role conversion
+                    // but still include them in the API request
+                    if (memoryService.isMemorySummary(historyMessage)) {
+                        cleanedContents.push({
+                            role: "user", // Memory summaries always go as "user" role (system)
+                            parts: [{
+                                text: historyMessage.parts[0].text
+                            }]
+                        });
+                        continue;
+                    }
 
                     // 转换角色映射
                     const role = (() => {

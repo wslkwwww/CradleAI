@@ -9,13 +9,21 @@ import {
   Switch,
   ActivityIndicator,
   Image,
-  Alert
+  Alert,
+  Dimensions,
+  Platform,
+  SafeAreaView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CradleCharacter, CharacterImage } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import TagSelector from './TagSelector';
 import { downloadAndSaveImage } from '@/utils/imageUtils';
+import ArtistReferenceSelector from './ArtistReferenceSelector';
+import { DEFAULT_NEGATIVE_PROMPTS } from '@/constants/defaultPrompts';
+
+// Get screen dimensions for modal sizing
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface ImageRegenerationModalProps {
   visible: boolean;
@@ -38,16 +46,34 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   
+  // Add state for artist reference
+  const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
+  const [useExistingArtistPrompt, setUseExistingArtistPrompt] = useState(true);
+  
   // Reset state when modal opens
   useEffect(() => {
     if (visible) {
       // If the character already has tags from previous generation, use them as defaults
       if (character.generationData?.appearanceTags) {
-        setPositiveTags(character.generationData.appearanceTags.positive || []);
+        // Use existing positive tags but exclude artist prompts
+        const filteredPositiveTags = character.generationData.appearanceTags.positive?.filter(tag => 
+          !tag.includes('artist:') && !tag.includes('artist(') && !tag.startsWith('artist')
+        ) || [];
+        
+        setPositiveTags(filteredPositiveTags);
         setNegativeTags(character.generationData.appearanceTags.negative || []);
+        
+        // Get artist prompt from character if available
+        if (character.generationData.appearanceTags.artistPrompt) {
+          setSelectedArtistPrompt(character.generationData.appearanceTags.artistPrompt);
+          setUseExistingArtistPrompt(true);
+        } else {
+          setSelectedArtistPrompt(null);
+        }
       } else {
         setPositiveTags([]);
         setNegativeTags([]);
+        setSelectedArtistPrompt(null);
       }
       setGeneratedImageUrl(null);
       setError(null);
@@ -66,13 +92,27 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
     setError(null);
     
     try {
-      // 将标签数组转换为以逗号分隔的字符串
-      const positivePrompt = positiveTags.join(', ');
-      const negativePrompt = negativeTags.join(', ');
+      // Prepare final positive tags list with artist prompt if selected
+      let finalPositiveTags = [...positiveTags];
+      
+      // Only add artist prompt if one is selected and we're using it
+      if (selectedArtistPrompt && useExistingArtistPrompt) {
+        console.log(`[图片重生成] 使用画师风格提示词: ${selectedArtistPrompt}`);
+        // Check if the artist prompt is already in the tags to avoid duplication
+        if (!finalPositiveTags.includes(selectedArtistPrompt)) {
+          finalPositiveTags.push(selectedArtistPrompt);
+        }
+      }
+      
+      // Combine negative tags with default negative prompts
+      const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
+      
+      const positivePrompt = finalPositiveTags.join(', ');
+      const negativePrompt = finalNegativeTags.join(', ');
       
       console.log(`[图片重生成] 正在为角色 "${character.name}" 生成新图像`);
       console.log(`[图片重生成] 正向提示词: ${positivePrompt}`);
-      console.log(`[图片重生成] 负向提示词: ${negativePrompt}`);
+      console.log(`[图片重生成] 负向提示词: ${negativePrompt} (包含默认负向提示词)`);
       
       // 构建请求参数
       const requestData = {
@@ -194,17 +234,23 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
     onClose();
   };
   
+  // Add a function to toggle artist reference usage
+  const toggleArtistPromptUsage = (value: boolean) => {
+    setUseExistingArtistPrompt(value);
+    console.log(`[图片重生成] ${value ? '启用' : '禁用'}画师风格提示词`);
+  };
+
   return (
     <Modal
       visible={visible}
-      transparent={true}
+      transparent={false}
       animationType="slide"
       onRequestClose={() => {
         if (!isLoading) onClose();
       }}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>图像生成</Text>
             {!isLoading && (
@@ -214,7 +260,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             )}
           </View>
           
-          <ScrollView style={styles.modalContent}>
+          <ScrollView style={styles.modalContent} contentContainerStyle={styles.scrollContentContainer}>
             {/* Character info */}
             <View style={styles.characterInfoSection}>
               <Text style={styles.sectionTitle}>
@@ -267,6 +313,29 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                     请选择描述角色外观的正面和负面标签，以指导图像生成
                   </Text>
                   
+                  {/* Add Artist reference option if available - simplified UI */}
+                  {selectedArtistPrompt && (
+                    <View style={styles.artistPromptContainer}>
+                      <View style={styles.artistPromptHeader}>
+                        <Text style={styles.artistPromptTitle}>画风参考</Text>
+                        <Switch
+                          value={useExistingArtistPrompt}
+                          onValueChange={toggleArtistPromptUsage}
+                          trackColor={{ false: '#767577', true: '#bfe8ff' }}
+                          thumbColor={useExistingArtistPrompt ? '#007bff' : '#f4f3f4'}
+                        />
+                      </View>
+
+                      {useExistingArtistPrompt && (
+                        <View style={styles.artistPromptContent}>
+                          <Text style={styles.artistPromptNote}>
+                            使用与角色原始生成相同的画风可以保持一致的视觉风格
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                  
                   {/* Tag summary */}
                   <View style={styles.tagSummaryContainer}>
                     <Text style={styles.tagSectionTitle}>正面标签</Text>
@@ -312,6 +381,10 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                         <Text style={styles.noTagsText}>未选择负面标签</Text>
                       )}
                     </View>
+                    
+                    <Text style={styles.defaultTagsInfo}>
+                      系统已添加默认的负面标签，以避免常见生成问题
+                    </Text>
                   </View>
                   
                   {/* Open tag selector button */}
@@ -349,39 +422,56 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 )}
               </>
             )}
+            
+            {/* Add some bottom padding for better scrolling */}
+            <View style={styles.bottomPadding} />
           </ScrollView>
           
           {/* Tag selector modal */}
-          {tagSelectorVisible && (
-            <TagSelector 
-              onClose={() => setTagSelectorVisible(false)}
-              onAddPositive={(tag) => setPositiveTags(prev => [...prev, tag])}
-              onAddNegative={(tag) => setNegativeTags(prev => [...prev, tag])}
-              existingPositiveTags={positiveTags}
-              existingNegativeTags={negativeTags}
-              onPositiveTagsChange={setPositiveTags}
-              onNegativeTagsChange={setNegativeTags}
-            />
-          )}
+          <Modal
+            visible={tagSelectorVisible}
+            transparent={false}
+            animationType="slide"
+            onRequestClose={() => setTagSelectorVisible(false)}
+          >
+            <View style={styles.tagSelectorModalContainer}>
+              <View style={styles.tagSelectorHeader}>
+                <Text style={styles.tagSelectorTitle}>选择标签</Text>
+                <TouchableOpacity 
+                  style={styles.tagSelectorCloseButton}
+                  onPress={() => setTagSelectorVisible(false)}
+                >
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.tagSelectorContent}>
+                <TagSelector 
+                  onClose={() => setTagSelectorVisible(false)}
+                  onAddPositive={(tag) => setPositiveTags(prev => [...prev, tag])}
+                  onAddNegative={(tag) => setNegativeTags(prev => [...prev, tag])}
+                  existingPositiveTags={positiveTags}
+                  existingNegativeTags={negativeTags}
+                  onPositiveTagsChange={setPositiveTags}
+                  onNegativeTagsChange={setNegativeTags}
+                />
+              </View>
+            </View>
+          </Modal>
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  safeArea: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#222',
   },
-  modalContainer: {
-    width: '90%',
-    height: '90%',
-    backgroundColor: '#282828',
-    borderRadius: 16,
-    overflow: 'hidden',
+  container: {
+    flex: 1,
+    backgroundColor: '#222',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -405,7 +495,12 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     flex: 1,
+  },
+  scrollContentContainer: {
     padding: 16,
+  },
+  bottomPadding: {
+    height: 60, // Additional padding at the bottom for better scrolling
   },
   characterInfoSection: {
     alignItems: 'center',
@@ -484,6 +579,13 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontStyle: 'italic',
     padding: 8,
+  },
+  defaultTagsInfo: {
+    color: '#888',
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
   },
   openTagSelectorButton: {
     flexDirection: 'row',
@@ -572,6 +674,66 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  // Simplified artist prompt UI
+  artistPromptContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  artistPromptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  artistPromptTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  artistPromptContent: {
+    borderRadius: 8,
+    padding: 8,
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+  },
+  artistPromptNote: {
+    color: '#aaa',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+  // Tag selector modal styles
+  tagSelectorModalContainer: {
+    flex: 1,
+    backgroundColor: '#222',
+  },
+  tagSelectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#333',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    position: 'relative',
+    // Add status bar height adjustment for iOS
+    paddingTop: Platform.OS === 'ios' ? 44 : 16,
+  },
+  tagSelectorTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  tagSelectorCloseButton: {
+    position: 'absolute',
+    right: 16,
+    // Adjust for iOS status bar
+    top: Platform.OS === 'ios' ? 44 : 16,
+    padding: 4,
+  },
+  tagSelectorContent: {
+    flex: 1, // This ensures the TagSelector fills the available space
   },
 });
 

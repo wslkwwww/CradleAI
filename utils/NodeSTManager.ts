@@ -124,14 +124,15 @@ class NodeSTManagerClass {
         }
       }
       
-      // Call NodeST with all params including apiSettings
+      // Call NodeST with all params including apiSettings and characterId
       const response = await this.nodeST.processChatMessage({
         userMessage: params.userMessage,
         conversationId: params.conversationId,
         status: params.status || "同一角色继续对话",
         apiKey: params.apiKey,
         apiSettings: params.apiSettings,
-        jsonString: jsonString  // Ensure this is explicitly passed
+        jsonString: jsonString,
+        characterId: characterId  // Pass characterId for memory service
       });
 
       if (response.success) {
@@ -406,7 +407,8 @@ class NodeSTManagerClass {
             status: options.status || "同一角色继续对话",
             apiKey: options.apiKey,
             apiSettings: options.apiSettings,
-            jsonString: options.character?.jsonData
+            jsonString: options.character?.jsonData,
+            characterId: options.character?.id  // Pass character ID for memory service
         });
         
         if (response.success) {

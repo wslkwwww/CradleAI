@@ -204,7 +204,7 @@ export interface Character {
     };
   }>;
   generationData?: {
-    appearanceTags?: { positive: string[]; negative: string[]; };
+    appearanceTags?: { positive: string[]; negative: string[];artistPrompt?: string;   };
     traits?: string[];
     vndbResults?: any;
     description?: string;
@@ -371,7 +371,7 @@ export interface CradleCharacter extends Character {
   
   // Add image history array
   imageHistory?: CharacterImage[];
-}
+  }
 
 export interface RoleCardJson {
     name: string;

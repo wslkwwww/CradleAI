@@ -23,6 +23,7 @@ export interface ProcessChatRequest {
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
     jsonString?: string;
     isCradleGeneration?: boolean; 
+    characterId?: string; // Add characterId parameter
 }
 
 export { CirclePostOptions, CircleResponse };
@@ -220,7 +221,8 @@ export class NodeST {
                 const response = await core.continueChat(
                     params.conversationId,
                     params.userMessage,
-                    params.apiKey
+                    params.apiKey,
+                    params.characterId  // Pass the characterId
                 );
 
                 if (response) {

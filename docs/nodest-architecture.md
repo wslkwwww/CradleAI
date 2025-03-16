@@ -2,6 +2,7 @@
 
 2025-0305: 合并了nodest/types下的types文件，到shared/types文件中。
 2025-0306: 增强了角色创建流程，优化了D类条目插入规则，实现了摇篮角色生成系统。
+2025-0307: 实现了记忆总结功能，在长对话中自动总结历史记录，减轻LLM记忆衰退问题。
 
 # NodeST 架构文档
 
@@ -18,6 +19,7 @@ NodeST 是一个用于构建基于 Gemini LLM API 的 AI 角色交互框架。�
 - 角色更新
 - 聊天处理和会话管理
 - D类条目处理和rframework构建
+- 对话记忆总结和管理
 
 NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功能，为所有角色操作提供统一接口。
 
@@ -36,6 +38,15 @@ NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功�
 - 处理JSON解析和验证
 - 将请求路由到适当的核心组件
 
+### 4. MemoryService
+
+记忆管理专用服务：
+- 提供对话历史的自动总结功能
+- 可配置的记忆总结阈值和长度
+- 在长对话中保持上下文连贯性
+- 防止LLM记忆衰退问题
+
+
 ## 数据流
 
 ### 聊天流程
@@ -47,6 +58,7 @@ NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功�
    - API密钥
    - 角色JSON数据（用于新建/更新操作）
    - 摇篮角色标志（用于指示是否是摇篮生成的角色）
+   - 角色ID（用于记忆总结功能）
 
 2. NodeST处理请求：
    - 验证并解析输入数据
@@ -56,8 +68,67 @@ NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功�
 3. NodeSTCore处理核心逻辑：
    - 管理角色数据和历史
    - 处理D类条目和rframework
+   - 检查是否需要进行记忆总结
    - 发送请求到Gemini/OpenRouter API
    - 更新和保存对话状态
+
+## 记忆总结系统
+
+### 1. 概述
+
+记忆总结系统旨在解决LLM在长对话中的记忆衰退问题，通过自动总结历史消息，保持对话的连贯性和上下文完整性。
+
+### 2. 工作原理
+
+- **总结触发机制**：
+  - 系统根据配置的字符阈值（默认6000字符）自动检测对话长度
+  - 当对话文本量超过阈值时，触发总结流程
+  - 总结生成后插入到对话历史中，作为系统消息
+
+- **总结内容范围**：
+  - 保留前3条和后3条消息不被总结，确保对话头尾的完整性
+  - 仅总结中间部分的消息，使模型始终能看到最新的对话内容
+  - 生成的总结会替换被总结的消息，大幅降低上下文长度
+
+- **总结质量控制**：
+  - 总结长度可配置（默认1000字符）
+  - 通过提示词引导LLM生成包含关键信息的高质量总结
+  - 标记关键意图、情感和重要承诺，确保对话的连续性
+
+### 3. 技术实现
+
+- **MemoryService**：
+  - 单例模式实现，全局访问同一记忆服务实例
+  - 使用AsyncStorage存储角色的记忆总结设置
+  - 提供API接口检查并在必要时执行总结操作
+
+- **总结消息结构**：
+  ```typescript
+  interface SummaryData {
+    summary: string;            // 总结内容
+    isMemorySummary: true;      // 标记为记忆总结
+    timestamp: number;          // 总结生成时间
+    originalMessagesRange: {    // 原始消息范围
+      start: number;
+      end: number;
+    };
+  }
+  ```
+
+- **总结设置存储**：
+  - 每个角色有单独的总结设置
+  - 配置项包括启用状态、总结阈值和总结长度
+  - 设置存储在AsyncStorage中，键格式为`memory_settings_${characterId}`
+
+### 4. 用户界面
+
+在角色设置侧边栏中提供记忆总结功能配置：
+- 启用/禁用记忆总结
+- 配置总结阈值（3000-10000字符）
+- 配置总结长度（500-2000字符）
+- 设置说明和帮助文本
+
+
 
 ## 角色创建系统
 
@@ -215,6 +286,7 @@ rFramework是与LLM交互的结构化提示框架，通过 `CharacterUtils.build
 - `nodest_[conversationId]_contents`: rframework内容
 - `nodest_[conversationId]_circle_framework`: 社交圈交互rframework
 - `nodest_[conversationId]_circle_memory`: 社交圈记忆数据
+- `memory_settings_[characterId]`: 角色记忆总结设置
 
 ## 集成指南
 
@@ -231,6 +303,37 @@ const result = await nodest.processChatMessage({
   conversationId: "character123",
   status: "同一角色继续对话",
   apiKey: "your-gemini-api-key"
+});
+
+if (result.success) {
+  console.log(result.response);
+} else {
+  console.error(result.error);
+}
+```
+
+### 记忆总结功能集成
+
+```typescript
+import { NodeST } from '@/NodeST/nodest';
+import { memoryService } from '@/services/memory-service';
+
+// 1. 在设置中配置记忆总结选项
+await memoryService.saveSettings(characterId, {
+  enabled: true,              // 启用记忆总结
+  summaryThreshold: 6000,     // 6000字符触发总结
+  summaryLength: 1000,        // 总结长度1000字符
+  lastSummarizedAt: 0         // 上次总结时间戳
+});
+
+// 2. 在聊天流程中传递角色ID以启用记忆总结
+const nodest = new NodeST();
+const result = await nodest.processChatMessage({
+  userMessage: "你好，我们继续之前的话题吧",
+  conversationId: "conversation123",
+  status: "同一角色继续对话",
+  apiKey: "your-api-key",
+  characterId: "character123"  // 关键参数：提供角色ID以启用记忆总结
 });
 
 if (result.success) {
@@ -329,7 +432,8 @@ NodeST现在支持多种LLM API：
 
 ## 性能考虑
 
-- 大型对话历史会影响性能
-- 考虑实现长对话的总结功能
-- 使用适当的错误处理防止数据损坏
+- 大型对话历史会影响性能和LLM记忆能力
+- 记忆总结功能可有效缓解长对话中的上下文限制问题
+- 合理设置总结阈值可平衡API调用频率和记忆效果
+- 对总结长度的配置影响上下文质量和API费用
 - 监控API使用情况以保持在Gemini/OpenRouter的速率限制内
