@@ -333,6 +333,25 @@ export interface Feed {
   processed: boolean;
 }
 
+// Add CharacterImage type
+export interface CharacterImage {
+  id: string;
+  url: string;
+  localUri?: string;
+  createdAt: number;
+  characterId?: string;
+  mimeType?: string;
+  tags?: {
+    positive?: string[];
+    negative?: string[];
+  };
+  isFavorite: boolean;
+  isEdited?: boolean;  // Flag to mark if this image has been edited
+  originalImageId?: string; // Reference to the original image if this is an edited version
+  editHistory?: string[]; // Store prompts used to edit this image
+  data?: string; // Base64 encoded image data
+}
+
 // Fix the CradleCharacter interface by making it extend Character
 // Now it's just an extension with some specialized cradle fields
 export interface CradleCharacter extends Character {
@@ -349,6 +368,9 @@ export interface CradleCharacter extends Character {
   
   // Add VNDB search results property (move from specific implementation to interface)
   vndbSearchResults?: VNDBCharacter[];
+  
+  // Add image history array
+  imageHistory?: CharacterImage[];
 }
 
 export interface RoleCardJson {

@@ -20,6 +20,8 @@ interface CradleCharacterDetailProps {
   onDelete: () => void;
   onEdit?: () => void; // 编辑回调
   isEditable?: boolean; // 控制编辑按钮是否可见
+  onRegenerateImage?: () => void; // 新增：重新生成图片回调
+  onShowGallery?: () => void; // Add this new prop
 }
 
 const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
@@ -28,7 +30,9 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   onGenerate,
   onDelete,
   onEdit,
-  isEditable = false
+  isEditable = false,
+  onRegenerateImage, // 新增参数
+  onShowGallery, // Use the new prop
 }) => {
   const router = useRouter();
   
@@ -184,6 +188,28 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
                 </TouchableOpacity>
               </>
             )}
+
+            {/* 新增：重新生成图片按钮 */}
+            {onRegenerateImage && (
+              <TouchableOpacity 
+                style={[styles.characterActionButton, styles.regenerateImageButton]}
+                onPress={onRegenerateImage}
+              >
+                <Ionicons name="image-outline" size={16} color="#fff" />
+                <Text style={styles.characterActionButtonText}>生成图片</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* New Gallery Button */}
+            {onShowGallery && (
+              <TouchableOpacity 
+                style={[styles.characterActionButton, { backgroundColor: '#00BCD4' }]}
+                onPress={onShowGallery}
+              >
+                <Ionicons name="images-outline" size={16} color="#fff" />
+                <Text style={styles.characterActionButtonText}>图库</Text>
+              </TouchableOpacity>
+            )}
             
             <TouchableOpacity 
               style={[styles.characterActionButton, styles.deleteButton]}
@@ -322,6 +348,9 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     backgroundColor: '#F44336',
+  },
+  regenerateImageButton: {
+    backgroundColor: '#9C27B0',
   },
   characterActionButtonText: {
     color: '#fff',

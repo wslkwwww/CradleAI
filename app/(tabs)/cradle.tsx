@@ -35,6 +35,10 @@ import { NodeSTManager } from '@/utils/NodeSTManager'; // 导入NodeSTManager
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 import { User, GlobalSettings } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
+import ImageRegenerationModal from '@/components/ImageRegenerationModal';
+import CharacterImageGallery from '@/components/CharacterImageGallery';
+import { CharacterImage } from '@/shared/types';
+import CharacterImageGallerySidebar from '@/components/CharacterImageGallerySidebar';
 
 interface UserContextProps {
   user: User | null;
@@ -88,6 +92,14 @@ export default function CradlePage() {
 
   const [showEditDialog, setShowEditDialog] = useState(false); // 添加显示编辑对话框状态
 
+  // Add new state for image regeneration and gallery
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [characterImages, setCharacterImages] = useState<CharacterImage[]>([]);
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
+
+  // Add state for gallery sidebar
+  const [showGallerySidebar, setShowGallerySidebar] = useState(false);
+
   // Load characters when component mounts or refreshes
   useEffect(() => {
     loadCradleCharacters();
@@ -99,6 +111,13 @@ export default function CradlePage() {
     
     return () => clearInterval(checkInterval);
   }, []);
+
+  // Add this effect to load character images when a character is selected
+  useEffect(() => {
+    if (selectedCharacter) {
+      loadCharacterImages(selectedCharacter.id);
+    }
+  }, [selectedCharacter]);
 
   // Load cradle characters from context
   const loadCradleCharacters = useCallback(() => {
@@ -212,7 +231,7 @@ export default function CradlePage() {
             setSelectedCharacter(updatedCharacter);
           }
           
-          // Force refresh character carousel
+          // Force refresh character cards
           refreshCharacterCards();
         } 
         // If task is done but failed
@@ -339,6 +358,157 @@ export default function CradlePage() {
     }
   };
 
+  // Function to load character images
+  const loadCharacterImages = async (characterId: string) => {
+    setIsLoadingImages(true);
+    try {
+      // In a real app, you would fetch these from storage or an API
+      // For now, we'll simulate having images in storage
+      
+      // Check if the character has any images in its imageHistory array
+      if (selectedCharacter?.imageHistory && selectedCharacter.imageHistory.length > 0) {
+        setCharacterImages(selectedCharacter.imageHistory);
+      } else {
+        // No images found
+        setCharacterImages([]);
+      }
+    } catch (error) {
+      console.error('[摇篮页面] 加载角色图像失败:', error);
+      showNotification('加载失败', '无法加载角色图像');
+    } finally {
+      setIsLoadingImages(false);
+    }
+  };
+
+  // Function to handle image regeneration success
+  const handleImageRegenerationSuccess = async (newImage: CharacterImage) => {
+    if (!selectedCharacter) return;
+    
+    try {
+      // Add the new image to the character's image history
+      const updatedImageHistory = [
+        ...(selectedCharacter.imageHistory || []),
+        newImage
+      ];
+      
+      // Update the character with the new image
+      const updatedCharacter = {
+        ...selectedCharacter,
+        imageHistory: updatedImageHistory
+      };
+      
+      // Save the updated character
+      await updateCradleCharacter(updatedCharacter);
+      
+      // Update the selected character in state
+      setSelectedCharacter(updatedCharacter);
+      
+      // Update the gallery
+      setCharacterImages(updatedImageHistory);
+      
+      // Show success notification
+      showNotification('图像生成成功', '新图像已添加到角色图库');
+    } catch (error) {
+      console.error('[摇篮页面] 保存新图像失败:', error);
+      showNotification('保存失败', '无法保存新生成的图像');
+    }
+  };
+
+  // Function to handle toggling favorite status on an image
+  const handleToggleFavorite = async (imageId: string) => {
+    if (!selectedCharacter || !selectedCharacter.imageHistory) return;
+    
+    try {
+      // Find and update the image
+      const updatedImageHistory = selectedCharacter.imageHistory.map(img => 
+        img.id === imageId ? { ...img, isFavorite: !img.isFavorite } : img
+      );
+      
+      // Update the character with the updated image history
+      const updatedCharacter = {
+        ...selectedCharacter,
+        imageHistory: updatedImageHistory
+      };
+      
+      // Save the updated character
+      await updateCradleCharacter(updatedCharacter);
+      
+      // Update the selected character in state
+      setSelectedCharacter(updatedCharacter);
+      
+      // Update the gallery
+      setCharacterImages(updatedImageHistory);
+    } catch (error) {
+      console.error('[摇篮页面] 更新图像喜爱状态失败:', error);
+      showNotification('更新失败', '无法更新图像状态');
+    }
+  };
+
+  // Function to handle setting an image as the background
+  const handleSetAsBackground = async (imageId: string) => {
+    if (!selectedCharacter || !selectedCharacter.imageHistory) return;
+    
+    try {
+      // Find the image
+      const image = selectedCharacter.imageHistory.find(img => img.id === imageId);
+      
+      if (!image) {
+        console.error('[摇篮页面] 找不到指定ID的图像:', imageId);
+        return;
+      }
+      
+      // Update the character with the new background image
+      const updatedCharacter = {
+        ...selectedCharacter,
+        backgroundImage: image.localUri || image.url,
+        localBackgroundImage: image.localUri
+      };
+      
+      // Save the updated character
+      await updateCradleCharacter(updatedCharacter);
+      
+      // Update the selected character in state
+      setSelectedCharacter(updatedCharacter);
+      
+      // Show success notification
+      showNotification('背景已更新', '已将选择的图像设置为角色背景');
+    } catch (error) {
+      console.error('[摇篮页面] 设置背景图像失败:', error);
+      showNotification('设置失败', '无法设置选择的图像为背景');
+    }
+  };
+
+  // Function to handle deleting an image
+  const handleDeleteImage = async (imageId: string) => {
+    if (!selectedCharacter || !selectedCharacter.imageHistory) return;
+    
+    try {
+      // Filter out the deleted image
+      const updatedImageHistory = selectedCharacter.imageHistory.filter(img => img.id !== imageId);
+      
+      // Update the character with the new image history
+      const updatedCharacter = {
+        ...selectedCharacter,
+        imageHistory: updatedImageHistory
+      };
+      
+      // Save the updated character
+      await updateCradleCharacter(updatedCharacter);
+      
+      // Update the selected character in state
+      setSelectedCharacter(updatedCharacter);
+      
+      // Update the gallery
+      setCharacterImages(updatedImageHistory);
+      
+      // Show success notification
+      showNotification('已删除', '图像已成功删除');
+    } catch (error) {
+      console.error('[摇篮页面] 删除图像失败:', error);
+      showNotification('删除失败', '无法删除选择的图像');
+    }
+  };
+
   // Render the tabs at the top of the screen
   const renderTabs = () => (
     <View style={styles.tabsContainer}>
@@ -460,86 +630,106 @@ export default function CradlePage() {
             }
           }}
           isEditable={isGenerated} // Make edit button visible for generated characters
+          onRegenerateImage={() => setShowImageModal(true)} // Add the regenerate image callback
+          onShowGallery={() => setShowGallerySidebar(true)} // Add gallery button handler
         />
       </View>
     );
   };
 
-  // Render main tab content
+  // Render main tab content - remove the embedded gallery
   const renderMainTab = () => (
-    <ScrollView 
-      style={styles.tabContent}
-      contentContainerStyle={styles.tabPageContent}
-      refreshControl={
-        <RefreshControl 
-          refreshing={refreshing} 
-          onRefresh={handleRefresh}
-          tintColor="#fff" 
-          colors={["#fff"]}
-        />
-      }
-    >
-      {/* Cradle status bar */}
-      <View style={styles.statusBar}>
-        <View style={styles.statusContainer}>
-          <View style={[
-            styles.statusIndicator,
-            cradleSettings.enabled ? styles.statusActive : styles.statusInactive
-          ]} />
-          <Text style={styles.statusText}>
-            {cradleSettings.enabled ? '摇篮系统已启用' : '摇篮系统已禁用'}
-          </Text>
+    <View style={{ flex: 1 }}>
+      <ScrollView 
+        style={styles.tabContent}
+        contentContainerStyle={styles.tabPageContent}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={handleRefresh}
+            tintColor="#fff" 
+            colors={["#fff"]}
+          />
+        }
+      >
+        {/* Cradle status bar */}
+        <View style={styles.statusBar}>
+          <View style={styles.statusContainer}>
+            <View style={[
+              styles.statusIndicator,
+              cradleSettings.enabled ? styles.statusActive : styles.statusInactive
+            ]} />
+            <Text style={styles.statusText}>
+              {cradleSettings.enabled ? '摇篮系统已启用' : '摇篮系统已禁用'}
+            </Text>
+          </View>
         </View>
-      </View>
-      
-      {/* Selected character details */}
-      {selectedCharacter && renderCharacterDetail()}
-      
-      {/* Character carousel */}
-      <Text style={{
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: 'bold',
-        paddingHorizontal: 16,
-        marginTop: 8,
-        marginBottom: 4,
-      }}>
-        角色列表
-      </Text>
-      
-      {/* Render character carousel or empty state */}
-      {cradleCharacters.length > 0 ? (
-        <CradleCharacterCarousel
-          ref={characterCarouselRef}
-          characters={cradleCharacters}
-          selectedCharacterId={selectedCharacter?.id}
-          onSelectCharacter={(character) => setSelectedCharacter(character)}
-          onFeedCharacter={(id) => {
-            const character = cradleCharacters.find(c => c.id === id);
-            if (character) {
-              setSelectedCharacter(character);
-              setShowFeedModal(true);
-            }
-          }}
-        />
-      ) : (
-        <View style={styles.emptyStateContainer}>
-          <Ionicons name="egg-outline" size={60} color={theme.colors.primary} />
-          <Text style={styles.emptyTitle}>没有摇篮角色</Text>
-          <Text style={styles.emptyText}>
-            创建新的摇篮角色或从已有角色中导入到摇篮系统
+        
+        {/* Selected character details */}
+        {selectedCharacter && renderCharacterDetail()}
+        
+        {/* Character carousel */}
+        <Text style={{
+          color: '#fff',
+          fontSize: 18,
+          fontWeight: 'bold',
+          paddingHorizontal: 16,
+          marginTop: 8,
+          marginBottom: 4,
+        }}>
+          角色列表
+        </Text>
+        
+        {/* Render character carousel or empty state */}
+        {cradleCharacters.length > 0 ? (
+          <CradleCharacterCarousel
+            ref={characterCarouselRef}
+            characters={cradleCharacters}
+            selectedCharacterId={selectedCharacter?.id}
+            onSelectCharacter={(character) => setSelectedCharacter(character)}
+            onFeedCharacter={(id) => {
+              const character = cradleCharacters.find(c => c.id === id);
+              if (character) {
+                setSelectedCharacter(character);
+                setShowFeedModal(true);
+              }
+            }}
+          />
+        ) : (
+          <View style={styles.emptyStateContainer}>
+            <Ionicons name="egg-outline" size={60} color={theme.colors.primary} />
+            <Text style={styles.emptyTitle}>没有摇篮角色</Text>
+            <Text style={styles.emptyText}>
+              创建新的摇篮角色或从已有角色中导入到摇篮系统
+            </Text>
+            <TouchableOpacity 
+              style={styles.createCharacterButton}
+              onPress={() => router.push('/pages/create_char_cradle')}
+            >
+              <Ionicons name="add" size={20} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.createCharacterButtonText}>创建摇篮角色</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Character image gallery title */}
+        {selectedCharacter && (
+          <Text style={{
+            color: '#fff',
+            fontSize: 18,
+            fontWeight: 'bold',
+            paddingHorizontal: 16,
+            marginTop: 20,
+            marginBottom: 4,
+          }}>
+            角色图库
           </Text>
-          <TouchableOpacity 
-            style={styles.createCharacterButton}
-            onPress={() => router.push('/pages/create_char_cradle')}
-          >
-            <Ionicons name="add" size={20} color="#fff" style={{ marginRight: 6 }} />
-            <Text style={styles.createCharacterButtonText}>创建摇篮角色</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </ScrollView>
+        )}
+      </ScrollView>
+    </View>
   );
+
+  // Remove the separate renderGallerySection function since we're integrating it differently
 
   // Render import tab content
   const renderImportTab = () => (
@@ -634,8 +824,23 @@ export default function CradlePage() {
       
       {/* Main content area */}
       <View style={styles.tabContentContainer}>
-        {renderTabContent()}
+        {activeTab === 'main' ? renderMainTab() : renderTabContent()}
       </View>
+      
+      {/* Gallery Sidebar */}
+      {selectedCharacter && (
+        <CharacterImageGallerySidebar
+          visible={showGallerySidebar}
+          onClose={() => setShowGallerySidebar(false)}
+          images={characterImages}
+          isLoading={isLoadingImages}
+          onToggleFavorite={handleToggleFavorite}
+          onDelete={handleDeleteImage}
+          onSetAsBackground={handleSetAsBackground}
+          character={selectedCharacter}
+          onAddNewImage={handleImageRegenerationSuccess}
+        />
+      )}
       
       {/* Floating create button - only on main tab */}
       {activeTab === 'main' && (
@@ -791,6 +996,16 @@ export default function CradlePage() {
                 `角色 "${editingCharacter.name}" 更新失败: ${error instanceof Error ? error.message : String(error)}`);
             }
           }}
+        />
+      )}
+
+      {/* Image regeneration modal */}
+      {selectedCharacter && (
+        <ImageRegenerationModal
+          visible={showImageModal}
+          character={selectedCharacter}
+          onClose={() => setShowImageModal(false)}
+          onSuccess={handleImageRegenerationSuccess}
         />
       )}
     </KeyboardAvoidingView>
@@ -1229,5 +1444,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-  }
+  },
+  imageGalleryContainer: {
+    flex: 1,
+    backgroundColor: '#222',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    maxHeight: 500, // Limit the height so it doesn't take up the entire screen
+  },
+  imageGallerySection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#222',
+  },
 });

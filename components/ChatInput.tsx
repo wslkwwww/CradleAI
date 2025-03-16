@@ -8,14 +8,21 @@ import {
   Animated,
   Platform,
   Alert,
+  Image,
+  Modal,
+  Text,
 } from 'react-native';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons, FontAwesome } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { theme } from '@/constants/theme';
 import { BlurView } from 'expo-blur';
 import { useRegex } from '@/constants/RegexContext';
+import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
+
 interface ChatInputProps {
   onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean) => void;
   selectedConversationId: string | null;
@@ -37,6 +44,24 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const { user } = useUser();
   const inputRef = useRef<TextInput>(null);
   const { applyRegexTools } = useRegex();
+  
+  // Add state for image handling
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [showImageUrlModal, setShowImageUrlModal] = useState(false);
+  const [showImagePreviewModal, setShowImagePreviewModal] = useState(false);
+  const [selectedImageType, setSelectedImageType] = useState<string | null>(null);
+  
+  // Add state for image generation
+  const [imagePrompt, setImagePrompt] = useState<string>('');
+  const [showImageGenModal, setShowImageGenModal] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  
+  // Add state for image editing
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const [referenceImageType, setReferenceImageType] = useState<string | null>(null);
+  const [showImageEditGenModal, setShowImageEditGenModal] = useState(false);
   
   // Animation states
   const actionMenuHeight = useRef(new Animated.Value(0)).current;
@@ -146,6 +171,306 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  // Handle image sending
+  const handleSendImage = async () => {
+    if (!selectedConversationId || !selectedImage) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setShowImagePreviewModal(false);
+      
+      // Send a message to show we're sending an image
+      onSendMessage("正在发送图片...", "user");
+      
+      // Create temp loading message for bot
+      onSendMessage('', 'bot', true);
+      
+      // Get API key for Gemini
+      const apiKey = user?.settings?.chat.characterApiKey || '';
+      if (!apiKey) {
+        throw new Error("API密钥未设置");
+      }
+      
+      // Create a Gemini adapter instance
+      const geminiAdapter = new GeminiAdapter(apiKey);
+      
+      let response: string;
+      
+      // Prepare the image based on its type
+      if (selectedImageType === 'url') {
+        // For URL images
+        response = await geminiAdapter.analyzeImage(
+          { url: selectedImage },
+          `这是用户发送的一张图片。请分析这张图片并作出回应。注意保持${selectedCharacter.name}的人设口吻。`
+        );
+      } else {
+        // For local images (base64)
+        response = await geminiAdapter.analyzeImage(
+          { 
+            data: selectedImage.split(',')[1], // Remove the "data:image/jpeg;base64," prefix
+            mimeType: selectedImageType || 'image/jpeg' 
+          },
+          `这是用户发送的一张图片。请分析这张图片并作出回应。注意保持${selectedCharacter.name}的人设口吻。`
+        );
+      }
+      
+      // Update user message to show the image
+      onSendMessage(`![用户图片](${selectedImage})`, "user");
+      
+      // Send the AI's response
+      if (response) {
+        const processedResponse = applyRegexTools(response, 'ai');
+        onSendMessage(processedResponse, 'bot');
+      } else {
+        onSendMessage('抱歉，无法解析这张图片。', 'bot');
+      }
+      
+      // Reset image state
+      setSelectedImage(null);
+      setSelectedImageType(null);
+      
+    } catch (error) {
+      console.error('Error sending image:', error);
+      onSendMessage('抱歉，处理图片时出现了错误，请重试。', 'bot');
+    } finally {
+      setIsLoading(false);
+      setShowActions(false);
+    }
+  };
+
+  const handleImageGeneration = async () => {
+    if (!imagePrompt.trim() || !selectedConversationId) {
+      Alert.alert('错误', '请输入有效的图片描述');
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      
+      // Get API key for Gemini
+      const apiKey = user?.settings?.chat.characterApiKey || '';
+      if (!apiKey) {
+        throw new Error("API密钥未设置");
+      }
+      
+      // Create a Gemini adapter instance
+      const geminiAdapter = new GeminiAdapter(apiKey);
+      
+      // First send a message showing what we're generating
+      onSendMessage(`正在生成图片: "${imagePrompt}"`, "user");
+      
+      // Create temp loading message for bot
+      onSendMessage('', 'bot', true);
+      
+      // Generate the image
+      const images = await geminiAdapter.generateImage(imagePrompt, {
+        temperature: 0.8 // Slightly higher temperature for more creative images
+      });
+      
+      if (images && images.length > 0) {
+        // Store the generated image
+        setGeneratedImage(images[0]);
+        
+        // Update user message to show the image request was successful
+        onSendMessage(`请为我生成一张图片: "${imagePrompt}"`, "user");
+        
+        // 检查图片数据是否已经包含数据URL前缀
+        let imageData = images[0];
+        if (!imageData.startsWith('data:')) {
+          // 如果没有前缀，添加适当的前缀
+          imageData = `data:image/jpeg;base64,${imageData}`;
+        }
+        
+        // 创建图像的markdown格式，用于显示
+        const imageMessage = `![Gemini生成的图像](${imageData})`;
+        
+        // Send the AI's response with the image
+        onSendMessage(imageMessage, 'bot');
+        
+        // Reset the modal
+        setShowImageGenModal(false);
+        setImagePrompt('');
+      } else {
+        // If no image was generated, show an error message
+        onSendMessage(`我尝试生成"${imagePrompt}"的图片，但未成功。`, "user");
+        onSendMessage('抱歉，我现在无法生成这个图片。可能是描述需要更具体，或者该内容不适合生成。', 'bot');
+      }
+    } catch (error) {
+      console.error('Error generating image:', error);
+      onSendMessage('抱歉，生成图片时出现了错误，请重试。', 'bot');
+    } finally {
+      setIsGeneratingImage(false);
+      setShowImageGenModal(false);
+    }
+  };
+
+  // Handle image generation with reference image
+  const handleImageEditGeneration = async () => {
+    if (!imagePrompt.trim() || !selectedConversationId || !referenceImage) {
+      Alert.alert('错误', '请输入有效的图片描述和提供参考图片');
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      
+      // Get API key for Gemini
+      const apiKey = user?.settings?.chat.characterApiKey || '';
+      if (!apiKey) {
+        throw new Error("API密钥未设置");
+      }
+      
+      // Create a Gemini adapter instance
+      const geminiAdapter = new GeminiAdapter(apiKey);
+      
+      // First send a message showing what we're generating
+      onSendMessage(`正在基于参考图片生成: "${imagePrompt}"`, "user");
+      
+      // Create temp loading message for bot
+      onSendMessage('', 'bot', true);
+      
+      // Prepare the reference image
+      let referenceImageData;
+      if (referenceImageType === 'url') {
+        referenceImageData = { url: referenceImage };
+      } else {
+        referenceImageData = {
+          data: referenceImage!.split(',')[1],
+          mimeType: referenceImageType || 'image/jpeg'
+        };
+      }
+      
+      // Generate the image
+      const images = await geminiAdapter.generateImage(imagePrompt, {
+        temperature: 0.9, // Higher temperature for more creative edits
+        referenceImages: [referenceImageData]
+      });
+      
+      if (images && images.length > 0) {
+        // Store the generated image
+        setGeneratedImage(images[0]);
+        
+        // Update user message to show the image request was successful
+        onSendMessage(`请基于我的参考图片，${imagePrompt}`, "user");
+        
+        // 检查图片数据是否已经包含数据URL前缀
+        let imageData = images[0];
+        if (!imageData.startsWith('data:')) {
+          // 如果没有前缀，添加适当的前缀
+          imageData = `data:image/jpeg;base64,${imageData}`;
+        }
+        
+        // 创建图像的markdown格式，用于显示
+        const imageMessage = `![Gemini生成的修改图像](${imageData})`;
+        
+        // Send the AI's response with the image
+        onSendMessage(imageMessage, 'bot');
+        
+        // Reset the modal
+        setShowImageEditGenModal(false);
+        setImagePrompt('');
+        setReferenceImage(null);
+        setReferenceImageType(null);
+      } else {
+        // If no image was generated, show an error message
+        onSendMessage(`我尝试基于参考图片生成"${imagePrompt}"，但未成功。`, "user");
+        onSendMessage('抱歉，我无法修改这张图片。可能是描述需要更具体，或者无法适用于这种修改。', 'bot');
+      }
+    } catch (error) {
+      console.error('Error generating edited image:', error);
+      onSendMessage('抱歉，生成修改图片时出现了错误，请重试。', 'bot');
+    } finally {
+      setIsGeneratingImage(false);
+      setShowImageEditGenModal(false);
+    }
+  };
+
+  // Handle image editing with proper implementation
+  const handleImageEditOperation = async () => {
+    if (!imagePrompt.trim() || !selectedConversationId || !referenceImage) {
+      Alert.alert('错误', '请输入有效的编辑指令和提供参考图片');
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      
+      // Get API key for Gemini
+      const apiKey = user?.settings?.chat.characterApiKey || '';
+      if (!apiKey) {
+        throw new Error("API密钥未设置");
+      }
+      
+      // Create a Gemini adapter instance
+      const geminiAdapter = new GeminiAdapter(apiKey);
+      
+      // First send a message showing what we're editing
+      onSendMessage(`正在编辑图片: "${imagePrompt}"`, "user");
+      
+      // Create temp loading message for bot
+      onSendMessage('', 'bot', true);
+      
+      // Prepare the reference image
+      let imageInput;
+      if (referenceImageType === 'url') {
+        imageInput = { url: referenceImage };
+      } else {
+        // 处理base64数据，移除前缀
+        const base64Data = referenceImage!.includes('base64,') 
+          ? referenceImage!.split('base64,')[1] 
+          : referenceImage;
+        
+        imageInput = {
+          data: base64Data,
+          mimeType: referenceImageType || 'image/jpeg'
+        };
+      }
+      
+      // 调用正确的editImage方法
+      const editedImage = await geminiAdapter.editImage(imageInput, imagePrompt, {
+        temperature: 0.8
+      });
+      
+      if (editedImage) {
+        // Store the edited image
+        setGeneratedImage(editedImage);
+        
+        // Update user message to show the edit request
+        onSendMessage(`请将这张图片${imagePrompt}`, "user");
+        
+        // Ensure we have correct data URL format
+        let imageData = editedImage;
+        if (!imageData.startsWith('data:')) {
+          imageData = `data:image/jpeg;base64,${imageData}`;
+        }
+        
+        // Create markdown format for display
+        const imageMessage = `![编辑后的图片](${imageData})`;
+        
+        // Send the AI's response with the edited image
+        onSendMessage(imageMessage, 'bot');
+        
+        // Reset the modal
+        setShowImageEditGenModal(false);
+        setImagePrompt('');
+        setReferenceImage(null);
+        setReferenceImageType(null);
+      } else {
+        // If no image was edited, show an error message
+        onSendMessage(`我尝试编辑图片："${imagePrompt}"，但未成功。`, "user");
+        onSendMessage('抱歉，我无法编辑这张图片。可能是因为编辑指令不够明确，或者模型暂不支持这种编辑操作。', 'bot');
+      }
+    } catch (error) {
+      console.error('Error editing image:', error);
+      onSendMessage('抱歉，编辑图片时出现了错误，请重试。', 'bot');
+    } finally {
+      setIsGeneratingImage(false);
+      setShowImageEditGenModal(false);
+    }
+  };
+
   const toggleActionMenu = () => {
     Keyboard.dismiss();
     setShowActions(!showActions);
@@ -204,6 +529,116 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  // Image handling functions
+  const pickImage = async () => {
+    setShowActions(false);
+    
+    // Request permission to access the photo library
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('需要权限', '需要照片库访问权限才能选择图片。');
+      return;
+    }
+    
+    try {
+      // Launch the image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+        base64: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedAsset = result.assets[0];
+        
+        // Process the image to ensure it's not too large
+        const manipResult = await manipulateAsync(
+          selectedAsset.uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.8, format: SaveFormat.JPEG, base64: true }
+        );
+        
+        // Set the processed image
+        setSelectedImage(`data:image/jpeg;base64,${manipResult.base64}`);
+        setSelectedImageType('image/jpeg');
+        setShowImagePreviewModal(true);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('错误', '选择图片时出现错误，请重试。');
+    }
+  };
+
+  const handleImageUrlInput = () => {
+    setShowActions(false);
+    setShowImageUrlModal(true);
+  };
+
+  const handleImageUrlSubmit = () => {
+    if (imageUrl.trim()) {
+      setSelectedImage(imageUrl.trim());
+      setSelectedImageType('url');
+      setShowImageUrlModal(false);
+      setShowImagePreviewModal(true);
+    } else {
+      Alert.alert('错误', '请输入有效的图片URL');
+    }
+  };
+
+  const openImageGenModal = () => {
+    setShowActions(false);
+    setShowImageGenModal(true);
+  };
+
+  // Function to select reference image for image editing
+  const pickReferenceImage = async () => {
+    // Request permission to access the photo library
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('需要权限', '需要照片库访问权限才能选择图片。');
+      return;
+    }
+    
+    try {
+      // Launch the image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+        base64: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedAsset = result.assets[0];
+        
+        // Process the image to ensure it's not too large
+        const manipResult = await manipulateAsync(
+          selectedAsset.uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.8, format: SaveFormat.JPEG, base64: true }
+        );
+        
+        // Set the processed image as reference
+        setReferenceImage(`data:image/jpeg;base64,${manipResult.base64}`);
+        setReferenceImageType('image/jpeg');
+      }
+    } catch (error) {
+      console.error('Error picking reference image:', error);
+      Alert.alert('错误', '选择参考图片时出现错误，请重试。');
+    }
+  };
+  
+  const openImageEditGenModal = () => {
+    setShowActions(false);
+    setReferenceImage(null);
+    setReferenceImageType(null);
+    setImagePrompt('');
+    setShowImageEditGenModal(true);
+  };
+
   return (
     <View style={styles.container}>
       {/* Action Menu */}
@@ -246,18 +681,55 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </Animated.Text>
             </TouchableOpacity>
 
+            {/* New Image Upload Button */}
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={() => {
-                // Implement continue generation
-                Alert.alert('提示', '此功能即将推出');
-              }}
+              onPress={pickImage}
             >
-              <View style={[styles.actionIcon, styles.continueIcon]}>
-                <Ionicons name="arrow-forward-circle" size={24} color="#fff" />
+              <View style={[styles.actionIcon, styles.imageIcon]}>
+                <Ionicons name="image" size={24} color="#fff" />
               </View>
               <Animated.Text style={styles.actionText}>
-                继续生成
+                选择图片
+              </Animated.Text>
+            </TouchableOpacity>
+
+            {/* Image URL Button */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleImageUrlInput}
+            >
+              <View style={[styles.actionIcon, styles.urlIcon]}>
+                <Ionicons name="link" size={24} color="#fff" />
+              </View>
+              <Animated.Text style={styles.actionText}>
+                图片URL
+              </Animated.Text>
+            </TouchableOpacity>
+
+            {/* New Image Generation Button */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={openImageGenModal}
+            >
+              <View style={[styles.actionIcon, styles.generateIcon]}>
+                <Ionicons name="brush" size={24} color="#fff" />
+              </View>
+              <Animated.Text style={styles.actionText}>
+                生成图片
+              </Animated.Text>
+            </TouchableOpacity>
+
+            {/* Image-to-Image Generation Button */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={openImageEditGenModal}
+            >
+              <View style={[styles.actionIcon, styles.editImageIcon]}>
+                <Ionicons name="color-wand" size={24} color="#fff" />
+              </View>
+              <Animated.Text style={styles.actionText}>
+                图片修改
               </Animated.Text>
             </TouchableOpacity>
           </View>
@@ -306,6 +778,202 @@ const ChatInput: React.FC<ChatInputProps> = ({
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Image URL Modal */}
+      <Modal
+        visible={showImageUrlModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImageUrlModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>输入图片URL</Text>
+            <TextInput
+              style={styles.urlInput}
+              placeholder="https://example.com/image.jpg"
+              placeholderTextColor="#999"
+              value={imageUrl}
+              onChangeText={setImageUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.modalButton}
+                onPress={() => setShowImageUrlModal(false)}
+              >
+                <Text style={styles.modalButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleImageUrlSubmit}
+              >
+                <Text style={[styles.modalButtonText, {color: '#fff'}]}>确认</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Preview Modal */}
+      <Modal
+        visible={showImagePreviewModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImagePreviewModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.imagePreviewContent}>
+            <Text style={styles.modalTitle}>预览图片</Text>
+            <View style={styles.imagePreviewWrapper}>
+              {selectedImage && (
+                <Image 
+                  source={{ uri: selectedImage }} 
+                  style={styles.imagePreview}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.modalButton}
+                onPress={() => setShowImagePreviewModal(false)}
+              >
+                <Text style={styles.modalButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleSendImage}
+                disabled={isLoading}
+              >
+                <Text style={[styles.modalButtonText, {color: '#fff'}]}>
+                  {isLoading ? '处理中...' : '发送图片'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Generation Modal */}
+      <Modal
+        visible={showImageGenModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImageGenModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>生成图片</Text>
+            <TextInput
+              style={[styles.urlInput, {height: 100}]}
+              placeholder="描述你想要生成的图片..."
+              placeholderTextColor="#999"
+              value={imagePrompt}
+              onChangeText={setImagePrompt}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.modalButton}
+                onPress={() => setShowImageGenModal(false)}
+              >
+                <Text style={styles.modalButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleImageGeneration}
+                disabled={isGeneratingImage || imagePrompt.trim() === ''}
+              >
+                <Text style={[styles.modalButtonText, {color: '#fff'}]}>
+                  {isGeneratingImage ? '生成中...' : '开始生成'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Edit Generation Modal */}
+      <Modal
+        visible={showImageEditGenModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImageEditGenModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.imageEditModalContent}>
+            <Text style={styles.modalTitle}>图片编辑</Text>
+            
+            {/* Reference Image Preview */}
+            <View style={styles.referenceImageSection}>
+              <Text style={styles.modalSubtitle}>参考图片:</Text>
+              <View style={styles.referenceImageContainer}>
+                {referenceImage ? (
+                  <Image 
+                    source={{ uri: referenceImage }} 
+                    style={styles.referenceImage}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <View style={styles.noImagePlaceholder}>
+                    <Ionicons name="image-outline" size={40} color="#777" />
+                    <Text style={styles.placeholderText}>未选择图片</Text>
+                  </View>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[styles.button, styles.selectImageButton]}
+                onPress={pickReferenceImage}
+              >
+                <Ionicons name="add" size={22} color="#fff" />
+                <Text style={styles.selectImageButtonText}>
+                  {referenceImage ? '更换参考图片' : '选择参考图片'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            {/* Prompt input */}
+            <Text style={styles.modalSubtitle}>修改指令:</Text>
+            <TextInput
+              style={[styles.urlInput, {height: 100}]}
+              placeholder="输入编辑指令 (例如：'转换成卡通风格', '改成黄色背景')"
+              placeholderTextColor="#999"
+              value={imagePrompt}
+              onChangeText={setImagePrompt}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+            
+            {/* Button row */}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.modalButton}
+                onPress={() => setShowImageEditGenModal(false)}
+              >
+                <Text style={styles.modalButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[
+                  styles.modalButton, 
+                  styles.modalButtonPrimary,
+                  (!referenceImage || !imagePrompt.trim()) && styles.disabledButton
+                ]}
+                onPress={handleImageEditOperation}  // <- Updated to use the new function
+                disabled={isGeneratingImage || !referenceImage || !imagePrompt.trim()}
+              >
+                <Text style={[styles.modalButtonText, {color: '#fff'}]}>
+                  {isGeneratingImage ? '处理中...' : '开始编辑'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -361,6 +1029,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   actionButton: {
     alignItems: 'center',
@@ -384,9 +1053,141 @@ const styles = StyleSheet.create({
   continueIcon: {
     backgroundColor: '#5cb85c',
   },
+  imageIcon: {
+    backgroundColor: '#3498db',
+  },
+  urlIcon: {
+    backgroundColor: '#e67e22',
+  },
+  generateIcon: {
+    backgroundColor: '#9b59b6', // Purple for image generation
+  },
   actionText: {
     color: '#fff',
     fontSize: 12,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#333',
+    borderRadius: 16,
+    padding: 20,
+    width: '80%',
+    maxWidth: 400,
+  },
+  imagePreviewContent: {
+    backgroundColor: '#333',
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  urlInput: {
+    backgroundColor: '#444',
+    borderRadius: 8,
+    padding: 10,
+    color: '#fff',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  modalButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: '#555',
+    flex: 1,
+    marginHorizontal: 5,
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: theme.colors.primary,
+  },
+  modalButtonText: {
+    color: '#ddd',
+    fontWeight: 'bold',
+  },
+  imagePreviewWrapper: {
+    height: 300,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#222',
+    borderRadius: 8,
+    marginBottom: 20,
+    overflow: 'hidden',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  imageEditModalContent: {
+    backgroundColor: '#333',
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxWidth: 500,
+    maxHeight: '90%',
+  },
+  modalSubtitle: {
+    color: '#ddd',
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  referenceImageSection: {
+    marginBottom: 16,
+  },
+  referenceImageContainer: {
+    height: 200,
+    backgroundColor: '#222',
+    borderRadius: 12,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  referenceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  noImagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeholderText: {
+    color: '#777',
+    marginTop: 8,
+  },
+  selectImageButton: {
+    flexDirection: 'row',
+    backgroundColor: '#444',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectImageButtonText: {
+    color: '#fff',
+    marginLeft: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  editImageIcon: {
+    backgroundColor: '#8e44ad', // Different purple for edit image
   },
 });
 

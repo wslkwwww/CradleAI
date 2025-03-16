@@ -31,11 +31,6 @@
                 "id": "i2888",
                 "name": "Karate",
                 "children": []
-              },
-              {
-                "id": "i385",
-                "name": "2 more traits",
-                "children": []
               }
             ]
           },
@@ -407,35 +402,104 @@
       "name": "Sociosexual Events",
       "children": [
         {
-          "id": "i2455",
-          "name": "Breakup",
-          "children": []
-        },
-        {
-          "id": "i3894",
-          "name": "Fake Relationship",
-          "children": []
-        },
-        {
-          "id": "i755",
-          "name": "Flirting",
-          "children": []
-        },
-        {
-          "id": "i772",
-          "name": "Infidelity",
-          "children": []
-        },
-        {
-          "id": "i2730",
-          "name": "Long Distance Relationship",
-          "children": []
-        },
-        {
-          "id": "i3451",
-          "name": "5 more traits",
-          "children": []
-        }
+            "id": "i2468",
+            "name": "Open Relationship",
+            "children": [
+              {
+                "id": "i2669",
+                "name": "Netorase (their SO is shared)",
+                "children": []
+              },
+              {
+                "id": "i2177",
+                "name": "Polyamory",
+                "children": []
+              },
+              {
+                "id": "i862",
+                "name": "Polygamy",
+                "children": []
+              },
+              {
+                "id": "i1605",
+                "name": "Swinging",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "i772",
+            "name": "Infidelity",
+            "children": [
+              {
+                "id": "i2607",
+                "name": "Avoidable Infidelity",
+                "children": []
+              },
+              {
+                "id": "i3288",
+                "name": "Unbeknown Infidelity",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "i1362",
+            "name": "Wedding",
+            "children": [
+              {
+                "id": "i3447",
+                "name": "Pretend Wedding",
+                "children": []
+              },
+              {
+                "id": "i2409",
+                "name": "Remarriage",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "i755",
+            "name": "Flirting",
+            "children": [
+              {
+                "id": "i984",
+                "name": "Seduction",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "i2455",
+            "name": "Breakup",
+            "children": []
+          },
+          {
+            "id": "i3894",
+            "name": "Fake Relationship",
+            "children": []
+          },
+          {
+            "id": "i2730",
+            "name": "Long Distance Relationship",
+            "children": []
+          },
+          {
+            "id": "i1607",
+            "name": "Marriage Proposal",
+            "children": []
+          },
+          {
+            "id": "i1325",
+            "name": "Netori (steals the SO)",
+            "children": []
+          },
+          {
+            "id": "i2743",
+            "name": "Romantic Reconciliation",
+            "children": []
+          }
       ]
     },
     {

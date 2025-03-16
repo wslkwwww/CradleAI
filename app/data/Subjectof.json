@@ -175,36 +175,90 @@
             "id": "i415",
             "name": "Death",
             "children": [
-              {
-                "id": "i688",
-                "name": "Avoidable Death (obsolete)",
-                "children": []
-              },
-              {
-                "id": "i3933",
-                "name": "Capital Punishment",
-                "children": []
-              },
-              {
-                "id": "i3144",
-                "name": "Completely Avoidable Death",
-                "children": []
-              },
-              {
-                "id": "i2188",
-                "name": "Evil Sacrifice",
-                "children": []
-              },
-              {
-                "id": "i845",
-                "name": "Fake Death",
-                "children": []
-              },
-              {
-                "id": "i415",
-                "name": "5 more traits",
-                "children": []
-              }
+                {
+                    "id": "i798",
+                    "name": "Homicide",
+                    "children": [
+                      {
+                        "id": "i1524",
+                        "name": "Attempted Homicide",
+                        "children": []
+                      },
+                      {
+                        "id": "i3160",
+                        "name": "Death in Battle",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "id": "i3937",
+                    "name": "Unavoidable Death",
+                    "children": [
+                      {
+                        "id": "i3852",
+                        "name": "Completely Unavoidable Death",
+                        "children": []
+                      },
+                      {
+                        "id": "i699",
+                        "name": "Unavoidable Other Route Death",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "id": "i3144",
+                    "name": "Completely Avoidable Death",
+                    "children": [
+                      {
+                        "id": "i3461",
+                        "name": "Joke Ending Death",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "id": "i845",
+                    "name": "Fake Death",
+                    "children": [
+                      {
+                        "id": "i3098",
+                        "name": "Fake Suicide",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "id": "i688",
+                    "name": "Avoidable Death (obsolete)",
+                    "children": []
+                  },
+                  {
+                    "id": "i3933",
+                    "name": "Capital Punishment",
+                    "children": []
+                  },
+                  {
+                    "id": "i2188",
+                    "name": "Evil Sacrifice",
+                    "children": []
+                  },
+                  {
+                    "id": "i3149",
+                    "name": "Pre-Story Death",
+                    "children": []
+                  },
+                  {
+                    "id": "i1106",
+                    "name": "Reincarnation",
+                    "children": []
+                  },
+                  {
+                    "id": "i641",
+                    "name": "Resurrection",
+                    "children": []
+                  }
             ]
           },
           {
