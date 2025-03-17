@@ -340,7 +340,7 @@ export class CircleManager {
 - 可选择是否发表评论（comment字段）
 - 包含你的情感反应（emotion对象，含type和intensity）
 
-严格按以下格式回复，不要包含任何其他文字：
+严格按以下格式用中文回复，不要包含任何其他文字：
 {
   "action": {
     "like": true/false,
@@ -388,6 +388,12 @@ export class CircleManager {
     async circlePost(options: CirclePostOptions, apiKey?: string): Promise<CircleResponse> {
         try {
             console.log(`【朋友圈】处理互动，类型: ${options.type}，作者ID: ${options.content.authorId}，响应者ID: ${options.responderId}`);
+            
+            // 检查是否有图片需要处理
+            const hasImages = options.content.images && options.content.images.length > 0;
+            if (hasImages) {
+                console.log(`【朋友圈】检测到帖子包含 ${options.content.images!.length} 张图片`);
+            }
             
             // 1. 获取当前R框架 (使用responderId而非authorId)
             const framework = await this.loadJson<CircleRFramework>(
@@ -491,11 +497,16 @@ export class CircleManager {
                 console.log(`【角色关系】角色 ${characterData.name} 没有未读消息，跳过关系状态检视`);
               }
             }
+
+            // 5. 处理图片和用户消息
+            let pictureDescription = '';
+            let imageInput = null;
+            let allMessages = [];
             
-            // 5. 构建用户消息 (内容和上下文)
-            const userMessage = `【内容】${options.content.text}\n【上下文】${options.content.context || ''}`;
-            
-            // 6. 使用PromptBuilderService构建最终请求
+            // 6. 构建基本用户消息
+            let userMessage = `【内容】${options.content.text}\n【上下文】${options.content.context || ''}`;
+
+            // 7. 使用PromptBuilderService构建消息数组
             const messages = PromptBuilderService.buildPrompt({
               rFramework,
               dEntries,
@@ -504,81 +515,107 @@ export class CircleManager {
             
             console.log(`【朋友圈】角色 ${characterData.name} 的请求构建完成，R框架条目数: ${rFramework.length}, D类条目数: ${dEntries.length}`);
             
-            // 7. 转换为文本格式并发送请求
-            const prompt = PromptBuilderService.messagesToText(messages);
-
-            // 如果日志中没有检测到状态检视提示词，但我们确实创建了它，那么手动添加它
-            if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
-                console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
-                const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
-                
-                // 新增日志：打印完整的请求体内容
-                console.log(`【朋友圈】角色 ${characterData.name} 的完整请求体(手动添加了关系状态检视):\n${'-'.repeat(80)}\n${modifiedPrompt}\n${'-'.repeat(80)}`);
-                console.log(`【朋友圈】角色 ${characterData.name} 的最终提示词长度: ${modifiedPrompt.length}`);
-                
-                // 使用修改后的提示词
-                const response = await this.getChatResponse(modifiedPrompt);
-                
-                // 8. 解析响应
-                const circleResponse = this.parseCircleResponse(response);
-                
-                // 9. 如果包含关系状态检查，则解析关系更新
-                if (relationshipReviewPrompt && characterData && circleResponse.success) {
-                  console.log(`【角色关系】角色 ${characterData.name} 检测到关系状态检视提示词，开始解析关系更新`);
-                  const relationshipUpdates = this.parseRelationshipReviewResponse(response);
-                  
-                  // 存储关系更新以便稍后应用
-                  if (relationshipUpdates.length > 0) {
-                    console.log(`【角色关系】角色 ${characterData.name} 解析出 ${relationshipUpdates.length} 条关系更新，将添加到响应中`);
-                    circleResponse.relationshipUpdates = relationshipUpdates;
-                  } else {
-                    console.log(`【角色关系】角色 ${characterData.name} 未解析到关系更新或解析失败`);
-                  }
+            let response;
+            
+            // 8. 统一处理图片和请求 - 修改这部分以确保图片和请求在同一个API调用中
+            if (hasImages && this.geminiAdapter) {
+                try {
+                    console.log(`【朋友圈】处理包含图片的帖子，采用单一API调用方式`);
+                    
+                    // 获取第一张图片
+                    const image = options.content.images![0];
+                    
+                    // 准备图片输入（这里直接使用URL）
+                    imageInput = { url: image };
+                    
+                    // 将消息转换为文本格式
+                    let promptText = PromptBuilderService.messagesToText(messages);
+                    
+                    // 如果有关系状态检查提示词，添加到提示文本
+                    if (relationshipReviewPrompt && promptText.indexOf("关系状态检查") === -1) {
+                        promptText += "\n\n" + relationshipReviewPrompt;
+                    }
+                    
+                    console.log(`【朋友圈】发送包含图片的单一请求，提示文本长度: ${promptText.length}`);
+                    
+                    // 使用带图像的multimodal请求
+                    const multimodalResponse = await this.geminiAdapter.generateMultiModalContent(
+                        promptText,
+                        {
+                            images: [imageInput]
+                        }
+                    );
+                    
+                    response = multimodalResponse.text || '';
+                    
+                    // 日志
+                    if (response) {
+                        console.log(`【朋友圈】成功接收包含图片的响应，响应长度: ${response.length}`);
+                        console.log(`【朋友圈】响应前100个字符: ${response.substring(0, 100)}...`);
+                    } else {
+                        console.log(`【朋友圈】响应为空，可能发生问题`);
+                    }
+                } catch (error) {
+                    console.error(`【朋友圈】处理图片请求时出错:`, error);
+                    return {
+                        success: false,
+                        error: `图片分析失败: ${error instanceof Error ? error.message : '未知错误'}`
+                    };
                 }
-
-                // 10. 更新记忆
-                await this.updateCircleMemory(
-                  options.responderId,
-                  options,
-                  circleResponse
-                );
-
-                console.log(`【朋友圈】成功处理互动，结果:`, circleResponse);
-                return circleResponse;
             } else {
-                // 原来的流程
-                // 新增日志：打印完整的请求体内容
-                console.log(`【朋友圈】角色 ${characterData.name} 的完整请求体:\n${'-'.repeat(80)}\n${prompt}\n${'-'.repeat(80)}`);
-                console.log(`【朋友圈】角色 ${characterData.name} 的最终提示词长度: ${prompt.length}`);
-                const response = await this.getChatResponse(prompt);
+                // 处理不包含图片的请求
+                // 使用现有流程
+                console.log(`【朋友圈】处理不含图片的标准请求`);
                 
-                // 8. 解析响应
-                const circleResponse = this.parseCircleResponse(response);
+                // 8. 转换为文本格式并发送请求
+                const prompt = PromptBuilderService.messagesToText(messages);
+
+                // 如果日志中没有检测到状态检视提示词，但我们确实创建了它，那么手动添加它
+                if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
+                    console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
+                    const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
+                    
+                    // 新增日志：打印完整的请求体内容
+                    console.log(`【朋友圈】角色 ${characterData.name} 的完整请求体(手动添加了关系状态检视):\n${'-'.repeat(80)}\n${modifiedPrompt}\n${'-'.repeat(80)}`);
+                    console.log(`【朋友圈】角色 ${characterData.name} 的最终提示词长度: ${modifiedPrompt.length}`);
+                    
+                    // 使用修改后的提示词
+                    response = await this.getChatResponse(modifiedPrompt);
+                } else {
+                    // 原来的流程
+                    // 新增日志：打印完整的请求体内容
+                    console.log(`【朋友圈】角色 ${characterData.name} 的完整请求体:\n${'-'.repeat(80)}\n${prompt}\n${'-'.repeat(80)}`);
+                    console.log(`【朋友圈】角色 ${characterData.name} 的最终提示词长度: ${prompt.length}`);
+                    response = await this.getChatResponse(prompt);
+                }
+            }
+            
+            // 9. 解析响应
+            const circleResponse = this.parseCircleResponse(response);
+            
+            // 10. 如果包含关系状态检查，则解析关系更新
+            if (relationshipReviewPrompt && characterData && circleResponse.success) {
+                console.log(`【角色关系】角色 ${characterData.name} 检测到关系状态检视提示词，开始解析关系更新`);
+                const relationshipUpdates = this.parseRelationshipReviewResponse(response);
                 
-                // 9. 如果包含关系状态检查，则解析关系更新
-                if (relationshipReviewPrompt && characterData && circleResponse.success) {
-                  console.log(`【角色关系】角色 ${characterData.name} 检测到关系状态检视提示词，开始解析关系更新`);
-                  const relationshipUpdates = this.parseRelationshipReviewResponse(response);
-                  
-                  // 存储关系更新以便稍后应用
-                  if (relationshipUpdates.length > 0) {
+                // 存储关系更新以便稍后应用
+                if (relationshipUpdates.length > 0) {
                     console.log(`【角色关系】角色 ${characterData.name} 解析出 ${relationshipUpdates.length} 条关系更新，将添加到响应中`);
                     circleResponse.relationshipUpdates = relationshipUpdates;
-                  } else {
+                } else {
                     console.log(`【角色关系】角色 ${characterData.name} 未解析到关系更新或解析失败`);
-                  }
                 }
-
-                // 10. 更新记忆
-                await this.updateCircleMemory(
-                  options.responderId,
-                  options,
-                  circleResponse
-                );
-
-                console.log(`【朋友圈】成功处理互动，结果:`, circleResponse);
-                return circleResponse;
             }
+
+            // 11. 更新记忆
+            await this.updateCircleMemory(
+                options.responderId,
+                options,
+                circleResponse
+            );
+
+            console.log(`【朋友圈】成功处理互动，结果:`, circleResponse);
+            return circleResponse;
         } catch (error) {
             console.error('【朋友圈】处理朋友圈互动失败:', error);
             return {
@@ -598,10 +635,44 @@ export class CircleManager {
             `${options.content.text.substring(0, 100)}...` : 
             options.content.text;
             
+        // 检查是否有图片
+        const hasImages = options.content.images && options.content.images.length > 0;
+        const imagePrompt = hasImages ? 
+            `该动态包含图片内容，请首先关注【图片描述】部分，这是对图片内容的详细描述。你的回应应该主要基于图片内容，而不仅仅是动态的文字。` : 
+            '';
+            
         // 检查是否为自己发布的帖子（发帖者和响应者是同一角色）
         const isOwnPost = options.content.authorId === options.responderId;
 
         switch (options.type) {
+            case 'forwardedPost': // 增加转发帖子的情况
+                // 构建转发场景的提示词 - 更新为更好地处理图片内容
+                scenePrompt = `用户给你转发了一条朋友圈动态：
+
+【作者】${options.content.authorName || '某人'}
+【内容】${contentText}
+${hasImages ? "【图片内容】动态中包含图片" : ""}
+${options.content.context ? `【上下文】${options.content.context}` : ''}
+
+请你以${framework.base.charDescription.substring(0, 50)}的角色身份，考虑以下几点：
+1. 这是在私聊中用户转发给你的朋友圈，而不是你在浏览朋友圈
+2. 你可能认识也可能不认识发朋友圈的人
+3. 如果发朋友圈的人是你自己，请对"用户看了你的朋友圈并转发给你"这个行为做出反应
+${hasImages ? "4. 这条朋友圈包含图片，请优先对图片内容做出回应，在回复中直接提及你看到的图片内容" : ""}
+
+请以JSON格式提供你的回应：
+{
+  "action": {
+    "like": true/false,
+    "comment": "${hasImages ? "对图片内容的回应，请明确提及你看到的图片内容" : "你的回复内容"}"
+  },
+  "emotion": {
+    "type": "positive/neutral/negative",
+    "intensity": 0.0-1.0
+}
+}`;
+                break;
+                
             case 'newPost':
                 if (isOwnPost) {
                     // 当角色是发帖者时，应当创建朋友圈内容而不是回应
@@ -626,13 +697,14 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
 
 【内容】${contentText}
 【上下文】${options.content.context || '无'}
+${imagePrompt}
 
 基于你的角色性格，请以JSON格式回应：
 - 决定是否点赞（like: true/false，对自己发的内容通常为false）
 - 提供一条你想发布的内容（comment字段）
 - 包含你的情感反应（emotion对象，含type和intensity）
 
-严格按以下格式回复，不要包含任何其他文字：
+严格按以下格式用中文回复，不要包含任何其他文字：
 {
   "action": {
     "like": false,
@@ -653,13 +725,14 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
 
 【你发布的内容】${contentText}
 【上下文】${options.content.context || '无'}
+${imagePrompt}
 
 基于你的角色性格，请以JSON格式回应：
 - 你对自己发布的这条内容的感受
 - 你希望获得什么样的评论或互动
 - 包含你的情感状态
 
-严格按以下格式回复，不要包含任何其他文字：
+回复，不要包含任何其他文字：
 {
   "reflection": "对自己帖子的反思或补充想法",
   "expectation": "期待获得的互动类型",
@@ -669,18 +742,51 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
 }
 }`;
                 } else {
-                    scenePrompt = `你正在浏览以下朋友圈动态：
+                    // Enhance the prompt specifically for image posts
+                    if (hasImages) {
+                        scenePrompt = `你正在浏览以下带有图片的朋友圈动态：
 
 【作者】${options.content.authorName || '某人'}
 【内容】${contentText}
 【上下文】${options.content.context || '无'}
+
+请特别注意上方的【图片描述】部分，这是对图片内容的详细描述。你的回应应该首先对图片内容进行回应，而不是仅关注文字内容。
+
+作为角色 ${framework.base.charDescription.substring(0, 50)}，基于你看到的图片内容和你的性格特点，请思考：
+1. 这张图片展示了什么内容？
+2. 你对图片中的内容有什么感受？
+3. 基于你的角色设定，你会如何回应这张图片？
+
+然后，以JSON格式提供你的回应：
+- 决定是否点赞（like: true/false）
+- 评论内容应直接提及图片中看到的具体元素，表明你看到并理解了图片内容
+- 包含你对图片的情感反应（emotion对象）
+
+严格按以下格式，用中文回复，不要包含任何其他文字：
+{
+  "action": {
+    "like": true/false,
+    "comment": "你对图片的具体评论，直接提及图片中的内容"
+  },
+  "emotion": {
+    "type": "positive/neutral/negative",
+    "intensity": 0.0-1.0
+  }
+}`;
+                    } else {
+                        scenePrompt = `你正在浏览以下朋友圈动态：
+
+【作者】${options.content.authorName || '某人'}
+【内容】${contentText}
+【上下文】${options.content.context || '无'}
+${imagePrompt}
 
 基于你的角色性格，请以JSON格式回应：
 - 决定是否点赞（like: true/false）
 - 可选择是否发表评论（comment字段）
 - 包含你的情感反应（emotion对象，含type和intensity）
 
-严格按以下格式回复，不要包含任何其他文字：
+严格按以下格式用中文回复，不要包含任何其他文字：
 {
   "action": {
     "like": true/false,
@@ -691,13 +797,46 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
     "intensity": 0.0-1.0
 }
 }`;
+                    }
                 }
                 break;
                 
             case 'replyToComment':
-                scenePrompt = `你看到以下朋友圈评论：
+                // Also enhance comment replies when there are images
+                if (hasImages) {
+                    scenePrompt = `你看到以下带有图片的朋友圈评论：
 
 【原帖内容】${options.content.context || '无'}
+【评论内容】${contentText}
+【评论作者】${options.content.authorName || '某人'}
+
+请特别注意上方的【图片描述】部分，这是对图片内容的详细描述。你的回复应该对图片内容和评论文本都做出响应。
+
+作为角色 ${framework.base.charDescription.substring(0, 50)}，请基于图片内容和你的角色特点：
+1. 考虑图片内容如何影响你对评论的回应
+2. 在回复中提及图片中的具体元素
+
+然后，以JSON格式提供你的回应：
+- 决定是否点赞评论（like: true/false）
+- 回复内容应结合图片内容和评论文本
+- 包含你的情感反应（emotion对象）
+
+用中文回复，不要包含任何其他文字：
+{
+  "action": {
+    "like": true/false,
+    "comment": "你的回复内容，提及图片和评论"
+  },
+  "emotion": {
+    "type": "positive/neutral/negative",
+    "intensity": 0.0-1.0
+  }
+}`;
+                } else {
+                    scenePrompt = `你看到以下朋友圈评论：
+
+【原帖内容】${options.content.context || '无'}
+${imagePrompt}
 【评论内容】${contentText}
 【评论作者】${options.content.authorName || '某人'}
 
@@ -706,7 +845,7 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
 - 可选择是否回复此评论（comment字段）
 - 包含你的情感反应（emotion对象，含type和intensity）
 
-严格按以下格式回复，不要包含任何其他文字：
+严格按以下格式用中文回复，不要包含任何其他文字：
 {
   "action": {
     "like": true/false,
@@ -717,6 +856,7 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
     "intensity": 0.0-1.0
 }
 }`;
+                }
                 break;
                 
             default:
@@ -772,7 +912,8 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                     action: {
                         like: false, // No like for own post
                         comment: extractedJson.post // Use post content as comment
-                    }
+                    },
+                    emotion: extractedJson.emotion // Preserve emotion data
                 };
             } else if (extractedJson.action) {
                 // This is a standard interaction response format
@@ -781,7 +922,8 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                     action: {
                         like: Boolean(extractedJson.action.like),
                         comment: extractedJson.action.comment
-                    }
+                    },
+                    emotion: extractedJson.emotion
                 };
             } else if (extractedJson.reflection) {
                 // This is a reflection response (for self-post viewing)
@@ -790,7 +932,8 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                     action: {
                         like: false, // Can't like own post
                         comment: extractedJson.reflection // Use reflection as comment
-                    }
+                    },
+                    emotion: extractedJson.emotion
                 };
             }
             
@@ -1245,6 +1388,12 @@ user789-+10-friend
 
     // Changed from postInteraction to circlePost to match existing method
     async processInteraction(options: CirclePostOptions): Promise<CircleResponse> {
+        // Check if we have images in the options
+        const hasImages = options.content.images && options.content.images.length > 0;
+        if (hasImages && options.content.images) {
+          console.log(`【CircleManager】处理带图片的朋友圈互动，图片数量: ${options.content.images.length}`);
+        }
+        
         return this.circlePost(options, this.apiKey);
     }
 }

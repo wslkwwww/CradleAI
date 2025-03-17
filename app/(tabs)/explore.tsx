@@ -19,6 +19,7 @@ import {
   ScrollView,
   ImageBackground,
   Modal,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome, FontAwesome5 } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
@@ -41,6 +42,8 @@ import { ActionType } from '@/shared/types/relationship-types';
 import MessageBoxContent from '@/components/MessageBoxContent';
 import ActionCard from '@/components/ActionCard';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -122,6 +125,10 @@ const Explore: React.FC = () => {
   const [userPostText, setUserPostText] = useState('');
   const [userPostImages, setUserPostImages] = useState<string[]>([]);
   const [isCreatingPost, setIsCreatingPost] = useState(false);
+
+  // Add these new state variables
+  const [refreshing, setRefreshing] = useState(false);
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
   // Select first character as default when characters are loaded
   useEffect(() => {
@@ -282,7 +289,31 @@ const Explore: React.FC = () => {
         return;
       }
 
-      // Regular post loading logic
+      // First try to load posts from AsyncStorage
+      try {
+        const storedPostsJson = await AsyncStorage.getItem('circle_posts');
+        if (storedPostsJson) {
+          const storedPosts = JSON.parse(storedPostsJson) as CirclePost[];
+          console.log(`【朋友圈】从存储加载了 ${storedPosts.length} 条帖子`);
+          
+          // Get fresh character data for avatars
+          const postsWithUpdatedAvatars = storedPosts.map(post => {
+            const character = characters.find(c => c.id === post.characterId);
+            return {
+              ...post,
+              characterAvatar: character?.avatar || post.characterAvatar
+            };
+          });
+          
+          setPosts(postsWithUpdatedAvatars);
+          return;
+        }
+      } catch (storageError) {
+        console.error('【朋友圈】从存储加载帖子失败:', storageError);
+        // Continue with regular loading if storage fails
+      }
+
+      // Regular post loading logic from characters
       const allPosts = characters.reduce((acc: CirclePost[], character) => {
         if (character.circlePosts && Array.isArray(character.circlePosts)) {
           const validPosts = character.circlePosts.filter(post => 
@@ -298,19 +329,34 @@ const Explore: React.FC = () => {
       );
 
       setPosts(sortedPosts);
+      
+      // Save posts to AsyncStorage for persistence
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(sortedPosts));
+      console.log(`【朋友圈】保存了 ${sortedPosts.length} 条帖子到存储`);
+      
     } catch (err) {
       console.error('【朋友圈测试】加载帖子失败:', err);
       setError('加载动态失败，请重试');
     } finally {
       setIsLoading(false);
+      setRefreshing(false);
     }
   }, [characters, testModeEnabled, testPost]);
+
+  // Add pull-to-refresh handler
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadPosts();
+  }, [loadPosts]);
   
-  useEffect(() => {
-    if (characters.length > 0) {
-      loadPosts();
-    }
-  }, [characters, loadPosts]);
+  // Add useFocusEffect to reload posts when the tab is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (characters.length > 0 && activeTab === 'circle') {
+        loadPosts();
+      }
+    }, [characters, loadPosts, activeTab])
+  );
 
   // Update post avatars when characters or user changes
   useEffect(() => {
@@ -363,73 +409,75 @@ const Explore: React.FC = () => {
 
   // Like handling
   const handleLike = useCallback(async (post: CirclePost) => {
-    const character = characters.find(c => c.id === post.characterId);
-    if (!character?.circlePosts) return;
-  
-    // 检查用户是否已经点赞
-    const hasUserLiked = post.likedBy?.some(like => 
-      !like.isCharacter && like.userId === 'user-1'
-    );
-  
-    if (hasUserLiked) {
-      // 如果用户已经点赞，则取消点赞
-      const updatedPost = {
-        ...post,
-        likes: post.likes - 1,
-        hasLiked: false,
-        likedBy: post.likedBy?.filter(like => 
-          like.isCharacter || like.userId !== 'user-1'
-        )
-      };
-  
-      const updatedPosts = character.circlePosts.map(p =>
-        p.id === post.id ? updatedPost : p
+    try {
+      // Check if user has already liked the post
+      const hasUserLiked = post.likedBy?.some(like => 
+        !like.isCharacter && like.userId === 'user-1'
       );
+      
+      let updatedPost: CirclePost;
+    
+      if (hasUserLiked) {
+        // Remove like
+        updatedPost = {
+          ...post,
+          likes: post.likes - 1,
+          hasLiked: false,
+          likedBy: post.likedBy?.filter(like => 
+            like.isCharacter || like.userId !== 'user-1'
+          )
+        };
+      } else {
+        // Add like
+        const newLike: CircleLike = {
+          userId: 'user-1',
+          userName: user?.settings?.self.nickname || 'Me',
+          userAvatar: user?.avatar,
+          isCharacter: false,
+          createdAt: new Date().toISOString()
+        };
   
-      await updateCharacter({
-        ...character,
-        circlePosts: updatedPosts,
-      });
-    } else {
-      // 如果用户未点赞，则添加点赞
-      const newLike: CircleLike = {
-        userId: 'user-1',
-        userName: user?.settings?.self.nickname || 'Me',
-        userAvatar: user?.avatar,
-        isCharacter: false,
-        createdAt: new Date().toISOString()
-      };
-
-      const updatedPost = {
-        ...post,
-        likes: post.likes + 1,
-        hasLiked: true,
-        likedBy: [...(post.likedBy || [] as CircleLike[]), newLike]
-      };
-  
-      const updatedPosts = character.circlePosts.map(p =>
-        p.id === post.id ? updatedPost : p
-      );
-  
-      await updateCharacter({
-        ...character,
-        circlePosts: updatedPosts,
-      });
+        updatedPost = {
+          ...post,
+          likes: post.likes + 1,
+          hasLiked: true,
+          likedBy: [...(post.likedBy || [] as CircleLike[]), newLike]
+        };
+      }
+      
+      // Update the posts state
+      const updatedPosts = posts.map(p => p.id === post.id ? updatedPost : p);
+      setPosts(updatedPosts);
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
+      
+      // If this is a character's post, update the character data
+      if (post.characterId !== 'user-1') {
+        const character = characters.find(c => c.id === post.characterId);
+        if (character?.circlePosts) {
+          const updatedCharacterPosts = character.circlePosts.map(p =>
+            p.id === post.id ? updatedPost : p
+          );
+      
+          await updateCharacter({
+            ...character,
+            circlePosts: updatedCharacterPosts,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('【朋友圈】点赞操作失败:', error);
+      Alert.alert('操作失败', '无法完成点赞操作');
     }
-  }, [characters, updateCharacter, user]);
+  }, [characters, posts, updateCharacter, user]);
 
   // Comment handling
   const handleComment = useCallback(async (post: CirclePost) => {
     if (!commentText.trim() || !activePostId) return;
   
-    const character = characters.find(c => c.id === post.characterId);
-    if (!character?.circlePosts) return;
-  
     try {
-      // 获取API Key
-      const apiKey = user?.settings?.chat?.characterApiKey;
-      
-      // 创建用户评论
+      // Create user comment
       const newComment: CircleComment = {
         id: String(Date.now()),
         userId: 'user-1',
@@ -440,53 +488,103 @@ const Explore: React.FC = () => {
         replyTo: replyTo || undefined
       };
   
-      // 更新帖子，添加用户评论
+      // Update the post with the new comment
       let updatedPost: CirclePost = {
         ...post,
         comments: [...(post.comments || []), newComment] as CircleComment[],
       };
       
-      // 现在使用 CircleService 获取角色回复
-      if (!replyTo) {
-        // 当用户直接评论帖子时，获取角色回复
-        const response = await CircleService.processCommentInteraction(
-          character,
-          post,
-          commentText.trim(),
-          apiKey  // 传递API Key
-        );
-        
-        if (response.success && response.action?.comment) {
-          // 添加角色的回复评论
-          const characterReply: CircleComment = {
-            id: String(Date.now() + 1),
-            userId: character.id,
-            userName: character.name,
-            userAvatar: character.avatar as string,
-            content: response.action.comment,
-            createdAt: new Date().toISOString(),
-            type: 'character',
-            replyTo: {
-              userId: 'user-1',
-              userName: user?.settings?.self.nickname || 'Me'
-            }
-          };
+      // Update the posts state
+      const updatedPosts = posts.map(p => p.id === post.id ? updatedPost : p);
+      setPosts(updatedPosts);
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
+      
+      // If this is a character's post, update the character data
+      if (post.characterId !== 'user-1') {
+        const character = characters.find(c => c.id === post.characterId);
+        if (character?.circlePosts) {
+          const updatedCharacterPosts = character.circlePosts.map(p =>
+            p.id === post.id ? updatedPost : p
+          );
+      
+          await updateCharacter({
+            ...character,
+            circlePosts: updatedCharacterPosts,
+          });
+        }
+      }
+      
+      // Get API Key
+      const apiKey = user?.settings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
+      
+      // If this is a direct comment on a post (not a reply), get a character response
+      if (!replyTo && post.characterId !== 'user-1') {
+        const character = characters.find(c => c.id === post.characterId);
+        if (character) {
+          // Process the interaction through CircleService
+          const response = await CircleService.processCommentInteraction(
+            character,
+            post,
+            commentText.trim(),
+            apiKey,
+            undefined,
+            apiSettings
+          );
           
-          (updatedPost.comments = updatedPost.comments || []).push(characterReply);
+          if (response.success && response.action?.comment) {
+            // Add character's reply comment
+            const characterReply: CircleComment = {
+              id: String(Date.now() + 1),
+              userId: character.id,
+              userName: character.name,
+              userAvatar: character.avatar as string,
+              content: response.action.comment,
+              createdAt: new Date().toISOString(),
+              type: 'character',
+              replyTo: {
+                userId: 'user-1',
+                userName: user?.settings?.self.nickname || 'Me'
+              }
+            };
+            
+            // Update with the character's comment
+            updatedPost = {
+              ...updatedPost,
+              comments: [...(updatedPost.comments || []), characterReply]
+            };
+            
+            // Update posts again with character's response
+            const postsWithCharacterReply = posts.map(p => 
+              p.id === post.id ? updatedPost : p
+            );
+            
+            setPosts(postsWithCharacterReply);
+            
+            // Save updated posts to AsyncStorage
+            await AsyncStorage.setItem('circle_posts', JSON.stringify(postsWithCharacterReply));
+            
+            // If this is a character's post, update the character data again
+            if (character?.circlePosts) {
+              const updatedCharacterPosts = character.circlePosts.map(p =>
+                p.id === post.id ? updatedPost : p
+              );
+          
+              await updateCharacter({
+                ...character,
+                circlePosts: updatedCharacterPosts,
+              });
+            }
+          }
         }
       }
   
-      // 更新角色的帖子列表
-      const updatedPosts = character.circlePosts.map(p =>
-        p.id === post.id ? updatedPost : p
-      );
-  
-      await updateCharacter({
-        ...character,
-        circlePosts: updatedPosts,
-      });
-  
-      // 重置状态
+      // Reset input state
       setCommentText('');
       setActivePostId(null);
       setReplyTo(null);
@@ -495,7 +593,7 @@ const Explore: React.FC = () => {
       console.error('Error sending comment:', error);
       Alert.alert('评论失败', '发送评论时出现错误');
     }
-  }, [activePostId, characters, commentText, replyTo, updateCharacter, user]);
+  }, [activePostId, characters, commentText, posts, replyTo, updateCharacter, user]);
 
   const handleReplyPress = useCallback((comment: CircleComment) => {
     setReplyTo({
@@ -512,6 +610,12 @@ const Explore: React.FC = () => {
     if (!character) return;
   
     const forwardMessage = `${additionalMessage ? additionalMessage + '\n\n' : ''}转发自 ${selectedPost.characterName} 的朋友圈：\n${selectedPost.content}`;
+    
+    // Check if the post has images
+    const hasImages = selectedPost.images && selectedPost.images.length > 0;
+    if (hasImages) {
+      console.log(`【朋友圈】转发带有 ${selectedPost.images!.length} 张图片的帖子给 ${character.name}`);
+    }
   
     // 创建消息对象
     const message: Message = {
@@ -519,21 +623,30 @@ const Explore: React.FC = () => {
       text: forwardMessage,
       sender: 'user',
       timestamp: Date.now(),
+      // Add image reference if available
+      images: selectedPost.images
     };
   
     try {
       // 获取API Key
       const apiKey = user?.settings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
       
-      // 使用NodeST处理聊天消息，传递API Key
+      // 使用NodeST处理聊天消息，传递API Key - 增加isForwarded参数
       const result = await CircleService.processCommentInteraction(
         character,
         selectedPost,
         forwardMessage,
-        apiKey
+        apiKey,
+        undefined,
+        apiSettings,
+        true // Indicate this is a forwarded post
       );
       
-      // 添加用户的转发消息
+      // 添加用户的转发消息 - 确保图片数据也被添加到聊天记录中
       await addMessage(characterId, message);
       
       if (result.success && result.action?.comment) {
@@ -556,7 +669,7 @@ const Explore: React.FC = () => {
   
     setIsForwardSheetVisible(false);
     setSelectedPost(null);
-  }, [selectedPost, addMessage, characters, user?.settings?.chat?.characterApiKey]);
+  }, [selectedPost, addMessage, characters, user?.settings?.chat]);
 
   const scrollToPost = useCallback((postId: string) => {
     const postIndex = posts.findIndex(post => post.id === postId);
@@ -712,32 +825,142 @@ const Explore: React.FC = () => {
     );
   }, [commentText, replyTo, handleComment]);
 
+  // Add post deletion method
+  const handleDeletePost = useCallback(async (postId: string) => {
+    try {
+      setDeletingPostId(postId);
+      const postToDelete = posts.find(p => p.id === postId);
+      if (!postToDelete) return;
+      
+      // If it's a character post, update the character data
+      if (postToDelete.characterId !== 'user-1') {
+        const character = characters.find(c => c.id === postToDelete.characterId);
+        if (character?.circlePosts) {
+          const updatedPosts = character.circlePosts.filter(p => p.id !== postId);
+          await updateCharacter({
+            ...character,
+            circlePosts: updatedPosts,
+          });
+        }
+      }
+      
+      // Update the posts state
+      const updatedPosts = posts.filter(p => p.id !== postId);
+      setPosts(updatedPosts);
+      
+      // Update AsyncStorage
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
+      console.log(`【朋友圈】已删除帖子 ID: ${postId}, 剩余 ${updatedPosts.length} 条帖子`);
+    } catch (error) {
+      console.error('【朋友圈】删除帖子失败:', error);
+      Alert.alert('删除失败', '无法删除此帖子');
+    } finally {
+      setDeletingPostId(null);
+    }
+  }, [posts, characters, updateCharacter]);
+
+  // Add post menu for deletion - update to allow deletion of character posts too
+  const showPostMenu = useCallback((post: CirclePost) => {
+    // Allow deletion of user's posts and character posts
+    const isUserPost = post.characterId === 'user-1';
+    const isCharacterPost = !isUserPost;
+    
+    const options: Array<{
+      text: string;
+      onPress?: () => void;
+      style: 'default' | 'cancel' | 'destructive';
+    }> = [];
+    
+    // Add delete option (available for all posts)
+    options.push({
+      text: '删除',
+      onPress: () => {
+        Alert.alert(
+          '确认删除',
+          isUserPost 
+            ? '确定要删除这条帖子吗？此操作不可撤销。'
+            : `确定要删除 ${post.characterName} 的这条帖子吗？此操作不可撤销。`,
+          [
+            {
+              text: '取消',
+              style: 'cancel'
+            },
+            {
+              text: '删除',
+              onPress: () => handleDeletePost(post.id),
+              style: 'destructive'
+            }
+          ]
+        );
+      },
+      style: 'destructive'
+    });
+    
+    // Add cancel option
+    options.push({
+      text: '取消',
+      style: 'cancel'
+    });
+    
+    // Show alert with options
+    Alert.alert(
+      '帖子操作',
+      '请选择要执行的操作',
+      options
+    );
+  }, [handleDeletePost]);
+
   // Post rendering
   const renderPost: ListRenderItem<CirclePost> = useCallback(({ item }) => (
-    <View style={styles.card} key={item.id}>
+    <TouchableOpacity
+      activeOpacity={1}
+      onLongPress={() => showPostMenu(item)}
+      delayLongPress={500}
+      style={styles.card}
+      key={item.id}
+    >
       <View style={styles.cardHeader}>
         <Image
           source={item.characterAvatar ? { uri: item.characterAvatar } : require('@/assets/images/default-avatar.png')}
           style={styles.authorAvatar}
         />
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.authorName}>{item.characterName}</Text>
           <Text style={styles.timestamp}>{new Date(item.createdAt).toLocaleString()}</Text>
         </View>
         
-        {/* Show processing indicator for each character during test */}
+        {/* Show deletion indicator */}
+        {deletingPostId === item.id && (
+          <ActivityIndicator size="small" color="#FF9ECD" style={{ marginLeft: 8 }} />
+        )}
+        
+        {/* Show test processing indicator */}
         {testModeEnabled && processingCharacters.length > 0 && (
           <View style={styles.processingIndicator}>
             <ActivityIndicator size="small" color="#FF9ECD" />
             <Text style={styles.processingText}>处理中 ({processingCharacters.length})</Text>
           </View>
         )}
+        
+        {/* Add menu button for all posts - modified to allow for all posts */}
+        <TouchableOpacity 
+          style={styles.postMenuButton}
+          onPress={() => showPostMenu(item)}
+        >
+          <MaterialIcons name="more-vert" size={20} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.content}>{item.content}</Text>
-      {item.images?.map((image, index) => (
-        <Image key={index} source={{ uri: image }} style={styles.contentImage} />
-      ))}
+      
+      {/* Show images if available */}
+      {item.images && item.images.length > 0 && (
+        <View style={styles.imagesContainer}>
+          {item.images.map((image, index) => (
+            <Image key={index} source={{ uri: image }} style={styles.contentImage} />
+          ))}
+        </View>
+      )}
 
       {/* Action buttons */}
       <View style={styles.cardActions}>
@@ -808,8 +1031,9 @@ const Explore: React.FC = () => {
       
       {/* Show comment input if active */}
       {activePostId === item.id && renderCommentInput(item)}
-    </View>
-  ), [activePostId, renderComment, renderCommentInput, testModeEnabled, processingCharacters, handleLike, handleFavorite, handleCommentPress]);
+    </TouchableOpacity>
+  ), [activePostId, renderComment, renderCommentInput, testModeEnabled, processingCharacters, 
+      handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu]);
 
   // Add the relationship test functions
   const runRelationshipTest = async (options: RelationshipTestOptions) => {
@@ -1232,7 +1456,7 @@ const Explore: React.FC = () => {
         openrouter: user?.settings?.chat?.openrouter
       };
       
-      // Create the user post object before sending to API
+      // Create the user post object
       const newPost: CirclePost = {
         id: `user-post-${Date.now()}`,
         characterId: 'user-1',
@@ -1247,18 +1471,22 @@ const Explore: React.FC = () => {
         hasLiked: false
       };
       
-      // Add post to posts list immediately for better UX
-      setPosts(prevPosts => [newPost, ...prevPosts]);
+      // Update posts state with the new post
+      const updatedPosts = [newPost, ...posts];
+      setPosts(updatedPosts);
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
       
       // Close modal and reset form immediately
       setShowUserPostModal(false);
       setUserPostText('');
       setUserPostImages([]);
       
-      // Show a temporary toast/alert that the post is being processed
+      // Show a temporary toast/alert
       Alert.alert('发布成功', '你的朋友圈已发布，角色们将很快响应');
       
-      // Now process character responses in the background
+      // Process character responses in the background
       CircleService.createUserPost(
         user?.settings?.self.nickname || '我',
         user?.avatar || null,
@@ -1266,14 +1494,18 @@ const Explore: React.FC = () => {
         userPostImages,
         apiKey,
         apiSettings,
-        characters // Pass the characters array
+        characters
       ).then(({ post, responses }) => {
-        // Update the post with character responses after they're ready
-        setPosts(prevPosts => 
-          prevPosts.map(p => p.id === newPost.id ? post : p)
-        );
+        // Update the post with character responses
+        setPosts(prevPosts => {
+          const updatedPosts = prevPosts.map(p => p.id === newPost.id ? post : p);
+          // Save updated posts to AsyncStorage
+          AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts))
+            .catch(error => console.error('【朋友圈】保存更新的帖子失败:', error));
+          return updatedPosts;
+        });
         
-        // Optionally show a notification that responses have arrived
+        // Log response stats
         const respondedCharacters = responses.filter(r => r.success).length;
         if (respondedCharacters > 0) {
           const likedPost = responses.filter(r => r.success && r.response?.action?.like).length;
@@ -1283,7 +1515,6 @@ const Explore: React.FC = () => {
         }
       }).catch(error => {
         console.error('处理角色响应失败:', error);
-        // We don't need to alert the user since the post is already published
       });
       
     } catch (error) {
@@ -1563,6 +1794,16 @@ const Explore: React.FC = () => {
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyText}>暂无动态</Text>
                 </View>
+              }
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  colors={['#FF9ECD']}
+                  tintColor="#FF9ECD"
+                  title="加载中..."
+                  titleColor="#FF9ECD"
+                />
               }
             />
           </>
@@ -1851,12 +2092,6 @@ const styles = StyleSheet.create({
   content: {
     color: '#FFFFFF',
     fontSize: 16,
-    marginBottom: 8,
-  },
-  contentImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
     marginBottom: 8,
   },
   cardActions: {
@@ -2540,6 +2775,26 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
     fontSize: 16,
+  },
+  // Add post menu button style
+  postMenuButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  
+  // Add images container style
+  imagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginVertical: 8,
+  },
+  
+  contentImage: {
+    width: CARD_WIDTH / 2 - 12,
+    height: 150,
+    borderRadius: 8,
+    margin: 4,
+    backgroundColor: '#444',
   },
 });
 

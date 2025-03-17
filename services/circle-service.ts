@@ -4,6 +4,8 @@ import { CirclePost, CircleComment, CircleLike } from '../shared/types/circle-ty
 import { RelationshipService } from './relationship-service';
 import { applyRelationshipUpdates } from '../utils/relationship-utils';
 import { CircleScheduler } from './circle-scheduler';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Add this import
+
 // 创建具有apiKey的单例实例
 let nodeST: NodeST | null = null;
 
@@ -97,7 +99,12 @@ export class CircleService {
         responderCharacter: character // 添加角色对象
       };
       
-      return await this.getNodeST(apiKey, apiSettings).processCircleInteraction(postOptions);
+      const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(postOptions);
+      
+      // Log the complete response for debugging
+      console.log(`【朋友圈服务】${character.name} 创建帖子的原始响应:`, JSON.stringify(response));
+      
+      return response;
     } catch (error) {
       console.error(`【朋友圈服务】创建朋友圈帖子失败 ${character.name}:`, error);
       return {
@@ -112,10 +119,11 @@ export class CircleService {
     character: Character, 
     post: CirclePost,
     apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    postOptions?: CirclePostOptions // Add postOptions parameter
   ): Promise<CircleResponse> {
     try {
-      console.log(`【朋友圈服务】处理角色 ${character.name} 对帖子的互动`);
+      console.log(`【朋友圈服务】处理角色 ${character.name} 对帖子的互动${postOptions?.content?.images?.length ? "（包含图片）" : ""}`);
       
       // 检查互动频率限制
       if (!this.checkInteractionLimits(character, post.characterId, 'post')) {
@@ -135,8 +143,8 @@ export class CircleService {
         };
       }
       
-      // 创建带更多上下文信息的postOptions
-      const postOptions: CirclePostOptions = {
+      // Use the provided postOptions if available, otherwise create a new one
+      const options = postOptions || {
         type: 'replyToPost',
         content: {
           authorId: post.characterId,
@@ -146,10 +154,11 @@ export class CircleService {
             post.comments?.length ? 
             `目前已有${post.comments.length}条评论和${post.likes}个点赞。` : 
             '还没有其他人互动。'
-          }`
+          }`,
+          images: post.images // Make sure images from the post are included
         },
         responderId: character.id,
-        responderCharacter: character // 添加角色对象以确保初始化
+        responderCharacter: character
       };
 
       // Initialize character for circle interaction if needed
@@ -164,8 +173,8 @@ export class CircleService {
 
       console.log(`【朋友圈服务】角色 ${character.name} 朋友圈初始化成功，开始处理互动`);
       
-      // Process the interaction through NodeST with apiKey
-      const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(postOptions);
+      // Process the interaction through NodeST with apiKey and options containing images
+      const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(options);
       
       // 如果互动成功，更新角色互动统计
       if (response.success) {
@@ -182,29 +191,54 @@ export class CircleService {
     }
   }
 
-  // Process user comment to a post with apiKey
+  // Process user comment to a post with apiKey - add isForwarded parameter
   static async processCommentInteraction(
     character: Character,
     post: CirclePost,
     comment: string,
     apiKey?: string,
     replyTo?: { userId: string, userName: string },
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    isForwarded: boolean = false  // Add new parameter to indicate forwarding
   ): Promise<CircleResponse> {
     try {
+      // Create context based on the interaction type
+      let context = '';
+      
+      // Check if post has images
+      const hasImages = post.images && post.images.length > 0;
+      const imageInfo = hasImages ? 
+        `（包含${post.images!.length}张图片）` : 
+        '';
+      
+      if (isForwarded) {
+        // Enhanced special context for forwarded posts with image indication
+        context = `用户转发了${post.characterName}的朋友圈给你${imageInfo}: "${post.content}"`;
+        
+        // Add additional context for images
+        if (hasImages) {
+          context += `\n请特别关注图片内容，优先对图片作出回应。`;
+        }
+      } else if (replyTo) {
+        // Reply to comment
+        context = `回复${replyTo.userName}的评论: ${comment}`;
+      } else {
+        // Regular reply to post with image indication
+        context = `回复${post.characterName}的朋友圈${imageInfo}: ${post.content}`;
+      }
+      
       // Create comment options with responderId
       const commentOptions: CirclePostOptions = {
-        type: replyTo ? 'replyToComment' : 'replyToPost',
+        type: replyTo ? 'replyToComment' : (isForwarded ? 'forwardedPost' : 'replyToPost'),
         content: {
           authorId: post.characterId,
           authorName: post.characterName,
           text: comment,
-          context: replyTo ? 
-            `回复${replyTo.userName}的评论: ${comment}` : 
-            `回复${post.characterName}的朋友圈: ${post.content}`
+          context: context,
+          images: post.images // Include any images from the post
         },
         responderId: character.id,
-        responderCharacter: character // 添加角色对象
+        responderCharacter: character
       };
 
       // Initialize character for circle interaction if needed
@@ -657,25 +691,312 @@ export class CircleService {
 
   // Add method for user posts - adding more detailed implementation
   // Modify the createUserPost method to accept characters as a parameter
+
+
+  /**
+   * Delete a post and update related data
+   */
+  static async deletePost(
+    postId: string,
+    posts: CirclePost[],
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): Promise<{ success: boolean, updatedPosts: CirclePost[] }> {
+    try {
+      console.log(`【朋友圈服务】删除帖子 ID: ${postId}`);
+      
+      // Find the post to delete
+      const postToDelete = posts.find(p => p.id === postId);
+      if (!postToDelete) {
+        console.error(`【朋友圈服务】未找到要删除的帖子 ID: ${postId}`);
+        return { success: false, updatedPosts: posts };
+      }
+      
+      // Remove the post from the posts array
+      const updatedPosts = posts.filter(p => p.id !== postId);
+      
+      // If there are images in the post, we should attempt to clean them up
+      // This is platform specific and might need to be handled elsewhere
+      if (postToDelete.images && postToDelete.images.length > 0) {
+        console.log(`【朋友圈服务】帖子包含 ${postToDelete.images.length} 张图片，清理可能需要在应用层处理`);
+      }
+      
+      // If this is a user post, we don't need to update character data
+      if (postToDelete.characterId === 'user-1') {
+        console.log(`【朋友圈服务】删除的是用户帖子，无需更新角色数据`);
+        return { success: true, updatedPosts };
+      }
+      
+      // If this is a character post, update the NodeST instance
+      try {
+        // We can notify the NodeST instance about deleted post if needed
+        // This is a placeholder for any cleanup needed in the NodeST instance
+        const instance = this.getNodeST(apiKey, apiSettings);
+        
+        console.log(`【朋友圈服务】成功删除帖子 ID: ${postId}`);
+        return { success: true, updatedPosts };
+      } catch (error) {
+        console.error(`【朋友圈服务】删除帖子时更新NodeST失败:`, error);
+        // Still return success and updated posts since the deletion was successful
+        // even if the NodeST update failed
+        return { success: true, updatedPosts };
+      }
+    } catch (error) {
+      console.error(`【朋友圈服务】删除帖子失败:`, error);
+      return { success: false, updatedPosts: posts };
+    }
+  }
+
+  /**
+   * Load posts from AsyncStorage
+   */
+  static async loadSavedPosts(): Promise<CirclePost[]> {
+    try {
+      console.log(`【朋友圈服务】从存储加载帖子`);
+      const storedPosts = await AsyncStorage.getItem('circle_posts');
+      
+      if (storedPosts) {
+        const posts = JSON.parse(storedPosts) as CirclePost[];
+        console.log(`【朋友圈服务】成功从存储加载 ${posts.length} 条帖子`);
+        return posts;
+      } else {
+        console.log(`【朋友圈服务】存储中没有帖子`);
+        return [];
+      }
+    } catch (error) {
+      console.error(`【朋友圈服务】从存储加载帖子失败:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Save posts to AsyncStorage
+   */
+  static async savePosts(posts: CirclePost[]): Promise<boolean> {
+    try {
+      console.log(`【朋友圈服务】保存 ${posts.length} 条帖子到存储`);
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(posts));
+      return true;
+    } catch (error) {
+      console.error(`【朋友圈服务】保存帖子到存储失败:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Process character responses to a post, with image handling support
+   */
+  static async processPostResponses(
+    post: CirclePost, 
+    characters: Character[],
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): Promise<{
+    updatedPost: CirclePost,
+    responses: Array<{characterId: string, success: boolean, response?: CircleResponse}>
+  }> {
+    // Copy the post to avoid mutating the original
+    const updatedPost = { ...post };
+    const responses: Array<{characterId: string, success: boolean, response?: CircleResponse}> = [];
+    
+    // Get characters with circle interaction enabled
+    const interactingCharacters = characters.filter(c => c.circleInteraction);
+    console.log(`【朋友圈服务】找到 ${interactingCharacters.length} 个启用了朋友圈互动的角色`);
+    
+    if (interactingCharacters.length === 0) {
+      return { updatedPost, responses };
+    }
+    
+    // Get the Circle Scheduler instance to manage API rate limits
+    const scheduler = CircleScheduler.getInstance();
+    
+    // Process each character's response
+    for (const character of interactingCharacters) {
+      try {
+        // Skip if character should not interact with this post
+        // For example, a character shouldn't respond to their own post
+        if (character.id === post.characterId) {
+          console.log(`【朋友圈服务】跳过角色 ${character.name} 对自己帖子的回应`);
+          continue;
+        }
+        
+        console.log(`【朋友圈服务】通过调度器处理角色 ${character.name} 对帖子的回应`);
+        
+        // Initialize character if needed
+        await this.initCharacterCircle(character, apiKey, apiSettings);
+        
+        // Schedule the interaction with image processing
+        const response = await scheduler.scheduleInteraction(
+          character,
+          post,
+          apiKey,
+          apiSettings,
+          post.images
+        );
+        
+        // Record response
+        responses.push({
+          characterId: character.id,
+          success: response.success,
+          response
+        });
+        
+        // Update post with character's response
+        if (response.success) {
+          if (response.action?.like) {
+            // Add like
+            const newLike: CircleLike = {
+              userId: character.id,
+              userName: character.name,
+              userAvatar: character.avatar as string,
+              isCharacter: true,
+              createdAt: new Date().toISOString()
+            };
+            
+            updatedPost.likes = (updatedPost.likes || 0) + 1;
+            (updatedPost.likedBy = updatedPost.likedBy || []).push(newLike);
+          }
+          
+          if (response.action?.comment) {
+            // Add comment
+            const newComment: CircleComment = {
+              id: `${Date.now()}-${character.id}`,
+              userId: character.id,
+              userName: character.name,
+              userAvatar: character.avatar as string,
+              content: response.action.comment,
+              createdAt: new Date().toISOString(),
+              type: 'character'
+            };
+            
+            (updatedPost.comments = updatedPost.comments || []).push(newComment);
+          }
+        }
+      } catch (error) {
+        console.error(`【朋友圈服务】处理角色 ${character.name} 的回应时出错:`, error);
+        responses.push({
+          characterId: character.id,
+          success: false
+        });
+      }
+    }
+    
+    return { updatedPost, responses };
+  }
+
+  /**
+   * Enhanced method to handle post refresh and update
+   */
+  static async refreshPosts(
+    characters: Character[],
+    savedPosts: CirclePost[],
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): Promise<CirclePost[]> {
+    try {
+      console.log(`【朋友圈服务】刷新帖子，当前有 ${savedPosts.length} 条已保存的帖子`);
+      
+      // 1. Look for new character posts that aren't in the saved posts
+      const allCharacterPosts: CirclePost[] = [];
+      
+      for (const character of characters) {
+        if (character.circlePosts && Array.isArray(character.circlePosts)) {
+          character.circlePosts.forEach(post => {
+            if (post && post.id && !savedPosts.some(p => p.id === post.id)) {
+              allCharacterPosts.push({
+                ...post,
+                characterAvatar: character.avatar || post.characterAvatar
+              });
+            }
+          });
+        }
+      }
+      
+      if (allCharacterPosts.length > 0) {
+        console.log(`【朋友圈服务】发现 ${allCharacterPosts.length} 条新的角色帖子`);
+      }
+      
+      // 2. Merge with saved posts and sort
+      const mergedPosts = [...savedPosts, ...allCharacterPosts].sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      
+      // 3. Update post avatars with fresh character data
+      const updatedPosts = mergedPosts.map(post => {
+        // Update avatar for character posts
+        if (post.characterId !== 'user-1') {
+          const character = characters.find(c => c.id === post.characterId);
+          if (character) {
+            post.characterAvatar = character.avatar || post.characterAvatar;
+          }
+        }
+        
+        // Update avatars in likes and comments
+        if (post.likedBy) {
+          post.likedBy = post.likedBy.map(like => {
+            if (like.isCharacter) {
+              const character = characters.find(c => c.id === like.userId);
+              if (character) {
+                return { 
+                  ...like, 
+                  userAvatar: character.avatar || like.userAvatar 
+                };
+              }
+            }
+            return like;
+          });
+        }
+        
+        if (post.comments) {
+          post.comments = post.comments.map(comment => {
+            if (comment.type === 'character') {
+              const character = characters.find(c => c.id === comment.userId);
+              if (character) {
+                return { 
+                  ...comment, 
+                  userAvatar: character.avatar || comment.userAvatar 
+                };
+              }
+            }
+            return comment;
+          });
+        }
+        
+        return post;
+      });
+      
+      // 4. Save the merged and updated posts
+      await this.savePosts(updatedPosts);
+      
+      return updatedPosts;
+    } catch (error) {
+      console.error(`【朋友圈服务】刷新帖子失败:`, error);
+      return savedPosts; // Return original posts on error
+    }
+  }
+
+  /**
+   * Enhanced user post method with better image handling
+   */
   static async createUserPost(
     userNickname: string,
     userAvatar: string | null,
     content: string,
-    images?: string[],
+    images: string[] = [],
     apiKey?: string,
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
-    charactersList?: Character[] // Add this parameter
+    charactersList?: Character[]
   ): Promise<{
     post: CirclePost,
     responses: Array<{characterId: string, success: boolean, response?: CircleResponse}>
   }> {
     try {
-      console.log(`【朋友圈服务】用户 ${userNickname} 创建新朋友圈帖子`);
+      console.log(`【朋友圈服务】用户 ${userNickname} 创建新朋友圈帖子${images.length ? `，包含 ${images.length} 张图片` : ''}`);
       
       // Create a post object for the user
       const newPost: CirclePost = {
         id: `user-post-${Date.now()}`,
-        characterId: 'user-1',  // Use a fixed ID for the user
+        characterId: 'user-1',
         characterName: userNickname,
         characterAvatar: userAvatar,
         content,
@@ -687,77 +1008,117 @@ export class CircleService {
         hasLiked: false
       };
       
-      // Get all characters with circle interaction enabled
-      // Use charactersList parameter if provided, otherwise use getAllCharacters()
-      const characters = charactersList ? 
-        charactersList.filter(c => c.circleInteraction) : 
-        [];
-        
-      console.log(`【朋友圈服务】找到 ${characters.length} 个启用了朋友圈互动的角色`);
-      
-      if (characters.length === 0) {
-        console.warn("【朋友圈服务】警告：没有找到启用朋友圈互动的角色，无法生成互动");
-        return {
-          post: newPost,
-          responses: []
-        };
+      // Save the post immediately for better UX
+      try {
+        const savedPosts = await this.loadSavedPosts();
+        await this.savePosts([newPost, ...savedPosts]);
+        console.log(`【朋友圈服务】已保存用户帖子到存储`);
+      } catch (saveError) {
+        console.error(`【朋友圈服务】保存用户帖子到存储失败:`, saveError);
+        // Continue even if save fails
       }
       
-      // Get the Circle Scheduler instance to manage API rate limits
-      const scheduler = CircleScheduler.getInstance();
+      // Process character responses in background
+      const { updatedPost, responses } = await this.processPostResponses(
+        newPost,
+        charactersList || [],
+        apiKey,
+        apiSettings
+      );
       
-      // Process responses from all enabled characters through the scheduler
-      const responses: Array<{characterId: string, success: boolean, response?: CircleResponse}> = [];
+      // Update storage with the post including character responses
+      try {
+        const allSavedPosts = await this.loadSavedPosts();
+        const updatedSavedPosts = allSavedPosts.map(p => 
+          p.id === updatedPost.id ? updatedPost : p
+        );
+        await this.savePosts(updatedSavedPosts);
+        console.log(`【朋友圈服务】已更新带有角色响应的用户帖子`);
+      } catch (updateError) {
+        console.error(`【朋友圈服务】更新带有角色响应的用户帖子到存储失败:`, updateError);
+      }
       
-      for (const character of characters) {
-        try {
-          console.log(`【朋友圈服务】通过调度器处理角色 ${character.name} 对用户帖子的回应`);
+      return { post: updatedPost, responses };
+    } catch (error) {
+      console.error(`【朋友圈服务】创建用户帖子失败:`, error);
+      return {
+        post: {
+          id: `user-post-${Date.now()}`,
+          characterId: 'user-1',
+          characterName: userNickname,
+          characterAvatar: userAvatar,
+          content,
+          images,
+          createdAt: new Date().toISOString(),
+          comments: [],
+          likes: 0,
+          likedBy: [],
+          hasLiked: false
+        },
+        responses: []
+      };
+    }
+  }
+  
+  /**
+   * Test multiple posts for interaction and get relationship updates
+   */
+  static async runBatchInteractionTest(
+    characters: Character[],
+    postCount: number = 3,
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): Promise<{
+    posts: CirclePost[],
+    updates: Array<{characterId: string, changes: any}>
+  }> {
+    try {
+      console.log(`【朋友圈服务】开始批量互动测试，生成 ${postCount} 条测试帖子`);
+      
+      const testPosts: CirclePost[] = [];
+      const characterUpdates: Array<{characterId: string, changes: any}> = [];
+      
+      // Generate test posts
+      for (let i = 0; i < postCount; i++) {
+        const { post, author } = await this.publishTestPost(characters, apiKey, apiSettings);
+        if (post && author) {
+          testPosts.push(post);
           
-          // Initialize character if needed
-          await this.initCharacterCircle(character, apiKey, apiSettings);
-          
-          // Schedule the interaction
-          const response = await scheduler.scheduleInteraction(
-            character,
-            newPost,
+          // Process interactions for this post
+          const { updatedPost, updatedCharacters } = await this.processTestInteraction(
+            post,
+            characters.filter(c => c.id !== author.id && c.circleInteraction),
             apiKey,
             apiSettings
           );
           
-          // Record response
-          responses.push({
-            characterId: character.id,
-            success: response.success,
-            response
+          // Record character updates
+          updatedCharacters.forEach(updatedChar => {
+            characterUpdates.push({
+              characterId: updatedChar.id,
+              changes: {
+                relationshipMap: updatedChar.relationshipMap,
+                messageBox: updatedChar.messageBox,
+                relationshipActions: updatedChar.relationshipActions
+              }
+            });
           });
           
-          // Update post with character's response
-          if (response.success) {
-            const { updatedPost } = this.updatePostWithResponse(newPost, character, response);
-            newPost.comments = updatedPost.comments;
-            newPost.likes = updatedPost.likes;
-            newPost.likedBy = updatedPost.likedBy;
-            
-            console.log(`【朋友圈服务】角色 ${character.name} 成功响应用户帖子: 点赞=${response.action?.like}, 评论=${response.action?.comment ? '是' : '否'}`);
-          } else {
-            console.log(`【朋友圈服务】角色 ${character.name} 回应用户帖子失败: ${response.error || '未知错误'}`);
-          }
-        } catch (error) {
-          console.error(`【朋友圈服务】角色 ${character.name} 处理用户朋友圈帖子时出错:`, error);
-          responses.push({
-            characterId: character.id,
-            success: false
-          });
+          // Save the test post
+          const savedPosts = await this.loadSavedPosts();
+          await this.savePosts([updatedPost, ...savedPosts]);
         }
       }
       
+      console.log(`【朋友圈服务】批量互动测试完成，生成了 ${testPosts.length} 条帖子，${characterUpdates.length} 个角色更新`);
+      
       return {
-        post: newPost,
-        responses
+        posts: testPosts,
+        updates: characterUpdates
       };
     } catch (error) {
-      console.error('【朋友圈服务】创建用户朋友圈帖子失败:', error);
-      throw error;
+      console.error(`【朋友圈服务】批量互动测试失败:`, error);
+      return { posts: [], updates: [] };
     }
   }
 }

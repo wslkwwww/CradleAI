@@ -18,7 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { theme } from '@/constants/theme';
 import { Picker } from '@react-native-picker/picker';
-import { memoryService } from '@/services/memory-service';
+import { memoryService } from '@/services/AIbbs/memory-service';
 import Slider from '@react-native-community/slider';
 
 const SIDEBAR_WIDTH_EXPANDED = 280;

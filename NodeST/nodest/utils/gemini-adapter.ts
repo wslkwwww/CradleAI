@@ -312,7 +312,8 @@ export class GeminiAdapter {
      * @param imageUrl 图像URL
      * @returns 图像的Base64编码和MIME类型
      */
-    private async fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
+    // 修改：公开此方法以便其他类可以使用
+    async fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
         try {
             console.log(`[Gemini适配器] 正在从URL获取图片: ${imageUrl}`);
             
@@ -336,7 +337,10 @@ export class GeminiAdapter {
             }
             const base64Data = btoa(binaryString);
             
-            console.log(`[Gemini适配器] 成功获取并编码图片，MIME类型: ${contentType}, 大小: ${base64Data.length}`);
+            // 修正: 不打印完整的base64字符串，只记录其长度和前10个字符
+            const previewLength = 10;
+            const base64Preview = base64Data.substring(0, previewLength) + '...';
+            console.log(`[Gemini适配器] 成功获取并编码图片，MIME类型: ${contentType}, 大小: ${base64Data.length}字节, 预览: ${base64Preview}`);
             
             return {
                 data: base64Data,
@@ -420,6 +424,16 @@ export class GeminiAdapter {
      * @returns 分析结果文本
      */
     async analyzeImage(image: ImageInput, prompt: string): Promise<string> {
+        // 增强图像分析提示词，以获得更全面的描述
+        const enhancedPrompt = prompt || `请详细描述这张图片的内容。包括：
+1. 图片中的主要人物/物体
+2. 场景和环境
+3. 颜色和氛围
+4. 任何特殊或显著的细节
+5. 图片可能传递的情感或意图
+
+请提供全面但简洁的描述，控制在150字以内。`;
+
         // 确保我们有正确的图像数据格式
         let processedImage: ImageInput;
         
@@ -437,7 +451,11 @@ export class GeminiAdapter {
             processedImage = image;
         }
         
-        const result = await this.generateMultiModalContent(prompt, {
+        // 修改：预览提示词的前50个字符而不是完整打印
+        const promptPreview = enhancedPrompt.substring(0, 50) + (enhancedPrompt.length > 50 ? '...' : '');
+        console.log(`[Gemini适配器] 使用增强提示词分析图片: "${promptPreview}"`);
+        
+        const result = await this.generateMultiModalContent(enhancedPrompt, {
             images: [processedImage]
         });
         

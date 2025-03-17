@@ -249,6 +249,7 @@ export interface Message {
         type?: 'relationship_request' | 'invitation' | 'alert' | 'message';
       };
     read?: boolean;
+    images?: string [];
 }
 
 export interface MessageItemProps {

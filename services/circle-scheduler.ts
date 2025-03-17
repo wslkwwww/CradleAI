@@ -1,5 +1,5 @@
 import { Character, GlobalSettings } from '../shared/types';
-import { CirclePost } from '../shared/types/circle-types';
+import { CirclePost,CirclePostOptions } from '../shared/types/circle-types';
 import { CircleService } from './circle-service';
 
 /**
@@ -21,6 +21,7 @@ export class CircleScheduler {
     post: CirclePost;
     apiKey?: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+    images?: string[]; // Add support for images
     resolve: (value: any) => void;
     reject: (error: any) => void;
   }> = [];
@@ -67,22 +68,25 @@ export class CircleScheduler {
 
   /**
    * Schedule a character to interact with a post
+   * @param images Optional array of image URLs to analyze with the post
    */
   public scheduleInteraction(
     character: Character,
     post: CirclePost,
     apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    images?: string[] // Add images parameter
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 对帖子 ${post.id} 的互动添加到队列`);
+      console.log(`【朋友圈调度器】将角色 ${character.name} 对帖子 ${post.id} 的互动添加到队列${images?.length ? '，包含图片' : ''}`);
       
-      // Add to queue
+      // Add to queue with images
       this.interactionQueue.push({
         character,
         post,
         apiKey,
         apiSettings,
+        images, // Include images array
         resolve,
         reject
       });
@@ -97,15 +101,17 @@ export class CircleScheduler {
   /**
    * Schedule a character to interact with a user post
    * This is a specialized version that prioritizes user post interactions
+   * @param images Optional array of image URLs to analyze with the post
    */
   public scheduleUserPostInteraction(
     character: Character,
     userPost: CirclePost,
     apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    images?: string[] // Add images parameter
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 对用户帖子的互动添加到队列（优先级高）`);
+      console.log(`【朋友圈调度器】将角色 ${character.name} 对用户帖子的互动添加到队列（优先级高）${images?.length ? '，包含图片' : ''}`);
       
       // Add to the front of the queue to prioritize user posts
       this.interactionQueue.unshift({
@@ -113,6 +119,7 @@ export class CircleScheduler {
         post: userPost,
         apiKey,
         apiSettings,
+        images, // Include images array
         resolve,
         reject
       });
@@ -155,12 +162,29 @@ export class CircleScheduler {
           this.interactionQueue = this.interactionQueue.filter(item => item !== userPostInteraction);
           
           try {
-            console.log(`【朋友圈调度器】优先处理角色 ${userPostInteraction.character.name} 对用户帖子的互动请求`);
+            console.log(`【朋友圈调度器】优先处理角色 ${userPostInteraction.character.name} 对用户帖子的互动请求${userPostInteraction.images?.length ? "（包含图片）" : ""}`);
+            
+            // Create post options with image support
+            const postOptions: CirclePostOptions = {
+              type: 'replyToPost' as const,
+              content: {
+                authorId: userPostInteraction.post.characterId,
+                authorName: userPostInteraction.post.characterName,
+                text: userPostInteraction.post.content,
+                context: `这是 ${userPostInteraction.post.characterName} 发布的朋友圈动态`,
+                images: userPostInteraction.images || userPostInteraction.post.images // Use provided images or post images
+              },
+              responderId: userPostInteraction.character.id,
+              responderCharacter: userPostInteraction.character
+            };
+            
+            // Use the created postOptions with images when processing the interaction
             const result = await CircleService.processCircleInteraction(
               userPostInteraction.character,
               userPostInteraction.post,
               userPostInteraction.apiKey,
-              userPostInteraction.apiSettings
+              userPostInteraction.apiSettings,
+              postOptions  // Pass the complete postOptions with images
             );
             
             userPostInteraction.resolve(result);
@@ -213,12 +237,29 @@ export class CircleScheduler {
           const interactionRequest = this.interactionQueue.shift();
           if (interactionRequest) {
             try {
-              console.log(`【朋友圈调度器】处理角色 ${interactionRequest.character.name} 的普通互动请求`);
+              console.log(`【朋友圈调度器】处理角色 ${interactionRequest.character.name} 的普通互动请求${interactionRequest.images?.length ? "（包含图片）" : ""}`);
+              
+              // Create post options with image support
+              const postOptions: CirclePostOptions = {
+                type: 'replyToPost' as const,
+                content: {
+                  authorId: interactionRequest.post.characterId,
+                  authorName: interactionRequest.post.characterName,
+                  text: interactionRequest.post.content,
+                  context: `这是 ${interactionRequest.post.characterName} 发布的朋友圈动态`,
+                  images: interactionRequest.images || interactionRequest.post.images // Use provided images or post images
+                },
+                responderId: interactionRequest.character.id,
+                responderCharacter: interactionRequest.character
+              };
+              
+              // Pass the options with images to the service
               const result = await CircleService.processCircleInteraction(
                 interactionRequest.character,
                 interactionRequest.post,
                 interactionRequest.apiKey,
-                interactionRequest.apiSettings
+                interactionRequest.apiSettings,
+                postOptions  // Pass the complete postOptions with images
               );
               
               interactionRequest.resolve(result);
@@ -242,13 +283,18 @@ export class CircleScheduler {
             );
             
             // Construct a post object for the result
-            if (result.success && result.action?.comment) {
+            if (result.success) {
+              // Get content from action.comment which contains post content
+              const postContent = result.action?.comment || this.generatePostContent(request.character);
+              
+              console.log(`【朋友圈调度器】角色 ${request.character.name} 生成的帖子内容: "${postContent.substring(0, 50)}${postContent.length > 50 ? '...' : ''}"`);
+              
               const post: CirclePost = {
                 id: `post-${Date.now()}-${request.character.id}`,
                 characterId: request.character.id,
                 characterName: request.character.name,
                 characterAvatar: request.character.avatar as string,
-                content: result.action.comment,
+                content: postContent, // Use the actual generated content here
                 createdAt: new Date().toISOString(),
                 comments: [],
                 likes: 0,

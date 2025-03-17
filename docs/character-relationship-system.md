@@ -217,7 +217,7 @@ Add to Section 6.3 (场景提示词设计)
 你对自己发布的这条内容的感受
 你希望获得什么样的评论或互动
 包含你的情感状态
-严格按以下格式回复： { "reflection": "对自己帖子的反思或补充想法", "expectation": "期待获得的互动类型", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
+严格按以下格式用中文回复： { "reflection": "对自己帖子的反思或补充想法", "expectation": "期待获得的互动类型", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
 
 Add to Section 9 (Technical Implementation Details)
 

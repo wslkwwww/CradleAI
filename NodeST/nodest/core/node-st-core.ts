@@ -14,7 +14,7 @@ import {
     GlobalSettings
 } from '../../../shared/types';
 import { MessagePart } from '@/shared/types';
-import { memoryService } from '@/services/memory-service';
+import { memoryService } from '@/services/AIbbs/memory-service';
 
 export class NodeSTCore {
     private geminiAdapter: GeminiAdapter | null = null;

@@ -90,15 +90,16 @@ export interface CircleRFramework {
 }
 
 export interface CirclePostOptions {
-    type: 'newPost' | 'replyToComment' | 'replyToPost';
+    type: 'newPost' | 'replyToComment' | 'replyToPost' | 'forwardedPost'  // Added 'forwardedPost'
     content: {
         authorId: string;
-        authorName?: string;  // Add this field
+        authorName?: string;  
         text: string;
         context?: string;
+        images?: string[];  // Add support for images array
     };
-    responderId: string;  // 添加响应者ID字段，用于加载正确的框架
-    responderCharacter?: Character;  // 可选的响应者角色对象，用于初始化
+    responderId: string; 
+    responderCharacter?: Character;
 }
 
 export interface CircleResponse {
@@ -113,6 +114,10 @@ export interface CircleResponse {
         strengthDelta: number;
         newType?: string;
     }>;
+    emotion?: {
+        type: "positive" | "neutral" | "negative";
+        intensity: number;
+    };
 }
 
 export interface CircleMemorySystem {
