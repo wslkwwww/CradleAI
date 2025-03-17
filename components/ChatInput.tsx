@@ -476,16 +476,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setShowActions(!showActions);
   };
 
+  // Modified reset conversation handler - no longer sends first_mes itself
   const handleResetConversation = () => {
     Alert.alert(
       '确定要重置对话吗？',
-      '这将清除所有对话历史记录',
+      '这将清除所有对话历史记录，但保留角色的开场白。',
       [
         { text: '取消', style: 'cancel' },
         { 
           text: '重置', 
           style: 'destructive',
           onPress: () => {
+            // Reset the conversation - App component will handle sending first_mes
             onResetConversation();
             setShowActions(false);
           }
@@ -494,7 +496,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
     );
   };
 
-  // Remove the handleRegenerateResponse method since regeneration is now handled per-message
+  // Combined image handling function
+  const openImageOptions = () => {
+    setShowActions(false);
+    Alert.alert(
+      '选择图片来源',
+      '请选择如何添加图片',
+      [
+        {
+          text: '从相册选择',
+          onPress: pickImage
+        },
+        {
+          text: '输入图片URL',
+          onPress: () => setShowImageUrlModal(true)
+        },
+        {
+          text: '取消',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
 
   // Image handling functions
   const pickImage = async () => {
@@ -636,31 +659,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </Animated.Text>
             </TouchableOpacity>
 
-            {/* Remove regenerate button from here */}
-
-            {/* New Image Upload Button */}
+            {/* Combined Image Button - replaces separate buttons */}
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={pickImage}
+              onPress={openImageOptions}
             >
               <View style={[styles.actionIcon, styles.imageIcon]}>
-                <Ionicons name="image" size={24} color="#fff" />
+                <Ionicons name="images" size={24} color="#fff" />
               </View>
               <Animated.Text style={styles.actionText}>
-                选择图片
-              </Animated.Text>
-            </TouchableOpacity>
-
-            {/* Image URL Button */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleImageUrlInput}
-            >
-              <View style={[styles.actionIcon, styles.urlIcon]}>
-                <Ionicons name="link" size={24} color="#fff" />
-              </View>
-              <Animated.Text style={styles.actionText}>
-                图片URL
+                添加图片
               </Animated.Text>
             </TouchableOpacity>
 

@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { parseHtmlText } from '@/utils/textParser';
+import { ratingService } from '@/services/ratingService';
 
 interface ChatDialogProps {
   messages: Message[];
@@ -42,6 +43,8 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateAnim = useRef(new Animated.Value(20)).current;
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  // Track rated messages
+  const [ratedMessages, setRatedMessages] = useState<Record<string, boolean>>({});
 
   // Animate new messages
   useEffect(() => {
@@ -67,6 +70,52 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
       }, 100);
     }
   }, [messages]);
+
+  // Load rated messages on mount and when character changes
+  useEffect(() => {
+    const loadRatedMessages = async () => {
+      if (selectedCharacter?.id) {
+        const ratings = await ratingService.getRatingsForCharacter(selectedCharacter.id);
+        setRatedMessages(ratings);
+      }
+    };
+    
+    loadRatedMessages();
+  }, [selectedCharacter?.id]);
+
+  // Enhanced rate message handler with animations and persistence
+  const handleRateMessage = async (messageId: string, isUpvote: boolean) => {
+    // Create animation for feedback
+    const buttonScale = new Animated.Value(1);
+    Animated.sequence([
+      Animated.timing(buttonScale, {
+        toValue: 1.5,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(buttonScale, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      })
+    ]).start();
+    
+    // Update local state
+    setRatedMessages(prev => ({
+      ...prev,
+      [messageId]: isUpvote
+    }));
+    
+    // Store the rating
+    if (selectedCharacter?.id) {
+      await ratingService.saveRating(selectedCharacter.id, messageId, isUpvote);
+    }
+    
+    // Call the parent handler if provided
+    if (onRateMessage) {
+      onRateMessage(messageId, isUpvote);
+    }
+  };
 
   const renderEmptyState = () => {
     return (
@@ -228,12 +277,22 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     return aiMessageCount - 1; // 0-based index
   };
 
+  // Check if a message has been rated
+  const getMessageRating = (messageId: string): boolean | null => {
+    if (messageId in ratedMessages) {
+      return ratedMessages[messageId];
+    }
+    return null; // Not rated
+  };
+
   // Render message actions (rating buttons and regenerate button)
   const renderMessageActions = (message: Message, index: number) => {
     if (message.isLoading) return null;
     
     const isLastMessage = index === messages.length - 1 || 
                          (index === messages.length - 2 && messages[messages.length - 1].isLoading);
+    
+    const messageRating = getMessageRating(message.id);
     
     return (
       <View style={styles.messageActions}>
@@ -242,24 +301,40 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
             style={styles.actionButton}
             onPress={() => onRegenerateMessage(message.id, getAiMessageIndex(index))}
           >
-            <Ionicons name="refresh-circle-outline" size={20} color="#999" />
+            <Ionicons name="refresh-circle-outline" size={22} color="#ddd" />
           </TouchableOpacity>
         )}
         
         {onRateMessage && (
           <>
             <TouchableOpacity
-              style={styles.rateButton}
-              onPress={() => onRateMessage(message.id, true)}
+              style={[
+                styles.rateButton, 
+                messageRating === true && styles.rateButtonActive
+              ]}
+              onPress={() => handleRateMessage(message.id, true)}
+              activeOpacity={0.7}
             >
-              <Ionicons name="thumbs-up-outline" size={18} color="#999" />
+              <Ionicons 
+                name={messageRating === true ? "thumbs-up" : "thumbs-up-outline"} 
+                size={20} 
+                color={messageRating === true ? theme.colors.primary : "#ddd"} 
+              />
             </TouchableOpacity>
             
             <TouchableOpacity
-              style={styles.rateButton}
-              onPress={() => onRateMessage(message.id, false)}
+              style={[
+                styles.rateButton, 
+                messageRating === false && styles.rateButtonActive
+              ]}
+              onPress={() => handleRateMessage(message.id, false)}
+              activeOpacity={0.7}
             >
-              <Ionicons name="thumbs-down-outline" size={18} color="#999" />
+              <Ionicons 
+                name={messageRating === false ? "thumbs-down" : "thumbs-down-outline"}
+                size={20} 
+                color={messageRating === false ? "#e74c3c" : "#ddd"} 
+              />
             </TouchableOpacity>
           </>
         )}
@@ -324,7 +399,7 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
                     ]}>
                       {isUser ? (
                         <LinearGradient
-                          colors={['rgb(255, 224, 195)', 'rgb(255, 200, 170)']}
+                          colors={['rgba(255, 224, 195, 0.85)', 'rgba(255, 200, 170, 0.85)']}
                           style={styles.userGradient}
                         >
                           {processMessageContent(message.text, true)}
@@ -455,7 +530,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   botMessageTextContainer: {
-    backgroundColor: '#444',
+    backgroundColor: 'rgba(68, 68, 68, 0.85)', // Semi-transparent background
     borderRadius: 18,
     borderTopLeftRadius: 4,
     padding: 12,
@@ -478,7 +553,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#999',
+    backgroundColor: '#bbb',
     marginHorizontal: 2,
     opacity: 0.7,
   },
@@ -489,17 +564,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   rateButton: {
-    padding: 4,
-    marginLeft: 12,
+    padding: 8,
+    marginLeft: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  rateButtonActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
   timeGroup: {
     alignItems: 'center',
     marginVertical: 8,
   },
   timeText: {
-    color: '#999',
+    color: '#ddd',
     fontSize: 12,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     paddingHorizontal: 10,
     paddingVertical: 2,
     borderRadius: 10,
@@ -523,7 +603,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   emptyStateSubtitle: {
-    color: '#999',
+    color: '#bbb',
     fontSize: 16,
     textAlign: 'center',
     paddingHorizontal: 32,
@@ -531,7 +611,6 @@ const styles = StyleSheet.create({
   endSpacer: {
     height: 40,
   },
-  // 新增样式
   imageWrapper: {
     marginVertical: 8,
     alignItems: 'center',
@@ -541,16 +620,16 @@ const styles = StyleSheet.create({
     height: 200,
     maxHeight: MAX_IMAGE_HEIGHT,
     borderRadius: 8,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: 'rgba(42, 42, 42, 0.5)', // Semi-transparent background
   },
   imageCaption: {
     fontSize: 12,
-    color: '#999',
+    color: '#bbb',
     marginTop: 4,
     textAlign: 'center',
   },
   imageDataUrlWarning: {
-    backgroundColor: '#333',
+    backgroundColor: 'rgba(51, 51, 51, 0.8)', // Semi-transparent background
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -564,7 +643,7 @@ const styles = StyleSheet.create({
   },
   fullscreenContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.9)',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -577,7 +656,7 @@ const styles = StyleSheet.create({
     top: 40,
     right: 20,
     zIndex: 100,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -598,10 +677,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   actionButton: {
-    padding: 6,
-    marginRight: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 14,
+    padding: 8,
+    marginRight: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 18,
   },
 });
 

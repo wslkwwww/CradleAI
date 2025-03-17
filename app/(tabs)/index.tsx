@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Text,
   Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 
 import ChatDialog from '@/components/ChatDialog';
@@ -28,6 +29,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import TopBarWithBackground from '@/components/TopBarWithBackground';
 import { NodeSTManager } from '@/utils/NodeSTManager';  // 导入 NodeSTManager
 import { chatSaveService } from '@/services/ChatSaveService';
+import { EventRegister } from 'react-native-event-listeners';
 
 const App = () => {
   const router = useRouter();
@@ -66,6 +68,16 @@ const App = () => {
   const [processedImageUrls, setProcessedImageUrls] = useState<Set<string>>(new Set());
   // 添加一个引用来跟踪处理中的任务ID
   const processingTaskIds = useRef<Set<string>>(new Set());
+
+  // Add ref to track if first message needs to be sent
+  const firstMessageSentRef = useRef<Record<string, boolean>>({});
+
+  // Add auto-message feature variables
+  const [autoMessageEnabled, setAutoMessageEnabled] = useState(true);
+  const autoMessageTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoMessageIntervalRef = useRef<number>(5); // Default 5 minutes
+  const lastMessageTimeRef = useRef<number>(Date.now());
+  const waitingForUserReplyRef = useRef<boolean>(false); // Track if bot is waiting for user reply
 
   const toggleSettingsSidebar = () => {
     setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
@@ -202,6 +214,21 @@ const App = () => {
       );
     } else {
       await sendMessageInternal(newMessage, sender, isLoading);
+    }
+
+    // If user is sending a message, clear the "waiting for reply" flag
+    if (sender === 'user' && !isLoading) {
+      waitingForUserReplyRef.current = false;
+      console.log('[App] User sent a message, no longer waiting for reply');
+      
+      // Clear unread messages count when user sends a message
+      updateUnreadMessagesCount(0);
+    }
+
+    // Reset the auto message timer after any message is sent
+    if (!isLoading) {
+      lastMessageTimeRef.current = Date.now();
+      setupAutoMessageTimer();
     }
   };
 
@@ -394,11 +421,13 @@ const App = () => {
   const handleSelectConversation = (id: string) => {
     setSelectedConversationId(id);
     setIsSidebarVisible(false);
-  };
-
-  const handleResetConversation = async () => {
-    if (selectedConversationId) {
-      await clearMessages(selectedConversationId);
+    
+    // Add a check - if we're switching to a different conversation that has no messages,
+    // we need to ensure the first message is sent
+    const currentMessages = getMessages(id);
+    if (currentMessages.length === 0 && !firstMessageSentRef.current[id]) {
+      // We don't need to do anything here - the effect will handle sending the first message
+      console.log('[App] Selected conversation has no messages, will send first message');
     }
   };
 
@@ -611,6 +640,243 @@ const App = () => {
     return require('@/assets/images/default-background.jpg');
   };
 
+  // Add functionality to send first message when conversation starts
+  useEffect(() => {
+    const sendFirstMessage = async () => {
+      // Only proceed if we have a selected conversation and character
+      if (!selectedConversationId || !selectedCharacter?.id) return;
+      
+      // Check if we've already sent a first message for this conversation
+      if (firstMessageSentRef.current[selectedConversationId]) return;
+
+      // Check if the conversation is empty (no messages yet)
+      const currentMessages = getMessages(selectedConversationId);
+      if (currentMessages.length > 0) {
+        // Mark as sent since conversation already has messages
+        firstMessageSentRef.current[selectedConversationId] = true;
+        return;
+      }
+
+      try {
+        // Try to parse character data to get first_mes
+        if (selectedCharacter.jsonData) {
+          const characterData = JSON.parse(selectedCharacter.jsonData);
+          if (characterData.roleCard?.first_mes) {
+            // Send the first message
+            console.log('[App] Sending first message for character:', selectedCharacter.name);
+            await addMessage(selectedConversationId, {
+              id: `first-${Date.now()}`,
+              text: characterData.roleCard.first_mes,
+              sender: 'bot',
+              timestamp: Date.now()
+            });
+            
+            // Mark as sent for this conversation
+            firstMessageSentRef.current[selectedConversationId] = true;
+          }
+        }
+      } catch (error) {
+        console.error('[App] Error sending first message:', error);
+      }
+    };
+
+    sendFirstMessage();
+  }, [selectedConversationId, selectedCharacter]);
+
+  // Update handleResetConversation to send first_mes after reset
+  const handleResetConversation = async () => {
+    if (selectedConversationId) {
+      // Reset the conversation
+      await clearMessages(selectedConversationId);
+      
+      // Clear the "first message sent" flag for this conversation
+      if (firstMessageSentRef.current[selectedConversationId]) {
+        delete firstMessageSentRef.current[selectedConversationId];
+      }
+      
+      // After a short delay, trigger the first message effect
+      setTimeout(() => {
+        if (selectedCharacter?.jsonData) {
+          try {
+            const characterData = JSON.parse(selectedCharacter.jsonData);
+            if (characterData.roleCard?.first_mes) {
+              addMessage(selectedConversationId, {
+                id: `first-reset-${Date.now()}`,
+                text: characterData.roleCard.first_mes,
+                sender: 'bot',
+                timestamp: Date.now()
+              });
+              firstMessageSentRef.current[selectedConversationId] = true;
+              
+              // Reset auto-message timer
+              lastMessageTimeRef.current = Date.now();
+              setupAutoMessageTimer();
+            }
+          } catch (e) {
+            console.error('Error adding first message after reset:', e);
+          }
+        }
+      }, 300);
+    }
+  };
+
+  // Function to set up auto message timer
+  const setupAutoMessageTimer = useCallback(() => {
+    // Clear any existing timer
+    if (autoMessageTimerRef.current) {
+      clearTimeout(autoMessageTimerRef.current);
+      autoMessageTimerRef.current = null;
+    }
+    
+    // If auto messaging is disabled, no character selected, or waiting for user reply, don't set up timer
+    if (!autoMessageEnabled || !selectedCharacter?.id || waitingForUserReplyRef.current) {
+      console.log(`[App] Auto message timer not set: enabled=${autoMessageEnabled}, hasCharacter=${!!selectedCharacter}, waitingForUserReply=${waitingForUserReplyRef.current}`);
+      return;
+    }
+
+    // Check character-specific settings:
+    // 1. autoMessage must be explicitly enabled
+    if (selectedCharacter.autoMessage !== true) {
+      console.log('[App] Auto message disabled for this character in settings');
+      return;
+    }
+
+    // Use character-specific interval or default to 5 minutes
+    const interval = selectedCharacter.autoMessageInterval || 5;
+    autoMessageIntervalRef.current = interval;
+
+    // Set up new timer
+    const intervalMs = autoMessageIntervalRef.current * 60 * 1000; // Convert minutes to ms
+    
+    console.log(`[App] Auto message timer set for ${autoMessageIntervalRef.current} minutes`);
+    
+    autoMessageTimerRef.current = setTimeout(async () => {
+      console.log('[App] Auto message timer triggered');
+      
+      // Only send auto message if we have a selected character and conversation
+      if (selectedCharacter && selectedConversationId) {
+        // Reset timer reference since it's been triggered
+        autoMessageTimerRef.current = null;
+        
+        try {
+          // Create a loading message first
+          await addMessage(selectedConversationId, {
+            id: `auto-loading-${Date.now()}`,
+            text: '',
+            sender: 'bot',
+            isLoading: true,
+            timestamp: Date.now(),
+          });
+          
+          // Call NodeST with special auto-message instruction
+          const result = await NodeSTManager.processChatMessage({
+            userMessage: "[AUTO_MESSAGE] 用户已经一段时间没有回复了。请基于上下文和你的角色设定，主动发起一条合适的消息。这条消息应该自然，不要直接提及用户长时间未回复的事实。",
+            status: "同一角色继续对话",
+            conversationId: selectedConversationId,
+            apiKey: user?.settings?.chat.characterApiKey || '',
+            apiSettings: {
+              apiProvider: user?.settings?.chat.apiProvider || 'gemini',
+              openrouter: user?.settings?.chat.openrouter
+            },
+            character: selectedCharacter
+          });
+          
+          // Remove loading message
+          const currentMessages = getMessages(selectedConversationId).filter(
+            msg => !msg.isLoading
+          );
+          
+          // Clear all messages
+          await clearMessages(selectedConversationId);
+          
+          // Re-add all messages
+          for (const msg of currentMessages) {
+            await addMessage(selectedConversationId, msg);
+          }
+          
+          // Add the auto message
+          if (result.success && result.text) {
+            // Always add the message to the chat regardless of notification settings
+            await addMessage(selectedConversationId, {
+              id: `auto-${Date.now()}`,
+              text: result.text,
+              sender: 'bot',
+              timestamp: Date.now(),
+            });
+            
+            // Update last message time
+            lastMessageTimeRef.current = Date.now();
+            
+            // Set waitingForUserReply to true to prevent further auto-messages until user responds
+            waitingForUserReplyRef.current = true;
+            console.log('[App] Auto message sent, now waiting for user reply');
+            
+            // IMPORTANT: Only update notification badge if notificationEnabled is true
+            // This change ensures the message still appears in chat, just without a notification badge
+            if (selectedCharacter.notificationEnabled === true) {
+              console.log('[App] Notifications enabled for this character, updating unread count');
+              updateUnreadMessagesCount(1);
+            } else {
+              console.log('[App] Notifications disabled for this character, not showing badge');
+            }
+          } else {
+            console.error('[App] Failed to generate auto message:', result.error);
+          }
+        } catch (error) {
+          console.error('[App] Error generating auto message:', error);
+        }
+      }
+    }, intervalMs);
+    
+    console.log(`[App] Auto message timer set for ${autoMessageIntervalRef.current} minutes`);
+  }, [selectedCharacter, selectedConversationId, autoMessageEnabled, user?.settings]);
+
+  // Add unread messages counter function
+  const updateUnreadMessagesCount = (count: number) => {
+    // Use AsyncStorage to persist unread message count
+    AsyncStorage.setItem('unreadMessagesCount', String(count)).catch(err => 
+      console.error('[App] Failed to save unread messages count:', err)
+    );
+    
+    // Use EventRegister instead of window.dispatchEvent for React Native
+    EventRegister.emit('unreadMessagesUpdated', count);
+  };
+
+  // Reset timer whenever a new message is sent
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      
+      // Update last message time
+      lastMessageTimeRef.current = Date.now();
+      
+      // Set up new timer
+      setupAutoMessageTimer();
+    }
+  }, [messages, setupAutoMessageTimer]);
+  
+  // Set up timer when character changes
+  useEffect(() => {
+    // Initialize auto message interval from character settings if available
+    if (selectedCharacter) {
+      // Use explicit boolean check for autoMessage setting
+      setAutoMessageEnabled(selectedCharacter.autoMessage === true);
+      
+      // Get the interval directly from the character settings
+      autoMessageIntervalRef.current = selectedCharacter.autoMessageInterval || 5;
+      
+      setupAutoMessageTimer();
+    }
+    
+    // Clean up timer on unmount or character change
+    return () => {
+      if (autoMessageTimerRef.current) {
+        clearTimeout(autoMessageTimerRef.current);
+        autoMessageTimerRef.current = null;
+      }
+    };
+  }, [selectedCharacter, setupAutoMessageTimer]);
+
   return (
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
@@ -619,146 +885,151 @@ const App = () => {
         style={styles.backgroundImage}
         resizeMode="cover"
       >
-        <View style={[
-          styles.container,
-          selectedCharacter ? styles.transparentBackground : styles.darkBackground
-        ]}>
-          <TopBarWithBackground
-            selectedCharacter={selectedCharacter}
-            onAvatarPress={handleAvatarPress}
-            onMemoPress={() => setIsMemoSheetVisible(true)}
-            onSettingsPress={toggleSettingsSidebar}
-            onMenuPress={toggleSidebar}
-            onSaveManagerPress={toggleSaveManager} // Add save manager button handler
-            showBackground={false} // 不在 TopBar 中显示背景，因为我们已经在整个屏幕上设置了背景
-          />
-
-          <SafeAreaView style={[
-            styles.safeArea,
-            selectedCharacter && styles.transparentBackground
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.keyboardAvoidView}
+        >
+          <View style={[
+            styles.container,
+            selectedCharacter ? styles.transparentBackground : styles.darkBackground
           ]}>
-            {/* Preview Mode Banner */}
-            {isPreviewMode && previewBannerVisible && (
-              <View style={styles.previewBanner}>
-                <Text style={styles.previewBannerText}>
-                  You are previewing a saved chat state
-                </Text>
-                <View style={styles.previewBannerButtons}>
+            <TopBarWithBackground
+              selectedCharacter={selectedCharacter}
+              onAvatarPress={handleAvatarPress}
+              onMemoPress={() => setIsMemoSheetVisible(true)}
+              onSettingsPress={toggleSettingsSidebar}
+              onMenuPress={toggleSidebar}
+              onSaveManagerPress={toggleSaveManager} // Add save manager button handler
+              showBackground={false} // 不在 TopBar 中显示背景，因为我们已经在整个屏幕上设置了背景
+            />
+
+            <SafeAreaView style={[
+              styles.safeArea,
+              selectedCharacter && styles.transparentBackground
+            ]}>
+              {/* Preview Mode Banner */}
+              {isPreviewMode && previewBannerVisible && (
+                <View style={styles.previewBanner}>
+                  <Text style={styles.previewBannerText}>
+                    You are previewing a saved chat state
+                  </Text>
+                  <View style={styles.previewBannerButtons}>
+                    <TouchableOpacity 
+                      style={styles.previewBannerButton}
+                      onPress={exitPreviewMode}
+                    >
+                      <Text style={styles.previewBannerButtonText}>Exit Preview</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.previewBannerButton, styles.restoreButton]}
+                      onPress={() => currentPreviewSave && handleLoadSave(currentPreviewSave)}
+                    >
+                      <Text style={styles.previewBannerButtonText}>Restore This State</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              
+              <View style={[
+                styles.contentContainer,
+                selectedCharacter && styles.transparentBackground
+              ]}>
+                <ChatDialog
+                  messages={messages}
+                  style={styles.chatDialog}
+                  selectedCharacter={selectedCharacter}
+                  onRateMessage={handleRateMessage}
+                  onRegenerateMessage={handleRegenerateMessage}
+                />
+                
+                {/* 测试按钮容器 */}
+                <View style={styles.testButtonContainer}>
+                  {/* NovelAI 测试按钮 */}
                   <TouchableOpacity 
-                    style={styles.previewBannerButton}
-                    onPress={exitPreviewMode}
+                    style={styles.testButton}
+                    onPress={() => setIsNovelAITestVisible(true)}
                   >
-                    <Text style={styles.previewBannerButtonText}>Exit Preview</Text>
+                    <Text style={styles.testButtonText}>NovelAI 图像测试</Text>
                   </TouchableOpacity>
                   
+                  {/* VNDB 测试按钮 */}
                   <TouchableOpacity 
-                    style={[styles.previewBannerButton, styles.restoreButton]}
-                    onPress={() => currentPreviewSave && handleLoadSave(currentPreviewSave)}
+                    style={[styles.testButton, styles.vndbButton]}
+                    onPress={() => setIsVNDBTestVisible(true)}
                   >
-                    <Text style={styles.previewBannerButtonText}>Restore This State</Text>
+                    <Text style={styles.testButtonText}>VNDB 角色查询</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            )}
-            
-            <View style={[
-              styles.contentContainer,
-              selectedCharacter && styles.transparentBackground
-            ]}>
-              <ChatDialog
-                messages={messages}
-                style={styles.chatDialog}
-                selectedCharacter={selectedCharacter}
-                onRateMessage={handleRateMessage}
-                onRegenerateMessage={handleRegenerateMessage}
-              />
-              
-              {/* 测试按钮容器 */}
-              <View style={styles.testButtonContainer}>
-                {/* NovelAI 测试按钮 */}
-                <TouchableOpacity 
-                  style={styles.testButton}
-                  onPress={() => setIsNovelAITestVisible(true)}
-                >
-                  <Text style={styles.testButtonText}>NovelAI 图像测试</Text>
-                </TouchableOpacity>
-                
-                {/* VNDB 测试按钮 */}
-                <TouchableOpacity 
-                  style={[styles.testButton, styles.vndbButton]}
-                  onPress={() => setIsVNDBTestVisible(true)}
-                >
-                  <Text style={styles.testButtonText}>VNDB 角色查询</Text>
-                </TouchableOpacity>
+
+              <View style={[
+                styles.inputBar,
+                selectedCharacter && styles.transparentBackground
+              ]}>
+                {selectedCharacter && (
+                  <ChatInput
+                    onSendMessage={handleSendMessage}
+                    selectedConversationId={selectedConversationId}
+                    conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
+                    onResetConversation={handleResetConversation}
+                    selectedCharacter={selectedCharacter}
+                  />
+                )}
               </View>
-            </View>
 
-            <View style={[
-              styles.inputBar,
-              selectedCharacter && styles.transparentBackground
-            ]}>
-              {selectedCharacter && (
-                <ChatInput
-                  onSendMessage={handleSendMessage}
-                  selectedConversationId={selectedConversationId}
-                  conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
-                  onResetConversation={handleResetConversation}
-                  selectedCharacter={selectedCharacter}
-                />
-              )}
-            </View>
+              {/* Sidebars and overlays */}
+              <Sidebar
+                isVisible={isSidebarVisible}
+                conversations={characters}
+                selectedConversationId={selectedConversationId}
+                onSelectConversation={handleSelectConversation}
+                onClose={toggleSidebar}
+              />
+              <SettingsSidebar
+                isVisible={isSettingsSidebarVisible}
+                onClose={toggleSettingsSidebar}
+                selectedCharacter={selectedCharacter}
+              />
+              {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
+            </SafeAreaView>
 
-            {/* Sidebars and overlays */}
-            <Sidebar
-              isVisible={isSidebarVisible}
-              conversations={characters}
-              selectedConversationId={selectedConversationId}
-              onSelectConversation={handleSelectConversation}
-              onClose={toggleSidebar}
+            {/* 直接在主视图中渲染 MemoOverlay */}
+            <MemoOverlay
+              isVisible={isMemoSheetVisible}
+              onClose={() => setIsMemoSheetVisible(false)}
             />
-            <SettingsSidebar
-              isVisible={isSettingsSidebarVisible}
-              onClose={toggleSettingsSidebar}
-              selectedCharacter={selectedCharacter}
+            
+            {/* VNDB测试模态框 */}
+            <VNDBTestModal
+              visible={isVNDBTestVisible}
+              onClose={() => setIsVNDBTestVisible(false)}
             />
-            {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
-          </SafeAreaView>
 
-          {/* 直接在主视图中渲染 MemoOverlay */}
-          <MemoOverlay
-            isVisible={isMemoSheetVisible}
-            onClose={() => setIsMemoSheetVisible(false)}
-          />
-          
-          {/* VNDB测试模态框 */}
-          <VNDBTestModal
-            visible={isVNDBTestVisible}
-            onClose={() => setIsVNDBTestVisible(false)}
-          />
-
-          {/* NovelAI测试模态框 */}
-          <NovelAITestModal
-            visible={isNovelAITestVisible}
-            onClose={() => setIsNovelAITestVisible(false)}
-            onImageGenerated={handleImageGenerated}
-          />
-          
-          {/* Save Manager */}
-          {selectedCharacter && (
-            <SaveManager
-              visible={isSaveManagerVisible}
-              onClose={() => setIsSaveManagerVisible(false)}
-              conversationId={selectedConversationId || ''}
-              characterId={selectedCharacter.id}
-              characterName={selectedCharacter.name}
-              characterAvatar={selectedCharacter.avatar || undefined}
-              messages={messages}
-              onSaveCreated={handleSaveCreated}
-              onLoadSave={handleLoadSave}
-              onPreviewSave={handlePreviewSave}
+            {/* NovelAI测试模态框 */}
+            <NovelAITestModal
+              visible={isNovelAITestVisible}
+              onClose={() => setIsNovelAITestVisible(false)}
+              onImageGenerated={handleImageGenerated}
             />
-          )}
-        </View>
+            
+            {/* Save Manager */}
+            {selectedCharacter && (
+              <SaveManager
+                visible={isSaveManagerVisible}
+                onClose={() => setIsSaveManagerVisible(false)}
+                conversationId={selectedConversationId || ''}
+                characterId={selectedCharacter.id}
+                characterName={selectedCharacter.name}
+                characterAvatar={selectedCharacter.avatar || undefined}
+                messages={messages}
+                onSaveCreated={handleSaveCreated}
+                onLoadSave={handleLoadSave}
+                onPreviewSave={handlePreviewSave}
+              />
+            )}
+          </View>
+        </KeyboardAvoidingView>
       </ImageBackground>
     </View>
   );
@@ -874,6 +1145,9 @@ const styles = StyleSheet.create({
   },
   restoreButton: {
     backgroundColor: 'rgba(46, 204, 113, 0.4)',
+  },
+  keyboardAvoidView: {
+    flex: 1,
   },
 });
 

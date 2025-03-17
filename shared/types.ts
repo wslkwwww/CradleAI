@@ -187,10 +187,12 @@ export interface Character {
   jsonData?: string;
   circlePosts?: any[];
   memX?: number;
-  autoMessage?: boolean;
+  autoMessage?: boolean; // Whether character can send auto-messages
+  autoMessageInterval?: number; // Time in minutes before triggering auto-message
+  notificationEnabled?: boolean; // Whether to show notifications for this character
   circleInteraction?: boolean;
   circlePostFrequency?: 'low' | 'medium' | 'high';
-  circleInteractionFrequency?: 'low' | 'medium' | 'high';
+  circleInteractionFrequency?: 'low' | 'medium' | 'high'; // Controls auto-message timing
   circleStats?: {
     repliedToCharacters: Record<string, number>;
     repliedToPostsCount: number;

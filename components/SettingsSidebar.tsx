@@ -20,6 +20,8 @@ import { theme } from '@/constants/theme';
 import { Picker } from '@react-native-picker/picker';
 import { memoryService } from '@/services/AIbbs/memory-service';
 import Slider from '@react-native-community/slider';
+import { EventRegister } from 'react-native-event-listeners';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SIDEBAR_WIDTH_EXPANDED = 280;
 const SWIPE_THRESHOLD = 50; // 向下滑动超过这个距离时关闭侧边栏
@@ -42,6 +44,7 @@ interface MemorySummarySettingsProps {
   updateCharacter: (character: Character) => Promise<void>;
 }
 
+// Modified constructor to set notification state from character
 export default function SettingsSidebar({
   isVisible,
   onClose,
@@ -56,13 +59,19 @@ export default function SettingsSidebar({
   const [summaryThreshold, setSummaryThreshold] = useState(6000); // Default: 6000 characters
   const [summaryLength, setSummaryLength] = useState(1000); // Default: 1000 characters
   
-  const [isAutoMessageEnabled, setIsAutoMessageEnabled] = useState(selectedCharacter?.autoMessage || false);
-  const [isNotificationEnabled, setIsNotificationEnabled] = useState(false);
+  // IMPORTANT: Initialize notification state from character
+  const [isAutoMessageEnabled, setIsAutoMessageEnabled] = useState(selectedCharacter?.autoMessage === true);
+  const [isNotificationEnabled, setIsNotificationEnabled] = useState(selectedCharacter?.notificationEnabled === true);
   const [isCircleInteractionEnabled, setIsCircleInteractionEnabled] = useState(
-    selectedCharacter?.circleInteraction || false
+    selectedCharacter?.circleInteraction === true
   );
   const [isRelationshipEnabled, setIsRelationshipEnabled] = useState(
-    selectedCharacter?.relationshipEnabled || false
+    selectedCharacter?.relationshipEnabled === true
+  );
+
+  // Add new state for auto message timing
+  const [autoMessageInterval, setAutoMessageInterval] = useState<number>(
+    selectedCharacter?.autoMessageInterval || 5
   );
 
   // 处理滑动手势
@@ -119,11 +128,13 @@ export default function SettingsSidebar({
     }
   }, [selectedCharacter?.id]);
 
-  // Sync states with character properties
+  // Sync states with character properties - make sure to sync notifications too
   useEffect(() => {
-    setIsAutoMessageEnabled(selectedCharacter?.autoMessage || false);
-    setIsCircleInteractionEnabled(selectedCharacter?.circleInteraction || false);
-    setIsRelationshipEnabled(selectedCharacter?.relationshipEnabled || false);
+    setIsAutoMessageEnabled(selectedCharacter?.autoMessage === true);
+    setIsNotificationEnabled(selectedCharacter?.notificationEnabled === true);
+    setIsCircleInteractionEnabled(selectedCharacter?.circleInteraction === true);
+    setIsRelationshipEnabled(selectedCharacter?.relationshipEnabled === true);
+    setAutoMessageInterval(selectedCharacter?.autoMessageInterval || 5);
   }, [selectedCharacter]);
 
   // Handle sidebar animation
@@ -195,6 +206,40 @@ export default function SettingsSidebar({
       };
       await updateCharacter(updatedCharacter);
       setIsAutoMessageEnabled(!isAutoMessageEnabled);
+    }
+  };
+
+  // Add handler for auto message interval
+  const handleAutoMessageIntervalChange = async (value: number) => {
+    if (selectedCharacter) {
+      setAutoMessageInterval(value);
+      const updatedCharacter = {
+        ...selectedCharacter,
+        autoMessageInterval: value
+      };
+      await updateCharacter(updatedCharacter);
+    }
+  };
+
+  // Add handler for notification toggle
+  const handleNotificationToggle = async () => {
+    if (selectedCharacter) {
+      const updatedCharacter = {
+        ...selectedCharacter,
+        notificationEnabled: !isNotificationEnabled
+      };
+      await updateCharacter(updatedCharacter);
+      setIsNotificationEnabled(!isNotificationEnabled);
+      
+      // If notifications are being turned off, clear any existing notifications
+      if (isNotificationEnabled) {
+        AsyncStorage.setItem('unreadMessagesCount', '0').catch(err => 
+          console.error('Failed to reset unread messages count:', err)
+        );
+        
+        // Emit event to clear badge
+        EventRegister.emit('unreadMessagesUpdated', 0);
+      }
     }
   };
 
@@ -476,11 +521,34 @@ export default function SettingsSidebar({
           />
         </View>
 
+        {/* Add auto message timing settings when enabled */}
+        {isAutoMessageEnabled && (
+          <View style={styles.sliderContainer}>
+            <Text style={styles.settingLabel}>主动消息触发时间：{autoMessageInterval} 分钟</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={1}
+              maximumValue={30}
+              step={1}
+              value={autoMessageInterval}
+              onValueChange={setAutoMessageInterval}
+              onSlidingComplete={handleAutoMessageIntervalChange}
+              minimumTrackTintColor="rgb(255, 224, 195)"
+              maximumTrackTintColor="#767577"
+              thumbTintColor="rgb(255, 224, 195)"
+            />
+            <Text style={styles.sliderRangeText}>
+              <Text style={styles.sliderMinText}>较短 (1分钟)</Text>
+              <Text style={styles.sliderMaxText}>较长 (30分钟)</Text>
+            </Text>
+          </View>
+        )}
+
         <View style={styles.settingItem}>
           <Text style={styles.settingLabel}>消息提醒</Text>
           <Switch
             value={isNotificationEnabled}
-            onValueChange={setIsNotificationEnabled}
+            onValueChange={handleNotificationToggle}
             trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
             thumbColor={isNotificationEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
           />
