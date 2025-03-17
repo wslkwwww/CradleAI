@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { CradleCharacter } from '@/shared/types';
@@ -16,54 +17,25 @@ import { useRouter } from 'expo-router';
 interface CradleCharacterDetailProps {
   character: CradleCharacter;
   onFeed: () => void;
-  onGenerate: () => void;
   onDelete: () => void;
-  onEdit?: () => void; // 编辑回调
-  isEditable?: boolean; // 控制编辑按钮是否可见
-  onRegenerateImage?: () => void; // 新增：重新生成图片回调
-  onShowGallery?: () => void; // Add this new prop
+  onEdit?: () => void;
+  isEditable?: boolean;
+  onRegenerateImage?: () => void;
+  onShowGallery?: () => void;
 }
 
 const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   character,
   onFeed,
-  onGenerate,
   onDelete,
   onEdit,
   isEditable = false,
-  onRegenerateImage, // 新增参数
-  onShowGallery, // Use the new prop
+  onRegenerateImage,
+  onShowGallery,
 }) => {
   const router = useRouter();
-  
-  // 计算角色在摇篮中的天数
-  const calculateDaysInCradle = () => {
-    const createdAt = character.createdAt;
-    return createdAt 
-      ? Math.round((Date.now() - createdAt) / (1000 * 60 * 60 * 24) * 10) / 10
-      : 0;
-  };
-
-  // 计算投喂统计
-  const calculateFeedStats = () => {
-    const totalFeeds = character.feedHistory?.length || 0;
-    const processedFeeds = character.feedHistory?.filter(feed => feed.processed).length || 0;
-    
-    return {
-      total: totalFeeds,
-      processed: processedFeeds,
-      percentage: totalFeeds > 0 ? Math.round((processedFeeds / totalFeeds) * 100) : 0
-    };
-  };
-
-  // 判断是否有图像生成任务
-  const hasPendingImageTask = character.imageGenerationTaskId && 
-                               character.imageGenerationStatus === 'pending';
-  
-  const hasImageError = character.imageGenerationStatus === 'error';
-  
-  const feedStats = calculateFeedStats();
-  const daysInCradle = calculateDaysInCradle();
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   
   // 判断角色是否已生成
   const isGenerated = character.isCradleGenerated === true;
@@ -74,6 +46,23 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
       router.push(`/?characterId=${character.generatedCharacterId}`);
     }
   };
+
+  // 展开/折叠描述
+  const toggleDescription = () => {
+    setIsDescriptionExpanded(!isDescriptionExpanded);
+  };
+
+  // 显示更多选项菜单
+  const toggleOptionsMenu = () => {
+    setShowOptionsMenu(!showOptionsMenu);
+  };
+
+  // 处理描述文本截断
+  const description = character.description || "这是一个摇篮中的AI角色，等待通过投喂数据塑造个性...";
+  const shouldTruncate = description.length > 100;
+  const truncatedDescription = shouldTruncate && !isDescriptionExpanded 
+    ? description.substring(0, 100) + '...' 
+    : description;
 
   return (
     <View style={styles.characterDetailCard}>
@@ -95,139 +84,134 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
         colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}
         style={styles.characterDetailGradient}
       >
-        {/* 显示图像生成状态（如适用） */}
-        {(hasPendingImageTask || hasImageError) && (
-          <View style={styles.imageGenerationStatusContainer}>
-            {hasPendingImageTask ? (
-              <>
-                <ActivityIndicator size="small" color="#FFD700" style={styles.imageStatusIndicator} />
-                <Text style={styles.imageGenerationStatusText}>图像生成进行中...</Text>
-              </>
-            ) : (
-              <>
-                <Ionicons name="alert-circle" size={18} color="#FF4444" style={styles.imageStatusIndicator} />
-                <Text style={styles.imageGenerationStatusText}>图像生成失败</Text>
-              </>
-            )}
-          </View>
-        )}
-        
-        {/* 显示生成状态标签 */}
-        {isGenerated && (
-          <View style={styles.generatedBadgeContainer}>
-            <View style={styles.generatedBadge}>
-              <Ionicons name="checkmark-circle" size={16} color="#fff" style={{marginRight: 4}} />
-              <Text style={styles.generatedBadgeText}>已生成</Text>
-            </View>
-          </View>
-        )}
-        
         {/* 角色信息 */}
         <View style={styles.characterDetailInfo}>
-          <Text style={styles.characterDetailName}>{character.name}</Text>
-          
-          <Text style={styles.characterDetailDescription} numberOfLines={2}>
-            {character.description || "这是一个摇篮中的AI角色，等待通过投喂数据塑造个性..."}
-          </Text>
-          
-          {/* 角色状态行 */}
-          <View style={styles.characterStatusRow}>
-            <View style={styles.characterStatusItem}>
-              <Ionicons name="time-outline" size={16} color="#ddd" />
-              <Text style={styles.characterStatusText}>培育中: {daysInCradle}天</Text>
-            </View>
-            
-            <View style={styles.characterStatusItem}>
-              <MaterialCommunityIcons name="food-apple" size={16} color="#ddd" />
-              <Text style={styles.characterStatusText}>
-                投喂: {feedStats.processed}/{feedStats.total}
-              </Text>
-            </View>
+          {/* 标题区域 - 名称和更多选项按钮 */}
+          <View style={styles.headerRow}>
+            <Text style={styles.characterDetailName} numberOfLines={1}>{character.name}</Text>
+            <TouchableOpacity 
+              style={styles.moreOptionsButton}
+              onPress={toggleOptionsMenu}
+            >
+              <Ionicons name="ellipsis-horizontal" size={24} color="#fff" />
+            </TouchableOpacity>
           </View>
           
-          {/* 角色操作按钮 - 根据生成状态显示不同按钮 */}
-          <View style={styles.characterActionButtons}>
-            {/* 已生成角色的按钮 */}
-            {isGenerated ? (
-              <>
-                <TouchableOpacity 
-                  style={[styles.characterActionButton, styles.chatButton]}
-                  onPress={navigateToChat}
-                >
-                  <Ionicons name="chatbubble-outline" size={16} color="#fff" />
-                  <Text style={styles.characterActionButtonText}>聊天</Text>
-                </TouchableOpacity>
-                
-                {/* 对话修改按钮 */}
-                {isEditable && (
-                  <TouchableOpacity 
-                    style={[styles.characterActionButton, styles.editButton]}
-                    onPress={onEdit}
-                  >
-                    <Ionicons name="create-outline" size={16} color="#fff" />
-                    <Text style={styles.characterActionButtonText}>对话修改</Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            ) : (
-              <>
-                <TouchableOpacity 
-                  style={[styles.characterActionButton, styles.feedButton]}
-                  onPress={onFeed}
-                >
-                  <Ionicons name="restaurant-outline" size={16} color="#fff" />
-                  <Text style={styles.characterActionButtonText}>投喂</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.characterActionButton, styles.generateButton]}
-                  onPress={onGenerate}
-                >
-                  <Ionicons name="flash-outline" size={16} color="#fff" />
-                  <Text style={styles.characterActionButtonText}>立即生成</Text>
-                </TouchableOpacity>
-              </>
+          {/* 角色描述 - 可展开/折叠 */}
+          <View style={styles.descriptionContainer}>
+            <Text style={styles.characterDetailDescription}>
+              {truncatedDescription}
+            </Text>
+            
+            {shouldTruncate && (
+              <TouchableOpacity 
+                style={styles.expandButton} 
+                onPress={toggleDescription}
+              >
+                <Text style={styles.expandButtonText}>
+                  {isDescriptionExpanded ? "收起" : "展开"}
+                </Text>
+              </TouchableOpacity>
             )}
-
-            {/* 新增：重新生成图片按钮 */}
+          </View>
+          
+          {/* 角色操作按钮 - 只显示主要操作 */}
+          <View style={styles.characterActionButtons}>
+            {/* 主要操作按钮 */}
+            {isGenerated ? (
+              <TouchableOpacity 
+                style={[styles.characterActionButton, styles.primaryButton]}
+                onPress={navigateToChat}
+              >
+                <Ionicons name="chatbubble-outline" size={16} color="#fff" />
+                <Text style={styles.characterActionButtonText}>聊天</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity 
+                style={[styles.characterActionButton, styles.primaryButton]}
+                onPress={onFeed}
+              >
+                <Ionicons name="restaurant-outline" size={16} color="#fff" />
+                <Text style={styles.characterActionButtonText}>投喂</Text>
+              </TouchableOpacity>
+            )}
+            
+            {/* 生成图片按钮 - 作为第二主要操作 */}
             {onRegenerateImage && (
               <TouchableOpacity 
-                style={[styles.characterActionButton, styles.regenerateImageButton]}
+                style={[styles.characterActionButton, styles.secondaryButton]}
                 onPress={onRegenerateImage}
               >
                 <Ionicons name="image-outline" size={16} color="#fff" />
                 <Text style={styles.characterActionButtonText}>生成图片</Text>
               </TouchableOpacity>
             )}
-
-            {/* New Gallery Button */}
-            {onShowGallery && (
-              <TouchableOpacity 
-                style={[styles.characterActionButton, { backgroundColor: '#00BCD4' }]}
-                onPress={onShowGallery}
-              >
-                <Ionicons name="images-outline" size={16} color="#fff" />
-                <Text style={styles.characterActionButtonText}>图库</Text>
-              </TouchableOpacity>
-            )}
-            
-            <TouchableOpacity 
-              style={[styles.characterActionButton, styles.deleteButton]}
-              onPress={onDelete}
-            >
-              <Ionicons name="trash-outline" size={16} color="#fff" />
-              <Text style={styles.characterActionButtonText}>删除</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </LinearGradient>
+      
+      {/* 更多选项菜单 */}
+      <Modal
+        visible={showOptionsMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowOptionsMenu(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowOptionsMenu(false)}
+        >
+          <View style={styles.optionsMenuContainer}>
+            {/* 图库选项 */}
+            {onShowGallery && (
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  onShowGallery();
+                }}
+              >
+                <Ionicons name="images-outline" size={22} color="#fff" />
+                <Text style={styles.menuItemText}>查看图库</Text>
+              </TouchableOpacity>
+            )}
+            
+            {/* 编辑选项 - 只对已生成角色显示 */}
+            {isEditable && isGenerated && (
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  if (onEdit) onEdit();
+                }}
+              >
+                <Ionicons name="create-outline" size={22} color="#fff" />
+                <Text style={styles.menuItemText}>对话修改</Text>
+              </TouchableOpacity>
+            )}
+            
+            {/* 删除选项 */}
+            <TouchableOpacity 
+              style={[styles.menuItem, styles.deleteMenuItem]}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                onDelete();
+              }}
+            >
+              <Ionicons name="trash-outline" size={22} color="#FF6B6B" />
+              <Text style={[styles.menuItemText, styles.deleteMenuItemText]}>删除角色</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   characterDetailCard: {
-    height: 220,
+    height: 200, // 减小了卡片高度
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#333',
@@ -246,42 +230,6 @@ const styles = StyleSheet.create({
   characterDetailGradient: {
     ...StyleSheet.absoluteFillObject,
   },
-  imageGenerationStatusContainer: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 8,
-    padding: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    maxWidth: '70%',
-  },
-  imageStatusIndicator: {
-    marginRight: 8,
-  },
-  imageGenerationStatusText: {
-    color: '#FFD700',
-    fontSize: 14,
-  },
-  generatedBadgeContainer: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-  },
-  generatedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  generatedBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
   characterDetailInfo: {
     position: 'absolute',
     bottom: 0,
@@ -289,75 +237,109 @@ const styles = StyleSheet.create({
     right: 0,
     padding: 16,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    zIndex: 10, // Ensure options button stays on top
+  },
   characterDetailName: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 8,
+    flex: 1,
+    marginRight: 12, // Add margin to prevent overlap with the button
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: {width: 1, height: 1},
     textShadowRadius: 3,
   },
+  moreOptionsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20, // Ensure button stays clickable
+  },
+  descriptionContainer: {
+    marginBottom: 12,
+    zIndex: 5, // Lower z-index than header elements
+  },
   characterDetailDescription: {
     color: '#eee',
     fontSize: 14,
-    marginBottom: 12,
     lineHeight: 20,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: {width: 1, height: 1},
     textShadowRadius: 3,
   },
-  characterStatusRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
+  expandButton: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingVertical: 2,
   },
-  characterStatusItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  characterStatusText: {
-    color: '#ddd',
-    marginLeft: 6,
+  expandButtonText: {
+    color: theme.colors.primary,
     fontSize: 14,
+    fontWeight: '500',
   },
   characterActionButtons: {
     flexDirection: 'row',
-    flexWrap: 'wrap', // 允许按钮在空间不足时换行
   },
   characterActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    marginRight: 8,
-    marginBottom: 8, // 增加垂直间距适应换行
+    marginRight: 12,
   },
-  feedButton: {
-    backgroundColor: '#4A90E2',
+  primaryButton: {
+    backgroundColor: theme.colors.primary,
   },
-  generateButton: {
-    backgroundColor: '#FF9800',
-  },
-  chatButton: {
-    backgroundColor: '#2196F3',
-  },
-  editButton: {
-    backgroundColor: '#9C27B0', // 紫色，与其他按钮区分
-  },
-  deleteButton: {
-    backgroundColor: '#F44336',
-  },
-  regenerateImageButton: {
-    backgroundColor: '#9C27B0',
+  secondaryButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   characterActionButtonText: {
     color: '#fff',
-    marginLeft: 6,
+    marginLeft: 8,
     fontWeight: '500',
     fontSize: 14,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  optionsMenuContainer: {
+    width: '100%',
+    backgroundColor: '#333',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    paddingBottom: 32, // 增加底部空间，适应底部导航栏
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  menuItemText: {
+    color: '#fff',
+    fontSize: 16,
+    marginLeft: 16,
+  },
+  deleteMenuItem: {
+    borderBottomWidth: 0,
+  },
+  deleteMenuItemText: {
+    color: '#FF6B6B',
+  }
 });
 
 export default CradleCharacterDetail;

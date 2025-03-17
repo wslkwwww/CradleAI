@@ -6,6 +6,8 @@
 
 - 支持 NovelAI 令牌和用户名/密码认证
 - 服务器端存储凭据，无需每次从前端传递敏感信息
+- **多账号轮询机制**，支持当一个账号失效时自动切换到下一个有效账号
+- **账号失效智能处理**，自动冷却失效账号并在适当时机重试
 - 在服务器端执行 Argon2id 密钥计算
 - 异步处理图像生成任务
 - 使用 Celery 和 Redis 进行任务队列管理
@@ -46,15 +48,46 @@ pip install -r requirements.txt
 
 ## 配置服务
 
-### 设置 NovelAI 账号凭据 (推荐)
+### 管理 NovelAI 账号凭据
 
 使用提供的脚本安全地存储您的 NovelAI 账号信息:
 
 ```bash
+# 添加单个账号
 python set_credentials.py
+
+# 使用新的管理工具添加多个账号
+python manage_credentials.py add
 ```
 
-此脚本会安全地存储凭据，避免每次请求时都需要从前端传递敏感信息。
+**多账号管理工具**
+
+新增的 `manage_credentials.py` 工具提供了完整的多账号管理功能：
+
+```bash
+# 列出所有已配置的账号
+python manage_credentials.py list
+
+# 列出并测试所有账号的有效性
+python manage_credentials.py list --test
+
+# 测试所有账号
+python manage_credentials.py test
+
+# 添加新账号
+python manage_credentials.py add --email user@example.com
+
+# 更新现有账号
+python manage_credentials.py update 0 --password "new_password"
+
+# 删除账号
+python manage_credentials.py remove 0
+
+# 查看账号认证失败记录
+python manage_credentials.py failures
+```
+
+系统会自动在多个账号之间轮询，当检测到一个账号认证失败或产生401错误时，会自动切换到其他可用账号，并将失败的账号暂时标记为冷却状态（默认30分钟）。
 
 ### 配置环境变量
 
@@ -270,6 +303,29 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 }
 ```
 
+## 多账号轮询机制
+
+服务实现了强大的多账号轮询和失效处理机制：
+
+1. **多账号管理**：通过 `manage_credentials.py` 工具可以添加、删除和管理多个NovelAI账号
+
+2. **自动轮询**：系统根据账号的可用性自动在多个账号之间进行轮询
+
+3. **智能失效处理**：
+   - 当账号出现401认证错误时，自动标记为失效状态
+   - 失效账号会进入冷却期（默认30分钟），避免短时间内重复使用失效账号
+   - 冷却期结束后账号会重新进入可用池
+
+4. **自动重试机制**：
+   - 当请求失败时，自动尝试使用其他可用账号重新发送请求
+   - 任务队列会保留原始请求，确保处理不会丢失
+
+5. **账号状态监控**：
+   - 记录账号失效历史，便于分析问题
+   - 通过 `failures` 命令查看详细的失效记录
+
+此机制大幅提高了系统的可靠性和稳定性，特别适合需要长时间运行的服务环境。
+
 ## 速率限制与人类行为模拟
 
 系统实现了以下速率限制和人类行为模拟策略：
@@ -327,6 +383,24 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 3. **网络问题:**
    - 确认服务器可以访问 NovelAI API (api.novelai.net)
    - 检查是否被 IP 封锁 (过多请求后可能发生)
+
+### 账号轮询问题
+
+如果遇到账号轮询相关问题：
+
+1. **所有账号都失效**：
+   - 检查 `credential_failures.json` 文件了解失败详情
+   - 使用 `python manage_credentials.py test` 测试所有账号
+   - 尝试手动更新账号凭据 `python manage_credentials.py update [index]`
+
+2. **轮询不正常**：
+   - 检查日志中的账号选择逻辑是否正确
+   - 确认账号失效标记和冷却机制是否正常工作
+   - 可以删除 `credential_failures.json` 文件重置失败记录
+
+3. **手动强制使用某个账号**：
+   - 临时删除其他账号，只保留需要使用的账号
+   - 使用后再重新添加其他账号
 
 ### 速率限制问题
 

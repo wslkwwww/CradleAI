@@ -31,7 +31,20 @@ class ArgonHelper:
         Returns:
             bytes: 16字节长度的盐值
         """
+        # 确保输入是小写的，NovelAI可能对邮箱不区分大小写
+        email = email.lower()
+        
+        # 去除任何可能的空格
+        email = email.strip()
+        password = password.strip()
+        
+        # 标准化域名
+        domain = domain.strip()
+        
         pre_salt = f"{password[:6]}{email}{domain}"
+        
+        # 记录pre_salt用于调试（隐藏部分密码）
+        logger.debug(f"Pre-salt composition (masked): {password[:2]}****{email}{domain}")
         
         # 使用 blake2b 计算盐值并取前 16 字节
         blake = blake2b(digest_size=16)
@@ -50,13 +63,24 @@ class ArgonHelper:
             str: 访问密钥
         """
         try:
+            # 规范化输入
+            email = email.lower().strip()
+            password = password.strip()
+            
+            # 记录输入信息（隐藏敏感信息）
+            masked_email = f"{email[:3]}***{email[email.find('@'):] if '@' in email else ''}"
+            logger.debug(f"计算访问密钥 - 邮箱: {masked_email}, 密码长度: {len(password)}")
+            
             # 生成盐值
-            salt = ArgonHelper.generate_salt(email, password, "novelai_data_access_key")
+            domain = "novelai_data_access_key"
+            salt = ArgonHelper.generate_salt(email, password, domain)
+            salt_hex = salt.hex()
+            logger.debug(f"盐值 (hex): {salt_hex}")
             
             # 使用与官方相同的参数
             raw = argon2.low_level.hash_secret_raw(
-                password.encode(),
-                salt,
+                secret=password.encode(),
+                salt=salt,
                 time_cost=2,
                 memory_cost=int(2000000 / 1024),  # 与官方一致，约2048
                 parallelism=1,
@@ -64,11 +88,17 @@ class ArgonHelper:
                 type=argon2.low_level.Type.ID
             )
             
-            # 使用 urlsafe_b64encode 编码结果
-            hashed = base64.urlsafe_b64encode(raw).decode()
+            # 使用 urlsafe_b64encode 编码结果，确保无填充
+            hashed = base64.urlsafe_b64encode(raw).decode().rstrip('=')
             
             logger.debug("访问密钥计算完成")
-            return hashed[:64]  # 取前64字符
+            logger.debug(f"密钥原始长度: {len(hashed)}")
+            
+            # 确保密钥满足正确的长度
+            result = hashed[:64]
+            logger.debug(f"密钥最终长度: {len(result)}")
+            
+            return result  # 取前64字符
                 
         except Exception as e:
             logger.error(f"访问密钥计算失败: {e}")

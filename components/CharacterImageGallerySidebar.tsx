@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,8 @@ import {
   Dimensions,
   FlatList,
   Image,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage, CradleCharacter } from '@/shared/types';
@@ -44,8 +45,12 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   onAddNewImage
 }) => {
   const slideAnim = useRef(new Animated.Value(width)).current;
-  const [selectedImage, setSelectedImage] = React.useState<CharacterImage | null>(null);
-  const [showEditor, setShowEditor] = React.useState(false);
+  const [selectedImage, setSelectedImage] = useState<CharacterImage | null>(null);
+  const [showEditor, setShowEditor] = useState(false);
+  const [showFullImage, setShowFullImage] = useState(false);
+  const [fullImageUri, setFullImageUri] = useState<string | null>(null);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [activeImage, setActiveImage] = useState<CharacterImage | null>(null);
   const { user } = useUser();
   
   // Get API key for image editing
@@ -67,12 +72,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   }, [visible, slideAnim]);
 
-  const handleDelete = (image: CharacterImage) => {
-    // Show confirmation dialog before deleting
-    onDelete(image.id);
-    setSelectedImage(null);
-  };
-  
   const handleEdit = (image: CharacterImage) => {
     setSelectedImage(image);
     setShowEditor(true);
@@ -83,6 +82,18 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       onAddNewImage(newImage);
     }
     setShowEditor(false);
+  };
+  
+  // Handle viewing full image
+  const handleViewImage = (image: CharacterImage) => {
+    setFullImageUri(image.localUri || image.url);
+    setShowFullImage(true);
+  };
+
+  // Show image options menu
+  const showImageOptions = (image: CharacterImage) => {
+    setActiveImage(image);
+    setShowOptionsMenu(true);
   };
   
   if (!visible) return null;
@@ -133,9 +144,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                 <View style={styles.imageCard}>
                   <TouchableOpacity
                     style={styles.imageContainer}
-                    onPress={() => {
-                      // Handle image preview
-                    }}
+                    onPress={() => handleViewImage(item)}
                   >
                     <Image 
                       source={{ uri: item.localUri || item.url }}
@@ -149,43 +158,15 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                     )}
                   </TouchableOpacity>
                   
+                  {/* Simplified to a single options button */}
                   <View style={styles.imageActions}>
                     <TouchableOpacity
                       style={styles.imageActionButton}
-                      onPress={() => onToggleFavorite(item.id)}
+                      onPress={() => showImageOptions(item)}
                     >
-                      <Ionicons 
-                        name={item.isFavorite ? "heart" : "heart-outline"} 
-                        size={18} 
-                        color={item.isFavorite ? "#FF6B6B" : "#FFF"} 
-                      />
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={styles.imageActionButton}
-                      onPress={() => handleEdit(item)}
-                    >
-                      <Ionicons name="brush-outline" size={18} color="#FFF" />
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={styles.imageActionButton}
-                      onPress={() => onSetAsBackground(item.id)}
-                    >
-                      <Ionicons name="copy-outline" size={18} color="#FFF" />
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={styles.imageActionButton}
-                      onPress={() => handleDelete(item)}
-                    >
-                      <Ionicons name="trash-outline" size={18} color="#FFF" />
+                      <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
                     </TouchableOpacity>
                   </View>
-                  
-                  <Text style={styles.imageDate}>
-                    {new Date(item.createdAt).toLocaleDateString()}
-                  </Text>
                 </View>
               )}
             />
@@ -204,6 +185,103 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           onSuccess={handleEditSuccess}
         />
       )}
+
+      {/* Full Image Viewer Modal */}
+      <Modal
+        visible={showFullImage}
+        transparent={true}
+        onRequestClose={() => setShowFullImage(false)}
+        animationType="fade"
+      >
+        <View style={styles.fullImageContainer}>
+          <TouchableOpacity
+            style={styles.fullImageCloseButton}
+            onPress={() => setShowFullImage(false)}
+          >
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+          
+          {fullImageUri && (
+            <Image
+              source={{ uri: fullImageUri }}
+              style={styles.fullImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* Image Options Menu Modal */}
+      <Modal
+        visible={showOptionsMenu}
+        transparent={true}
+        onRequestClose={() => setShowOptionsMenu(false)}
+        animationType="fade"
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowOptionsMenu(false)}
+        >
+          <View style={styles.optionsMenuContainer}>
+            <Text style={styles.optionsMenuTitle}>图像选项</Text>
+            
+            {activeImage && (
+              <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    onToggleFavorite(activeImage.id);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons 
+                    name={activeImage.isFavorite ? "heart" : "heart-outline"} 
+                    size={22} 
+                    color={activeImage.isFavorite ? "#FF6B6B" : "#FFF"} 
+                  />
+                  <Text style={styles.menuItemText}>
+                    {activeImage.isFavorite ? "取消收藏" : "收藏图片"}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    handleEdit(activeImage);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons name="brush-outline" size={22} color="#FFF" />
+                  <Text style={styles.menuItemText}>编辑图片</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    onSetAsBackground(activeImage.id);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons name="copy-outline" size={22} color="#FFF" />
+                  <Text style={styles.menuItemText}>设为背景</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.menuItem, styles.deleteMenuItem]}
+                  onPress={() => {
+                    onDelete(activeImage.id);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={22} color="#FF6B6B" />
+                  <Text style={[styles.menuItemText, styles.deleteMenuItemText]}>删除图片</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -306,7 +384,7 @@ const styles = StyleSheet.create({
   },
   imageActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     padding: 8,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
@@ -315,13 +393,68 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
-  imageDate: {
-    color: '#aaa',
-    fontSize: 10,
-    textAlign: 'center',
-    padding: 4,
-    backgroundColor: '#1a1a1a',
+  fullImageContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
+  fullImage: {
+    width: '100%',
+    height: '90%',
+  },
+  fullImageCloseButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  // New styles for the options menu
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  optionsMenuContainer: {
+    width: '100%',
+    backgroundColor: '#333',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    paddingBottom: 32, // 增加底部空间，适应底部导航栏
+  },
+  optionsMenuTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  menuItemText: {
+    color: '#fff',
+    fontSize: 16,
+    marginLeft: 16,
+  },
+  deleteMenuItem: {
+    borderBottomWidth: 0,
+  },
+  deleteMenuItemText: {
+    color: '#FF6B6B',
+  }
 });
 
 export default CharacterImageGallerySidebar;

@@ -15,6 +15,8 @@ import os
 import datetime
 from rate_limiter import rate_limiter  # 导入速率限制器
 import random
+import credentials  # 导入凭据管理模块
+
 # 配置日志
 logger = logging.getLogger('text2image.novelai')
 
@@ -92,6 +94,51 @@ class NovelAIClient:
         expiry_date = datetime.datetime.fromtimestamp(expiry).strftime('%Y-%m-%d %H:%M:%S')
         logger.info(f"令牌已缓存，有效期至: {expiry_date}")
     
+    def login_with_credentials(self):
+        """使用配置的凭据登录，支持多账号轮询
+        
+        Returns:
+            str: 访问令牌
+            
+        Raises:
+            Exception: 所有凭据都登录失败时抛出异常
+        """
+        # 获取当前凭据
+        creds = credentials.get_credentials()
+        if not creds:
+            raise Exception("未配置任何有效凭据")
+        
+        try:
+            email = creds['email']
+            password = creds['password']
+            index = creds.get('index', 0)
+            total = creds.get('total', 1)
+            
+            logger.info(f"尝试使用账号 {index+1}/{total}: {email} 登录")
+            
+            token = self.login_with_email_password(email, password)
+            if token:
+                logger.info(f"账号 {index+1}/{total}: {email} 登录成功")
+                return token
+            
+            # 标记当前账号登录失败
+            credentials.mark_credential_failed(index)
+            raise Exception(f"账号 {index+1}/{total}: {email} 登录失败，尝试下一个账号")
+            
+        except Exception as e:
+            logger.error(f"使用账号 {creds['email']} 登录失败: {e}")
+            
+            # 标记当前账号登录失败
+            credentials.mark_credential_failed(creds.get('index', 0))
+            
+            # 递归调用自身，尝试下一个账号
+            # 为防止无限递归，检查是否还有可用账号
+            if creds.get('total', 1) > 1:
+                logger.info("尝试使用下一个账号...")
+                return self.login_with_credentials()
+            else:
+                raise Exception("所有配置的账号都登录失败")
+    
     def login_with_email_password(self, email, password):
         """使用邮箱和密码登录
         
@@ -122,26 +169,43 @@ class NovelAIClient:
             logger.debug("访问密钥计算完成")
             logger.debug(f"访问密钥: {access_key[:10]}...")
             
+            # 增加诊断信息
+            logger.debug(f"访问密钥完整内容 (用于诊断): {access_key}")
+            
             # 构建请求头
             headers = {
                 "User-Agent": rate_limiter.get_user_agent(),
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "Accept": "application/json"  # 明确指定我们想要JSON响应
             }
+            
+            # 构建请求体 - 使用原始密钥，不做任何处理
+            request_body = {"key": access_key}
             
             # 模拟人类行为：在发送请求前加入短暂的随机延迟
             time.sleep(random.uniform(0.5, 2.0))
             
             # 发送登录请求
             logger.debug(f"发送登录请求到: {NOVELAI_API_LOGIN}")
+            logger.debug(f"请求体: {json.dumps(request_body)}")
+            
             response = requests.post(
                 NOVELAI_API_LOGIN,
-                json={"key": access_key},
+                json=request_body,
                 headers=headers,
                 timeout=REQUEST_TIMEOUT
             )
             
             # 检查响应状态
             logger.debug(f"登录响应状态码: {response.status_code}")
+            
+            # 尝试解析响应体，即使状态码不是200
+            try:
+                response_data = response.json()
+                logger.debug(f"登录响应内容: {json.dumps(response_data)}")
+            except:
+                logger.debug(f"响应不是JSON格式: {response.text[:200]}")
+            
             response.raise_for_status()
             
             # 解析并存储访问令牌
@@ -284,8 +348,12 @@ class NovelAIClient:
         Raises:
             Exception: 生成失败时抛出异常
         """
+        # 检查是否已登录，如果没有则尝试使用配置的凭据登录
         if not self.access_token:
-            raise Exception("未登录，请先调用 login_with_email_password 或 login_with_token")
+            try:
+                self.login_with_credentials()
+            except Exception as e:
+                raise Exception(f"未登录且自动登录失败: {str(e)}")
 
         # 检查是否为测试请求
         is_test_request = params.get('is_test_request', False)
@@ -492,6 +560,21 @@ class NovelAIClient:
                 try:
                     error_data = response.json()
                     logger.error(f"错误信息：{error_data}")
+                    
+                    # 401错误时尝试切换账号重新登录
+                    if response.status_code == 401:
+                        logger.warning("令牌无效，尝试切换账号重新登录")
+                        self.access_token = None  # 清除当前令牌
+                        
+                        # 标记当前账号为失败
+                        creds = credentials.get_credentials()
+                        if creds:
+                            credentials.mark_credential_failed(creds.get('index', 0))
+                        
+                        # 重新登录并递归调用自身
+                        self.login_with_credentials()
+                        return self.generate_image(params)
+                    
                     raise Exception(f"图像生成失败（{response.status_code}）: {error_data.get('message', '未知错误')}")
                 except json.JSONDecodeError:
                     # 如果响应不是JSON格式
@@ -531,8 +614,23 @@ class NovelAIClient:
                     error_text = e.response.text[:200]
                     logger.error(f"状态码: {status_code}, 错误信息: {error_text}")
                 
+                # 401错误时尝试切换账号重新登录
                 if status_code == 401:
-                    raise Exception("访问令牌无效或已过期")
+                    logger.warning("令牌无效，尝试切换账号重新登录")
+                    self.access_token = None  # 清除当前令牌
+                    
+                    # 标记当前账号为失败
+                    creds = credentials.get_credentials()
+                    if creds:
+                        credentials.mark_credential_failed(creds.get('index', 0))
+                    
+                    # 重新登录并递归调用自身
+                    try:
+                        self.login_with_credentials()
+                        return self.generate_image(params)
+                    except Exception as login_error:
+                        raise Exception(f"切换账号失败: {str(login_error)}")
+                
                 elif status_code == 400:
                     raise Exception(f"请求参数错误：{error_text}")
                 elif status_code == 429:

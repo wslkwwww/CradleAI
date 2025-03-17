@@ -69,13 +69,24 @@ def generate_image(self, request_params):
         # 检查服务器存储的凭据
         if credentials.has_credentials():
             # 使用服务器存储的凭据
-            creds = credentials.get_credentials()
-            logger.info(f"使用服务器存储的凭据登录 NovelAI (邮箱: {creds['email']})")
-            client.login_with_email_password(creds['email'], creds['password'])
-        else:
+            try:
+                logger.info(f"使用服务器存储的凭据登录 NovelAI (多账号轮询)")
+                client.login_with_credentials()
+            except Exception as e:
+                logger.error(f"使用服务器存储的凭据登录失败: {e}")
+                
+                # 如果请求中提供了认证信息，尝试使用请求中的认证信息
+                if request_params.get('auth_type'):
+                    logger.info("尝试使用请求提供的认证信息...")
+                else:
+                    # 如果没有备用认证信息，重新抛出异常
+                    raise
+        
+        # 如果服务器没有存储凭据或登录失败，则尝试使用请求中的认证信息
+        if not client.access_token:
             # 如果服务器没有存储凭据，则尝试使用请求中的认证信息
             auth_type = request_params.get('auth_type')
-            logger.info(f"服务器未配置凭据，尝试使用请求提供的认证信息 (类型: {auth_type})")
+            logger.info(f"使用请求提供的认证信息 (类型: {auth_type})")
             
             if auth_type == 'token':
                 token = request_params.get('token')

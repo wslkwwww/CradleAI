@@ -86,14 +86,18 @@
 │   ├── (tabs)/
 │   │   └── cradle.tsx              // 摇篮系统主页面
 │   ├── pages/
-│   │   ├── create_char_cradle.tsx  // 摇篮角色创建独立页面
-│   │   └── create_character_tabs.tsx // 角色创建页面（包含摇篮标签页）
+│   │   ├── create_char.tsx  // 角色创建页面，包括常规角色和摇篮角色
+│   │   └── CradleCreateForm.tsx // 摇篮角色创建页面（包含摇篮标签页）
 ├── components/
 │   ├── CradleCreateForm.tsx        // 摇篮角色创建表单组件，包括向服务器请求图片生成的功能
 │   ├── CradleFeedModal.tsx         // 摇篮数据投喂模态框
 │   ├── CradleSettings.tsx          // 摇篮系统设置组件
 │   ├── CradleApiSettings.tsx       // 新增 - 摇篮API设置组件
 │   └── ImportToCradleModal.tsx     // 导入现有角色到摇篮系统组件
+│   └── ImageRegenerationModal.tsx     // 为角色重新生成图片的组件
+│   └── CharacterEditDialog.tsx     // 通过对话更改角色设定的组件
+│   └── ImageEditorModal.tsx     // 角色图片编辑组件 
+│   └── CradleCharacterDetail.tsx     // 角色图库编辑组件
 ├── constants/
 │   ├── types.ts                    // 摇篮系统相关类型定义
 │   └── CharactersContext.tsx       // 包含摇篮系统的业务逻辑和数据管理

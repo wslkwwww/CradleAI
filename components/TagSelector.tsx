@@ -25,14 +25,14 @@ type Category = {
 };
 
 interface TagSelectorProps {
-  onPositiveTagsChange: (tags: string[]) => void;
-  onNegativeTagsChange: (tags: string[]) => void;
   onClose: () => void;
   onAddPositive: (tag: string) => void;
   onAddNegative: (tag: string) => void;
-  existingPositiveTags: string[];
-  existingNegativeTags: string[];
-  sidebarWidth?: number | "auto"; // Add a new prop for sidebar width
+  existingPositiveTags?: string[];
+  existingNegativeTags?: string[];
+  onPositiveTagsChange?: (tags: string[]) => void; // Make these optional
+  onNegativeTagsChange?: (tags: string[]) => void; // Make these optional
+  sidebarWidth?: number | string;
 }
 
 const TagSelector: React.FC<TagSelectorProps> = ({ 
@@ -41,8 +41,8 @@ const TagSelector: React.FC<TagSelectorProps> = ({
   onClose, 
   onAddPositive, 
   onAddNegative, 
-  existingPositiveTags, 
-  existingNegativeTags,
+  existingPositiveTags = [], 
+  existingNegativeTags = [],
   sidebarWidth = 100 // Default width if not specified
 }) => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -58,9 +58,15 @@ const TagSelector: React.FC<TagSelectorProps> = ({
   // Add state to track the longest category name for auto width calculation
   const [longestCategoryWidth, setLongestCategoryWidth] = useState<number>(100);
   
-  // Calculate the actual sidebar width based on the prop
-  const actualSidebarWidth = sidebarWidth === "auto" ? longestCategoryWidth : sidebarWidth;
+  // Calculate the actual sidebar width based on the prop, ensuring it's always a number
+  const actualSidebarWidth = typeof sidebarWidth === "number" 
+    ? Math.min(sidebarWidth, 80)  // Limit to 80px maximum
+    : Math.min(longestCategoryWidth, 80); // Also limit auto width to 80px
 
+  // Create refs at the component top level, not inside effects
+  const lastPositiveRef = React.useRef<string[]>([]);
+  const lastNegativeRef = React.useRef<string[]>([]);
+  
   // Load tag data
   useEffect(() => {
     if (tagData?.general_categories) {
@@ -86,6 +92,30 @@ const TagSelector: React.FC<TagSelectorProps> = ({
       }
     }
   }, [sidebarWidth]);
+
+  // Initialize selected tags from props
+  useEffect(() => {
+    const initialTags: { [key: string]: 'positive' | 'negative' } = {};
+    
+    // Add existing positive tags
+    if (existingPositiveTags && existingPositiveTags.length > 0) {
+      existingPositiveTags.forEach(tag => {
+        initialTags[tag] = 'positive';
+      });
+    }
+    
+    // Add existing negative tags
+    if (existingNegativeTags && existingNegativeTags.length > 0) {
+      existingNegativeTags.forEach(tag => {
+        initialTags[tag] = 'negative';
+      });
+    }
+    
+    // Set the initial state if we have any tags
+    if (Object.keys(initialTags).length > 0) {
+      setSelectedTags(initialTags);
+    }
+  }, []); // Only run on initial mount
 
   // Create a flat list of all tags for searching
   const allTags = React.useMemo(() => {
@@ -124,7 +154,7 @@ const TagSelector: React.FC<TagSelectorProps> = ({
     setShowSearchResults(true);
   }, [searchQuery, allTags]);
 
-  // Update the parent component when selected tags change
+  // Update the parent component when selected tags change - add memoization to prevent extra updates
   useEffect(() => {
     const positiveTags = Object.entries(selectedTags)
       .filter(([_, type]) => type === 'positive')
@@ -134,8 +164,22 @@ const TagSelector: React.FC<TagSelectorProps> = ({
       .filter(([_, type]) => type === 'negative')
       .map(([tag]) => tag);
     
-    onPositiveTagsChange(positiveTags);
-    onNegativeTagsChange(negativeTags);
+    // Store the last sent values to avoid unnecessary updates
+    
+    // Only call parent callbacks if tags actually changed
+    if (JSON.stringify(positiveTags) !== JSON.stringify(lastPositiveRef.current)) {
+      if (onPositiveTagsChange) {
+        lastPositiveRef.current = [...positiveTags];
+        onPositiveTagsChange(positiveTags);
+      }
+    }
+    
+    if (JSON.stringify(negativeTags) !== JSON.stringify(lastNegativeRef.current)) {
+      if (onNegativeTagsChange) {
+        lastNegativeRef.current = [...negativeTags];
+        onNegativeTagsChange(negativeTags);
+      }
+    }
   }, [selectedTags, onPositiveTagsChange, onNegativeTagsChange]);
 
   // Handle tag selection
@@ -543,12 +587,18 @@ const TagSelector: React.FC<TagSelectorProps> = ({
       {/* Make sure this container is scrollable when not searching */}
       {!showSearchResults && (
         <View style={styles.browsingContainer}>
-          {/* Category Selector - with dynamic width */}
-          <ScrollView style={[styles.fixedCategorySidebar, { width: actualSidebarWidth }]}>
+          {/* Category Selector - with fixed width */}
+          <ScrollView 
+            style={[
+              styles.fixedCategorySidebar, 
+              { width: actualSidebarWidth }
+            ]}
+            showsVerticalScrollIndicator={false}
+          >
             {renderCategorySelector()}
           </ScrollView>
           
-          {/* Scrollable content area */}
+          {/* Scrollable content area - adjust to take more space */}
           <View style={styles.scrollableContentArea}>
             {/* Subcategory Selector */}
             {renderSubCategorySelector()}
@@ -660,8 +710,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoryButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingVertical: 8, // Reduced from 12
+    paddingHorizontal: 8, // Reduced from 10
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.05)',
   },
@@ -679,10 +729,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   subCategoryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12, // Reduced from 16
+    paddingVertical: 4, // Reduced from 8
     marginRight: 8,
-    borderRadius: 20,
+    borderRadius: 16, // Reduced from 20
     backgroundColor: '#333',
   },
   selectedSubCategoryButton: {
@@ -798,6 +848,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.1)',
+    maxWidth: 80, // Add a hard limit to the sidebar width
   },
   scrollableContentArea: {
     flex: 1,

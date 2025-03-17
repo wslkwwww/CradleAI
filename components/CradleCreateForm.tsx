@@ -596,7 +596,7 @@ const performVndbSearch = async () => {
   }
 };
 
-  // 修改 handleCreateCharacter 函数，解决角色创建后立即找不到的问题
+  // 修改 handleCreateCharacter 函数，移除立即生成选项
 const handleCreateCharacter = async () => {
   if (!characterName.trim()) {
     Alert.alert('信息不完整', '请输入角色名称');
@@ -674,7 +674,7 @@ const handleCreateCharacter = async () => {
         selectedTraits, // Add selected traits
         description,
       },
-      isCradleGenerated: false,
+      isCradleGenerated: true, // Default to true since we're generating immediately now
       imageGenerationTaskId: imageTaskId,
       imageGenerationStatus: imageTaskId ? 'pending' : 'idle',
       
@@ -697,69 +697,47 @@ const handleCreateCharacter = async () => {
     
     console.log(`[摇篮角色创建] 图像创建模式: ${uploadMode}`);
     
-    // UPDATED LOGIC: Now handle either immediate generation or normal cradle flow
     try {
-      if (generateImmediately) {
-        // If generating immediately, we first add the character to the cradle system
-        console.log('[摇篮角色创建] 选择了立即生成，先添加角色到摇篮系统');
-        const addedCharacter = await addCradleCharacter(cradleCharacter);
-        console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${addedCharacter.id}`);
+      console.log('[摇篮角色创建] 添加角色到摇篮系统');
+      const addedCharacter = await addCradleCharacter(cradleCharacter);
+      console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${addedCharacter.id}`);
+      
+      // Give filesystem time to complete writing before proceeding
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Generate the character immediately
+      console.log(`[摇篮角色创建] 正在生成角色: ${addedCharacter.id}`);
+      try {
+        const generatedCharacter = await generateCharacterFromCradle(addedCharacter);
+        console.log(`[摇篮角色创建] 角色已成功生成，ID: ${generatedCharacter.id}`);
         
-        // Give filesystem time to complete writing before proceeding to generation
-        // This helps prevent race conditions
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // Then immediately generate final character
-        console.log(`[摇篮角色创建] 立即开始生成角色: ${addedCharacter.id}`);
-        try {
-          const generatedCharacter = await generateCharacterFromCradle(addedCharacter);
-          console.log(`[摇篮角色创建] 角色已成功生成，ID: ${generatedCharacter.id}`);
-          
-          // CHANGED: Modified behavior to go to cradle page instead of chat
-          Alert.alert('成功', '角色已创建并生成成功！', [
-            { 
-              text: '前往摇篮页面', 
-              onPress: () => {
-                onClose();
-                // Navigate to cradle page instead of chat
-                router.replace({ pathname: "/(tabs)/cradle" });
-                if (onSuccess) onSuccess();
-              }
-            },
-            {
-              text: '与角色聊天',
-              onPress: () => {
-                onClose();
-                // Navigate to character chat
-                router.replace({
-                  pathname: "/(tabs)",
-                  params: { characterId: generatedCharacter.id }
-                });
-                if (onSuccess) onSuccess();
-              }
-            }
-          ]);
-        } catch (genError) {
-          console.error('[摇篮角色创建] 生成角色失败:', genError);
-          // Even if generation fails, the character is still in cradle
-          Alert.alert('警告', '角色已创建但生成过程出错。您可以在摇篮中找到该角色，稍后重试生成。', [
-            { text: '进入摇篮页面', onPress: () => {
+        Alert.alert('成功', '角色已创建并生成成功！', [
+          { 
+            text: '前往摇篮页面', 
+            onPress: () => {
               onClose();
               router.replace({ pathname: "/(tabs)/cradle" });
               if (onSuccess) onSuccess();
-            }}
-          ]);
-        }
-      } else {
-        // Normal cradle flow - just add to cradle system
-        console.log('[摇篮角色创建] 添加角色到摇篮系统，等待培育');
-        const addedCharacter = await addCradleCharacter(cradleCharacter);
-        console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${addedCharacter.id}`);
-        
-        Alert.alert('成功', '角色已添加到摇篮系统！正在跳转到摇篮页面...', [
-          { text: '确定', onPress: () => {
+            }
+          },
+          {
+            text: '与角色聊天',
+            onPress: () => {
+              onClose();
+              // Navigate to character chat
+              router.replace({
+                pathname: "/(tabs)",
+                params: { characterId: generatedCharacter.id }
+              });
+              if (onSuccess) onSuccess();
+            }
+          }
+        ]);
+      } catch (genError) {
+        console.error('[摇篮角色创建] 生成角色失败:', genError);
+        Alert.alert('警告', '角色已创建但生成过程出错。您可以在摇篮中找到该角色，稍后重试生成。', [
+          { text: '进入摇篮页面', onPress: () => {
             onClose();
-            // Navigate to cradle page
             router.replace({ pathname: "/(tabs)/cradle" });
             if (onSuccess) onSuccess();
           }}
@@ -1335,24 +1313,6 @@ const handleCreateCharacter = async () => {
             multiline
             numberOfLines={4}
           />
-        </View>
-
-        {/* Add after personality sliders in character settings section */}
-        <View style={styles.inputGroup}>
-          <View style={styles.switchContainer}>
-            <Text style={styles.switchLabel}>立即生成角色，跳过摇篮培育</Text>
-            <Switch
-              value={generateImmediately}
-              onValueChange={setGenerateImmediately}
-              trackColor={{ false: '#767577', true: '#bfe8ff' }}
-              thumbColor={generateImmediately ? '#007bff' : '#f4f3f4'}
-            />
-          </View>
-          {generateImmediately && (
-            <Text style={styles.switchHint}>
-              立即生成将跳过摇篮培育过程，直接生成完整角色。图像生成仍会在后台进行。
-            </Text>
-          )}
         </View>
       </ScrollView>
       

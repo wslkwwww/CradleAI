@@ -12,7 +12,8 @@ import {
   Alert,
   Dimensions,
   Platform,
-  SafeAreaView
+  SafeAreaView,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CradleCharacter, CharacterImage } from '@/shared/types';
@@ -42,7 +43,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const [positiveTags, setPositiveTags] = useState<string[]>([]);
   const [negativeTags, setNegativeTags] = useState<string[]>([]);
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
-  const [replaceBackground, setReplaceBackground] = useState(false);
+  const [replaceBackground, setReplaceBackground] = useState(true); // Set default to true
+  const [replaceAvatar, setReplaceAvatar] = useState(true); // Add avatar replacement option with default true
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -50,17 +52,17 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
   const [useExistingArtistPrompt, setUseExistingArtistPrompt] = useState(true);
   
+  // Add new state for custom prompt
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
+  
   // Reset state when modal opens
   useEffect(() => {
     if (visible) {
       // If the character already has tags from previous generation, use them as defaults
       if (character.generationData?.appearanceTags) {
-        // Use existing positive tags but exclude artist prompts
-        const filteredPositiveTags = character.generationData.appearanceTags.positive?.filter(tag => 
-          !tag.includes('artist:') && !tag.includes('artist(') && !tag.startsWith('artist')
-        ) || [];
-        
-        setPositiveTags(filteredPositiveTags);
+        // Preserve all original tags (don't filter out artist tags)
+        setPositiveTags(character.generationData.appearanceTags.positive || []);
         setNegativeTags(character.generationData.appearanceTags.negative || []);
         
         // Get artist prompt from character if available
@@ -78,13 +80,24 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       setGeneratedImageUrl(null);
       setError(null);
       setIsLoading(false);
+      // Set defaults for both image replacement options
+      setReplaceBackground(true);
+      setReplaceAvatar(true);
+      // Reset custom prompt
+      setCustomPrompt('');
+      setUseCustomPrompt(false);
     }
   }, [visible, character]);
   
   // Submit image generation request
   const submitImageGeneration = async () => {
-    if (positiveTags.length === 0) {
-      Alert.alert('无法生成', '请至少添加一个正面标签来描述角色外观');
+    if (positiveTags.length === 0 && !useCustomPrompt) {
+      Alert.alert('无法生成', '请至少添加一个正面标签来描述角色外观，或使用自定义提示词');
+      return;
+    }
+    
+    if (useCustomPrompt && !customPrompt.trim()) {
+      Alert.alert('无法生成', '启用了自定义提示词功能，但没有输入任何提示词');
       return;
     }
     
@@ -92,22 +105,30 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
     setError(null);
     
     try {
-      // Prepare final positive tags list with artist prompt if selected
-      let finalPositiveTags = [...positiveTags];
+      let positivePrompt = '';
       
-      // Only add artist prompt if one is selected and we're using it
-      if (selectedArtistPrompt && useExistingArtistPrompt) {
-        console.log(`[图片重生成] 使用画师风格提示词: ${selectedArtistPrompt}`);
-        // Check if the artist prompt is already in the tags to avoid duplication
-        if (!finalPositiveTags.includes(selectedArtistPrompt)) {
-          finalPositiveTags.push(selectedArtistPrompt);
+      // If using custom prompt, use it directly
+      if (useCustomPrompt) {
+        positivePrompt = customPrompt.trim();
+        console.log(`[图片重生成] 使用自定义提示词: ${positivePrompt}`);
+      } else {
+        // Prepare final positive tags list with artist prompt if selected
+        let finalPositiveTags = [...positiveTags];
+        
+        // Only add artist prompt if one is selected and we're using it
+        if (selectedArtistPrompt && useExistingArtistPrompt) {
+          console.log(`[图片重生成] 使用画师风格提示词: ${selectedArtistPrompt}`);
+          // Check if the artist prompt is already in the tags to avoid duplication
+          if (!finalPositiveTags.includes(selectedArtistPrompt)) {
+            finalPositiveTags.push(selectedArtistPrompt);
+          }
         }
+        
+        positivePrompt = finalPositiveTags.join(', ');
       }
       
       // Combine negative tags with default negative prompts
       const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
-      
-      const positivePrompt = finalPositiveTags.join(', ');
       const negativePrompt = finalNegativeTags.join(', ');
       
       console.log(`[图片重生成] 正在为角色 "${character.name}" 生成新图像`);
@@ -146,6 +167,9 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       
       // 开始轮询任务状态
       await waitForGenerationResult(taskId);
+      
+      // Don't close the modal automatically after generation completes
+      // Let user see the result and decide what to do next
       
     } catch (error) {
       console.error('[图片重生成] 生成失败:', error);
@@ -189,6 +213,13 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               'avatar'
             );
             
+            // Store the prompts used
+            const imagePrompts = {
+              positive: useCustomPrompt ? [customPrompt] : positiveTags,
+              negative: negativeTags,
+              artistPrompt: selectedArtistPrompt || undefined
+            };
+            
             // Create image record
             const newImage: CharacterImage = {
               id: `img_${Date.now()}`,
@@ -196,15 +227,15 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               localUri: localImageUri || statusData.image_url,
               createdAt: Date.now(),
               characterId: character.id,
-              tags: {
-                positive: positiveTags,
-                negative: negativeTags
-              },
+              tags: imagePrompts,
               isFavorite: false
             };
             
-            // Pass to parent component
+            // Pass to parent component but DON'T close the modal
+            // We're just saving the image to history but keeping modal open
             onSuccess(newImage);
+            
+            // Don't add any auto-closing behavior here
             return;
             
           } else {
@@ -231,6 +262,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   
   // Handle confirming and saving the generated image
   const handleConfirm = () => {
+    // Close the modal when user explicitly confirms
     onClose();
   };
   
@@ -238,6 +270,11 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const toggleArtistPromptUsage = (value: boolean) => {
     setUseExistingArtistPrompt(value);
     console.log(`[图片重生成] ${value ? '启用' : '禁用'}画师风格提示词`);
+  };
+  
+  // Toggle custom prompt mode
+  const toggleCustomPromptMode = (value: boolean) => {
+    setUseCustomPrompt(value);
   };
 
   return (
@@ -285,6 +322,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                   resizeMode="contain"
                 />
                 
+                {/* Add options for both background and avatar */}
                 <View style={styles.resultOptions}>
                   <Text style={styles.optionText}>设为角色背景图片</Text>
                   <Switch
@@ -292,6 +330,16 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                     onValueChange={setReplaceBackground}
                     trackColor={{ false: '#767577', true: '#bfe8ff' }}
                     thumbColor={replaceBackground ? '#007bff' : '#f4f3f4'}
+                  />
+                </View>
+                
+                <View style={styles.resultOptions}>
+                  <Text style={styles.optionText}>设为角色头像</Text>
+                  <Switch
+                    value={replaceAvatar}
+                    onValueChange={setReplaceAvatar}
+                    trackColor={{ false: '#767577', true: '#bfe8ff' }}
+                    thumbColor={replaceAvatar ? '#007bff' : '#f4f3f4'}
                   />
                 </View>
                 
@@ -308,93 +356,144 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             {!generatedImageUrl && (
               <>
                 <View style={styles.tagSelectionSection}>
-                  <Text style={styles.sectionTitle}>外观标签</Text>
+                  <Text style={styles.sectionTitle}>图像生成选项</Text>
                   <Text style={styles.sectionDescription}>
-                    请选择描述角色外观的正面和负面标签，以指导图像生成
+                    请选择描述角色外观的标签或输入自定义提示词
                   </Text>
                   
-                  {/* Add Artist reference option if available - simplified UI */}
-                  {selectedArtistPrompt && (
-                    <View style={styles.artistPromptContainer}>
-                      <View style={styles.artistPromptHeader}>
-                        <Text style={styles.artistPromptTitle}>画风参考</Text>
-                        <Switch
-                          value={useExistingArtistPrompt}
-                          onValueChange={toggleArtistPromptUsage}
-                          trackColor={{ false: '#767577', true: '#bfe8ff' }}
-                          thumbColor={useExistingArtistPrompt ? '#007bff' : '#f4f3f4'}
+                  {/* Custom Prompt Input */}
+                  <View style={styles.customPromptContainer}>
+                    <View style={styles.customPromptHeader}>
+                      <Text style={styles.customPromptTitle}>自定义提示词</Text>
+                      <Switch
+                        value={useCustomPrompt}
+                        onValueChange={toggleCustomPromptMode}
+                        trackColor={{ false: '#767577', true: '#bfe8ff' }}
+                        thumbColor={useCustomPrompt ? '#007bff' : '#f4f3f4'}
+                      />
+                    </View>
+                    
+                    {useCustomPrompt && (
+                      <View style={styles.customPromptInputContainer}>
+                        <TextInput
+                          style={styles.customPromptInput}
+                          value={customPrompt}
+                          onChangeText={setCustomPrompt}
+                          placeholder="输入详细的生成提示词（英文效果更好）"
+                          placeholderTextColor="#888"
+                          multiline={true}
+                          numberOfLines={3}
                         />
+                        <Text style={styles.customPromptNote}>
+                          自定义提示词将替代标签系统，可直接输入复杂提示词
+                        </Text>
                       </View>
-
-                      {useExistingArtistPrompt && (
-                        <View style={styles.artistPromptContent}>
-                          <Text style={styles.artistPromptNote}>
-                            使用与角色原始生成相同的画风可以保持一致的视觉风格
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
-                  
-                  {/* Tag summary */}
-                  <View style={styles.tagSummaryContainer}>
-                    <Text style={styles.tagSectionTitle}>正面标签</Text>
-                    <View style={styles.tagsContainer}>
-                      {positiveTags.length > 0 ? (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          {positiveTags.map((tag, index) => (
-                            <TouchableOpacity
-                              key={`pos-${index}`}
-                              style={styles.selectedPositiveTag}
-                              onPress={() => {
-                                setPositiveTags(tags => tags.filter(t => t !== tag));
-                              }}
-                            >
-                              <Text style={styles.tagText}>{tag}</Text>
-                              <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      ) : (
-                        <Text style={styles.noTagsText}>未选择正面标签</Text>
-                      )}
-                    </View>
-                    
-                    <Text style={styles.tagSectionTitle}>负面标签</Text>
-                    <View style={styles.tagsContainer}>
-                      {negativeTags.length > 0 ? (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          {negativeTags.map((tag, index) => (
-                            <TouchableOpacity
-                              key={`neg-${index}`}
-                              style={styles.selectedNegativeTag}
-                              onPress={() => {
-                                setNegativeTags(tags => tags.filter(t => t !== tag));
-                              }}
-                            >
-                              <Text style={styles.negativeTagText}>{tag}</Text>
-                              <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      ) : (
-                        <Text style={styles.noTagsText}>未选择负面标签</Text>
-                      )}
-                    </View>
-                    
-                    <Text style={styles.defaultTagsInfo}>
-                      系统已添加默认的负面标签，以避免常见生成问题
-                    </Text>
+                    )}
                   </View>
                   
-                  {/* Open tag selector button */}
-                  <TouchableOpacity 
-                    style={styles.openTagSelectorButton}
-                    onPress={() => setTagSelectorVisible(true)}
-                  >
-                    <Ionicons name="pricetag-outline" size={20} color="#fff" />
-                    <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
-                  </TouchableOpacity>
+                  {/* Artist Reference Selector */}
+                  <View style={[styles.artistReferenceContainer, {opacity: useCustomPrompt ? 0.5 : 1}]}>
+                    <Text style={styles.artistReferenceTitle}>画师风格参考</Text>
+                    
+                    {/* Show existing artist switch only if there's a previous artist */}
+                    {selectedArtistPrompt && !useCustomPrompt && (
+                      <View style={styles.artistPromptContainer}>
+                        <View style={styles.artistPromptHeader}>
+                          <Text style={styles.artistPromptTitle}>使用原有画风</Text>
+                          <Switch
+                            value={useExistingArtistPrompt}
+                            onValueChange={toggleArtistPromptUsage}
+                            trackColor={{ false: '#767577', true: '#bfe8ff' }}
+                            thumbColor={useExistingArtistPrompt ? '#007bff' : '#f4f3f4'}
+                            disabled={useCustomPrompt}
+                          />
+                        </View>
+
+                        {useExistingArtistPrompt && (
+                          <View style={styles.artistPromptContent}>
+                            <Text style={styles.artistPromptNote}>
+                              保留原有画风: {selectedArtistPrompt}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    
+                    {/* Show artist selector only if not using existing artist or no previous artist */}
+                    {(!selectedArtistPrompt || !useExistingArtistPrompt) && !useCustomPrompt && (
+                      <ArtistReferenceSelector 
+                        selectedGender={(character.gender === 'male' || character.gender === 'female' || character.gender === 'other' ? character.gender : 'female')}
+                        onSelectArtist={setSelectedArtistPrompt}
+                        selectedArtistPrompt={selectedArtistPrompt}
+                      />
+                    )}
+                  </View>
+                  
+                  {/* Tag selection section - only show if not using custom prompt */}
+                  {!useCustomPrompt && (
+                    <View style={styles.tagSection}>
+                      {/* Tag summary */}
+                      <View style={styles.tagSummaryContainer}>
+                        <Text style={styles.tagSectionTitle}>正面标签</Text>
+                        <View style={styles.tagsContainer}>
+                          {positiveTags.length > 0 ? (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                              {positiveTags.map((tag, index) => (
+                                <TouchableOpacity
+                                  key={`pos-${index}`}
+                                  style={styles.selectedPositiveTag}
+                                  onPress={() => {
+                                    setPositiveTags(tags => tags.filter(t => t !== tag));
+                                  }}
+                                >
+                                  <Text style={styles.tagText}>{tag}</Text>
+                                  <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          ) : (
+                            <Text style={styles.noTagsText}>未选择正面标签</Text>
+                          )}
+                        </View>
+                        
+                        <Text style={styles.tagSectionTitle}>负面标签</Text>
+                        <View style={styles.tagsContainer}>
+                          {negativeTags.length > 0 ? (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                              {negativeTags.map((tag, index) => (
+                                <TouchableOpacity
+                                  key={`neg-${index}`}
+                                  style={styles.selectedNegativeTag}
+                                  onPress={() => {
+                                    setNegativeTags(tags => tags.filter(t => t !== tag));
+                                  }}
+                                >
+                                  <Text style={styles.negativeTagText}>{tag}</Text>
+                                  <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          ) : (
+                            <Text style={styles.noTagsText}>未选择负面标签</Text>
+                          )}
+                        </View>
+                        
+                        <Text style={styles.defaultTagsInfo}>
+                          系统已添加默认的负面标签，以避免常见生成问题
+                        </Text>
+                      </View>
+                      
+                      {/* Open tag selector button */}
+                      <TouchableOpacity 
+                        style={styles.openTagSelectorButton}
+                        onPress={() => setTagSelectorVisible(true)}
+                        disabled={useCustomPrompt}
+                      >
+                        <Ionicons name="pricetag-outline" size={20} color="#fff" />
+                        <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
                 
                 {/* Generate button */}
@@ -448,12 +547,34 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               <View style={styles.tagSelectorContent}>
                 <TagSelector 
                   onClose={() => setTagSelectorVisible(false)}
-                  onAddPositive={(tag) => setPositiveTags(prev => [...prev, tag])}
-                  onAddNegative={(tag) => setNegativeTags(prev => [...prev, tag])}
+                  onAddPositive={(tag) => {
+                    // Just add the tag to existing ones, don't replace everything
+                    if (!positiveTags.includes(tag)) {
+                      setPositiveTags(prev => [...prev, tag]);
+                    }
+                  }}
+                  onAddNegative={(tag) => {
+                    // Just add the tag to existing ones, don't replace everything
+                    if (!negativeTags.includes(tag)) {
+                      setNegativeTags(prev => [...prev, tag]);
+                    }
+                  }}
                   existingPositiveTags={positiveTags}
                   existingNegativeTags={negativeTags}
-                  onPositiveTagsChange={setPositiveTags}
-                  onNegativeTagsChange={setNegativeTags}
+                  // Fix the infinite logging by using a wrapper function that doesn't log
+                  onPositiveTagsChange={(tags) => {
+                    // Update tags silently without logging
+                    if (JSON.stringify(tags) !== JSON.stringify(positiveTags)) {
+                      setPositiveTags(tags);
+                    }
+                  }}
+                  onNegativeTagsChange={(tags) => {
+                    // Update tags silently without logging
+                    if (JSON.stringify(tags) !== JSON.stringify(negativeTags)) {
+                      setNegativeTags(tags);
+                    }
+                  }}
+                  sidebarWidth={70} // Reduced from 80 to make sidebar narrower
                 />
               </View>
             </View>
@@ -656,7 +777,7 @@ const styles = StyleSheet.create({
     padding: 10,
     backgroundColor: '#333',
     borderRadius: 8,
-    marginBottom: 20,
+    marginBottom: 10, // Reduced margin to accommodate both options
   },
   optionText: {
     color: '#fff',
@@ -734,6 +855,54 @@ const styles = StyleSheet.create({
   },
   tagSelectorContent: {
     flex: 1, // This ensures the TagSelector fills the available space
+  },
+  // Add new styles for custom prompt and artist reference
+  customPromptContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  customPromptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  customPromptTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  customPromptInputContainer: {
+    marginTop: 8,
+  },
+  customPromptInput: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    color: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  customPromptNote: {
+    color: '#aaa',
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  artistReferenceContainer: {
+    marginBottom: 16,
+  },
+  artistReferenceTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  tagSection: {
+    marginBottom: 16,
   },
 });
 

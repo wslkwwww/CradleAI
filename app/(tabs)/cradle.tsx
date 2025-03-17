@@ -13,7 +13,8 @@ import {
   ActivityIndicator,
   Image,
   ImageBackground,
-  Alert
+  Alert,
+  Modal
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -36,7 +37,6 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 import { User, GlobalSettings } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
 import ImageRegenerationModal from '@/components/ImageRegenerationModal';
-import CharacterImageGallery from '@/components/CharacterImageGallery';
 import { CharacterImage } from '@/shared/types';
 import CharacterImageGallerySidebar from '@/components/CharacterImageGallerySidebar';
 
@@ -49,12 +49,9 @@ interface UserContextProps {
 }
 
 
-// Updated tabs to match original cradle page
+// Updated tabs - removed settings and import tabs
 const TABS = [
   { id: 'main', title: '主页', icon: 'home-outline' },
-  { id: 'import', title: '导入', icon: 'download-outline' },
-  { id: 'settings', title: '设置', icon: 'settings-outline' },
-  { id: 'api', title: 'API', icon: 'cloud-outline' }
 ];
 
 export default function CradlePage() {
@@ -99,6 +96,10 @@ export default function CradlePage() {
 
   // Add state for gallery sidebar
   const [showGallerySidebar, setShowGallerySidebar] = useState(false);
+
+  // Add new state variables for full image view
+  const [showFullImage, setShowFullImage] = useState(false);
+  const [fullImageUri, setFullImageUri] = useState<string | null>(null);
 
   // Load characters when component mounts or refreshes
   useEffect(() => {
@@ -509,55 +510,8 @@ export default function CradlePage() {
     }
   };
 
-  // Render the tabs at the top of the screen
-  const renderTabs = () => (
-    <View style={styles.tabsContainer}>
-      {TABS.map((tab) => (
-        <TouchableOpacity
-          key={tab.id}
-          style={[
-            styles.tab, 
-            activeTab === tab.id && styles.activeTab
-          ]}
-          onPress={() => setActiveTab(tab.id)}
-        >
-          <Ionicons 
-            name={tab.icon as any} 
-            size={22} 
-            color={activeTab === tab.id ? theme.colors.primary : '#aaa'} 
-          />
-          <Text style={[
-            styles.tabText,
-            activeTab === tab.id && styles.activeTabText
-          ]}>
-            {tab.title}
-          </Text>
-          
-          {activeTab === tab.id && (
-            <View style={styles.activeTabIndicator} />
-          )}
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-
-  // Render the notification component
-  const renderNotification = () => (
-    notificationVisible && (
-      <View style={styles.notificationContainer}>
-        <View style={styles.notification}>
-          <Text style={styles.notificationTitle}>{notification.title}</Text>
-          <Text style={styles.notificationMessage}>{notification.message}</Text>
-          <TouchableOpacity
-            style={styles.closeNotificationButton}
-            onPress={() => setNotificationVisible(false)}
-          >
-            <Ionicons name="close" size={16} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    )
-  );
+  // Render the tabs at the top of the screen (simplified)
+  const renderTabs = () => null; // Remove tabs completely
 
   // Render character detail section
   const renderCharacterDetail = () => {
@@ -571,7 +525,6 @@ export default function CradlePage() {
         <CradleCharacterDetail
           character={selectedCharacter}
           onFeed={() => setShowFeedModal(true)}
-          onGenerate={() => handleGenerateCharacter(selectedCharacter)}
           onDelete={() => handleDeleteCharacter(selectedCharacter)}
           onEdit={() => {
             // Only enable edit for generated characters
@@ -637,9 +590,12 @@ export default function CradlePage() {
     );
   };
 
-  // Render main tab content - remove the embedded gallery
+  // Render main tab content - update to fix scrolling behavior
   const renderMainTab = () => (
     <View style={{ flex: 1 }}>
+      {/* Selected character details - moved outside of ScrollView */}
+      {selectedCharacter && renderCharacterDetail()}
+      
       <ScrollView 
         style={styles.tabContent}
         contentContainerStyle={styles.tabPageContent}
@@ -652,55 +608,68 @@ export default function CradlePage() {
           />
         }
       >
-        {/* Cradle status bar */}
-        <View style={styles.statusBar}>
-          <View style={styles.statusContainer}>
-            <View style={[
-              styles.statusIndicator,
-              cradleSettings.enabled ? styles.statusActive : styles.statusInactive
-            ]} />
-            <Text style={styles.statusText}>
-              {cradleSettings.enabled ? '摇篮系统已启用' : '摇篮系统已禁用'}
-            </Text>
-          </View>
-        </View>
+        {/* Removed cradle status bar */}
         
-        {/* Selected character details */}
-        {selectedCharacter && renderCharacterDetail()}
-        
-        {/* Character carousel */}
-        <Text style={{
-          color: '#fff',
-          fontSize: 18,
-          fontWeight: 'bold',
-          paddingHorizontal: 16,
-          marginTop: 8,
-          marginBottom: 4,
-        }}>
+        <Text style={styles.sectionHeading}>
           角色列表
         </Text>
         
-        {/* Render character carousel or empty state */}
+        {/* Render character grid or empty state */}
         {cradleCharacters.length > 0 ? (
-          <CradleCharacterCarousel
-            ref={characterCarouselRef}
-            characters={cradleCharacters}
-            selectedCharacterId={selectedCharacter?.id}
-            onSelectCharacter={(character) => setSelectedCharacter(character)}
-            onFeedCharacter={(id) => {
-              const character = cradleCharacters.find(c => c.id === id);
-              if (character) {
-                setSelectedCharacter(character);
-                setShowFeedModal(true);
-              }
-            }}
-          />
+          <View style={styles.characterGridContainer}>
+            <View style={styles.characterGrid}>
+              {cradleCharacters.map(character => (
+                <TouchableOpacity 
+                  key={character.id}
+                  style={[
+                    styles.characterCard,
+                    selectedCharacter?.id === character.id && styles.selectedCharacterCard
+                  ]}
+                  onPress={() => {
+                    setSelectedCharacter(character);
+                  }}
+                >
+                  {/* Character image container */}
+                  <View style={styles.characterImageContainer}>
+                    {character.backgroundImage ? (
+                      <Image
+                        source={{ uri: character.backgroundImage }}
+                        style={styles.characterImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.characterImagePlaceholder}>
+                        <Ionicons name="image-outline" size={24} color="#666" />
+                      </View>
+                    )}
+                    
+                    {/* Image generation status indicator - simplified */}
+                    {character.imageGenerationStatus === 'pending' && (
+                      <View style={styles.loadingIconOverlay}>
+                        <ActivityIndicator size="small" color="#fff" />
+                      </View>
+                    )}
+                    
+                    {/* Character info overlay - simplified */}
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.7)']}
+                      style={styles.characterCardOverlay}
+                    >
+                      <Text style={styles.characterCardName} numberOfLines={1}>
+                        {character.name}
+                      </Text>
+                    </LinearGradient>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
         ) : (
           <View style={styles.emptyStateContainer}>
             <Ionicons name="egg-outline" size={60} color={theme.colors.primary} />
             <Text style={styles.emptyTitle}>没有摇篮角色</Text>
             <Text style={styles.emptyText}>
-              创建新的摇篮角色或从已有角色中导入到摇篮系统
+              创建新的摇篮角色或从已有角色中导入
             </Text>
             <TouchableOpacity 
               style={styles.createCharacterButton}
@@ -710,20 +679,6 @@ export default function CradlePage() {
               <Text style={styles.createCharacterButtonText}>创建摇篮角色</Text>
             </TouchableOpacity>
           </View>
-        )}
-
-        {/* Character image gallery title */}
-        {selectedCharacter && (
-          <Text style={{
-            color: '#fff',
-            fontSize: 18,
-            fontWeight: 'bold',
-            paddingHorizontal: 16,
-            marginTop: 20,
-            marginBottom: 4,
-          }}>
-            角色图库
-          </Text>
         )}
       </ScrollView>
     </View>
@@ -814,7 +769,7 @@ export default function CradlePage() {
     >
       <StatusBar barStyle="light-content" />
       
-      {/* Header with tabs */}
+      {/* Header with simplified design */}
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>摇篮系统</Text>
@@ -822,9 +777,9 @@ export default function CradlePage() {
         {renderTabs()}
       </View>
       
-      {/* Main content area */}
+      {/* Main content area - only show main tab */}
       <View style={styles.tabContentContainer}>
-        {activeTab === 'main' ? renderMainTab() : renderTabContent()}
+        {renderMainTab()}
       </View>
       
       {/* Gallery Sidebar */}
@@ -842,15 +797,13 @@ export default function CradlePage() {
         />
       )}
       
-      {/* Floating create button - only on main tab */}
-      {activeTab === 'main' && (
-        <TouchableOpacity
-          style={styles.floatingCreateButton}
-          onPress={() => router.push('/pages/create_char_cradle')}
-        >
-          <Ionicons name="add" size={24} color="#000" />
-        </TouchableOpacity>
-      )}
+      {/* Floating create button - keep it */}
+      <TouchableOpacity
+        style={styles.floatingCreateButton}
+        onPress={() => router.push('/pages/create_char_cradle')}
+      >
+        <Ionicons name="add" size={24} color="#000" />
+      </TouchableOpacity>
       
       {/* Feed modal - when selectedCharacter exists */}
       {selectedCharacter && (
@@ -878,7 +831,7 @@ export default function CradlePage() {
       />
       
       {/* Notification component */}
-      {renderNotification()}
+
 
       {/* 添加角色编辑对话框 - Use editingCharacter instead of selectedCharacter */}
       {editingCharacter && (
@@ -986,7 +939,13 @@ export default function CradlePage() {
               
               // Now update the cradle character
               await updateCradleCharacter(updatedCradleCharacter);
+              
+              // Update state for immediate UI update
               setSelectedCharacter(updatedCradleCharacter);
+              setCradleCharacters(prev => 
+                prev.map(c => c.id === updatedCradleCharacter.id ? updatedCradleCharacter : c)
+              );
+              
               setShowEditDialog(false);
               setEditingCharacter(null); // Clear the editing character
               showNotification('角色更新成功', `角色 "${updatedCharacter.name}" 已通过对话成功更新！`);
@@ -1008,6 +967,31 @@ export default function CradlePage() {
           onSuccess={handleImageRegenerationSuccess}
         />
       )}
+
+      {/* Full Image Viewer Modal */}
+      <Modal
+        visible={showFullImage}
+        transparent={true}
+        onRequestClose={() => setShowFullImage(false)}
+        animationType="fade"
+      >
+        <View style={styles.fullImageContainer}>
+          <TouchableOpacity
+            style={styles.fullImageCloseButton}
+            onPress={() => setShowFullImage(false)}
+          >
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+          
+          {fullImageUri && (
+            <Image
+              source={{ uri: fullImageUri }}
+              style={styles.fullImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1156,250 +1140,6 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
-  characterDetailCard: {
-    height: 220,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#333',
-    position: 'relative',
-  },
-  characterDetailBackground: {
-    ...StyleSheet.absoluteFillObject,
-    resizeMode: 'cover',
-  },
-  characterDetailBackgroundPlaceholder: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#333',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  characterDetailGradient: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  imageGenerationStatusContainer: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 8,
-    padding: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    maxWidth: '70%',
-  },
-  imageStatusIndicator: {
-    marginRight: 8,
-  },
-  imageGenerationStatusText: {
-    color: '#FFD700',
-    fontSize: 14,
-  },
-  characterDetailInfo: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 16,
-  },
-  characterDetailName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: {width: 1, height: 1},
-    textShadowRadius: 3,
-  },
-  characterDetailDescription: {
-    color: '#eee',
-    fontSize: 14,
-    marginBottom: 12,
-    lineHeight: 20,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: {width: 1, height: 1},
-    textShadowRadius: 3,
-  },
-  characterStatusRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
-  },
-  characterStatusItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  characterStatusText: {
-    color: '#ddd',
-    marginLeft: 6,
-    fontSize: 14,
-  },
-  characterActionButtons: {
-    flexDirection: 'row',
-  },
-  characterActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.accent,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-  viewButton: {
-    backgroundColor: '#4A90E2',
-  },
-  generateButton: {
-    backgroundColor: '#FF9800', // Orange color to make it stand out
-  },
-  characterActionButtonText: {
-    color: '#fff',
-    marginLeft: 6,
-    fontWeight: '500',
-    fontSize: 14,
-  },
-  characterCard: {
-    width: SCREEN_WIDTH * 0.7,
-    height: 180,
-    backgroundColor: '#333',
-    borderRadius: 12,
-    marginRight: 12,
-    overflow: 'hidden',
-  },
-  characterCardReadyForGeneration: {
-    borderWidth: 2,
-    borderColor: '#FFC107',
-  },
-  characterCardReady: {
-    borderWidth: 2,
-    borderColor: '#4CAF50',
-  },
-  selectedCharacterCard: {
-    transform: [{scale: 1.05}],
-    shadowColor: theme.colors.primary,
-    shadowOffset: {width: 0, height: 0},
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  characterImageContainer: {
-    height: 120,
-    position: 'relative',
-  },
-  characterImage: {
-    width: '100%',
-    height: '100%',
-  },
-  placeholderImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#3a3a3a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imageStatusBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageStatusPending: {
-    backgroundColor: '#FFC107',
-  },
-  imageStatusSuccess: {
-    backgroundColor: '#4CAF50',
-  },
-  imageStatusError: {
-    backgroundColor: '#F44336',
-  },
-  avatarContainer: {
-    position: 'absolute',
-    bottom: -20,
-    left: 10,
-    borderWidth: 2,
-    borderColor: '#fff',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    overflow: 'hidden',
-    backgroundColor: '#333',
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  avatarPlaceholder: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#555',
-  },
-  characterInfo: {
-    flex: 1,
-    padding: 12,
-    paddingTop: 16,
-  },
-  characterName: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  readyBadge: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  readyBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  readyForGenBadge: {
-    backgroundColor: '#FFC107',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  readyForGenBadgeText: {
-    color: '#000',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  breedingBadge: {
-    backgroundColor: '#2196F3',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  breedingBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  feedCount: {
-    color: '#aaa',
-    fontSize: 12,
-  },
-  feedButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.accent,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    alignSelf: 'flex-start',
-  },
-  feedButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    marginLeft: 4,
-  },
   notificationContainer: {
     position: 'absolute',
     top: 16,
@@ -1445,18 +1185,263 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  imageGalleryContainer: {
-    flex: 1,
-    backgroundColor: '#222',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    maxHeight: 500, // Limit the height so it doesn't take up the entire screen
+  
+  // Styles for character grid view
+  characterGridContainer: {
+    paddingHorizontal: 8,
+    paddingVertical: 16,
   },
-  imageGallerySection: {
+  characterGridCard: {
+    flex: 1,
+    margin: 8,
+    borderRadius: 12,
+    backgroundColor: '#333',
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  selectedCharacterGridCard: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  characterGridImageContainer: {
+    height: 180,
+    position: 'relative',
+  },
+  characterGridImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  characterGridPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#444',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  characterGridAvatarContainer: {
+    position: 'absolute',
+    bottom: -20,
+    left: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: '#333',
+    overflow: 'hidden',
+    elevation: 3,
+  },
+  characterGridAvatar: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  characterGridAvatarPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#555',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  characterGridInfo: {
+    padding: 16,
+    paddingTop: 24,
+  },
+  characterGridName: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  characterGridActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  characterGridActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  
+  // Other styles
+  importContainer: {
+    padding: 20, 
+    alignItems: 'center',
+  },
+  importTitle: {
+    color: '#fff', 
+    fontSize: 20, 
+    fontWeight: 'bold', 
     marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: '#222',
+  },
+  importDescription: {
+    color: '#aaa', 
+    textAlign: 'center', 
+    marginVertical: 16, 
+    lineHeight: 22,
+  },
+  importButton: {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  importButtonText: {
+    color: '#000', 
+    fontSize: 16, 
+    fontWeight: '600',
+  },
+  sectionTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  // Add new styles for the grid layout
+  characterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  characterCard: {
+    width: (SCREEN_WIDTH - 48) / 2, // 2 columns with proper spacing
+    height: ((SCREEN_WIDTH - 48) / 2) * (16/9), // Proper 9:16 aspect ratio (width * 16/9)
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#333',
+    marginBottom: 16,
+    marginHorizontal: 4,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  selectedCharacterCard: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  characterImageContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  characterImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  characterImagePlaceholder: {
+    flex: 1,
+    backgroundColor: '#444',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statusOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  generatedBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  generatedBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  characterCardOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 12,
+    paddingTop: 24,
+  },
+  characterCardName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  characterCardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  characterCardButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  fullImageContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImage: {
+    width: '100%',
+    height: '90%',
+  },
+  fullImageCloseButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  sectionHeading: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  loadingIconOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+    padding: 6,
   },
 });
