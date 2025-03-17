@@ -24,6 +24,7 @@ interface ChatDialogProps {
   style?: ViewStyle;
   selectedCharacter?: Character | null;
   onRateMessage?: (messageId: string, isUpvote: boolean) => void;
+  onRegenerateMessage?: (messageId: string, messageIndex: number) => void;
 }
 
 const { width } = Dimensions.get('window');
@@ -35,6 +36,7 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
   style,
   selectedCharacter,
   onRateMessage,
+  onRegenerateMessage,
 }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -215,6 +217,56 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     );
   };
 
+  // Count the number of AI messages up to a specific index for regenerate functionality
+  const getAiMessageIndex = (index: number): number => {
+    let aiMessageCount = 0;
+    for (let i = 0; i <= index; i++) {
+      if (messages[i].sender === 'bot' && !messages[i].isLoading) {
+        aiMessageCount++;
+      }
+    }
+    return aiMessageCount - 1; // 0-based index
+  };
+
+  // Render message actions (rating buttons and regenerate button)
+  const renderMessageActions = (message: Message, index: number) => {
+    if (message.isLoading) return null;
+    
+    const isLastMessage = index === messages.length - 1 || 
+                         (index === messages.length - 2 && messages[messages.length - 1].isLoading);
+    
+    return (
+      <View style={styles.messageActions}>
+        {onRegenerateMessage && (
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => onRegenerateMessage(message.id, getAiMessageIndex(index))}
+          >
+            <Ionicons name="refresh-circle-outline" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
+        
+        {onRateMessage && (
+          <>
+            <TouchableOpacity
+              style={styles.rateButton}
+              onPress={() => onRateMessage(message.id, true)}
+            >
+              <Ionicons name="thumbs-up-outline" size={18} color="#999" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.rateButton}
+              onPress={() => onRateMessage(message.id, false)}
+            >
+              <Ionicons name="thumbs-down-outline" size={18} color="#999" />
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    );
+  };
+
   return (
     <>
       <ScrollView
@@ -289,23 +341,7 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
                             processMessageContent(message.text, false)
                           )}
                           
-                          {!isLoading && onRateMessage && (
-                            <View style={styles.messageActions}>
-                              <TouchableOpacity
-                                style={styles.rateButton}
-                                onPress={() => onRateMessage(message.id, true)}
-                              >
-                                <Ionicons name="thumbs-up-outline" size={18} color="#999" />
-                              </TouchableOpacity>
-                              
-                              <TouchableOpacity
-                                style={styles.rateButton}
-                                onPress={() => onRateMessage(message.id, false)}
-                              >
-                                <Ionicons name="thumbs-down-outline" size={18} color="#999" />
-                              </TouchableOpacity>
-                            </View>
-                          )}
+                          {!isLoading && !isUser && renderMessageActions(message, index)}
                         </View>
                       )}
                     </View>
@@ -450,6 +486,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     marginTop: 8,
+    alignItems: 'center',
   },
   rateButton: {
     padding: 4,
@@ -559,6 +596,12 @@ const styles = StyleSheet.create({
     color: '#3498db',
     textDecorationLine: 'underline',
     fontSize: 16,
+  },
+  actionButton: {
+    padding: 6,
+    marginRight: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 14,
   },
 });
 

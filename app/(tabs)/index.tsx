@@ -9,6 +9,7 @@ import {
   StatusBar,
   TouchableOpacity,
   Text,
+  Alert,
 } from 'react-native';
 
 import ChatDialog from '@/components/ChatDialog';
@@ -16,18 +17,23 @@ import ChatInput from '@/components/ChatInput';
 import Sidebar from '@/components/Sidebar';
 import SettingsSidebar from '@/components/SettingsSidebar';
 import MemoOverlay from '@/components/MemoOverlay';  // 替换原来的 MemoSheet 导入
+import SaveManager from '@/components/SaveManager'; // Import the SaveManager component
 import NovelAITestModal from '@/components/NovelAITestModal'; // 导入 NovelAI 测试组件
 import VNDBTestModal from '@/src/components/VNDBTestModal'; // 导入 VNDB 测试组件
-import { Message, Character } from '@/shared/types';
+import { Message, Character, ChatSave } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
+import { useUser } from '@/constants/UserContext'; // 添加 useUser 导入
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TopBarWithBackground from '@/components/TopBarWithBackground';
+import { NodeSTManager } from '@/utils/NodeSTManager';  // 导入 NodeSTManager
+import { chatSaveService } from '@/services/ChatSaveService';
 
 const App = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   const characterId = params.characterId as string;
+  const { user } = useUser(); // 获取用户设置
 
   // 简化状态管理，只保留必要的状态
   const {
@@ -35,23 +41,26 @@ const App = () => {
     characters,
     getMessages,
     addMessage,
-    clearMessages,  // Add this
+    clearMessages,
   } = useCharacters();
   
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
 
-
+  // UI state
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   const [isSettingsSidebarVisible, setIsSettingsSidebarVisible] = useState(false);
   const [isMemoSheetVisible, setIsMemoSheetVisible] = useState(false);
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
-
-  // 新增 NovelAI 测试模态框状态
   const [isNovelAITestVisible, setIsNovelAITestVisible] = useState(false);
-
-  // 新增 VNDB 测试模态框状态
   const [isVNDBTestVisible, setIsVNDBTestVisible] = useState(false);
+
+  // Save/Load system states
+  const [isSaveManagerVisible, setIsSaveManagerVisible] = useState(false);
+  const [previewMessages, setPreviewMessages] = useState<Message[] | null>(null);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [currentPreviewSave, setCurrentPreviewSave] = useState<ChatSave | null>(null);
+  const [previewBannerVisible, setPreviewBannerVisible] = useState(false);
 
   // 添加一个跟踪处理过的图片URL的集合
   const [processedImageUrls, setProcessedImageUrls] = useState<Set<string>>(new Set());
@@ -66,10 +75,100 @@ const App = () => {
     setIsSidebarVisible(!isSidebarVisible);
   };
 
+  const toggleSaveManager = () => {
+    // If in preview mode, ask user if they want to exit
+    if (isPreviewMode) {
+      Alert.alert(
+        'Exit Preview Mode',
+        'You are currently previewing a saved chat. Do you want to exit preview mode?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Exit Preview', 
+            onPress: () => {
+              exitPreviewMode();
+              setIsSaveManagerVisible(!isSaveManagerVisible);
+            }
+          }
+        ]
+      );
+    } else {
+      setIsSaveManagerVisible(!isSaveManagerVisible);
+    }
+  };
+
   const handleSaveMemo = (content: string) => {
     // 这里可以添加保存备忘录的逻辑
     console.log('Saving memo:', content);
     // TODO: 将备忘录保存到本地存储或发送到服务器
+  };
+
+  // Preview a save
+  const handlePreviewSave = (save: ChatSave) => {
+    if (!isPreviewMode) {
+      // Store current messages for later
+      setPreviewMessages(messages);
+    }
+    
+    // Enter preview mode and show the saved messages
+    setIsPreviewMode(true);
+    setCurrentPreviewSave(save);
+    setMessages(save.messages);
+    setIsSaveManagerVisible(false);
+    
+    // Show preview banner
+    setPreviewBannerVisible(true);
+    
+    // Hide banner after 5 seconds
+    setTimeout(() => {
+      setPreviewBannerVisible(false);
+    }, 5000);
+  };
+
+  // Exit preview mode and restore original messages
+  const exitPreviewMode = () => {
+    if (isPreviewMode && previewMessages) {
+      setMessages(previewMessages);
+      setIsPreviewMode(false);
+      setCurrentPreviewSave(null);
+      setPreviewMessages(null);
+      setPreviewBannerVisible(false);
+    }
+  };
+
+  // Load a saved chat state
+  const handleLoadSave = (save: ChatSave) => {
+    if (!selectedConversationId) return;
+    
+    // First clear all messages
+    clearMessages(selectedConversationId)
+      .then(async () => {
+        // Add each message from the save
+        for (const msg of save.messages) {
+          await addMessage(selectedConversationId, msg);
+        }
+        
+        // Update local state
+        setMessages(save.messages);
+        setIsSaveManagerVisible(false);
+        setIsPreviewMode(false);
+        setPreviewMessages(null);
+        setCurrentPreviewSave(null);
+        
+        Alert.alert('Success', 'Chat restored successfully to saved point!');
+      })
+      .catch(error => {
+        console.error('Error restoring chat:', error);
+        Alert.alert('Error', 'Failed to restore chat state.');
+        
+        // Exit preview mode on error
+        exitPreviewMode();
+      });
+  };
+
+  // Handle chat save creation
+  const handleSaveCreated = (save: ChatSave) => {
+    console.log('Save created:', save.id);
   };
 
   useEffect(() => {
@@ -85,6 +184,29 @@ const App = () => {
   // }, [currentMessages]);
 
   const handleSendMessage = async (newMessage: string, sender: 'user' | 'bot', isLoading = false) => {
+    // If in preview mode, exit it first
+    if (isPreviewMode) {
+      Alert.alert(
+        'Exit Preview Mode',
+        'You\'re currently previewing a saved chat. Sending a new message will exit preview mode.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Send & Exit Preview', 
+            onPress: () => {
+              exitPreviewMode();
+              sendMessageInternal(newMessage, sender, isLoading);
+            }
+          }
+        ]
+      );
+    } else {
+      await sendMessageInternal(newMessage, sender, isLoading);
+    }
+  };
+
+  // Internal helper function to actually send the message
+  const sendMessageInternal = async (newMessage: string, sender: 'user' | 'bot', isLoading = false) => {
     if (!selectedConversationId) {
       console.warn('No conversation selected.');
       return;
@@ -96,11 +218,169 @@ const App = () => {
       text: newMessage,
       sender: sender,
       isLoading: isLoading,
-      timestamp: Date.now(),
+      timestamp: Date.now(), // Make sure timestamp is included
     };
 
     // 只在Context中更新消息，本地状态通过useEffect自动更新
     await addMessage(selectedConversationId, newMessageObj);
+  };
+
+  const handleRegenerateMessage = async (messageId: string, messageIndex: number) => {
+    if (!selectedConversationId) {
+      console.warn('No conversation selected for regeneration');
+      return;
+    }
+    
+    try {
+      console.log('Regenerating message at index:', messageIndex);
+      
+      // Find all AI messages and their corresponding user messages
+      const currentMessages = [...messages];
+      const aiMessages: Message[] = [];
+      const userMessages: Message[] = [];
+      const messagePairs: { aiMessage: Message, userMessage: Message }[] = [];
+      
+      // First, collect all messages by type
+      for (const msg of currentMessages) {
+        if (msg.sender === 'bot' && !msg.isLoading) {
+          aiMessages.push(msg);
+        } else if (msg.sender === 'user') {
+          userMessages.push(msg);
+        }
+      }
+      
+      // Now build the pairs by looking at the sequence
+      let currentUserMessage: Message | null = null;
+      
+      for (const msg of currentMessages) {
+        if (msg.sender === 'user') {
+          currentUserMessage = msg;
+        } else if (msg.sender === 'bot' && !msg.isLoading && currentUserMessage) {
+          messagePairs.push({
+            userMessage: currentUserMessage,
+            aiMessage: msg
+          });
+        }
+      }
+      
+      console.log(`Found ${messagePairs.length} user-AI message pairs`);
+      
+      // Find the target message pair
+      if (messageIndex < 0 || messageIndex >= messagePairs.length) {
+        console.warn('Invalid message index for regeneration:', messageIndex);
+        return;
+      }
+      
+      const targetPair = messagePairs[messageIndex];
+      
+      if (!targetPair) {
+        console.warn('Target message pair not found for regeneration');
+        return;
+      }
+      
+      console.log('Target user message:', targetPair.userMessage.text.substring(0, 30) + '...');
+      console.log('Target AI message:', targetPair.aiMessage.text.substring(0, 30) + '...');
+      
+      // Find the index of the AI message to regenerate
+      const targetAiIndex = currentMessages.findIndex(m => m.id === targetPair.aiMessage.id);
+      
+      if (targetAiIndex === -1) {
+        console.warn('Target AI message not found in current messages');
+        return;
+      }
+      
+      // Mark all messages after and including the AI message for removal
+      const messagesToRemove = currentMessages
+        .slice(targetAiIndex)
+        .map(msg => msg.id);
+      
+      // Add a loading message
+      const loadingMessageId = `loading-${Date.now()}`;
+      await addMessage(selectedConversationId, {
+        id: loadingMessageId,
+        text: '', 
+        sender: 'bot',
+        isLoading: true,
+        timestamp: Date.now(),
+      });
+      
+      // Call NodeSTManager to handle the regeneration
+      const result = await NodeSTManager.regenerateFromMessage({
+        messageIndex: messageIndex,
+        conversationId: selectedConversationId,
+        apiKey: user?.settings?.chat.characterApiKey || '',
+        apiSettings: {
+          apiProvider: user?.settings?.chat.apiProvider || 'gemini',
+          openrouter: user?.settings?.chat.openrouter
+        },
+        character: selectedCharacter || undefined
+      });
+      
+      // Completely replace the context's messages with the updated messages from NodeST
+      if (result.success) {
+        // First, remove all messages after and including the regenerated one
+        await Promise.all(messagesToRemove.map(id => {
+          return Promise.resolve();
+        }));
+        
+        // Now remove the loading message and build the updated message list
+        const currentMessagesAfterLoading = getMessages(selectedConversationId).filter(
+          msg => msg.id !== loadingMessageId && !messagesToRemove.includes(msg.id)
+        );
+        
+        // Then add the regenerated message
+        const regeneratedMessage: Message = {
+          id: `regenerated-${Date.now()}`,
+          text: result.text || 'No response generated',
+          sender: 'bot',
+          isLoading: false,
+          timestamp: Date.now(),
+        };
+        
+        // Build new message list
+        const updatedMessages = [...currentMessagesAfterLoading, regeneratedMessage];
+        
+        // Save this to the context (this will replace all messages for this conversation)
+        await clearMessages(selectedConversationId);
+        
+        // Add the updated messages one by one
+        for (const msg of updatedMessages) {
+          await addMessage(selectedConversationId, msg);
+        }
+        
+        // Update local state
+        setMessages(getMessages(selectedConversationId));
+      } else {
+        // In case of error, just remove the loading indicator and add error message
+        const currentMessagesAfterLoading = getMessages(selectedConversationId).filter(
+          msg => msg.id !== loadingMessageId
+        );
+        
+        // Add error message instead
+        await addMessage(selectedConversationId, {
+          id: `error-${Date.now()}`,
+          text: '抱歉，无法重新生成回复。请稍后再试。',
+          sender: 'bot',
+          isLoading: false,
+          timestamp: Date.now(),
+        });
+        
+        // Update local state
+        setMessages(getMessages(selectedConversationId));
+      }
+    } catch (error) {
+      console.error('Error regenerating message:', error);
+      
+      // Clean up loading indicator in case of error
+      const updatedMessages = messages.filter(msg => !msg.isLoading);
+      setMessages([...updatedMessages, {
+        id: `error-${Date.now()}`,
+        text: '发生错误，无法重新生成消息。',
+        sender: 'bot',
+        isLoading: false,
+        timestamp: Date.now(),
+      }]);
+    }
   };
 
   // 监听 messagesMap 的变化, 移除多余的本地状态更新
@@ -124,6 +404,11 @@ const App = () => {
 
   // 修改处理图像的函数
   const handleImageGenerated = async (imageUrl: string, taskId?: string) => {
+    // If in preview mode, exit first
+    if (isPreviewMode) {
+      exitPreviewMode();
+    }
+
     if (!selectedConversationId) {
       console.warn('未选择对话，无法添加图片消息');
       return;
@@ -187,7 +472,25 @@ const App = () => {
   const selectedCharacter: Character | undefined | null = selectedConversationId ? characters.find((char: Character) => char.id === selectedConversationId) : null;
 
   const handleAvatarPress = () => {
-    router.push(`/pages/character-detail?id=${selectedConversationId}`);
+    // If in preview mode, ask user if they want to exit before navigating
+    if (isPreviewMode) {
+      Alert.alert(
+        'Exit Preview Mode',
+        'You\'re currently previewing a saved chat. Navigating to character details will exit preview mode.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Continue', 
+            onPress: () => {
+              exitPreviewMode();
+              router.push(`/pages/character-detail?id=${selectedConversationId}`);
+            }
+          }
+        ]
+      );
+    } else {
+      router.push(`/pages/character-detail?id=${selectedConversationId}`);
+    }
   };
 
   const handleRateMessage = async (messageId: string, isUpvote: boolean) => {
@@ -326,6 +629,7 @@ const App = () => {
             onMemoPress={() => setIsMemoSheetVisible(true)}
             onSettingsPress={toggleSettingsSidebar}
             onMenuPress={toggleSidebar}
+            onSaveManagerPress={toggleSaveManager} // Add save manager button handler
             showBackground={false} // 不在 TopBar 中显示背景，因为我们已经在整个屏幕上设置了背景
           />
 
@@ -333,6 +637,30 @@ const App = () => {
             styles.safeArea,
             selectedCharacter && styles.transparentBackground
           ]}>
+            {/* Preview Mode Banner */}
+            {isPreviewMode && previewBannerVisible && (
+              <View style={styles.previewBanner}>
+                <Text style={styles.previewBannerText}>
+                  You are previewing a saved chat state
+                </Text>
+                <View style={styles.previewBannerButtons}>
+                  <TouchableOpacity 
+                    style={styles.previewBannerButton}
+                    onPress={exitPreviewMode}
+                  >
+                    <Text style={styles.previewBannerButtonText}>Exit Preview</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.previewBannerButton, styles.restoreButton]}
+                    onPress={() => currentPreviewSave && handleLoadSave(currentPreviewSave)}
+                  >
+                    <Text style={styles.previewBannerButtonText}>Restore This State</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            
             <View style={[
               styles.contentContainer,
               selectedCharacter && styles.transparentBackground
@@ -342,6 +670,7 @@ const App = () => {
                 style={styles.chatDialog}
                 selectedCharacter={selectedCharacter}
                 onRateMessage={handleRateMessage}
+                onRegenerateMessage={handleRegenerateMessage}
               />
               
               {/* 测试按钮容器 */}
@@ -413,6 +742,22 @@ const App = () => {
             onClose={() => setIsNovelAITestVisible(false)}
             onImageGenerated={handleImageGenerated}
           />
+          
+          {/* Save Manager */}
+          {selectedCharacter && (
+            <SaveManager
+              visible={isSaveManagerVisible}
+              onClose={() => setIsSaveManagerVisible(false)}
+              conversationId={selectedConversationId || ''}
+              characterId={selectedCharacter.id}
+              characterName={selectedCharacter.name}
+              characterAvatar={selectedCharacter.avatar || undefined}
+              messages={messages}
+              onSaveCreated={handleSaveCreated}
+              onLoadSave={handleLoadSave}
+              onPreviewSave={handlePreviewSave}
+            />
+          )}
         </View>
       </ImageBackground>
     </View>
@@ -487,6 +832,48 @@ const styles = StyleSheet.create({
   },
   vndbButton: {
     backgroundColor: 'rgba(155, 89, 182, 0.9)', // 半透明紫色，区分不同按钮
+  },
+  previewBanner: {
+    backgroundColor: 'rgba(52, 152, 219, 0.8)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    width: '100%',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  previewBannerText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  previewBannerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  previewBannerButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 16,
+    marginHorizontal: 8,
+  },
+  previewBannerButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  restoreButton: {
+    backgroundColor: 'rgba(46, 204, 113, 0.4)',
   },
 });
 

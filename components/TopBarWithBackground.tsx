@@ -22,6 +22,7 @@ interface TopBarWithBackgroundProps {
   onMemoPress: () => void;
   onSettingsPress: () => void;
   onMenuPress: () => void;
+  onSaveManagerPress?: () => void; // New save manager button handler
   showBackground?: boolean; // 新增属性
 }
 
@@ -34,6 +35,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   onMemoPress,
   onSettingsPress,
   onMenuPress,
+  onSaveManagerPress, // Add the new handler
   showBackground = true, // 默认为 true
 }) => {
   const [scrollY] = useState(new Animated.Value(0));
@@ -149,6 +151,13 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
             >
               <Ionicons name="settings-outline" size={24} color="#fff" />
             </TouchableOpacity>
+
+            {/* New Save Manager Button */}
+            {onSaveManagerPress && (
+              <TouchableOpacity onPress={onSaveManagerPress} style={styles.actionButton}>
+                <Ionicons name="bookmark-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Animated.View>

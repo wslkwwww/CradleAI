@@ -8,9 +8,10 @@ import {
   TextInput,
   ScrollView,
   Alert,
-  Modal
+  Modal,
+  Image
 } from 'react-native';
-import { Svg, Circle, Line, Text as SvgText } from 'react-native-svg';
+import { Svg, Circle, Line, Text as SvgText, Image as SvgImage } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { Relationship, RelationshipType } from '@/shared/types/relationship-types';
@@ -29,6 +30,7 @@ export interface RelationshipGraphProps {
   allCharacters: Character[];
   onUpdateCharacter: (character: Character) => Promise<void>;
   onSelectRelationship: (relationshipId: string) => void;
+  relationshipTypeLabels?: Record<RelationshipType, string>;
 }
 
 // Color mapping for relationship types
@@ -52,34 +54,98 @@ const COLOR_MAP: Record<RelationshipType, string> = {
   'idol': '#FFAA44'
 };
 
-// Node component for each relationship
+// Default Chinese translations if not provided through props
+const DEFAULT_RELATIONSHIP_TYPE_CN: Record<RelationshipType, string> = {
+  'enemy': '敌人',
+  'rival': '对手',
+  'stranger': '陌生人',
+  'acquaintance': '点头之交',
+  'colleague': '同事',
+  'friend': '朋友',
+  'close_friend': '好友',
+  'best_friend': '挚友',
+  'family': '家人',
+  'crush': '暗恋对象',
+  'lover': '情人',
+  'partner': '伴侣',
+  'ex': '前任',
+  'mentor': '导师',
+  'student': '学生',
+  'admirer': '仰慕者',
+  'idol': '偶像'
+};
+
+// Node component for each relationship - now using avatars
 const RelationshipNode: React.FC<RelationshipNodeProps> = ({ x, y, character, relationship, onPress }) => {
   const color = COLOR_MAP[relationship.type] || '#AAAAAA';
-  const radius = 20 + (Math.abs(relationship.strength) / 10);
-  const opacity = 0.6 + (Math.abs(relationship.strength) / 250);
+  const radius = 25; // Fixed size for avatar circle
+  const borderWidth = 3 + (Math.abs(relationship.strength) / 50); // Border width based on relationship strength
   
   return (
-    <>
-      <Circle
-        cx={x}
-        cy={y}
-        r={radius}
-        fill={color}
-        opacity={opacity}
-        onPress={onPress}
-      />
-      <SvgText
-        x={x}
-        y={y + 3}
-        fontSize="12"
-        fontWeight="bold"
-        fill="#282828"
-        textAnchor="middle"
-        onPress={onPress}
-      >
-        {character.name.substring(0, 4)}
-      </SvgText>
-    </>
+    <TouchableOpacity
+      style={{
+        position: 'absolute',
+        left: x - radius,
+        top: y - radius,
+        width: radius * 2,
+        height: radius * 2,
+        borderRadius: radius,
+        borderColor: color,
+        borderWidth: borderWidth,
+        backgroundColor: 'rgba(51, 51, 51, 0.8)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+      }}
+      onPress={onPress}
+    >
+      {character.avatar ? (
+        <Image 
+          source={{ uri: character.avatar }} 
+          style={{ 
+            width: radius * 2 - borderWidth * 2, 
+            height: radius * 2 - borderWidth * 2, 
+            borderRadius: radius 
+          }} 
+        />
+      ) : (
+        <View style={{ 
+          width: radius * 2 - borderWidth * 2, 
+          height: radius * 2 - borderWidth * 2, 
+          borderRadius: radius,
+          backgroundColor: '#666',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <Text style={{ 
+            color: '#fff', 
+            fontSize: 18, 
+            fontWeight: 'bold' 
+          }}>
+            {character.name.substring(0, 1)}
+          </Text>
+        </View>
+      )}
+      
+      {/* Character name label below avatar */}
+      <View style={{
+        position: 'absolute',
+        top: radius * 2 + 2,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 10,
+        minWidth: radius * 2,
+      }}>
+        <Text style={{
+          color: '#fff',
+          fontSize: 10,
+          textAlign: 'center',
+        }}>
+          {character.name.length > 8 ? character.name.substring(0, 6) + '...' : character.name}
+        </Text>
+      </View>
+    </TouchableOpacity>
   );
 };
 
@@ -87,7 +153,8 @@ const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
   character, 
   allCharacters, 
   onUpdateCharacter,
-  onSelectRelationship
+  onSelectRelationship,
+  relationshipTypeLabels = DEFAULT_RELATIONSHIP_TYPE_CN
 }) => {
   const [relationships, setRelationships] = useState<Record<string, { 
     relationship: Relationship, 
@@ -204,72 +271,93 @@ const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
       
       {/* Relationship Graph Visualization */}
       <View style={styles.graphContainer}>
-        <Svg width={svgWidth} height={svgHeight}>
-          {/* Center node (main character) */}
-          <Circle
-            cx={centerX}
-            cy={centerY}
-            r={35}
-            fill="#FF9ECD"
-            opacity={0.9}
-          />
-          <SvgText
-            x={centerX}
-            y={centerY + 5}
-            fontSize="14"
-            fontWeight="bold"
-            fill="#282828"
-            textAnchor="middle"
-          >
-            {character.name.substring(0, 5)}
-          </SvgText>
-          
-          {/* Relationship connections */}
+        {/* Central character avatar */}
+        <View style={styles.centralCharacter}>
+          {character.avatar ? (
+            <Image 
+              source={{ uri: character.avatar }} 
+              style={styles.centralAvatar}
+            />
+          ) : (
+            <View style={styles.centralAvatarPlaceholder}>
+              <Text style={styles.centralAvatarText}>
+                {character.name.substring(0, 1)}
+              </Text>
+            </View>
+          )}
+          <View style={styles.centralNameContainer}>
+            <Text style={styles.centralName}>{character.name}</Text>
+          </View>
+        </View>
+
+        {/* Relationship lines */}
+        <Svg width={svgWidth} height={svgHeight} style={styles.svgContainer}>
           {Object.entries(relationships).map(([targetId, data]) => (
-            <React.Fragment key={`line-${targetId}`}>
-              <Line
-                x1={centerX}
-                y1={centerY}
-                x2={data.x}
-                y2={data.y}
-                stroke={COLOR_MAP[data.relationship.type]}
-                strokeWidth={Math.abs(data.relationship.strength) / 20 + 1}
-                opacity={0.6}
-              />
-            </React.Fragment>
-          ))}
-          
-          {/* Relationship nodes */}
-          {Object.entries(relationships).map(([targetId, data]) => (
-            <RelationshipNode
-              key={`node-${targetId}`}
-              x={data.x}
-              y={data.y}
-              character={data.character}
-              relationship={data.relationship}
-              onPress={() => handleNodePress(targetId)}
+            <Line
+              key={`line-${targetId}`}
+              x1={centerX}
+              y1={centerY}
+              x2={data.x}
+              y2={data.y}
+              stroke={COLOR_MAP[data.relationship.type]}
+              strokeWidth={Math.abs(data.relationship.strength) / 20 + 2}
+              opacity={0.6}
             />
           ))}
+          
+          {/* Relationship type labels on lines */}
+          {Object.entries(relationships).map(([targetId, data]) => {
+            const midX = (centerX + data.x) / 2;
+            const midY = (centerY + data.y) / 2;
+            
+            return (
+              <SvgText
+                key={`label-${targetId}`}
+                x={midX}
+                y={midY}
+                fontSize="10"
+                fontWeight="bold"
+                fill="#ffffff"
+                stroke="#000000"
+                strokeWidth="0.5"
+                textAnchor="middle"
+              >
+                {relationshipTypeLabels[data.relationship.type]}
+              </SvgText>
+            );
+          })}
         </Svg>
-      </View>
-      
-      {/* Relationship Legend */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.legendContainer}>
-        {Object.entries(COLOR_MAP).map(([type, color]) => (
-          <View key={type} style={styles.legendItem}>
-            <View style={[styles.legendColor, { backgroundColor: color }]} />
-            <Text style={styles.legendText}>{type}</Text>
-          </View>
+        
+        {/* Relationship nodes (character avatars) */}
+        {Object.entries(relationships).map(([targetId, data]) => (
+          <RelationshipNode
+            key={`node-${targetId}`}
+            x={data.x}
+            y={data.y}
+            character={data.character}
+            relationship={data.relationship}
+            onPress={() => handleNodePress(targetId)}
+          />
         ))}
-      </ScrollView>
+      </View>
       
       {/* Selected Relationship Details */}
       {selectedRelationship && relationships[selectedRelationship] && (
         <View style={styles.detailsContainer}>
           <View style={styles.detailsHeader}>
-            <Text style={styles.detailsTitle}>
-              与 {relationships[selectedRelationship].character.name} 的关系
-            </Text>
+            <View style={styles.detailsTitleContainer}>
+              <Image 
+                source={
+                  relationships[selectedRelationship].character.avatar 
+                    ? { uri: relationships[selectedRelationship].character.avatar } 
+                    : require('@/assets/images/default-avatar.png')
+                } 
+                style={styles.detailsAvatar} 
+              />
+              <Text style={styles.detailsTitle}>
+                与 {relationships[selectedRelationship].character.name} 的关系
+              </Text>
+            </View>
             <TouchableOpacity
               style={styles.editButton}
               onPress={() => setEditMode(!editMode)}
@@ -316,7 +404,7 @@ const RelationshipGraph: React.FC<RelationshipGraphProps> = ({
                 <Text style={{
                   color: COLOR_MAP[relationships[selectedRelationship].relationship.type]
                 }}>
-                  {relationships[selectedRelationship].relationship.type}
+                  {relationshipTypeLabels[relationships[selectedRelationship].relationship.type]}
                 </Text>
               </Text>
               
@@ -381,29 +469,54 @@ const styles = StyleSheet.create({
   },
   graphContainer: {
     height: 400,
+    position: 'relative',
+  },
+  svgContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 1,
+  },
+  centralCharacter: {
+    position: 'absolute',
+    top: Dimensions.get('window').height / 2 - 200,
+    left: Dimensions.get('window').width / 2 - 35,
+    zIndex: 10,
+    alignItems: 'center',
+  },
+  centralAvatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 3,
+    borderColor: '#FF9ECD',
+  },
+  centralAvatarPlaceholder: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 3,
+    borderColor: '#FF9ECD',
+    backgroundColor: '#444',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  legendContainer: {
-    flexDirection: 'row',
-    paddingVertical: 12,
+  centralAvatarText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  centralNameContainer: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
     paddingHorizontal: 8,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginTop: 5,
   },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 4,
-  },
-  legendText: {
-    color: '#eee',
+  centralName: {
+    color: '#fff',
     fontSize: 12,
+    fontWeight: 'bold',
   },
   detailsContainer: {
     padding: 16,
@@ -416,6 +529,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  detailsTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  detailsAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 8,
   },
   detailsTitle: {
     fontSize: 16,
@@ -482,7 +605,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
-  }
+  },
+  legendContainer: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 4,
+  },
+  legendText: {
+    color: '#eee',
+    fontSize: 12,
+  },
 });
 
 export default RelationshipGraph;

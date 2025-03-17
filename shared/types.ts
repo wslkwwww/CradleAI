@@ -374,6 +374,20 @@ export interface CradleCharacter extends Character {
   imageHistory?: CharacterImage[];
   }
 
+// Add chat save/restore system types
+export interface ChatSave {
+  id: string;
+  conversationId: string;
+  characterId: string;
+  characterName: string;
+  timestamp: number;
+  description: string;
+  messageIds: string[]; // IDs of messages at save point
+  messages: Message[]; // Copy of messages at save point
+  previewText: string; // Short preview text
+  thumbnail?: string; // Optional thumbnail (could be character avatar)
+}
+
 export interface RoleCardJson {
     name: string;
     first_mes: string;

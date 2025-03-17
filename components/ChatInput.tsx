@@ -494,40 +494,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     );
   };
 
-  const handleRegenerateResponse = async () => {
-    if (!selectedConversationId) return;
-
-    setIsLoading(true);
-    setShowActions(false);
-    
-    try {
-      // Create temp loading message
-      onSendMessage('', 'bot', true);
-      
-      // Use NodeST for processing with regenerate flag
-      const result = await NodeSTManager.processChatMessage({
-        userMessage: "请重新生成上一条回复",
-        conversationId: conversationId,
-        status: "更新人设",
-        apiKey: user?.settings?.chat.characterApiKey || '',
-        character: selectedCharacter
-      });
-      
-      if (result.success) {
-        // 在发送AI回复前也应用正则工具
-        const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
-        onSendMessage(processedResponse, 'bot');
-      } else {
-        onSendMessage('抱歉，重新生成回复时出现了错误，请重试。', 'bot');
-        console.error('NodeST regenerate error:', result.error);
-      }
-    } catch (error) {
-      console.error('Error regenerating response:', error);
-      onSendMessage('抱歉，重新生成回复时出现了错误，请重试。', 'bot');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Remove the handleRegenerateResponse method since regeneration is now handled per-message
 
   // Image handling functions
   const pickImage = async () => {
@@ -669,17 +636,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </Animated.Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleRegenerateResponse}
-            >
-              <View style={[styles.actionIcon, styles.regenerateIcon]}>
-                <Ionicons name="refresh-circle" size={24} color="#fff" />
-              </View>
-              <Animated.Text style={styles.actionText}>
-                重新生成
-              </Animated.Text>
-            </TouchableOpacity>
+            {/* Remove regenerate button from here */}
 
             {/* New Image Upload Button */}
             <TouchableOpacity

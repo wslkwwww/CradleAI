@@ -600,4 +600,43 @@ export class NodeST {
             };
         }
     }
+
+    /**
+     * 从特定消息位置重新生成对话
+     * @param conversationId 会话ID
+     * @param messageIndex 要重新生成的消息索引
+     * @param apiKey API密钥
+     * @param characterId 可选的角色ID，用于记忆服务
+     * @returns 新生成的回复或null
+     */
+    async regenerateFromMessage(
+        conversationId: string,
+        messageIndex: number,
+        apiKey: string,
+        characterId?: string
+    ): Promise<string | null> {
+        try {
+            // 确保实例已初始化
+            if (!this.nodeSTCore && apiKey) {
+                this.nodeSTCore = new NodeSTCore(apiKey);
+            }
+
+            if (!this.nodeSTCore) {
+                throw new Error('NodeSTCore未初始化');
+            }
+
+            console.log(`[NodeST] Regenerating message at index ${messageIndex} for conversation ${conversationId}`);
+            
+            // 调用NodeSTCore的regenerateFromMessage方法
+            return await this.nodeSTCore.regenerateFromMessage(
+                conversationId,
+                messageIndex,
+                apiKey,
+                characterId
+            );
+        } catch (error) {
+            console.error('[NodeST] regenerateFromMessage失败:', error);
+            throw error;
+        }
+    }
 }

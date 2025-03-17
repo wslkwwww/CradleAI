@@ -49,6 +49,96 @@ const COLOR_MAP: Record<RelationshipType, string> = {
   'idol': '#FFAA44'
 };
 
+// Chinese translations for relationship types
+const RELATIONSHIP_TYPE_CN: Record<RelationshipType, string> = {
+  'enemy': '敌人',
+  'rival': '对手',
+  'stranger': '陌生人',
+  'acquaintance': '点头之交',
+  'colleague': '同事',
+  'friend': '朋友',
+  'close_friend': '好友',
+  'best_friend': '挚友',
+  'family': '家人',
+  'crush': '暗恋对象',
+  'lover': '情人',
+  'partner': '伴侣',
+  'ex': '前任',
+  'mentor': '导师',
+  'student': '学生',
+  'admirer': '仰慕者',
+  'idol': '偶像'
+};
+
+// Relationship Legend component
+const RelationshipLegend = () => {
+  const [expanded, setExpanded] = useState(false);
+  const [visible, setVisible] = useState(true);
+  
+  // Only show a subset of relationships when collapsed
+  const displayTypes: RelationshipType[] = expanded 
+    ? ['enemy', 'rival', 'stranger', 'acquaintance', 'colleague', 'friend', 
+       'close_friend', 'best_friend', 'family', 'crush', 'lover', 'partner', 
+       'ex', 'mentor', 'student', 'admirer', 'idol'] 
+    : ['enemy', 'stranger', 'acquaintance', 'friend', 'best_friend', 'lover', 'family'];
+    
+  // If not visible, show only a toggle button
+  if (!visible) {
+    return (
+      <TouchableOpacity 
+        style={styles.legendToggleButton}
+        onPress={() => setVisible(true)}
+      >
+        <Ionicons name="list-circle" size={28} color="#FF9ECD" />
+      </TouchableOpacity>
+    );
+  }
+  
+  return (
+    <View style={styles.legendContainer}>
+      <TouchableOpacity 
+        style={styles.legendHeader}
+        onPress={() => setExpanded(!expanded)}
+      >
+        <Text style={styles.legendTitle}>关系图例</Text>
+        <View style={styles.legendHeaderButtons}>
+          <TouchableOpacity
+            style={styles.legendMinimizeButton}
+            onPress={() => setVisible(false)}
+          >
+            <Ionicons name="remove-outline" size={20} color="#fff" />
+          </TouchableOpacity>
+          <Ionicons 
+            name={expanded ? "chevron-up" : "chevron-down"} 
+            size={20} 
+            color="#fff" 
+          />
+        </View>
+      </TouchableOpacity>
+      
+      {displayTypes.map(type => (
+        <View key={type} style={styles.legendItem}>
+          <View 
+            style={[styles.legendColor, { backgroundColor: COLOR_MAP[type] }]} 
+          />
+          <Text style={styles.legendText}>
+            {RELATIONSHIP_TYPE_CN[type]} ({type})
+          </Text>
+        </View>
+      ))}
+      
+      {!expanded && displayTypes.length < Object.keys(COLOR_MAP).length && (
+        <TouchableOpacity
+          style={styles.showMoreButton}
+          onPress={() => setExpanded(true)}
+        >
+          <Text style={styles.showMoreText}>显示更多...</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+};
+
 const RelationshipGraphPage = () => {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -238,6 +328,7 @@ const RelationshipGraphPage = () => {
       // Close modal and update state
       setIsNewRelationshipModalVisible(false);
       setSelectedCharacter(updatedCharacterWithRelationship);
+      // Keep the selected character ID the same - this fixes the issue of jumping to another character
       setNewTargetCharacterId(null);
       setEditedStrength('0');
       setEditedType('acquaintance');
@@ -308,12 +399,14 @@ const RelationshipGraphPage = () => {
   
   // Helper function to get available target characters for new relationships
   const getAvailableTargetCharacters = useCallback(() => {
-    if (!selectedCharacter || !selectedCharacter.relationshipMap) return [];
+    if (!selectedCharacter) return [];
     
     // Filter out characters that already have a relationship with the selected character
     return characters.filter(c => 
       c.id !== selectedCharacter.id && 
-      !selectedCharacter.relationshipMap!.relationships[c.id]
+      (!selectedCharacter.relationshipMap || 
+       !selectedCharacter.relationshipMap.relationships ||
+       !selectedCharacter.relationshipMap.relationships[c.id])
     );
   }, [selectedCharacter, characters]);
   
@@ -426,11 +519,15 @@ const RelationshipGraphPage = () => {
       {/* Main content */}
       {selectedCharacter ? (
         <View style={styles.graphContainer}>
+          {/* Relationship legend - now will be positioned at the bottom left */}
+          <RelationshipLegend />
+          
           <RelationshipGraph
             character={selectedCharacter}
             allCharacters={characters}
             onUpdateCharacter={updateCharacter}
             onSelectRelationship={handleSelectRelationship}
+            relationshipTypeLabels={RELATIONSHIP_TYPE_CN}
           />
         </View>
       ) : (
@@ -521,7 +618,7 @@ const RelationshipGraphPage = () => {
         </View>
       </Modal>
       
-      {/* New relationship modal */}
+      {/* New relationship modal - increase the height */}
       <Modal
         visible={isNewRelationshipModalVisible}
         transparent={true}
@@ -529,7 +626,7 @@ const RelationshipGraphPage = () => {
         onRequestClose={() => setIsNewRelationshipModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, styles.newRelationshipModalContent]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>新建关系</Text>
               <TouchableOpacity
@@ -548,6 +645,7 @@ const RelationshipGraphPage = () => {
                   horizontal 
                   showsHorizontalScrollIndicator={false}
                   style={styles.characterPickerContainer}
+                  contentContainerStyle={styles.characterPickerContent}
                 >
                   {getAvailableTargetCharacters().map(character => (
                     <TouchableOpacity
@@ -602,11 +700,11 @@ const RelationshipGraphPage = () => {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>关系描述:</Text>
                 <TextInput
-                  style={styles.descriptionInput}
+                  style={[styles.descriptionInput, styles.newRelationshipDescriptionInput]}
                   value={editedDescription}
                   onChangeText={setEditedDescription}
                   multiline={true}
-                  numberOfLines={4}
+                  numberOfLines={6} 
                   placeholder="描述这段关系..."
                   placeholderTextColor="#999"
                 />
@@ -872,6 +970,85 @@ const styles = StyleSheet.create({
     color: '#282828',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  legendContainer: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    backgroundColor: 'rgba(40, 40, 40, 0.85)',
+    borderRadius: 8,
+    padding: 10,
+    zIndex: 10,
+    maxWidth: 180,
+    borderWidth: 1,
+    borderColor: '#444',
+  },
+  legendHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#444',
+  },
+  legendTitle: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  legendHeaderButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  legendMinimizeButton: {
+    marginRight: 10,
+    padding: 2,
+  },
+  legendToggleButton: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    backgroundColor: 'rgba(40, 40, 40, 0.85)',
+    borderRadius: 20,
+    padding: 8,
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: '#444',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 3,
+  },
+  legendColor: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  legendText: {
+    color: '#fff',
+    fontSize: 12,
+  },
+  showMoreButton: {
+    marginTop: 6,
+    alignItems: 'center',
+  },
+  showMoreText: {
+    color: '#FF9ECD',
+    fontSize: 12,
+  },
+  newRelationshipModalContent: {
+    maxHeight: SCREEN_HEIGHT * 0.85, // Increase modal height
+  },
+  
+  characterPickerContent: {
+    paddingVertical: 10,
+  },
+  
+  newRelationshipDescriptionInput: {
+    height: 120, // Make description input larger
   },
 });
 

@@ -1266,4 +1266,218 @@ export class NodeSTCore {
             return text;
         }
     }
+
+    async regenerateFromMessage(
+        conversationId: string,
+        messageIndex: number,
+        apiKey: string,
+        characterId?: string
+    ): Promise<string | null> {
+        try {
+            console.log('[NodeSTCore] Starting regeneration from message index:', messageIndex);
+
+            // Ensure Adapter is initialized
+            if ((!this.geminiAdapter || !this.openRouterAdapter) && apiKey) {
+                this.initAdapters(apiKey, this.apiSettings);
+            }
+
+            // Get the correct adapter
+            const adapter = this.getActiveAdapter();
+            
+            if (!adapter) {
+                throw new Error("API adapter not initialized - missing API key");
+            }
+
+            // Load character data
+            const roleCard = await this.loadJson<RoleCardJson>(
+                this.getStorageKey(conversationId, '_role')
+            );
+            const worldBook = await this.loadJson<WorldBookJson>(
+                this.getStorageKey(conversationId, '_world')
+            );
+            const preset = await this.loadJson<PresetJson>(
+                this.getStorageKey(conversationId, '_preset')
+            );
+            const authorNote = await this.loadJson<AuthorNoteJson>(
+                this.getStorageKey(conversationId, '_note')
+            );
+            const chatHistory = await this.loadJson<ChatHistoryEntity>(
+                this.getStorageKey(conversationId, '_history')
+            );
+
+            console.log('[NodeSTCore] Character data loaded for regeneration:', {
+                hasRoleCard: !!roleCard,
+                hasWorldBook: !!worldBook,
+                hasPreset: !!preset,
+                hasAuthorNote: !!authorNote,
+                hasChatHistory: !!chatHistory,
+                historyLength: chatHistory?.parts?.length,
+                requestedIndex: messageIndex
+            });
+
+            // Validate required data
+            if (!roleCard || !worldBook || !preset || !chatHistory) {
+                const missingData = [];
+                if (!roleCard) missingData.push('roleCard');
+                if (!worldBook) missingData.push('worldBook');
+                if (!preset) missingData.push('preset');
+                if (!chatHistory) missingData.push('chatHistory');
+
+                const errorMessage = `Missing required data: ${missingData.join(', ')}`;
+                console.error('[NodeSTCore]', errorMessage);
+                return null;
+            }
+
+            // Critical fix: Get all real messages (not D-entries) and pair them up correctly
+            const realMessages = chatHistory.parts.filter(msg => !msg.is_d_entry);
+            
+            console.log(`[NodeSTCore] Total real messages: ${realMessages.length}`);
+            
+            // Build user-AI message pairs to correctly identify which user message corresponds to which AI message
+            const messagePairs: {userMessage: ChatMessage, aiMessage: ChatMessage}[] = [];
+            let currentUserMessage: ChatMessage | null = null;
+            
+            for (const msg of realMessages) {
+                // If it's a user message, store it as the current user message
+                if (msg.role === "user") {
+                    currentUserMessage = msg;
+                }
+                // If it's an AI message and we have a user message before it, create a pair
+                else if ((msg.role === "model" || msg.role === "assistant") && currentUserMessage) {
+                    messagePairs.push({
+                        userMessage: currentUserMessage,
+                        aiMessage: msg
+                    });
+                    // Don't reset currentUserMessage here, as multiple AI messages might correspond to one user message
+                }
+            }
+            
+            console.log(`[NodeSTCore] Found ${messagePairs.length} user-AI message pairs`);
+            
+            // Validate messageIndex
+            if (messageIndex < 0 || messageIndex >= messagePairs.length) {
+                console.error(`[NodeSTCore] Invalid message index: ${messageIndex}. Available pairs: ${messagePairs.length}`);
+                return null;
+            }
+            
+            // Get the specific pair we want to regenerate
+            const targetPair = messagePairs[messageIndex];
+            
+            if (!targetPair) {
+                console.error(`[NodeSTCore] Could not find message pair at index ${messageIndex}`);
+                return null;
+            }
+            
+            // Extract the user message text we need to regenerate from
+            const userMessageText = targetPair.userMessage.parts[0]?.text || "";
+            
+            console.log('[NodeSTCore] Found user message for regeneration:', {
+                userMessageText: userMessageText.substring(0, 50) + '...',
+                aiMessageText: targetPair.aiMessage.parts[0]?.text?.substring(0, 50) + '...',
+                pairIndex: messageIndex
+            });
+            
+            // Create a truncated history that includes all messages up to and including our target user message
+            const truncatedHistory: ChatHistoryEntity = {
+                ...chatHistory,
+                parts: []
+            };
+            
+            // Find the index of the target user message in the full history
+            const targetUserMessageIndex = chatHistory.parts.findIndex(msg => 
+                !msg.is_d_entry && 
+                msg.role === targetPair.userMessage.role && 
+                msg.parts[0]?.text === userMessageText
+            );
+            
+            if (targetUserMessageIndex === -1) {
+                console.error('[NodeSTCore] Could not find target user message in full history');
+                return null;
+            }
+            
+            console.log(`[NodeSTCore] Target user message found at index ${targetUserMessageIndex} in full history`);
+            
+            // Include all messages up to and including the target user message
+            truncatedHistory.parts = chatHistory.parts.slice(0, targetUserMessageIndex + 1);
+            
+            console.log('[NodeSTCore] Truncated history:', {
+                originalLength: chatHistory.parts.length,
+                truncatedLength: truncatedHistory.parts.length
+            });
+            
+            // Save the truncated history
+            await this.saveJson(
+                this.getStorageKey(conversationId, '_history'),
+                truncatedHistory
+            );
+            
+            // Re-extract D-entries to ensure we're using the latest world book data
+            const dEntries = CharacterUtils.extractDEntries(
+                preset!,
+                worldBook!,
+                authorNote ?? undefined
+            );
+
+            // New: Check if we need to summarize the chat history
+            if (characterId) {
+                try {
+                    console.log('[NodeSTCore] Checking if truncated chat history needs summarization...');
+                    const summarizedHistory = await memoryService.checkAndSummarize(
+                        conversationId,
+                        characterId,
+                        truncatedHistory,
+                        apiKey,
+                        this.apiSettings
+                    );
+                    
+                    // Use the potentially summarized history
+                    if (summarizedHistory !== truncatedHistory) {
+                        console.log('[NodeSTCore] Truncated chat history was summarized');
+                        truncatedHistory.parts = summarizedHistory.parts;
+                    }
+                } catch (summaryError) {
+                    console.error('[NodeSTCore] Error in chat summarization:', summaryError);
+                    // Continue with unsummarized history
+                }
+            }
+            
+            // Process the chat with the truncated history
+            console.log('[NodeSTCore] Processing regeneration chat with target user message');
+            const response = await this.processChat(
+                userMessageText,
+                truncatedHistory,
+                dEntries,
+                conversationId,
+                roleCard,
+                adapter
+            );
+            
+            // If we got a response, add it to history
+            if (response) {
+                // Use updateChatHistory method to add the AI response
+                const updatedHistory = this.updateChatHistory(
+                    truncatedHistory,
+                    userMessageText,
+                    response,
+                    dEntries
+                );
+                
+                // Save the updated history
+                await this.saveJson(
+                    this.getStorageKey(conversationId, '_history'),
+                    updatedHistory
+                );
+                
+                console.log('[NodeSTCore] Regeneration complete, saved updated history:', {
+                    totalMessages: updatedHistory.parts.length,
+                    response: response.substring(0, 50) + '...'
+                });
+            }
+            
+            return response;
+        } catch (error) {
+            console.error('[NodeSTCore] Error in regenerateFromMessage:', error);
+            return null;
+        }
+    }
 }
