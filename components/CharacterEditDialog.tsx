@@ -348,13 +348,16 @@ ${JSON.stringify(characterJsonData, null, 2)}
 - 在用户没有明确指令时，主动提供有建设性的建议，比如丰富角色背景、完善设定细节等
 - 当用户请求修改时，给出具体的实施方案和预期效果
 - 使用<CHARACTER_JSON_UPDATE>标签包裹JSON更新代码
-- 仅生成必要的内容字段，无需生成技术参数，系统会自动补充其他参数
+- 可以只生成需要更新的部分内容，不必包含完整的角色数据
+- 可以选择性地只更新roleCard、worldBook或preset中的任一部分或多部分
 - 使用口语化、友好的语气与用户交流
 - 禁止生成有害、违规或不适当的内容${__DEV__ ? debugInfo : ''}
 
-当需要提供更新时，请使用以下简化格式：
+当需要提供更新时，请使用以下格式：
+
 <CHARACTER_JSON_UPDATE>
 {
+  // 如果需要更新角色基本信息，包含roleCard
   "roleCard": {
     "name": "角色名称",
     "first_mes": "初始消息",
@@ -363,18 +366,18 @@ ${JSON.stringify(characterJsonData, null, 2)}
     "scenario": "场景设定",
     "mes_example": "对话示例"
   },
+  
+  // 如果需要更新世界书条目，包含worldBook
   "worldBook": {
     "entries": {
       "条目名称1": {
         "comment": "条目说明",
         "content": "条目内容"
-      },
-      "条目名称2": {
-        "comment": "条目说明",
-        "content": "条目内容"
       }
     }
   },
+  
+  // 如果需要更新自定义提示，包含preset
   "preset": {
     "prompts": [
       {
@@ -387,7 +390,11 @@ ${JSON.stringify(characterJsonData, null, 2)}
 }
 </CHARACTER_JSON_UPDATE>
 
-注意：只需提供roleCard的完整信息和worldBook条目的comment和content属性，以及preset中prompts的name、content和role属性。系统会自动补充其他所需参数。`;
+注意：
+1. 你可以只更新上述三个主要部分（roleCard、worldBook、preset）中的任意一个或多个
+2. 对于不需要修改的部分，可以完全省略
+3. 系统会自动保留原有数据并与你的更新合并
+4. 适当添加注释说明你所做的更改`;
   };
   
   // Get initial system message for welcoming the user
@@ -413,8 +420,16 @@ ${JSON.stringify(characterJsonData, null, 2)}
     if (match && match[1]) {
       try {
         // Parse the JSON update
-        const jsonString = match[1].trim();
+        let jsonString = match[1].trim();
         console.log('[CharacterEditDialog] Found JSON update, length:', jsonString.length);
+        
+        // Clean up the JSON string to handle common formatting issues:
+        // 1. Remove markdown code block markers if they exist
+        jsonString = jsonString.replace(/```(json|JSON)?\s*|\s*```/g, '');
+        
+        // 2. Remove trailing commas (common JSON syntax error)
+        jsonString = jsonString.replace(/,(\s*[}\]])/g, '$1');
+        
         let updatedData: any;
         
         try {
@@ -429,13 +444,46 @@ ${JSON.stringify(characterJsonData, null, 2)}
           }
         } catch (parseError) {
           console.error('[CharacterEditDialog] Failed to parse JSON update:', parseError);
-          throw new Error(`无法解析JSON更新内容: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+          
+          // Add more detailed logging to help debug the parsing issue
+          console.error('[CharacterEditDialog] Problematic JSON string:', jsonString);
+          
+          // Try a more aggressive approach to fix potential JSON issues
+          try {
+            // Use JSON5 or similar tolerant parsing logic (here simulated with a regex-based cleaning)
+            // Replace additional problematic patterns
+            jsonString = jsonString
+              // Fix unquoted keys (matches words followed by colon, not in quotes)
+              .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3')
+              // Fix single quotes to double quotes (outside of content strings)
+              .replace(/'/g, '"');
+              
+            console.log('[CharacterEditDialog] Attempting recovery with cleaned JSON string');
+            updatedData = JSON.parse(jsonString);
+            console.log('[CharacterEditDialog] Recovery successful!');
+          } catch (recoveryError) {
+            console.error('[CharacterEditDialog] Recovery attempt failed:', recoveryError);
+            throw new Error(`无法解析JSON更新内容: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+          }
         }
         
-        // Ensure we have a valid JSON structure
+        // Ensure we have a valid JSON structure with at least one of the required components
         if (!updatedData || typeof updatedData !== 'object') {
           throw new Error('生成的JSON格式无效，缺少必要的角色数据');
         }
+        
+        // Check if at least one of roleCard, worldBook, or preset is present
+        const hasRoleCard = !!updatedData.roleCard;
+        const hasWorldBook = !!updatedData.worldBook;
+        const hasPreset = !!updatedData.preset;
+        
+        if (!hasRoleCard && !hasWorldBook && !hasPreset) {
+          console.error('[CharacterEditDialog] JSON missing all required components');
+          throw new Error('生成的数据缺少任何可用的组件（roleCard、worldBook 或 preset）');
+        }
+        
+        console.log('[CharacterEditDialog] Update components found:', 
+          `roleCard: ${hasRoleCard}, worldBook: ${hasWorldBook}, preset: ${hasPreset}`);
         
         // Get original JSON data if available
         let originalData: any = {};
@@ -455,83 +503,85 @@ ${JSON.stringify(characterJsonData, null, 2)}
         console.log('[CharacterEditDialog] Original data fields:', Object.keys(originalData));
         console.log('[CharacterEditDialog] Updated data fields:', Object.keys(updatedData));
         
-        // Process and enhance worldBook entries with default parameters
-        let enhancedWorldBook: any = { entries: {} };
+        // Process and enhance worldBook entries with default parameters if present
+        let enhancedWorldBook: any = originalData.worldBook || { entries: {} };
         
-        // First, keep all original entries that aren't being updated
-        if (originalData.worldBook && originalData.worldBook.entries) {
-          Object.keys(originalData.worldBook.entries).forEach(key => {
-            if (updatedData.worldBook?.entries && !updatedData.worldBook.entries[key]) {
-              enhancedWorldBook.entries[key] = originalData.worldBook.entries[key];
-            }
-          });
+        // Only update worldBook if it's provided in the update
+        if (hasWorldBook) {
+          // Create a new worldBook object based on the original
+          enhancedWorldBook = { entries: { ...enhancedWorldBook.entries } };
+          
+          // Add all updated entries with default parameters
+          if (updatedData.worldBook.entries) {
+            Object.keys(updatedData.worldBook.entries).forEach(key => {
+              const entry = updatedData.worldBook.entries[key];
+              
+              // Enhance entry with default parameters if they're missing
+              enhancedWorldBook.entries[key] = {
+                comment: entry.comment || "Character Information",
+                content: entry.content || "",
+                disable: false,
+                position: 4,
+                constant: true,
+                key: [],
+                order: Object.keys(enhancedWorldBook.entries).length, // Use incrementing order
+                depth: 4,
+                vectorized: false
+              };
+            });
+          }
         }
         
-        // Now add all updated entries with default parameters
-        if (updatedData.worldBook && updatedData.worldBook.entries) {
-          Object.keys(updatedData.worldBook.entries).forEach(key => {
-            const entry = updatedData.worldBook.entries[key];
-            
-            // Enhance entry with default parameters if they're missing
-            enhancedWorldBook.entries[key] = {
-              comment: entry.comment || "Character Information",
-              content: entry.content || "",
-              disable: false,
-              position: 4,
-              constant: true,
-              key: [],
-              order: Object.keys(enhancedWorldBook.entries).length, // Use incrementing order
-              depth: 4,
-              vectorized: false
-            };
-          });
-        }
-        
-        // Process and enhance preset prompts with default parameters
-        let enhancedPreset: any = {
+        // Process and enhance preset prompts with default parameters if present
+        let enhancedPreset: any = originalData.preset || {
           prompts: [],
-          prompt_order: originalData.preset?.prompt_order || []
+          prompt_order: []
         };
         
-        // Keep original prompts that aren't being updated
-        if (originalData.preset && originalData.preset.prompts) {
-          enhancedPreset.prompts = [...originalData.preset.prompts];
-        }
-        
-        // Add updated prompts with default parameters
-        if (updatedData.preset && updatedData.preset.prompts) {
-          const timestamp = Date.now();
-          updatedData.preset.prompts.forEach((prompt: any, index: number) => {
-            const newPrompt = {
+        // Only update preset if it's provided in the update
+        if (hasPreset) {
+          // Keep original prompts as a base
+          const originalPrompts = enhancedPreset.prompts || [];
+          const originalPromptOrder = enhancedPreset.prompt_order || [];
+          
+          // Add updated prompts with default parameters
+          if (updatedData.preset.prompts) {
+            const timestamp = Date.now();
+            const newPrompts = updatedData.preset.prompts.map((prompt: any, index: number) => ({
               name: prompt.name || "Custom Prompt",
               content: prompt.content || "",
               identifier: `cradle-edition-${timestamp}-${index}`,
               isEditable: true,
               insertType: 'relative',
               role: (prompt.role as 'user' | 'model') || 'user',
-              order: enhancedPreset.prompts.length + index,
+              order: originalPrompts.length + index,
               isDefault: false,
               enable: true,
               depth: 4
-            };
+            }));
             
-            enhancedPreset.prompts.push(newPrompt);
-          });
+            enhancedPreset = {
+              prompts: [...originalPrompts, ...newPrompts],
+              prompt_order: originalPromptOrder
+            };
+          }
         }
         
-        // Create a proper merged JSON structure
+        // Create a proper merged JSON structure - keeping original data and selectively updating components
         const mergedData = {
           ...originalData,
-          ...updatedData,
-          roleCard: updatedData.roleCard || originalData.roleCard || {},
-          worldBook: enhancedWorldBook,
-          preset: enhancedPreset,
-          authorNote: updatedData.authorNote || originalData.authorNote || {},
-          chatHistory: updatedData.chatHistory || originalData.chatHistory || {}
+          // Only update the components that were provided in the update
+          ...(hasRoleCard ? { roleCard: updatedData.roleCard } : {}),
+          ...(hasWorldBook ? { worldBook: enhancedWorldBook } : {}),
+          ...(hasPreset ? { preset: enhancedPreset } : {}),
+          // Keep or initialize authorNote
+          authorNote: originalData.authorNote || {},
+          // Keep or initialize chatHistory
+          chatHistory: originalData.chatHistory || {}
         };
         
-        // Ensure critical fields are present in roleCard
-        if (mergedData.roleCard) {
+        // Ensure critical fields are present in roleCard if updating it
+        if (hasRoleCard && mergedData.roleCard) {
           const roleCard = mergedData.roleCard;
           roleCard.name = roleCard.name || character.name;
           roleCard.description = roleCard.description || character.description;
@@ -542,17 +592,23 @@ ${JSON.stringify(characterJsonData, null, 2)}
         // Convert the merged data back to JSON string
         const mergedJsonString = JSON.stringify(mergedData);
         console.log('[CharacterEditDialog] Created merged JSON data, length:', mergedJsonString.length);
-        console.log('[CharacterEditDialog] Final worldBook entries count:', 
-          Object.keys(mergedData.worldBook.entries || {}).length);
+        
+        if (hasWorldBook) {
+          console.log('[CharacterEditDialog] Final worldBook entries count:', 
+            Object.keys(mergedData.worldBook.entries || {}).length);
+        }
         
         // Create an updated character with the new data
         const newCharacter = {
           ...character,
           id: character.id, // Explicitly ensure same ID
           jsonData: mergedJsonString,
-          name: mergedData.roleCard?.name || character.name,
-          description: mergedData.roleCard?.description || character.description,
-          personality: mergedData.roleCard?.personality || character.personality
+          // Only update these fields if roleCard was updated
+          ...(hasRoleCard ? {
+            name: mergedData.roleCard?.name || character.name,
+            description: mergedData.roleCard?.description || character.description,
+            personality: mergedData.roleCard?.personality || character.personality
+          } : {})
         };
         
         // Set the updated character and show preview
@@ -560,10 +616,16 @@ ${JSON.stringify(characterJsonData, null, 2)}
         setHasChanges(true); // Explicitly set hasChanges to true
         console.log('[CharacterEditDialog] Set hasChanges to true');
         
-        // Alert the user that changes are ready to preview
+        // Build a message describing what will be updated
+        let updateComponents = [];
+        if (hasRoleCard) updateComponents.push("基本角色信息");
+        if (hasWorldBook) updateComponents.push("世界书条目");
+        if (hasPreset) updateComponents.push("自定义提示");
+        
+        // Alert the user that changes are ready to preview, showing which components will be updated
         Alert.alert(
           '角色设定更新准备就绪',
-          '已根据你的要求生成了角色设定更新。请点击"预览更改"按钮查看更新内容，并决定是否应用这些更改。',
+          `已根据你的要求生成了角色设定更新，包含以下部分：\n\n${updateComponents.join('、')}\n\n请点击"预览更改"按钮查看更新内容，并决定是否应用这些更改。`,
           [
             { text: '确定', style: 'default' }
           ]
@@ -1118,10 +1180,37 @@ ${JSON.stringify(characterJsonData, null, 2)}
     if (!updatedCharacter) return null;
     
     let jsonData: any = null;
+    let originalData: any = null;
+    let updatedComponents: string[] = [];
+    
     try {
+      // Parse the updated character data
       jsonData = JSON.parse(updatedCharacter.jsonData || '{}');
+      
+      // Try to parse the original character data for comparison
+      if (character.jsonData) {
+        originalData = JSON.parse(character.jsonData);
+        
+        // Determine which components were updated
+        if (jsonData.roleCard && JSON.stringify(jsonData.roleCard) !== JSON.stringify(originalData.roleCard)) {
+          updatedComponents.push('基本信息');
+        }
+        
+        if (jsonData.worldBook && JSON.stringify(jsonData.worldBook) !== JSON.stringify(originalData.worldBook)) {
+          updatedComponents.push('世界书条目');
+        }
+        
+        if (jsonData.preset && JSON.stringify(jsonData.preset) !== JSON.stringify(originalData.preset)) {
+          updatedComponents.push('自定义提示');
+        }
+      } else {
+        // If no original data, assume everything is new
+        if (jsonData.roleCard) updatedComponents.push('基本信息');
+        if (jsonData.worldBook) updatedComponents.push('世界书条目');
+        if (jsonData.preset) updatedComponents.push('自定义提示');
+      }
     } catch (error) {
-      console.error('Failed to parse updated character data:', error);
+      console.error('Failed to parse character data:', error);
     }
     
     return (
@@ -1129,32 +1218,48 @@ ${JSON.stringify(characterJsonData, null, 2)}
         <ScrollView style={styles.previewScroll}>
           <Text style={styles.previewTitle}>预览角色更改</Text>
           
-          {/* Role Card Basic Information Section */}
-          <View style={styles.previewSectionContainer}>
-            <Text style={styles.previewSectionTitle}>基本信息</Text>
-            
-            <View style={styles.previewSection}>
-              <Text style={styles.previewLabel}>名称:</Text>
-              <Text style={styles.previewValue}>{updatedCharacter.name}</Text>
-            </View>
-            
-            <View style={styles.previewSection}>
-              <Text style={styles.previewLabel}>描述:</Text>
-              <Text style={styles.previewValue}>{updatedCharacter.description}</Text>
-            </View>
-            
-            <View style={styles.previewSection}>
-              <Text style={styles.previewLabel}>性格:</Text>
-              <Text style={styles.previewValue}>{updatedCharacter.personality || "未设置"}</Text>
-            </View>
-            
-            {jsonData?.roleCard?.scenario && (
-              <View style={styles.previewSection}>
-                <Text style={styles.previewLabel}>场景:</Text>
-                <Text style={styles.previewValue}>{jsonData.roleCard.scenario}</Text>
+          {/* Show which components were updated */}
+          {updatedComponents.length > 0 && (
+            <View style={styles.updatedComponentsContainer}>
+              <Text style={styles.updatedComponentsLabel}>已更新的组件：</Text>
+              <View style={styles.componentsTagsContainer}>
+                {updatedComponents.map((component, index) => (
+                  <View key={index} style={styles.componentTag}>
+                    <Text style={styles.componentTagText}>{component}</Text>
+                  </View>
+                ))}
               </View>
-            )}
-          </View>
+            </View>
+          )}
+          
+          {/* Role Card Basic Information Section - Only show if roleCard exists */}
+          {jsonData?.roleCard && (
+            <View style={styles.previewSectionContainer}>
+              <Text style={styles.previewSectionTitle}>基本信息</Text>
+              
+              <View style={styles.previewSection}>
+                <Text style={styles.previewLabel}>名称:</Text>
+                <Text style={styles.previewValue}>{updatedCharacter.name}</Text>
+              </View>
+              
+              <View style={styles.previewSection}>
+                <Text style={styles.previewLabel}>描述:</Text>
+                <Text style={styles.previewValue}>{updatedCharacter.description}</Text>
+              </View>
+              
+              <View style={styles.previewSection}>
+                <Text style={styles.previewLabel}>性格:</Text>
+                <Text style={styles.previewValue}>{updatedCharacter.personality || "未设置"}</Text>
+              </View>
+              
+              {jsonData?.roleCard?.scenario && (
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewLabel}>场景:</Text>
+                  <Text style={styles.previewValue}>{jsonData.roleCard.scenario}</Text>
+                </View>
+              )}
+            </View>
+          )}
           
           {/* Initial Message Section */}
           {jsonData?.roleCard?.first_mes && (
@@ -1651,5 +1756,33 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  updatedComponentsContainer: {
+    backgroundColor: '#333',
+    padding: 12,
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+  updatedComponentsLabel: {
+    color: '#fff',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  componentsTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  componentTag: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  componentTagText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
