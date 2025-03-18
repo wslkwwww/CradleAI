@@ -5,7 +5,7 @@ import { CradleAnimation } from '@/constants/types';
 import { OpenRouterSettings } from '@/shared/types/api-types';
 import { MessageBoxItem } from '@/shared/types/relationship-types';
 import { VNDBCharacter } from '@/src/services/vndb/types';
-
+import { ViewStyle } from 'react-native';
 // ============= 基础类型 =============
 export interface User {
     id: string;
@@ -353,6 +353,18 @@ export interface CharacterImage {
   originalImageId?: string; // Reference to the original image if this is an edited version
   editHistory?: string[]; // Store prompts used to edit this image
   data?: string; // Base64 encoded image data
+  isDefaultAvatar?: boolean; // Flag to mark this as the default avatar
+  isDefaultBackground?: boolean; // Flag to mark this as the default background
+  isCradleGenerated?: boolean; 
+  generationStatus?: 'idle' | 'pending' | 'success' | 'error';
+  generationTaskId?: string;
+  setAsAvatar?: boolean;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 // Fix the CradleCharacter interface by making it extend Character
@@ -469,3 +481,14 @@ export interface RegexTool {
     target: 'ai' | 'user';
     enabled: boolean;
   }
+
+export interface ChatDialogProps {
+  messages: Message[];
+  style?: ViewStyle;
+  selectedCharacter?: Character | null;
+  onRateMessage?: (messageId: string, isUpvote: boolean) => void;
+  onRegenerateMessage?: (messageId: string, messageIndex: number) => void;
+  savedScrollPosition?: number;
+  onScrollPositionChange?: (characterId: string, position: number) => void;
+  
+}

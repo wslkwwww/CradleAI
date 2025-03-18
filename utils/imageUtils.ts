@@ -9,7 +9,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
  * @param type The type of image ('avatar', 'background')
  * @returns The local URI of the saved image
  */
-export async function downloadAndSaveImage(imageUrl: string, characterId: string, type: 'avatar' | 'background'): Promise<string | null> {
+export async function downloadAndSaveImage(imageUrl: string, characterId: string, type: 'avatar' | 'background' |`gallery`): Promise<string | null> {
   try {
     console.log(`[ImageUtils] 开始下载并保存图片: ${imageUrl}`);
     

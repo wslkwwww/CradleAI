@@ -29,12 +29,9 @@ import { CharacterImporter } from '@/utils/CharacterImporter';
 import { useUser } from '@/constants/UserContext';
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import RelationshipGraph from '@/components/RelationshipGraph';
-import MessageBox from '@/components/MessageBox';
-import { getCharacterById } from '@/services/character-service';
 import CreateChar from '@/app/pages/create_char';
 import CradleCreateForm from '@/components/CradleCreateForm';
-
+import RelationshipGraphPage from '../pages/relationship-graph';
 
 // Add view mode constants
 const VIEW_MODE_SMALL = 'small';
@@ -59,20 +56,15 @@ const COLOR_TEXT = '#FFFFFF';        // White text
 // Define tab constants
 const TABS = [
   { id: 'cards', title: '角色卡' },
-  { id: 'create', title: '创建' }
+  { id: 'create', title: '创建' },
+  { id: 'relationships', title: '关系图' }
 ];
 
 // Define creation mode constants
-const CREATION_MODES = [
-  { id: 'regular', title: '常规模式' },
-  { id: 'cradle', title: '摇篮模式' }
-];
-
-// Define sidebar items for regular mode
-const REGULAR_SIDEBAR_ITEMS = [
-  { id: 'basic', icon: 'person-outline' },
-  { id: 'advanced', icon: 'settings-outline' },
-];
+const CREATION_MODES = {
+  MANUAL: 'manual',
+  AUTO: 'auto',
+};
 
 const CharactersScreen: React.FC = () => {
   const { characters, isLoading, setIsLoading, deleteCharacters, addCharacter, updateCharacter } = useCharacters();
@@ -90,7 +82,7 @@ const CharactersScreen: React.FC = () => {
 
   // New states for tabbed interface
   const [activeTab, setActiveTab] = useState<string>('cards');
-  const [creationMode, setCreationMode] = useState<string>('regular');
+  const [creationMode, setCreationMode] = useState<'manual' | 'auto'>('manual');
   const [activeSidebarItem, setActiveSidebarItem] = useState<string>('basic');
 
   // Add state for repair notification
@@ -112,7 +104,8 @@ const CharactersScreen: React.FC = () => {
 
   const handleCreate = () => {
     setActiveTab('create');
-    setCreationMode('regular');
+    // Always set to manual mode when first opening the create tab
+    setCreationMode('manual');
     setActiveSidebarItem('basic');
   };
 
@@ -130,6 +123,7 @@ const CharactersScreen: React.FC = () => {
     setSelectedCharacters([]);
   };
 
+  // Modify the handleImport function to properly handle preset replacement
   const handleImport = async () => {
     try {
       // 1. 选择角色图片
@@ -153,7 +147,7 @@ const CharactersScreen: React.FC = () => {
           // 修改数据传递方式
           const importedData = await CharacterImporter.importFromPNG(result.assets[0].uri);
           const fileUri = presetResult.assets[0].uri;
-          const cacheUri = FileSystem.cacheDirectory + presetResult.assets[0].name;
+          const cacheUri = `${FileSystem.cacheDirectory}${presetResult.assets[0].name}`;
           
           await FileSystem.copyAsync({
             from: fileUri,
@@ -166,8 +160,9 @@ const CharactersScreen: React.FC = () => {
           const completeData = {
             roleCard: importedData.roleCard,
             worldBook: importedData.worldBook,
-            preset: presetJson,
-            avatar: result.assets[0].uri
+            preset: presetJson, // This now contains the complete preset
+            avatar: result.assets[0].uri,
+            replaceDefaultPreset: true // Flag to indicate preset should replace defaults
           };
 
           // 使用 localStorage 临时存储数据，而不是通过路由参数
@@ -178,7 +173,7 @@ const CharactersScreen: React.FC = () => {
 
           // 切换到创建标签页并选择常规模式
           setActiveTab('create');
-          setCreationMode('regular');
+          setCreationMode('manual');
           setActiveSidebarItem('basic');
 
         } catch (error) {
@@ -259,7 +254,7 @@ const CharactersScreen: React.FC = () => {
     );
   };
 
-  // Add floating buttons for actions
+  // Modify renderFloatingButtons to include import button
   const renderFloatingButtons = () => {
     // Only show floating buttons in the character cards tab
     if (activeTab !== 'cards') return null;
@@ -282,45 +277,11 @@ const CharactersScreen: React.FC = () => {
           <FontAwesome name="wrench" size={24} color="#282828" />
         </TouchableOpacity>
         
-        {/* View Mode Toggle Button */}
-        <TouchableOpacity 
-          style={styles.floatingButton} 
-          onPress={handleToggleViewMode}
-        >
-          <MaterialIcons 
-            name={viewMode === VIEW_MODE_SMALL ? "grid-on" : "view-agenda"} 
-            size={24} 
-            color="#282828" 
-          />
-        </TouchableOpacity>
-
-        {/* Relationship Graph Button - navigates to dedicated page */}
-        <TouchableOpacity 
-          style={styles.floatingButton} 
-          onPress={handleRelationshipGraphPress}
-        >
-          <MaterialIcons name="bubble-chart" size={24} color="#282828" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.floatingButton} 
-          onPress={handleExport}
-        >
-          <Ionicons name="cloud-download-outline" size={24} color="#282828" />
-        </TouchableOpacity>
-        
         <TouchableOpacity 
           style={styles.floatingButton} 
           onPress={handleImport}
         >
           <Ionicons name="cloud-upload-outline" size={24} color="#282828" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.floatingButton} 
-          onPress={handleCreate}
-        >
-          <Ionicons name="person-add-outline" size={24} color="#282828" />
         </TouchableOpacity>
       </View>
     );
@@ -348,80 +309,21 @@ const CharactersScreen: React.FC = () => {
   };
 
   // Modify the renderCreationModeSelection function to use a bookmark style instead of large buttons
-  const renderCreationModeSelection = () => {
-    return (
-      <View style={styles.modeTabs}>
-        {CREATION_MODES.map(mode => (
-          <TouchableOpacity
-            key={mode.id}
-            style={[
-              styles.modeTab,
-              creationMode === mode.id && styles.activeModeTab
-            ]}
-            onPress={() => setCreationMode(mode.id)}
-          >
-            <Ionicons 
-              name={mode.id === 'regular' ? 'person-outline' : 'leaf-outline'} 
-              size={20} 
-              color={creationMode === mode.id ? "#000" : "#aaa"} 
-            />
-            <Text style={[
-              styles.modeTabText, 
-              creationMode === mode.id && styles.activeModeTabText
-            ]}>
-              {mode.title}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    );
-  };
+
 
   // Modify the renderCreationContent function to properly position the mode tabs
-
-  
-
-  // Render regular mode sidebar with icons only
-  const renderRegularModeSidebar = () => {
-    return (
-      <View style={styles.sidebar}>
-        {REGULAR_SIDEBAR_ITEMS.map(item => (
-          <TouchableOpacity
-            key={item.id}
-            style={[
-              styles.sidebarItem,
-              activeSidebarItem === item.id && styles.activeSidebarItem
-            ]}
-            onPress={() => setActiveSidebarItem(item.id)}
-          >
-            <Ionicons
-              name={item.icon as any}
-              size={24}
-              color={activeSidebarItem === item.id ? "#FFD700" : "#aaa"}
-            />
-          </TouchableOpacity>
-        ))}
-      </View>
-    );
-  };
-
   // Render character creation content
   const renderCreationContent = () => {
-    if (creationMode === 'regular') {
-      // For regular mode, we render just the CreateChar component
-      // and it will handle its own internal tabs based on the activeSidebarItem
-      return (
-        <View style={styles.creationContentContainer}>
-          {renderRegularModeSidebar()}
-          <View style={styles.creationMainContent}>
-            <CreateChar activeTab={activeSidebarItem as 'basic' | 'advanced'} />
-          </View>
-        </View>
-      );
-    } else {
-      // For cradle mode, render the embedded CradleCreateForm
-      return (
-        <View style={styles.creationContentContainer}>
+    return (
+      <View style={styles.creationContentContainer}>
+        {/* Render appropriate component based on mode */}
+        {creationMode === 'manual' ? (
+          <CreateChar 
+            activeTab={activeSidebarItem as 'basic' | 'advanced'} 
+            creationMode="manual"
+            allowTagImageGeneration={true} // Enable tag-based generation in manual mode
+          />
+        ) : (
           <CradleCreateForm
             embedded={true}
             onClose={() => {
@@ -429,8 +331,26 @@ const CharactersScreen: React.FC = () => {
               setActiveTab('cards');
             }}
           />
-        </View>
-      );
+        )}
+      </View>
+    );
+  };
+
+  // Modify the main content rendering to include relationship graph
+  const renderMainContent = () => {
+    switch (activeTab) {
+      case 'cards':
+        return renderCharacterCardsTab();
+      case 'create':
+        return (
+          <View style={styles.createTabContainer}>
+            {renderCreationContent()}
+          </View>
+        );
+      case 'relationships':
+        return <RelationshipGraphPage />;
+      default:
+        return null;
     }
   };
 
@@ -447,10 +367,7 @@ const CharactersScreen: React.FC = () => {
           {TABS.map((tab) => (
             <TouchableOpacity
               key={tab.id}
-              style={[
-                styles.tab,
-                activeTab === tab.id && styles.activeTab
-              ]}
+              style={[styles.tab]}
               onPress={() => setActiveTab(tab.id)}
             >
               <Text
@@ -469,16 +386,37 @@ const CharactersScreen: React.FC = () => {
 
       {/* Main content area */}
       <View style={styles.mainContainer}>
-        {activeTab === 'cards' ? (
-          renderCharacterCardsTab()
-        ) : (
-          <View style={styles.createTabContainer}>
-            {/* Mode tabs on the side */}
-            {renderCreationModeSelection()}
-            {renderCreationContent()}
-          </View>
-        )}
+        {renderMainContent()}
       </View>
+
+      {/* Conditionally show the mode toggle in left sidebar */}
+      {activeTab === 'create' && (
+        <View style={styles.sidebarModeToggleContainer}>
+          <TouchableOpacity 
+            style={styles.sidebarModeToggle} 
+            onPress={() => setCreationMode(creationMode === 'manual' ? 'auto' : 'manual')}
+          >
+            <View style={[
+              styles.sidebarToggleTrack, 
+              creationMode === 'auto' && styles.sidebarToggleTrackActive
+            ]}>
+              <View style={[
+                styles.sidebarToggleThumb,
+                creationMode === 'auto' && styles.sidebarToggleThumbActive
+              ]}>
+                <Ionicons 
+                  name={creationMode === 'manual' ? "create-outline" : "color-wand-outline"} 
+                  size={16} 
+                  color={creationMode === 'manual' ? "#000" : "#000"} 
+                />
+              </View>
+            </View>
+            <Text style={styles.sidebarToggleText}>
+              {creationMode === 'manual' ? '手动' : '自动'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Add repair notification */}
       {showRepairNotice && (
@@ -624,6 +562,20 @@ interface Styles {
   loader: ViewStyle;
   repairNotification: ViewStyle;
   repairNotificationText: TextStyle;
+  modeToggleContainer: ViewStyle;
+  modeToggle: ViewStyle;
+  toggleTrack: ViewStyle;
+  toggleTrackActive: ViewStyle;
+  toggleThumb: ViewStyle;
+  toggleThumbActive: ViewStyle;
+  toggleText: TextStyle;
+  sidebarModeToggleContainer: ViewStyle;
+  sidebarModeToggle: ViewStyle;
+  sidebarToggleTrack: ViewStyle;
+  sidebarToggleTrackActive: ViewStyle;
+  sidebarToggleThumb: ViewStyle;
+  sidebarToggleThumbActive: ViewStyle;
+  sidebarToggleText: TextStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
@@ -652,31 +604,32 @@ const styles = StyleSheet.create<Styles>({
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 224, 195, 0.2)',
+    height: 36, // Make tabs smaller
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 8, // Reduce vertical padding
     alignItems: 'center',
     position: 'relative',
   },
   activeTab: {
-    backgroundColor: 'rgb(255, 224, 195)',
+    // Remove background color
   },
   tabText: {
     color: '#aaa',
     fontSize: 14,
   },
   activeTabText: {
-    color: '#000', // Updated to black
+    color: 'rgb(255, 224, 195)', // Change to cream color
     fontWeight: '500',
   },
   activeTabIndicator: {
     position: 'absolute',
     bottom: -1,
-    left: 0,
-    right: 0,
+    left: '20%',
+    right: '20%',
     height: 2,
-    backgroundColor: '#FFD700',
+    backgroundColor: 'rgb(255, 224, 195)', // Change to cream color
   },
   mainContainer: {
     flex: 1,
@@ -835,10 +788,11 @@ const styles = StyleSheet.create<Styles>({
   creationContentContainer: {
     flex: 1,
     flexDirection: 'row',
+    position: 'relative', // This allows absolute positioning of the toggle
   },
   sidebar: {
     width: 50, // Reduced sidebar width
-    backgroundColor: '#333',
+    backgroundColor: 'white',
     paddingTop: 20,
     alignItems: 'center',
   },
@@ -876,6 +830,93 @@ const styles = StyleSheet.create<Styles>({
   repairNotificationText: {
     color: '#fff',
     fontSize: 14,
+  },
+  // Remove original toggle styles that were in the content area
+  modeToggleContainer: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    backgroundColor: 'rgba(40, 40, 40, 0.8)',
+    borderRadius: 20,
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  modeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  toggleTrack: {
+    width: 46,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    padding: 2,
+  },
+  toggleTrackActive: {
+    backgroundColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  toggleThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toggleThumbActive: {
+    transform: [{ translateX: 22 }],
+    backgroundColor: '#FFD700',
+  },
+  toggleText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontSize: 14,
+  },
+  // New styles for sidebar mode toggle
+  sidebarModeToggleContainer: {
+    position: 'absolute',
+    left: 0,
+    bottom: 64, // Position above save button
+    width: 80,
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  sidebarModeToggle: {
+    alignItems: 'center',
+  },
+  sidebarToggleTrack: {
+    width: 36,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    padding: 2,
+  },
+  sidebarToggleTrackActive: {
+    backgroundColor: 'rgba(255, 215, 0, 0.3)',
+  },
+  sidebarToggleThumb: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sidebarToggleThumbActive: {
+    transform: [{ translateX: 16 }],
+    backgroundColor: '#FFD700',
+  },
+  sidebarToggleText: {
+    color: '#fff',
+    marginTop: 4,
+    fontSize: 12,
   },
 });
 

@@ -38,9 +38,6 @@ interface TagSelectorProps {
 const TagSelector: React.FC<TagSelectorProps> = ({ 
   onPositiveTagsChange, 
   onNegativeTagsChange, 
-  onClose, 
-  onAddPositive, 
-  onAddNegative, 
   existingPositiveTags = [], 
   existingNegativeTags = [],
   sidebarWidth = 100 // Default width if not specified
@@ -726,14 +723,16 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   subCategorySelector: {
-    marginBottom: 12,
   },
   subCategoryButton: {
-    paddingHorizontal: 12, // Reduced from 16
-    paddingVertical: 4, // Reduced from 8
+    paddingHorizontal: 12, 
+    paddingVertical: 4, // Reduced padding to make buttons more compact
     marginRight: 8,
-    borderRadius: 16, // Reduced from 20
+    borderRadius: 16,
     backgroundColor: '#333',
+    height: 20, // Allow the button to adapt to content height
+    minHeight: 28, // Set a minimum height to ensure it's touchable
+    justifyContent: 'center', // Center vertically
   },
   selectedSubCategoryButton: {
     backgroundColor: 'rgba(255, 224, 195, 0.3)',
@@ -742,6 +741,7 @@ const styles = StyleSheet.create({
   },
   subCategoryButtonText: {
     color: '#fff',
+    fontSize: 13, // Slightly smaller text
   },
   selectedSubCategoryButtonText: {
     color: theme.colors.accent,

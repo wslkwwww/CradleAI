@@ -3,23 +3,23 @@ import {
   View,
   Text,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   Image,
   Alert,
   ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
   StyleSheet,
   BackHandler,
+  Modal,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system'; // Fix: Correct FileSystem import
+import * as DocumentPicker from 'expo-document-picker'; // Fix: Correct DocumentPicker import
 import { useRouter } from 'expo-router';
 import { Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import {
@@ -29,10 +29,6 @@ import {
   WorldBookEntry,
 } from '@/shared/types';
 import { WorldBookEntryUI, PresetEntryUI } from '@/constants/types';
-import { BlurView } from 'expo-blur';
-import { theme } from '@/constants/theme';
-
-// Import shared components that we're now using in both pages
 import { 
   WorldBookSection,
   PresetSection,
@@ -40,10 +36,11 @@ import {
 } from '@/components/character/CharacterSections';
 import DetailSidebar from '@/components/character/DetailSidebar';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import ActionButton from '@/components/ActionButton';
+import { CharacterImporter } from '@/utils/CharacterImporter';
 import CharacterAttributeEditor from '@/components/character/CharacterAttributeEditor';
-import CharacterDetailHeader from '@/components/character/CharacterDetailHeader';
 import { Ionicons } from '@expo/vector-icons';
+import TagSelector from '@/components/TagSelector';
+import ArtistReferenceSelector from '@/components/ArtistReferenceSelector';
 // Default preset entries
 export const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
@@ -108,6 +105,8 @@ const INSERT_TYPE_OPTIONS = {
 
 interface CreateCharProps {
   activeTab?: 'basic' | 'advanced';
+  creationMode?: 'manual' | 'auto';
+  allowTagImageGeneration?: boolean;
 }
 
 const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = 'basic' }) => {
@@ -464,7 +463,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       let result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [16, 9],
+        aspect: [9, 16],
         quality: 1,
       });
 
@@ -490,6 +489,68 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     }
   };
 
+  // Add tag-based image generation support
+  const [uploadMode, setUploadMode] = useState<'upload' | 'generate'>('upload');
+  const [positiveTags, setPositiveTags] = useState<string[]>([]);
+  const [negativeTags, setNegativeTags] = useState<string[]>([]);
+  const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
+  const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
+  const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
+
+  // Image generation task submission function (similar to CradleCreateForm)
+  const submitImageGenerationTask = async (positive: string[], negative: string[]): Promise<string> => {
+    try {
+      // Convert tag arrays to comma-separated strings
+      const positivePrompt = positive.join(', ');
+      const negativePrompt = negative.join(', ');
+      
+      console.log(`[角色创建] 准备提交图像生成请求`);
+      console.log(`[角色创建] 角色名称: ${roleCard.name}, 性别: ${character.gender}`);
+      console.log(`[角色创建] 正向提示词 (${positive.length}个标签): ${positivePrompt}`);
+      console.log(`[角色创建] 负向提示词 (${negative.length}个标签): ${negativePrompt}`);
+      
+      // Build request parameters
+      const requestData = {
+        prompt: positivePrompt,
+        negative_prompt: negativePrompt,
+        model: 'nai-v4-full', // Default to NAI anime v4 full version
+        sampler: 'k_euler_ancestral',
+        steps: 28,
+        scale: 11,
+        resolution: 'portrait', // Portrait orientation for character cards
+      };
+      
+      console.log(`[角色创建] 生图参数配置: 模型=${requestData.model}, 采样器=${requestData.sampler}, 步数=${requestData.steps}, 缩放比例=${requestData.scale}, 分辨率=${requestData.resolution}`);
+      
+      // Send request to server
+      console.log(`[角色创建] 正在向服务器发送生图请求...`);
+      const response = await fetch('http://152.69.219.182:5000/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+      });
+      
+      // Parse response
+      const data = await response.json();
+      
+      // Check if response was successful
+      if (!data.success) {
+        console.error(`[角色创建] 图像生成请求失败: ${data.error || '未知错误'}`);
+        throw new Error(`图像生成请求失败: ${data.error || '未知错误'}`);
+      }
+      
+      console.log(`[角色创建] 图像生成任务已成功提交，任务ID: ${data.task_id}`);
+      
+      // Return task ID
+      return data.task_id;
+    } catch (error) {
+      console.error('[角色创建] 提交图像生成请求失败:', error);
+      throw error;
+    }
+  };
+  
   // Saving character
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
@@ -501,6 +562,41 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     const characterId = String(Date.now());
     
     try {
+      // Prepare image generation request if using tag-based generation
+      let imageTaskId = null;
+      if (uploadMode === 'generate' && positiveTags.length > 0) {
+        try {
+          console.log(`[角色创建] 检测到需要AI生成图片，已选择标签: 正向=${positiveTags.length}个, 负向=${negativeTags.length}个`);
+          
+          // Add artist prompt to positive tags if selected
+          let finalPositiveTags = [...positiveTags];
+          if (selectedArtistPrompt) {
+            console.log(`[角色创建] 使用画师风格提示词`);
+            if (!finalPositiveTags.includes(selectedArtistPrompt)) {
+              finalPositiveTags.push(selectedArtistPrompt);
+            }
+          }
+          
+          // Combine with default negative prompts from CradleCreateForm
+          const DEFAULT_NEGATIVE_PROMPTS = [
+            'nsfw', 'nude', 'naked', 'porn', 'explicit', 'nipples', 'pussy',
+            'lowres', 'bad anatomy', 'bad hands', 'text', 'error', 'cropped',
+            'worst quality', 'low quality', 'normal quality', 'jpeg artifacts',
+            'signature', 'watermark', 'username', 'blurry'
+          ];
+          const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
+          
+          // Submit image generation request
+          imageTaskId = await submitImageGenerationTask(finalPositiveTags, finalNegativeTags);
+          console.log(`[角色创建] 已提交图像生成任务，ID: ${imageTaskId}`);
+          
+        } catch (error) {
+          console.error('[角色创建] 提交图像生成任务失败:', error);
+          setImageGenerationError(error instanceof Error ? error.message : '提交图像生成任务失败');
+          // Continue creating character even if image generation fails
+        }
+      }
+      
       // 构建角色数据
       const jsonData = {
         roleCard: {
@@ -640,7 +736,6 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
 
           // Handle world book entries
           if (data.worldBook?.entries) {
-            // ...existing world book processing...
             setWorldBook(data.worldBook);
             
             const entries = Object.entries(data.worldBook.entries).map(([key, entry]: [string, any]) => {
@@ -653,7 +748,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
                 name: entry.comment || key,
                 comment: entry.comment || '',
                 content: entry.content || '',
-                disable: entry.enable === undefined ? false : !entry.enable,
+                disable: entry.disable, // Correctly use disable from import
                 position,
                 constant: !!entry.constant,
                 order: entry.order || 0,
@@ -668,9 +763,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             setWorldBookEntries(entries);
           }
 
-          // Handle preset entries
-          if (data.preset?.prompts) {
-            // ...existing preset processing...  
+          // Handle preset entries - COMPLETELY REPLACE default presets
+          if (data.preset?.prompts && data.replaceDefaultPreset) {
             const importedEntries = data.preset.prompts.map((prompt: any, index: number) => ({
               id: `imported_${index}`,
               name: prompt.name || '',
@@ -683,10 +777,11 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
               role: prompt.role || 'user',
               order: index,
               isDefault: false,
-              enable: prompt.enabled ?? true,
-              depth: prompt.injection_depth 
+              enable: prompt.enable ?? true, // Correctly map enable property from import
+              depth: prompt.injection_depth || 0
             }));
             
+            // Completely replace all preset entries
             setPresetEntries(importedEntries);
           }
 
@@ -721,46 +816,278 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     character.avatar, character.backgroundImage
   ]);
 
-  // Render content based on activeTab
+  // Add a new function for preset import
+  const handleImportPreset = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true
+      });
+  
+      if (!result.assets || !result.assets[0]) {
+        return;
+      }
+  
+      console.log('[Preset Import] File selected:', result.assets[0].name);
+      
+      try {
+        const fileUri = result.assets[0].uri;
+        // Fix: Use FileSystem.cacheDirectory properly
+        const cacheUri = `${FileSystem.cacheDirectory}${result.assets[0].name}`;
+        
+        // Fix: Use FileSystem.copyAsync properly
+        await FileSystem.copyAsync({
+          from: fileUri,
+          to: cacheUri
+        });
+  
+        const presetJson = await CharacterImporter.importPresetForCharacter(cacheUri, 'temp');
+        
+        if (presetJson && presetJson.prompts) {
+          // Clear existing presets completely
+          const importedEntries = presetJson.prompts.map((prompt: any, index: number) => ({
+            id: `imported_${index}`,
+            name: prompt.name || '',
+            content: prompt.content || '',
+            identifier: prompt.identifier,
+            isEditable: true,
+            insertType: prompt.injection_position === 1 ? 
+              INSERT_TYPE_OPTIONS.CHAT : 
+              INSERT_TYPE_OPTIONS.RELATIVE,
+            role: prompt.role || 'user',
+            order: index,
+            isDefault: false,
+            enable: prompt.enable ?? true, // Use enable property directly from import
+            depth: prompt.injection_depth || 0
+          }));
+          
+          // Replace all preset entries
+          setPresetEntries(importedEntries);
+          
+          Alert.alert('成功', '预设导入成功');
+          setHasUnsavedChanges(true);
+        }
+      } catch (error) {
+        console.error('[Preset Import] Error:', error);
+        Alert.alert('导入失败', error instanceof Error ? error.message : '未知错误');
+      }
+    } catch (error) {
+      console.error('[Preset Import] Document picker error:', error);
+      Alert.alert('错误', '选择文件失败');
+    }
+  };
+
+  // Modify the renderContent function to unify the appearance tab UI
   const renderContent = () => {
     if (activeTab === 'basic') {
       return (
         <View style={styles.tabContent}>
-          {/* Image selection section */}
-          <View style={styles.imageSelectionSection}>
-            <View style={styles.avatarContainer}>
-              <TouchableOpacity
-                style={styles.avatarButton}
-                onPress={pickAvatar}
-              >
-                {character.avatar ? (
-                  <Image source={{ uri: character.avatar }} style={styles.avatarPreview} />
-                ) : (
-                  <>
-                    <Ionicons name="person-circle-outline" size={40} color="#aaa" />
-                    <Text style={styles.imageButtonText}>添加头像</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
+          <Text style={styles.sectionTitle}>角色外观</Text>
+          
+          {/* Add mode selection similar to CradleCreateForm */}
+          <View style={styles.modeSelectionContainer}>
+            <TouchableOpacity 
+              style={[styles.modeButton, uploadMode === 'upload' && styles.activeMode]}
+              onPress={() => setUploadMode('upload')}
+            >
+              <View style={styles.modeIconContainer}>
+                <Ionicons 
+                  name="cloud-upload-outline" 
+                  size={24} 
+                  color={uploadMode === 'upload' ? '#FFD700' : "#888"}
+                />
+              </View>
+              <View style={styles.modeTextContainer}>
+                <Text style={[styles.modeText, uploadMode === 'upload' && styles.activeModeText]}>
+                  自己上传图片
+                </Text>
+                <Text style={styles.modeDescription}>
+                  上传您准备好的角色形象图片
+                </Text>
+              </View>
+            </TouchableOpacity>
             
-            <View style={styles.backgroundContainer}>
-              <TouchableOpacity
-                style={styles.backgroundButton}
-                onPress={pickBackgroundImage}
+            <TouchableOpacity 
+              style={[styles.modeButton, uploadMode === 'generate' && styles.activeMode]}
+              onPress={() => setUploadMode('generate')}
+            >
+              <View style={styles.modeIconContainer}>
+                <Ionicons 
+                  name="color-wand-outline" 
+                  size={24} 
+                  color={uploadMode === 'generate' ? '#FFD700' : "#888"} 
+                />
+              </View>
+              <View style={styles.modeTextContainer}>
+                <Text style={[styles.modeText, uploadMode === 'generate' && styles.activeModeText]}>
+                  根据Tag生成图片
+                </Text>
+                <Text style={styles.modeDescription}>
+                  通过组合标签生成符合需求的角色形象
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+          
+          {/* Render content based on selected mode */}
+          {uploadMode === 'upload' ? (
+            <View style={styles.cardPreviewSection}>
+              <Text style={styles.inputLabel}>角色卡图片 (9:16)</Text>
+              <View style={styles.cardImageContainer}>
+                <TouchableOpacity
+                  style={styles.cardImagePicker}
+                  onPress={pickBackgroundImage}
+                >
+                  {character.backgroundImage ? (
+                    <Image source={{ uri: character.backgroundImage }} style={styles.cardImagePreview} />
+                  ) : (
+                    <>
+                      <Ionicons name="card-outline" size={40} color="#aaa" />
+                      <Text style={styles.imageButtonText}>添加角色卡图片</Text>
+                      <Text style={styles.imageButtonSubtext}>(9:16比例)</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.imageSeparator}>
+                <View style={styles.imageSeparatorLine} />
+                <Text style={styles.imageSeparatorText}>或</Text>
+                <View style={styles.imageSeparatorLine} />
+              </View>
+              
+              {/* Avatar selection */}
+              <Text style={styles.inputLabel}>头像图片 (方形)</Text>
+              <View style={styles.avatarContainer}>
+                <TouchableOpacity
+                  style={styles.avatarButton}
+                  onPress={pickAvatar}
+                >
+                  {character.avatar ? (
+                    <Image source={{ uri: character.avatar }} style={styles.avatarPreview} />
+                  ) : (
+                    <>
+                      <Ionicons name="person-circle-outline" size={40} color="#aaa" />
+                      <Text style={styles.imageButtonText}>添加头像</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.tagGenerateContainer}>
+              <Text style={styles.tagInstructionsText}>
+                请选择描述角色外观的正面和负面标签，正面标签会被包含在生成中，负面标签会被排除
+              </Text>
+              
+              {/* Add artist reference selector */}
+              <ArtistReferenceSelector 
+                selectedGender={character.gender as 'male' | 'female' | 'other'}
+                onSelectArtist={setSelectedArtistPrompt}
+                selectedArtistPrompt={selectedArtistPrompt}
+              />
+              
+              {/* Tag selection summary */}
+              <View style={styles.tagSummaryContainer}>
+                <Text style={styles.tagSummaryTitle}>已选标签</Text>
+                <View style={styles.selectedTagsRow}>
+                  {positiveTags.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {positiveTags.map((tag, index) => (
+                        <TouchableOpacity
+                          key={`pos-${index}`}
+                          style={styles.selectedPositiveTag}
+                          onPress={() => {
+                            setPositiveTags(tags => tags.filter(t => t !== tag));
+                          }}
+                        >
+                          <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                          <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <Text style={styles.noTagsSelectedText}>未选择正面标签</Text>
+                  )}
+                </View>
+                
+                <View style={styles.selectedTagsRow}>
+                  {negativeTags.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {negativeTags.map((tag, index) => (
+                        <TouchableOpacity
+                          key={`neg-${index}`}
+                          style={styles.selectedNegativeTag}
+                          onPress={() => {
+                            setNegativeTags(tags => tags.filter(t => t !== tag));
+                          }}
+                        >
+                          <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                          <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <Text style={styles.noTagsSelectedText}>未选择负面标签</Text>
+                  )}
+                </View>
+                
+                {/* Add hint for default negative prompts */}
+                <Text style={styles.defaultTagsInfo}>
+                  系统已添加默认的负面标签，以避免常见生成问题
+                </Text>
+              </View>
+              
+              {/* Open tag selector button */}
+              <TouchableOpacity 
+                style={styles.openTagSelectorButton}
+                onPress={() => setTagSelectorVisible(true)}
               >
-                {character.backgroundImage ? (
-                  <Image source={{ uri: character.backgroundImage }} style={styles.backgroundPreview} />
-                ) : (
-                  <>
-                    <Ionicons name="image-outline" size={40} color="#aaa" />
-                    <Text style={styles.imageButtonText}>添加背景(9:16)</Text>
-                  </>
-                )}
+                <Ionicons name="pricetag-outline" size={20} color="#fff" />
+                <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          )}
 
+          {/* Tag selector modal */}
+          <Modal
+            visible={tagSelectorVisible}
+            transparent={false}
+            animationType="slide"
+            onRequestClose={() => setTagSelectorVisible(false)}
+          >
+            <View style={styles.tagSelectorModalContainer}>
+              <View style={styles.tagSelectorHeader}>
+                <Text style={styles.tagSelectorTitle}>选择标签</Text>
+                <TouchableOpacity 
+                  style={styles.tagSelectorCloseButton}
+                  onPress={() => setTagSelectorVisible(false)}
+                >
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.tagSelectorContent}>
+                <TagSelector 
+                  onClose={() => setTagSelectorVisible(false)}
+                  onAddPositive={(tag) => setPositiveTags(prev => [...prev, tag])}
+                  onAddNegative={(tag) => setNegativeTags(prev => [...prev, tag])}
+                  existingPositiveTags={positiveTags}
+                  existingNegativeTags={negativeTags}
+                  onPositiveTagsChange={setPositiveTags}
+                  onNegativeTagsChange={setNegativeTags}
+                  sidebarWidth="auto"
+                />
+              </View>
+            </View>
+          </Modal>
+        </View>
+      );
+    } else {
+      return (
+        <View style={styles.tabContent}>
+          {/* Character basic information section */}
+          <Text style={styles.sectionTitle}>角色信息</Text>
           <CharacterAttributeEditor
             title="名称"
             value={roleCard.name || ''}
@@ -807,11 +1134,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             placeholder="提供一些角色对话的范例..."
             style={styles.attributeSection}
           />
-        </View>
-      );
-    } else {
-      return (
-        <View style={styles.tabContent}>
+
           <WorldBookSection
             entries={worldBookEntries}
             onAdd={handleAddWorldBookEntry}
@@ -820,6 +1143,17 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             onReorder={handleReorderWorldBook}
           />
           
+          {/* Modify PresetSection to include import functionality */}
+          <View style={styles.presetSectionHeader}>
+            <Text style={styles.sectionTitle}>预设设定</Text>
+            <TouchableOpacity 
+              style={styles.importPresetButton}
+              onPress={handleImportPreset}
+            >
+              <Ionicons name="cloud-download-outline" size={16} color="#FFD700" />
+              <Text style={styles.importPresetText}>导入预设</Text>
+            </TouchableOpacity>
+          </View>
           <PresetSection
             entries={presetEntries}
             onAdd={handleAddPresetEntry}
@@ -846,9 +1180,73 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       );
     }
   };
-  
-  // Add new styles for image selection
-  const additionalStyles = StyleSheet.create({
+
+  // Add new styles
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      flexDirection: 'row',
+      backgroundColor: '#282828',
+    },
+    sidebarContainer: {
+      width: 80,
+      backgroundColor: 'rgba(40, 40, 40, 0.9)',
+      borderRightWidth: 1,
+      borderRightColor: 'rgba(255,255,255,0.1)',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      paddingVertical: 16,
+      paddingHorizontal: 8,
+    },
+    sidebarNavItems: {
+      flex: 1,
+    },
+    sidebarItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      marginBottom: 8,
+      borderRadius: 8,
+      borderLeftWidth: 2,
+      borderLeftColor: 'transparent',
+    },
+    activeSidebarItem: {
+      backgroundColor: 'rgba(255, 215, 0, 0.1)',
+      borderLeftColor: '#FFD700',
+    },
+    sidebarItemText: {
+      color: '#aaa',
+      marginLeft: 8,
+      fontSize: 13,
+    },
+    activeSidebarItemText: {
+      color: '#FFD700',
+    },
+    sidebarSaveButton: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: '#FFD700',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 8,
+      alignSelf: 'center',
+    },
+    content: {
+      flex: 1,
+    },
+    contentContainer: {
+      paddingBottom: 80, // Extra padding for scrolling at bottom
+    },
+    tabContent: {
+      padding: 16,
+    },
+    attributeSection: {
+      marginTop: 20,
+    },
+    // Remove bottom bar styles
+    
     imageSelectionSection: {
       flexDirection: 'row',
       marginBottom: 20,
@@ -885,6 +1283,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.2)',
       overflow: 'hidden',
+      height: 200,
     },
     backgroundPreview: {
       width: '100%',
@@ -896,31 +1295,290 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       fontSize: 12,
       textAlign: 'center',
     },
+    // Add styles for tag-based image generation
+    modeSelectionContainer: {
+      marginBottom: 16,
+    },
+    modeButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 8,
+      backgroundColor: 'rgba(60, 60, 60, 0.8)',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    activeMode: {
+      backgroundColor: 'rgba(255, 215, 0, 0.1)',
+      borderColor: '#FFD700',
+    },
+    modeIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    modeTextContainer: {
+      flex: 1,
+    },
+    modeText: {
+      fontSize: 16,
+      color: '#aaa',
+    },
+    activeModeText: {
+      color: '#FFD700',
+    },
+    modeDescription: {
+      fontSize: 12,
+      color: '#888',
+      marginTop: 4,
+    },
+    tagGenerateContainer: {
+      flex: 1,
+      padding: 16,
+    },
+    tagInstructionsText: {
+      color: '#aaa',
+      fontSize: 14,
+      marginBottom: 16,
+    },
+    tagSummaryContainer: {
+      backgroundColor: '#333',
+      borderRadius: 8,
+      padding: 12,
+      marginVertical: 16,
+    },
+    tagSummaryTitle: {
+      color: '#fff',
+      fontSize: 16,
+      marginBottom: 8,
+    },
+    selectedTagsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 36,
+      marginBottom: 8,
+    },
+    selectedPositiveTag: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(255, 224, 195, 0.8)',
+      borderRadius: 16,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      marginRight: 8,
+    },
+    selectedNegativeTag: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(255, 68, 68, 0.8)',
+      borderRadius: 16,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      marginRight: 8,
+    },
+    selectedTagText: {
+      fontSize: 12,
+      marginRight: 4,
+      maxWidth: 100,
+    },
+    noTagsSelectedText: {
+      color: '#aaa',
+      fontStyle: 'italic',
+    },
+    defaultTagsInfo: {
+      color: '#888',
+      fontSize: 11,
+      fontStyle: 'italic',
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    openTagSelectorButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(74, 144, 226, 0.8)',
+      borderRadius: 8,
+      padding: 12,
+      marginVertical: 8,
+    },
+    openTagSelectorText: {
+      color: '#fff',
+      marginLeft: 8,
+    },
+    sectionTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: '#fff',
+      marginTop: 24,
+      marginBottom: 16,
+    },
+    tagSelectorModalContainer: {
+      flex: 1,
+      backgroundColor: '#222',
+    },
+    tagSelectorHeader: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 16,
+      backgroundColor: '#333',
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(255,255,255,0.1)',
+      position: 'relative',
+      // Add status bar height adjustment for iOS
+      paddingTop: Platform.OS === 'ios' ? 44 : 16,
+    },
+    tagSelectorTitle: {
+      color: '#fff',
+      fontSize: 18,
+      fontWeight: 'bold',
+    },
+    tagSelectorCloseButton: {
+      position: 'absolute',
+      right: 16,
+      // Adjust for iOS status bar
+      top: Platform.OS === 'ios' ? 44 : 16,
+      padding: 4,
+    },
+    tagSelectorContent: {
+      flex: 1, // This ensures the TagSelector fills the available space
+    },
+    // Add or modify styles for unified appearance
+    cardPreviewSection: {
+      alignItems: 'center',
+      width: '100%',
+      marginBottom: 20,
+    },
+    cardImageContainer: {
+      width: 120,   
+      height: 200,
+      borderRadius: 8,
+      overflow: 'hidden',
+      backgroundColor: 'rgba(60, 60, 60, 0.8)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    cardImagePicker: {
+      width: '100%',
+      height: '100%',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    cardImagePreview: {
+      width: '100%',
+      height: '100%',
+      resizeMode: 'cover',
+    },
+    imageButtonSubtext: {
+      color: '#888',
+      fontSize: 12,
+      marginTop: 4,
+    },
+    imageSeparator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: 16,
+      width: '100%',
+    },
+    imageSeparatorLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: 'rgba(255,255,255,0.1)',
+    },
+    imageSeparatorText: {
+      color: '#aaa',
+      marginHorizontal: 8,
+    },
+    inputLabel: {
+      color: '#fff',
+      fontSize: 16,
+      marginBottom: 8,
+      alignSelf: 'flex-start',
+    },
+    
+    // Add new styles for preset import
+    presetSectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 24,
+      marginBottom: 16,
+    },
+    importPresetButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(255, 215, 0, 0.1)',
+      borderRadius: 8,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+    },
+    importPresetText: {
+      color: '#FFD700',
+      marginLeft: 4,
+      fontSize: 14,
+    },
   });
-  
-  // For embedded usage in tabs, we don't need the header and tabs
-  // Just render the content based on activeTab prop
+
+  // For embedded usage in tabs, we'll now use the sidebar pattern similar to CradleCreateForm
   return (
     <View style={styles.container}>
+      <View style={styles.sidebarContainer}>
+        {/* Sidebar Navigation Items */}
+        <View style={styles.sidebarNavItems}>
+          <TouchableOpacity 
+            style={[
+              styles.sidebarItem,
+              activeTab === 'basic' && styles.activeSidebarItem
+            ]}
+            onPress={() => setActiveTab('basic')}
+          >
+            <Ionicons 
+              name="document-outline"
+              size={24} 
+              color={activeTab === 'basic' ? "#FFD700" : "#aaa"} 
+            />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.sidebarItem,
+              activeTab === 'advanced' && styles.activeSidebarItem
+            ]}
+            onPress={() => setActiveTab('advanced')}
+          >
+            <Ionicons 
+              name="settings-outline"
+              size={24} 
+              color={activeTab === 'advanced' ? "#FFD700" : "#aaa"} 
+            />
+          </TouchableOpacity>
+        </View>
+        
+        {/* Save button in sidebar style */}
+        <TouchableOpacity
+          style={styles.sidebarSaveButton}
+          onPress={saveCharacter}
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#000" />
+          ) : (
+            <Ionicons name="save-outline" size={18} color="#000" />
+          )}
+        </TouchableOpacity>
+      </View>
+      
       <ScrollView 
         style={styles.content} 
         contentContainerStyle={styles.contentContainer}
       >
         {renderContent()}
       </ScrollView>
-      
-      {/* Save button in sidebar style (moved from bottom bar) */}
-      <TouchableOpacity
-        style={styles.sidebarSaveButton}
-        onPress={saveCharacter}
-        disabled={isSaving}
-      >
-        {isSaving ? (
-          <ActivityIndicator size="small" color="#000" />
-        ) : (
-          <Ionicons name="save-outline" size={24} color="#000" />
-        )}
-      </TouchableOpacity>
       
       {/* Detail Sidebar for expanded editing */}
       <DetailSidebar
@@ -955,86 +1613,6 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#282828',
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    paddingBottom: 80, // Extra padding for scrolling at bottom
-  },
-  tabContent: {
-    padding: 16,
-  },
-  attributeSection: {
-    marginTop: 20,
-  },
-  // Remove bottom bar styles
-  
-  sidebarSaveButton: {
-    position: 'absolute',
-    bottom: 16,
-    left: 10,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgb(255, 224, 195)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageSelectionSection: {
-    flexDirection: 'row',
-    marginBottom: 20,
-  },
-  avatarContainer: {
-    width: 100,
-    marginRight: 16,
-  },
-  avatarButton: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#333',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    overflow: 'hidden',
-  },
-  avatarPreview: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 50,
-  },
-  backgroundContainer: {
-    flex: 1,
-  },
-  backgroundButton: {
-    aspectRatio: 9/16,
-    backgroundColor: '#333',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    overflow: 'hidden',
-    height: 200,
-  },
-  backgroundPreview: {
-    width: '100%',
-    height: '100%',
-  },
-  imageButtonText: {
-    color: '#aaa',
-    marginTop: 8,
-    fontSize: 12,
-    textAlign: 'center',
-  },
-});
 
 export default CreateChar;
 
