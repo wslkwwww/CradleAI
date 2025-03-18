@@ -19,7 +19,7 @@ import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { parseHtmlText, containsComplexHtml, containsCustomTags, extractCodeBlocks, reinsertCodeBlocks, optimizeHtmlForRendering } from '@/utils/textParser';
 import { ratingService } from '@/services/ratingService';
-import RichTextRenderer from './RichTextRenderer';
+
 
 
 const { width } = Dimensions.get('window');
@@ -225,41 +225,10 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
                           text.includes("class='music-container'");
                           
     // If it's complex HTML content, use the RichTextRenderer
-    if (hasHtmlDocument || hasInteractive || containsComplexHtml(text)) {
-      // Optimize HTML before rendering to prevent flickering
-      const optimizedHtml = optimizeHtmlForRendering(text);
-      return (
-        <View style={styles.richContentWrapper}>
-          <RichTextRenderer 
-            content={optimizedHtml} 
-            isUserMessage={isUser} 
-            maxWidth={MAX_WIDTH - 32} 
-          />
-        </View>
-      );
-    }
+
 
     // Handle code blocks in markdown format
-    if (text.includes('```')) {
-      return (
-        <RichTextRenderer 
-          content={text} 
-          isUserMessage={isUser} 
-          maxWidth={MAX_WIDTH - 24}
-        />
-      );
-    }
-    
-    // If text contains line breaks but no HTML, use RichTextRenderer for consistent formatting
-    if (text.includes('\n') && !text.includes('<')) {
-      return (
-        <RichTextRenderer 
-          content={text}
-          isUserMessage={isUser}
-          maxWidth={MAX_WIDTH - 16}
-        />
-      );
-    }
+
     
     // Handle existing image markdown and links
     const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)|!\[(.*?)\]\((data:image\/[^\s)]+)\)/g;
