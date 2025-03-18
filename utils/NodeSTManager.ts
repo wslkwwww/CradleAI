@@ -75,6 +75,7 @@ class NodeSTManagerClass {
         characterId: characterId,
         hasCharacter: !!params.character,
         hasJsonData: !!jsonString,
+        customUserName: params.character?.customUserName || 'User',
         action: params.status === "更新人设" ? "更新人设" : (params.status === "新建角色" ? "新建角色" : "继续对话")
       });
 
@@ -132,7 +133,8 @@ class NodeSTManagerClass {
         apiKey: params.apiKey,
         apiSettings: params.apiSettings,
         jsonString: jsonString,
-        characterId: characterId  // Pass characterId for memory service
+        characterId: characterId,  // Pass characterId for memory service
+        customUserName: params.character?.customUserName // Pass the customUserName to NodeST
       });
 
       if (response.success) {
@@ -408,7 +410,8 @@ class NodeSTManagerClass {
             apiKey: options.apiKey,
             apiSettings: options.apiSettings,
             jsonString: options.character?.jsonData,
-            characterId: options.character?.id  // Pass character ID for memory service
+            characterId: options.character?.id,  // Pass character ID for memory service
+            customUserName: options.character?.customUserName  // Pass the customUserName to NodeST
         });
         
         if (response.success) {
@@ -429,7 +432,7 @@ class NodeSTManagerClass {
         return {
             success: false,
             error: error instanceof Error ? error.message : "未知错误"
-        };
+};
     }
   }
 
@@ -443,6 +446,7 @@ class NodeSTManagerClass {
     apiKey: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
     character?: Character;
+    customUserName?: string;
   }): Promise<Message> {
     try {
       console.log('[NodeSTManager] 从消息索引重新生成:', params.messageIndex);
@@ -487,7 +491,7 @@ class NodeSTManagerClass {
       return {
         success: false,
         error: error instanceof Error ? error.message : '未知错误'
-      };
+        };
     }
   }
 

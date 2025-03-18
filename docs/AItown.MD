@@ -432,3 +432,20 @@ This paper introduces generative agents, interactive computational agents that s
 ## Acknowledgments
 
 We thank Lindsay Popowski, Philip Guo, Michael Terry, and the Center for Advanced Study in the Behavioral Sciences (CASBS) community for their insights, discussions, and support. Joon Sung Park was supported by the Microsoft Research PhD Fellowship. We would also like to thank the Stanford Human-Centered AI Institute (HAI), Google Research, the Hasso Plattner Design Thinking Research Program (HPDTRP), the Siegel Family Endowment, and OpenAI for their additional funding support. Lastly, all locations featured in Smallville are inspired by real-world locations that Joon has frequented as an undergraduate and graduate student—he thanks everyone there for feeding and supporting him all these years.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -24,6 +24,7 @@ export interface ProcessChatRequest {
     jsonString?: string;
     isCradleGeneration?: boolean; 
     characterId?: string; // Add characterId parameter
+    customUserName?: string; // Add customUserName parameter
 }
 
 export { CirclePostOptions, CircleResponse };
@@ -222,7 +223,8 @@ export class NodeST {
                     params.conversationId,
                     params.userMessage,
                     params.apiKey,
-                    params.characterId  // Pass the characterId
+                    params.characterId,  // Pass the characterId
+                    params.customUserName
                 );
 
                 if (response) {
@@ -607,13 +609,15 @@ export class NodeST {
      * @param messageIndex 要重新生成的消息索引
      * @param apiKey API密钥
      * @param characterId 可选的角色ID，用于记忆服务
+     * @param customUserName 可选的自定义用户名
      * @returns 新生成的回复或null
      */
     async regenerateFromMessage(
         conversationId: string,
         messageIndex: number,
         apiKey: string,
-        characterId?: string
+        characterId?: string,
+        customUserName?: string // Add parameter for customUserName
     ): Promise<string | null> {
         try {
             // 确保实例已初始化
@@ -632,7 +636,8 @@ export class NodeST {
                 conversationId,
                 messageIndex,
                 apiKey,
-                characterId
+                characterId,
+                customUserName // Pass customUserName to core.regenerateFromMessage
             );
         } catch (error) {
             console.error('[NodeST] regenerateFromMessage失败:', error);

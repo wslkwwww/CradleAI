@@ -182,6 +182,9 @@ export interface Character {
   isCradleGenerated?: boolean;
   cradleCharacterId?: string; // Reference to a Cradle character if this character was generated from one
   
+  // Custom user name that the character will use to address the user
+  customUserName?: string;
+  
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;

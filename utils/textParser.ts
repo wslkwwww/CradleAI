@@ -300,10 +300,18 @@ export function parseHtmlText(text: string): TextSegment[] {
 
 // 添加检测函数 - 判断内容是否包含复杂HTML和需要WebView渲染
 export function containsComplexHtml(text: string): boolean {
+  // Check if content already contains custom XML-like tags
+  if (containsCustomTags(text)) {
+    return true;
+  }
+
   // 检查是否包含完整HTML文档结构
   if (text.includes('<!DOCTYPE html>') || 
       text.includes('<html') || 
-      (text.includes('<head') && text.includes('<body'))) {
+      (text.includes('<head') && text.includes('<body')) ||
+      // Look for music-container class which is in test.html
+      text.includes('class="music-container"') ||
+      text.includes('class=\'music-container\'')) {
     return true;
   }
   
@@ -452,4 +460,78 @@ export function formatCodeBlocks(text: string): string {
     const langClass = language ? ` class="language-${language}"` : '';
     return `<pre><code${langClass}>${formattedCode}</code></pre>`;
   });
+}
+
+// Update optimizeHtmlForRendering to handle HTML content more generically
+export function optimizeHtmlForRendering(html: string): string {
+  // If not complex HTML, return as is
+  if (!containsComplexHtml(html)) return html;
+
+  // If it contains custom tags, wrap them properly while preserving line breaks
+  if (containsCustomTags(html)) {
+    const customTagRegex = /<(char\s*think|story|dialogue|narration|system)>([\s\S]*?)<\/\1>/g;
+    html = html.replace(customTagRegex, (match, tagName, content) => {
+      // Add appropriate styling based on tag name
+      let className = tagName.replace(/\s+/g, '-').toLowerCase();
+      let style = "";
+      
+      // Convert newlines to <br> tags to preserve formatting
+      const formattedContent = content.replace(/\n/g, '<br>');
+      
+      switch(className) {
+        case 'char-think':
+          style = "font-style:italic; color:#6a5acd; background-color:rgba(0,0,0,0.05); padding:8px; border-left:3px solid #6a5acd; margin:8px 0; display:block; white-space:normal; text-align:left;";
+          break;
+        case 'story':
+          style = "color:#3cb371; background-color:rgba(0,0,0,0.05); padding:8px; border-left:3px solid #3cb371; margin:8px 0; display:block; white-space:normal; text-align:left;";
+          break;
+        case 'dialogue':
+          style = "color:#ff7f50; margin:8px 0; display:block; white-space:normal; text-align:left;";
+          break;
+        case 'narration':
+          style = "font-style:italic; color:#888; margin:8px 0; display:block; white-space:normal; text-align:left;";
+          break;
+        case 'system':
+          style = "color:#d3d3d3; background-color:rgba(0,0,0,0.2); padding:8px; font-family:monospace; margin:8px 0; display:block; white-space:normal; text-align:left;";
+          break;
+        default:
+          style = "margin:8px 0; display:block; white-space:normal; text-align:left;";
+      }
+      
+      return `<div class="${className}" style="${style}">${formattedContent}</div>`;
+    });
+  }
+  
+  // Apply basic optimizations for all complex HTML content
+  let optimized = html;
+  
+  // Fix any specific width constraints that might cause overflow
+  optimized = optimized.replace(/(max-width|width):\s*\d+(%|px|rem|em);/g, (match) => {
+    if (match.includes('%')) return match; // Keep % based widths
+    return 'max-width: 100%;';
+  });
+  
+  // Disable animations to prevent continuous reflows
+  if (optimized.includes('@keyframes') || optimized.includes('animation:')) {
+    // Insert a style to disable all animations
+    optimized = optimized.replace('</head>', `
+      <style>
+        * {
+          animation: none !important;
+          -webkit-animation: none !important;
+          transition: none !important;
+          -webkit-transition: none !important;
+        }
+      </style>
+      </head>
+    `);
+  }
+  
+  return optimized;
+}
+
+// Add a function to detect custom XML-like tags
+export function containsCustomTags(text: string): boolean {
+  const customTagRegex = /<(char\s*think|story|dialogue|narration|system)>[\s\S]*?<\/\1>/g;
+  return customTagRegex.test(text);
 }

@@ -11,6 +11,7 @@ import {
   Image,
   ScrollView,
   PanResponder,
+  TextInput,
 } from 'react-native';
 import { Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
@@ -74,6 +75,11 @@ export default function SettingsSidebar({
     selectedCharacter?.autoMessageInterval || 5
   );
 
+  // Add state for custom user name
+  const [customUserName, setCustomUserName] = useState(
+    selectedCharacter?.customUserName || ''
+  );
+
   // 处理滑动手势
   const panResponder = useRef(
     PanResponder.create({
@@ -135,6 +141,8 @@ export default function SettingsSidebar({
     setIsCircleInteractionEnabled(selectedCharacter?.circleInteraction === true);
     setIsRelationshipEnabled(selectedCharacter?.relationshipEnabled === true);
     setAutoMessageInterval(selectedCharacter?.autoMessageInterval || 5);
+    // Add the custom user name sync
+    setCustomUserName(selectedCharacter?.customUserName || '');
   }, [selectedCharacter]);
 
   // Handle sidebar animation
@@ -307,6 +315,23 @@ export default function SettingsSidebar({
     } catch (error) {
       console.error("Background update error:", error);
       Alert.alert('错误', '无法更新背景图片');
+    }
+  };
+
+  // Add handler for custom user name change
+  const handleCustomUserNameChange = async (value: string) => {
+    setCustomUserName(value);
+  };
+  
+  // Add handler for saving custom user name
+  const saveCustomUserName = async () => {
+    if (selectedCharacter) {
+      const updatedCharacter = {
+        ...selectedCharacter,
+        customUserName: customUserName.trim()
+      };
+      await updateCharacter(updatedCharacter);
+      Alert.alert('成功', '角色对你的称呼已更新');
     }
   };
 
@@ -499,6 +524,32 @@ export default function SettingsSidebar({
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>角色设置</Text>
+
+        {/* Add custom user name setting */}
+        <View style={styles.settingSection}>
+          <Text style={styles.settingSectionTitle}>基本设置</Text>
+          
+          <View style={styles.inputContainer}>
+            <Text style={styles.settingLabel}>角色对我的称呼</Text>
+            <TextInput
+              style={styles.textInput}
+              value={customUserName}
+              onChangeText={handleCustomUserNameChange}
+              placeholder="设置角色如何称呼你"
+              placeholderTextColor="#999"
+            />
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={saveCustomUserName}
+            >
+              <Text style={styles.saveButtonText}>保存</Text>
+            </TouchableOpacity>
+            
+            <Text style={styles.settingDescription}>
+              设置后，角色将用这个名字称呼你
+            </Text>
+          </View>
+        </View>
 
         {/* Replace Permanent Memory with Memory Summary */}
         <View style={styles.settingItem}>
@@ -757,6 +808,32 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   applyButtonText: {
+    color: 'rgb(255, 224, 195)',
+    fontWeight: '600',
+  },
+  inputContainer: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 15,
+  },
+  textInput: {
+    backgroundColor: 'rgba(80, 80, 80, 0.8)',
+    borderRadius: 8,
+    padding: 10,
+    color: '#fff',
+    marginVertical: 8,
+    fontSize: 16,
+  },
+  saveButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    alignSelf: 'flex-end',
+    marginTop: 5,
+  },
+  saveButtonText: {
     color: 'rgb(255, 224, 195)',
     fontWeight: '600',
   },

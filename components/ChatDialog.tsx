@@ -17,7 +17,7 @@ import { Message, Character,ChatDialogProps } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { parseHtmlText, containsComplexHtml, extractCodeBlocks, reinsertCodeBlocks } from '@/utils/textParser';
+import { parseHtmlText, containsComplexHtml, containsCustomTags, extractCodeBlocks, reinsertCodeBlocks, optimizeHtmlForRendering } from '@/utils/textParser';
 import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from './RichTextRenderer';
 
@@ -220,16 +220,20 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     
     const hasHtmlDocument = text.includes('<!DOCTYPE html>') || 
                           text.includes('<html') || 
-                          text.includes('<head');
+                          text.includes('<head') ||
+                          text.includes('class="music-container"') ||
+                          text.includes("class='music-container'");
                           
-    // If it's a complex HTML document or has interactive elements, use WebView with larger width
-    if (hasHtmlDocument || hasInteractive) {
+    // If it's complex HTML content, use the RichTextRenderer
+    if (hasHtmlDocument || hasInteractive || containsComplexHtml(text)) {
+      // Optimize HTML before rendering to prevent flickering
+      const optimizedHtml = optimizeHtmlForRendering(text);
       return (
         <View style={styles.richContentWrapper}>
           <RichTextRenderer 
-            content={text} 
+            content={optimizedHtml} 
             isUserMessage={isUser} 
-            maxWidth={width - 60} // Provide more space for HTML content
+            maxWidth={MAX_WIDTH - 32} 
           />
         </View>
       );
@@ -245,35 +249,8 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
         />
       );
     }
-                          
-    if (containsComplexHtml(text)) {
-      // Extract any code blocks first
-      const { codeBlocks, newText } = extractCodeBlocks(text);
-      
-      // Check if we have code blocks that need special handling
-      if (codeBlocks.length > 0) {
-        // Process the text and reinsert code blocks
-        const processedText = reinsertCodeBlocks(newText, codeBlocks);
-        return (
-          <RichTextRenderer 
-            content={processedText} 
-            isUserMessage={isUser} 
-            maxWidth={MAX_WIDTH - 16}
-          />
-        );
-      }
-      
-      // No code blocks, just render the HTML directly
-      return (
-        <RichTextRenderer 
-          content={text} 
-          isUserMessage={isUser} 
-          maxWidth={MAX_WIDTH - 16} 
-        />
-      );
-    }
-  
-    // For plain text with newlines but no HTML, render with WebView to preserve formatting
+    
+    // If text contains line breaks but no HTML, use RichTextRenderer for consistent formatting
     if (text.includes('\n') && !text.includes('<')) {
       return (
         <RichTextRenderer 
@@ -820,7 +797,7 @@ const styles = StyleSheet.create({
     width: '100%',
     overflow: 'hidden',
     borderRadius: 4,
-    paddingHorizontal: 0, // Remove horizontal padding to maximize space
+    marginBottom: 5, // Add some margin at the bottom
   },
   messageAvatar: {
     width: 30,

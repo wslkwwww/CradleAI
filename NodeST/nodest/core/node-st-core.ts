@@ -545,13 +545,15 @@ export class NodeSTCore {
         conversationId: string,
         userMessage: string,
         apiKey: string,
-        characterId?: string // Add characterId as optional parameter
+        characterId?: string, // Add characterId as optional parameter
+        customUserName?: string // Add customUserName as optional parameter
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting continueChat:', {
                 conversationId,
                 messageLength: userMessage.length,
-                apiProvider: this.apiSettings?.apiProvider
+                apiProvider: this.apiSettings?.apiProvider,
+                hasCustomUserName: !!customUserName
             });
 
             // 确保Adapter已初始化
@@ -668,7 +670,8 @@ export class NodeSTCore {
                 dEntries,
                 conversationId,
                 roleCard,
-                adapter // 传递正确的适配器
+                adapter, // 传递正确的适配器
+                customUserName // Pass the customUserName
             );
 
             // 如果收到响应，将AI回复也添加到历史记录
@@ -942,14 +945,16 @@ export class NodeSTCore {
         dEntries: ChatMessage[],
         sessionId: string,
         roleCard: RoleCardJson,
-        adapter?: GeminiAdapter | OpenRouterAdapter
+        adapter?: GeminiAdapter | OpenRouterAdapter,
+        customUserName?: string // Add optional customUserName parameter
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChat with:', {
                 userMessage: userMessage.substring(0, 30) + (userMessage.length > 30 ? '...' : ''),
                 chatHistoryMessagesCount: chatHistory?.parts?.length,
                 dEntriesCount: dEntries.length,
-                apiProvider: this.apiSettings?.apiProvider
+                apiProvider: this.apiSettings?.apiProvider,
+                hasCustomUserName: !!customUserName
             });
 
             // 1. 加载框架内容
@@ -1016,7 +1021,7 @@ export class NodeSTCore {
                 contents,
                 userMessage,
                 roleCard.name,
-                "",
+                customUserName || "", // Use customUserName if provided, otherwise empty string
                 roleCard
             );
 
@@ -1149,7 +1154,7 @@ export class NodeSTCore {
                                 historyMessage.parts[0].text,
                                 userMessage,
                                 charName,
-                                userName,
+                                userName, // Pass the userName parameter correctly
                                 roleCard
                             )
                         }]
@@ -1168,7 +1173,7 @@ export class NodeSTCore {
                             part.text || "", 
                             userMessage, 
                             charName, 
-                            userName, 
+                            userName, // Pass the userName parameter correctly 
                             roleCard
                         )
                     }))
@@ -1271,7 +1276,8 @@ export class NodeSTCore {
         conversationId: string,
         messageIndex: number,
         apiKey: string,
-        characterId?: string
+        characterId?: string,
+        customUserName?: string // Add customUserName parameter
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting regeneration from message index:', messageIndex);
@@ -1449,7 +1455,8 @@ export class NodeSTCore {
                 dEntries,
                 conversationId,
                 roleCard,
-                adapter
+                adapter,
+                customUserName // Pass customUserName to processChat
             );
             
             // If we got a response, add it to history
