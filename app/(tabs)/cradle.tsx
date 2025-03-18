@@ -12,7 +12,7 @@ import {
   Platform,
   ActivityIndicator,
   Image,
-  Animated,
+  ImageBackground,
   Alert,
   Modal
 } from 'react-native';
@@ -53,8 +53,6 @@ interface UserContextProps {
 const TABS = [
   { id: 'main', title: '主页', icon: 'home-outline' },
 ];
-
-type ImageGenerationStatus = 'idle' | 'pending' | 'success' | 'error';
 
 export default function CradlePage() {
   const router = useRouter();
@@ -168,158 +166,14 @@ export default function CradlePage() {
   
   // Enhanced function to check image generation status for all characters
   const checkCharacterImagesStatus = async () => {
-    // Check for pending image generations in character history
     for (const character of cradleCharacters) {
-      if (character.imageHistory) {
-        for (const image of character.imageHistory) {
-          if (image.generationStatus === 'pending' && image.generationTaskId) {
-            await checkImageThumbnailGenerationStatus(character.id, image);
-          }
-        }
-      }
-      
-      // Also check for character background image generation
       if (character.imageGenerationTaskId && 
           character.imageGenerationStatus === 'pending') {
         await checkImageGenerationStatus(character);
       }
     }
   };
-
-  // New function to check status of image thumbnails in gallery
-  const checkImageThumbnailGenerationStatus = async (characterId: string, image: CharacterImage) => {
-    if (!image.generationTaskId) return;
-    
-    const MAX_RETRIES = 3;
-    let retries = 0;
-    
-    while (retries < MAX_RETRIES) {
-      try {
-        console.log(`[摇篮页面] 检查图像生成任务状态: ${image.generationTaskId}`);
-        
-        // Request status from server
-        const response = await fetch(`http://152.69.219.182:5000/task_status/${image.generationTaskId}`);
-        if (!response.ok) {
-          console.warn(`[摇篮页面] 获取任务状态失败: HTTP ${response.status}`);
-          retries++;
-          continue;
-        }
-        
-        const data = await response.json();
-        
-        // If task is done and successful
-        if (data.done && data.success && data.image_url) {
-          console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
-          
-          // Download the image to local storage
-          const localImageUri = await downloadAndSaveImage(
-            data.image_url,
-            characterId,
-            'gallery'
-          );
-          
-          // Find the character to update
-          const character = cradleCharacters.find(c => c.id === characterId);
-          if (!character || !character.imageHistory) {
-            console.error(`[摇篮页面] 无法找到角色 ${characterId} 或其图像历史`);
-            return;
-          }
-          
-          // Update the image in the character's imageHistory with proper type casting
-          const updatedImageHistory = character.imageHistory.map(img => 
-            img.id === image.id ? 
-            { 
-              ...img, 
-              url: data.image_url,
-              localUri: localImageUri || data.image_url,
-              generationStatus: 'success' as ImageGenerationStatus,
-              generationTaskId: undefined 
-            } : img
-          );
-          
-          // Handle setting as avatar if specified
-          const setAsAvatar = image.setAsAvatar === true;
-          
-          // Update character with new image history
-          const updatedCharacter = { 
-            ...character, 
-            imageHistory: updatedImageHistory as CharacterImage[],
-            // If this image should be the avatar, set it
-            ...(setAsAvatar && {
-              avatar: localImageUri || data.image_url
-            })
-          };
-          
-          await updateCradleCharacter(updatedCharacter);
-          
-          // Update UI
-          if (selectedCharacter?.id === characterId) {
-            setSelectedCharacter(updatedCharacter);
-            setCharacterImages(updatedImageHistory as CharacterImage[]);
-          }
-          
-          // Show success notification
-          showNotification('图像生成成功', `新图像已添加到"${character.name}"的图库`);
-          
-          break;
-        } 
-        // If task is done but failed
-        else if (data.done && !data.success) {
-          console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
-          
-          // Find the character to update
-          const character = cradleCharacters.find(c => c.id === characterId);
-          if (!character || !character.imageHistory) {
-            console.error(`[摇篮页面] 无法找到角色 ${characterId} 或其图像历史`);
-            return;
-          }
-          
-          // Update the image in the character's imageHistory with proper type casting
-          const updatedImageHistory = character.imageHistory.map(img => 
-            img.id === image.id ? 
-            { 
-              ...img, 
-              generationStatus: 'error' as ImageGenerationStatus,
-              generationError: data.error || '未知错误',
-              generationTaskId: undefined 
-            } : img
-          );
-          
-          // Update character with new image history
-          const updatedCharacter = { 
-            ...character, 
-            imageHistory: updatedImageHistory as CharacterImage[]
-          };
-          
-          await updateCradleCharacter(updatedCharacter);
-          
-          // Update UI
-          if (selectedCharacter?.id === characterId) {
-            setSelectedCharacter(updatedCharacter);
-            setCharacterImages(updatedImageHistory as CharacterImage[]);
-          }
-          
-          // Show failure notification
-          showNotification('图像生成失败', `"${character.name}"的图像生成失败：${data.error || '未知错误'}`);
-          
-          break;
-        }
-        
-        retries++;
-        if (retries < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      } catch (error) {
-        console.error(`[摇篮页面] 检查图像生成状态失败:`, error);
-        retries++;
-        
-        if (retries < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
-    }
-  };
-
+  
   // Check the status of a single character's image generation task
   const checkImageGenerationStatus = async (character: CradleCharacter) => {
     if (!character.imageGenerationTaskId) return;
@@ -532,66 +386,29 @@ export default function CradlePage() {
     if (!selectedCharacter) return;
     
     try {
-      // If this was manually uploaded, handle it directly
-      if (newImage.url && !newImage.generationTaskId) {
-        // Add the new image to the character's image history
-        const updatedImageHistory = [
-          ...(selectedCharacter.imageHistory || []),
-          newImage
-        ] as CharacterImage[];
-        
-        // Check if should set as avatar
-        const updatedCharacter = {
-          ...selectedCharacter,
-          imageHistory: updatedImageHistory,
-          // If setAsAvatar is true, update the character's avatar
-          ...(newImage.setAsAvatar && {
-            avatar: newImage.localUri || newImage.url
-          })
-        };
-        
-        // Save the updated character
-        await updateCradleCharacter(updatedCharacter);
-        
-        // Update the selected character in state
-        setSelectedCharacter(updatedCharacter);
-        
-        // Update the gallery
-        setCharacterImages(updatedImageHistory);
-        
-        // Show success notification
-        showNotification('图像已添加', '新图像已添加到角色图库');
-      } else {
-        // This is a pending generation image, just add it to history
-        // Make sure we cast the status as proper enum type
-        const imageWithProperStatus = {
-          ...newImage,
-          generationStatus: newImage.generationStatus as ImageGenerationStatus
-        };
-        
-        const updatedImageHistory = [
-          ...(selectedCharacter.imageHistory || []),
-          imageWithProperStatus
-        ] as CharacterImage[];
-        
-        // Update the character with the new image
-        const updatedCharacter = {
-          ...selectedCharacter,
-          imageHistory: updatedImageHistory
-        };
-        
-        // Save the updated character
-        await updateCradleCharacter(updatedCharacter);
-        
-        // Update the selected character in state
-        setSelectedCharacter(updatedCharacter);
-        
-        // Update the gallery
-        setCharacterImages(updatedImageHistory);
-        
-        // Run the check immediately to start polling
-        checkImageThumbnailGenerationStatus(selectedCharacter.id, imageWithProperStatus);
-      }
+      // Add the new image to the character's image history
+      const updatedImageHistory = [
+        ...(selectedCharacter.imageHistory || []),
+        newImage
+      ];
+      
+      // Update the character with the new image
+      const updatedCharacter = {
+        ...selectedCharacter,
+        imageHistory: updatedImageHistory
+      };
+      
+      // Save the updated character
+      await updateCradleCharacter(updatedCharacter);
+      
+      // Update the selected character in state
+      setSelectedCharacter(updatedCharacter);
+      
+      // Update the gallery
+      setCharacterImages(updatedImageHistory);
+      
+      // Show success notification
+      showNotification('图像生成成功', '新图像已添加到角色图库');
     } catch (error) {
       console.error('[摇篮页面] 保存新图像失败:', error);
       showNotification('保存失败', '无法保存新生成的图像');
@@ -693,57 +510,6 @@ export default function CradlePage() {
     }
   };
 
-  // Update handleSetAsAvatar to handle cropped images
-const handleSetAsAvatar = async (imageId: string) => {
-  if (!selectedCharacter || !selectedCharacter.imageHistory) return;
-  
-  try {
-    const image = selectedCharacter.imageHistory.find(img => img.id === imageId);
-    
-    if (!image) {
-      console.error('[摇篮页面] 找不到指定ID的图像:', imageId);
-      return;
-    }
-    
-    // Update the character with the new avatar image
-    const updatedCharacter = {
-      ...selectedCharacter,
-      avatar: image.localUri || image.url,
-      avatarCrop: image.crop, // Add crop data if available
-    };
-    
-    // If this character has a generated normal character, update that too
-    if (updatedCharacter.generatedCharacterId && updatedCharacter.isCradleGenerated) {
-      const normalCharacter = characters.find(c => c.id === updatedCharacter.generatedCharacterId);
-      
-      if (normalCharacter) {
-        // Update the normal character with the new avatar
-        const updatedNormalCharacter = {
-          ...normalCharacter,
-          avatar: image.localUri || image.url,
-          avatarCrop: image.crop, // Add crop data if available
-        };
-        
-        // Save the normal character update
-        await updateCharacter(updatedNormalCharacter);
-        console.log('[摇篮页面] 已更新关联角色的头像');
-      }
-    }
-    
-    // Save the updated cradle character
-    await updateCradleCharacter(updatedCharacter);
-    
-    // Update the selected character in state
-    setSelectedCharacter(updatedCharacter);
-    
-    // Show success notification
-    showNotification('头像已更新', '已将选择的图像设置为角色头像');
-  } catch (error) {
-    console.error('[摇篮页面] 设置头像失败:', error);
-    showNotification('设置失败', '无法设置选择的图像为头像');
-  }
-};
-
   // Render the tabs at the top of the screen (simplified)
   const renderTabs = () => null; // Remove tabs completely
 
@@ -824,61 +590,6 @@ const handleSetAsAvatar = async (imageId: string) => {
     );
   };
 
-  // Update the render character card function to show pending image status
-  const renderCharacterCard = (character: CradleCharacter) => {
-    // Check if any images are being generated
-    const hasGeneratingImage = character.imageHistory?.some(img => 
-      img.generationStatus === 'pending'
-    );
-    const isPendingBackgroundImage = character.imageGenerationStatus === 'pending';
-    const isGeneratingImage = hasGeneratingImage || isPendingBackgroundImage;
-    
-    return (
-      <TouchableOpacity 
-        key={character.id}
-        style={[
-          styles.characterCard,
-          selectedCharacter?.id === character.id && styles.selectedCharacterCard
-        ]}
-        onPress={() => {
-          setSelectedCharacter(character);
-        }}
-      >
-        {/* Character image container */}
-        <View style={styles.characterImageContainer}>
-          {character.backgroundImage ? (
-            <Image
-              source={{ uri: character.backgroundImage }}
-              style={styles.characterImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.characterImagePlaceholder}>
-              <Ionicons name="image-outline" size={24} color="#666" />
-            </View>
-          )}
-          
-          {/* Image generation status indicator */}
-          {isGeneratingImage && (
-            <View style={styles.loadingIconOverlay}>
-              <ActivityIndicator size="small" color="#fff" />
-            </View>
-          )}
-          
-          {/* Character info overlay */}
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.characterCardOverlay}
-          >
-            <Text style={styles.characterCardName} numberOfLines={1}>
-              {character.name}
-            </Text>
-          </LinearGradient>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
   // Render main tab content - update to fix scrolling behavior
   const renderMainTab = () => (
     <View style={{ flex: 1 }}>
@@ -907,11 +618,66 @@ const handleSetAsAvatar = async (imageId: string) => {
         {cradleCharacters.length > 0 ? (
           <View style={styles.characterGridContainer}>
             <View style={styles.characterGrid}>
-              {cradleCharacters.map(character => renderCharacterCard(character))}
+              {cradleCharacters.map(character => (
+                <TouchableOpacity 
+                  key={character.id}
+                  style={[
+                    styles.characterCard,
+                    selectedCharacter?.id === character.id && styles.selectedCharacterCard
+                  ]}
+                  onPress={() => {
+                    setSelectedCharacter(character);
+                  }}
+                >
+                  {/* Character image container */}
+                  <View style={styles.characterImageContainer}>
+                    {character.backgroundImage ? (
+                      <Image
+                        source={{ uri: character.backgroundImage }}
+                        style={styles.characterImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.characterImagePlaceholder}>
+                        <Ionicons name="image-outline" size={24} color="#666" />
+                      </View>
+                    )}
+                    
+                    {/* Image generation status indicator - simplified */}
+                    {character.imageGenerationStatus === 'pending' && (
+                      <View style={styles.loadingIconOverlay}>
+                        <ActivityIndicator size="small" color="#fff" />
+                      </View>
+                    )}
+                    
+                    {/* Character info overlay - simplified */}
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.7)']}
+                      style={styles.characterCardOverlay}
+                    >
+                      <Text style={styles.characterCardName} numberOfLines={1}>
+                        {character.name}
+                      </Text>
+                    </LinearGradient>
+                  </View>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         ) : (
           <View style={styles.emptyStateContainer}>
+            <Ionicons name="egg-outline" size={60} color={theme.colors.primary} />
+            <Text style={styles.emptyTitle}>没有摇篮角色</Text>
+            <Text style={styles.emptyText}>
+              创建新的摇篮角色或从已有角色中导入
+            </Text>
+            <TouchableOpacity 
+              style={styles.createCharacterButton}
+              onPress={() => router.push('/pages/create_char_cradle')}
+            >
+              <Ionicons name="add" size={20} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.createCharacterButtonText}>创建摇篮角色</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -995,28 +761,6 @@ const handleSetAsAvatar = async (imageId: string) => {
     }
   };
 
-  // Improved notification display with rounded corners
-  const renderNotification = () => {
-    if (!notificationVisible) return null;
-    
-    return (
-      <View style={styles.notificationContainer}>
-        <Animated.View style={styles.notification}>
-          <View style={styles.notificationContent}>
-            <Text style={styles.notificationTitle}>{notification.title}</Text>
-            <Text style={styles.notificationMessage}>{notification.message}</Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.closeNotificationButton}
-            onPress={() => setNotificationVisible(false)}
-          >
-            <Ionicons name="close" size={18} color="#fff" />
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    );
-  };
-
   return (
     <KeyboardAvoidingView 
       style={[styles.safeArea, { paddingTop: insets.top }]}
@@ -1048,14 +792,10 @@ const handleSetAsAvatar = async (imageId: string) => {
           onToggleFavorite={handleToggleFavorite}
           onDelete={handleDeleteImage}
           onSetAsBackground={handleSetAsBackground}
-          onSetAsAvatar={handleSetAsAvatar} // Add the new handler
           character={selectedCharacter}
           onAddNewImage={handleImageRegenerationSuccess}
         />
       )}
-      
-      {/* Render improved notification */}
-      {renderNotification()}
       
       {/* Floating create button - keep it */}
       <TouchableOpacity
@@ -1703,9 +1443,5 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 12,
     padding: 6,
-  },
-  notificationContent: {
-    flex: 1,
-    marginRight: 24,
   },
 });

@@ -44,8 +44,6 @@ import ActionCard from '@/components/ActionCard';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import FavoriteList from '@/components/FavoriteList';
-import ImageViewer from '@/components/ImageViewer';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -131,20 +129,6 @@ const Explore: React.FC = () => {
   // Add these new state variables
   const [refreshing, setRefreshing] = useState(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
-
-  // Add new states for image viewer and favorite list
-  const [showFavoriteList, setShowFavoriteList] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isImageViewerVisible, setIsImageViewerVisible] = useState(false);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
-
-  // Add the image handling function before renderPost
-  const handleImagePress = useCallback((images: string[], index: number) => {
-    setSelectedImages(images);
-    setCurrentImageIndex(index);
-    setIsImageViewerVisible(true);
-  }, []);
 
   // Select first character as default when characters are loaded
   useEffect(() => {
@@ -461,15 +445,14 @@ const Explore: React.FC = () => {
         };
       }
       
-      // Update the posts state without reloading
-      setPosts(prevPosts => prevPosts.map(p => p.id === post.id ? updatedPost : p));
+      // Update the posts state
+      const updatedPosts = posts.map(p => p.id === post.id ? updatedPost : p);
+      setPosts(updatedPosts);
       
-      // Save to AsyncStorage in the background
-      AsyncStorage.setItem('circle_posts', JSON.stringify(
-        posts.map(p => p.id === post.id ? updatedPost : p)
-      ));
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
       
-      // If this is a character's post, update the character data in the background
+      // If this is a character's post, update the character data
       if (post.characterId !== 'user-1') {
         const character = characters.find(c => c.id === post.characterId);
         if (character?.circlePosts) {
@@ -505,26 +488,42 @@ const Explore: React.FC = () => {
         replyTo: replyTo || undefined
       };
   
-      // Update the post with the new comment immediately
+      // Update the post with the new comment
       let updatedPost: CirclePost = {
         ...post,
         comments: [...(post.comments || []), newComment] as CircleComment[],
       };
       
-      // Update posts state without reloading
-      setPosts(prevPosts => prevPosts.map(p => p.id === post.id ? updatedPost : p));
-  
-      // Reset input state
-      setCommentText('');
-      setActivePostId(null);
-      setReplyTo(null);
-  
-      // Save to AsyncStorage in the background
-      AsyncStorage.setItem('circle_posts', JSON.stringify(
-        posts.map(p => p.id === post.id ? updatedPost : p)
-      ));
+      // Update the posts state
+      const updatedPosts = posts.map(p => p.id === post.id ? updatedPost : p);
+      setPosts(updatedPosts);
       
-      // Continue with character response handling
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
+      
+      // If this is a character's post, update the character data
+      if (post.characterId !== 'user-1') {
+        const character = characters.find(c => c.id === post.characterId);
+        if (character?.circlePosts) {
+          const updatedCharacterPosts = character.circlePosts.map(p =>
+            p.id === post.id ? updatedPost : p
+          );
+      
+          await updateCharacter({
+            ...character,
+            circlePosts: updatedCharacterPosts,
+          });
+        }
+      }
+      
+      // Get API Key
+      const apiKey = user?.settings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
+      
+      // If this is a direct comment on a post (not a reply), get a character response
       if (!replyTo && post.characterId !== 'user-1') {
         const character = characters.find(c => c.id === post.characterId);
         if (character) {
@@ -533,12 +532,9 @@ const Explore: React.FC = () => {
             character,
             post,
             commentText.trim(),
-            user?.settings?.chat?.characterApiKey,
+            apiKey,
             undefined,
-            {
-              apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-              openrouter: user?.settings?.chat?.openrouter
-            }
+            apiSettings
           );
           
           if (response.success && response.action?.comment) {
@@ -563,16 +559,36 @@ const Explore: React.FC = () => {
               comments: [...(updatedPost.comments || []), characterReply]
             };
             
-            // Update posts state again without reloading
-            setPosts(prevPosts => prevPosts.map(p => p.id === post.id ? updatedPost : p));
+            // Update posts again with character's response
+            const postsWithCharacterReply = posts.map(p => 
+              p.id === post.id ? updatedPost : p
+            );
             
-            // Update AsyncStorage in the background
-            AsyncStorage.setItem('circle_posts', JSON.stringify(
-              posts.map(p => p.id === post.id ? updatedPost : p)
-            ));
+            setPosts(postsWithCharacterReply);
+            
+            // Save updated posts to AsyncStorage
+            await AsyncStorage.setItem('circle_posts', JSON.stringify(postsWithCharacterReply));
+            
+            // If this is a character's post, update the character data again
+            if (character?.circlePosts) {
+              const updatedCharacterPosts = character.circlePosts.map(p =>
+                p.id === post.id ? updatedPost : p
+              );
+          
+              await updateCharacter({
+                ...character,
+                circlePosts: updatedCharacterPosts,
+              });
+            }
           }
         }
       }
+  
+      // Reset input state
+      setCommentText('');
+      setActivePostId(null);
+      setReplyTo(null);
+  
     } catch (error) {
       console.error('Error sending comment:', error);
       Alert.alert('评论失败', '发送评论时出现错误');
@@ -941,13 +957,7 @@ const Explore: React.FC = () => {
       {item.images && item.images.length > 0 && (
         <View style={styles.imagesContainer}>
           {item.images.map((image, index) => (
-            <TouchableOpacity
-              key={index}
-              onPress={() => handleImagePress(item.images!, index)}
-              activeOpacity={0.8}
-            >
-              <Image source={{ uri: image }} style={styles.contentImage} />
-            </TouchableOpacity>
+            <Image key={index} source={{ uri: image }} style={styles.contentImage} />
           ))}
         </View>
       )}
@@ -1023,7 +1033,7 @@ const Explore: React.FC = () => {
       {activePostId === item.id && renderCommentInput(item)}
     </TouchableOpacity>
   ), [activePostId, renderComment, renderCommentInput, testModeEnabled, processingCharacters, 
-      handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu, handleImagePress]);
+      handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu]);
 
   // Add the relationship test functions
   const runRelationshipTest = async (options: RelationshipTestOptions) => {
@@ -2041,34 +2051,6 @@ const Explore: React.FC = () => {
 
         {/* User Post Modal */}
         {renderUserPostModal()}
-
-        {/* Image Viewer */}
-        {isImageViewerVisible && (
-          <ImageViewer
-            images={selectedImages}
-            initialIndex={currentImageIndex}
-            isVisible={isImageViewerVisible}
-            onClose={() => setIsImageViewerVisible(false)}
-          />
-        )}
-
-        {/* Favorite List Modal */}
-        <Modal
-          visible={showFavoriteList}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setShowFavoriteList(false)}
-        >
-          <FavoriteList
-            posts={posts}
-            onClose={() => setShowFavoriteList(false)}
-            onUpdatePost={(updatedPost) => {
-              setPosts(prevPosts => 
-                prevPosts.map(p => p.id === updatedPost.id ? updatedPost : p)
-              );
-            }}
-          />
-        </Modal>
       </ImageBackground>
     </KeyboardAvoidingView>
   );

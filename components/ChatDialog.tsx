@@ -13,18 +13,23 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
-import { Message, Character,ChatDialogProps } from '@/shared/types';
+import { Message, Character } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { parseHtmlText, containsComplexHtml, extractCodeBlocks, reinsertCodeBlocks } from '@/utils/textParser';
+import { parseHtmlText } from '@/utils/textParser';
 import { ratingService } from '@/services/ratingService';
-import RichTextRenderer from './RichTextRenderer';
 
+interface ChatDialogProps {
+  messages: Message[];
+  style?: ViewStyle;
+  selectedCharacter?: Character | null;
+  onRateMessage?: (messageId: string, isUpvote: boolean) => void;
+  onRegenerateMessage?: (messageId: string, messageIndex: number) => void;
+}
 
 const { width } = Dimensions.get('window');
-// Adjust the maximum width to ensure proper margins
-const MAX_WIDTH = width * 0.88; // Decreased from 0.9 to 0.88 to add more margin
+const MAX_WIDTH = width * 0.8; // Maximum width for chat bubbles
 const MAX_IMAGE_HEIGHT = 300; // Maximum height for images in chat
 
 const ChatDialog: React.FC<ChatDialogProps> = ({
@@ -38,31 +43,8 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateAnim = useRef(new Animated.Value(20)).current;
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  // Track rated messages
   const [ratedMessages, setRatedMessages] = useState<Record<string, boolean>>({});
-  
-  // Add state to track scroll position for different conversations
-  const [scrollPositions, setScrollPositions] = useState<Record<string, number>>({});
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const isInitialScrollRestored = useRef(false);
-  
-  // Update current conversation ID when it changes
-  useEffect(() => {
-    if (selectedCharacter?.id && selectedCharacter.id !== currentConversationId) {
-      setCurrentConversationId(selectedCharacter.id);
-      isInitialScrollRestored.current = false;
-    }
-  }, [selectedCharacter?.id, currentConversationId]);
-
-  // Track scroll position changes
-  const handleScroll = (event: any) => {
-    const yOffset = event.nativeEvent.contentOffset.y;
-    if (currentConversationId) {
-      setScrollPositions(prev => ({
-        ...prev,
-        [currentConversationId]: yOffset
-      }));
-    }
-  };
 
   // Animate new messages
   useEffect(() => {
@@ -80,39 +62,14 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     ]).start();
   }, [messages]);
 
-  // Auto-scroll to bottom when new messages arrive, but only if already at bottom
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (messages.length > 0) {
-      if (isInitialScrollRestored.current || !currentConversationId || 
-          !(currentConversationId in scrollPositions)) {
-        // Auto-scroll to bottom only for new messages
-        setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      }
-    }
-  }, [messages.length]);
-  
-  // Restore scroll position when conversation changes
-  useEffect(() => {
-    // Don't run on first render
-    if (!currentConversationId || isInitialScrollRestored.current) return;
-    
-    const savedPosition = scrollPositions[currentConversationId];
-    if (savedPosition !== undefined) {
-      // Delay scrolling to ensure content is rendered
       setTimeout(() => {
-        scrollViewRef.current?.scrollTo({ y: savedPosition, animated: false });
-        isInitialScrollRestored.current = true;
-      }, 300);
-    } else if (messages.length > 0) {
-      // If no saved position but messages exist, scroll to bottom
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: false });
-        isInitialScrollRestored.current = true;
-      }, 300);
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
     }
-  }, [currentConversationId, messages, scrollPositions]);
+  }, [messages]);
 
   // Load rated messages on mount and when character changes
   useEffect(() => {
@@ -199,81 +156,7 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
 
   // 检测并处理消息中的图片链接
   const processMessageContent = (text: string, isUser: boolean) => {
-    // Check for HTML content or interactive elements
-    const hasInteractive = text.includes('<button') || 
-                          text.includes('onclick=') || 
-                          text.includes('<audio') || 
-                          text.includes('<video') ||
-                          text.includes('<details') ||
-                          text.includes('<summary');
-    
-    const hasHtmlDocument = text.includes('<!DOCTYPE html>') || 
-                          text.includes('<html') || 
-                          text.includes('<head');
-                          
-    // If it's a complete HTML document, use WebView rendering with priority
-    if (hasHtmlDocument || hasInteractive) {
-      return (
-        <View style={styles.richContentWrapper}>
-          <RichTextRenderer 
-            content={text} 
-            isUserMessage={isUser} 
-            maxWidth={width - 80} // Provide more space for HTML content (increased margin)
-          />
-        </View>
-      );
-    }
-
-    // Handle code blocks in markdown format
-    if (text.includes('```')) {
-      return (
-        <RichTextRenderer 
-          content={text} 
-          isUserMessage={isUser} 
-          maxWidth={MAX_WIDTH - 32} // Add more padding for code blocks
-        />
-      );
-    }
-                          
-    if (containsComplexHtml(text)) {
-      // Extract any code blocks first
-      const { codeBlocks, newText } = extractCodeBlocks(text);
-      
-      // Check if we have code blocks that need special handling
-      if (codeBlocks.length > 0) {
-        // Process the text and reinsert code blocks
-        const processedText = reinsertCodeBlocks(newText, codeBlocks);
-        return (
-          <RichTextRenderer 
-            content={processedText} 
-            isUserMessage={isUser} 
-            maxWidth={MAX_WIDTH - 24} 
-          />
-        );
-      }
-      
-      // No code blocks, just render the HTML directly
-      return (
-        <RichTextRenderer 
-          content={text} 
-          isUserMessage={isUser} 
-          maxWidth={MAX_WIDTH - 24} 
-        />
-      );
-    }
-  
-    // For plain text with newlines but no HTML, render with WebView to preserve formatting
-    if (text.includes('\n') && !text.includes('<')) {
-      return (
-        <RichTextRenderer 
-          content={text}
-          isUserMessage={isUser}
-          maxWidth={MAX_WIDTH - 24}
-        />
-      );
-    }
-    
-    // Handle existing image markdown and links
+    // 检查是否是图片 Markdown 语法，支持 HTTP URL 和 data URL
     const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)|!\[(.*?)\]\((data:image\/[^\s)]+)\)/g;
     let match: RegExpExecArray | null;
     let matches: { alt: string, url: string }[] = [];
@@ -459,50 +342,6 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     );
   };
 
-  // Update renderMessageContent to include avatar at the top of bot messages
-  const renderMessageContent = (message: Message, isUser: boolean, index: number) => {
-    return (
-      <View style={[
-        styles.messageContent,
-        isUser ? styles.userMessageContent : styles.botMessageContent,
-        message.isLoading && styles.loadingMessage
-      ]}>
-        {!isUser && (
-          <Image
-            source={
-              selectedCharacter?.avatar
-                ? { uri: String(selectedCharacter.avatar) }
-                : require('@/assets/images/default-avatar.png')
-            }
-            style={styles.messageAvatar}
-          />
-        )}
-        {isUser ? (
-          <LinearGradient
-            colors={['rgba(255, 224, 195, 0.85)', 'rgba(255, 200, 170, 0.85)']}
-            style={styles.userGradient}
-          >
-            {processMessageContent(message.text, true)}
-          </LinearGradient>
-        ) : (
-          <View style={styles.botMessageTextContainer}>
-            {message.isLoading ? (
-              <View style={styles.loadingContainer}>
-                <View style={styles.loadingDot} />
-                <View style={[styles.loadingDot, { animationDelay: '0.2s' }]} />
-                <View style={[styles.loadingDot, { animationDelay: '0.4s' }]} />
-              </View>
-            ) : (
-              processMessageContent(message.text, false)
-            )}
-            
-            {!message.isLoading && !isUser && renderMessageActions(message, index)}
-          </View>
-        )}
-      </View>
-    );
-  };
-
   return (
     <>
       <ScrollView
@@ -511,8 +350,6 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
         contentContainerStyle={
           messages.length === 0 ? styles.emptyContent : styles.content
         }
-        onScroll={handleScroll}
-        scrollEventThrottle={16} // For more accurate scroll tracking
         showsVerticalScrollIndicator={false}
       >
         {messages.length === 0 ? (
@@ -542,8 +379,56 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
                       isUser ? styles.userMessageContainer : styles.botMessageContainer,
                     ]}
                   >
-                    {/* Remove avatar containers here as they're now inside the message content */}
-                    {renderMessageContent(message, isUser, index)}
+                    {!isUser && (
+                      <View style={styles.avatarContainer}>
+                        <Image
+                          source={
+                            selectedCharacter?.avatar
+                              ? { uri: String(selectedCharacter.avatar) }
+                              : require('@/assets/images/default-avatar.png')
+                          }
+                          style={styles.avatar}
+                        />
+                      </View>
+                    )}
+                    
+                    <View style={[
+                      styles.messageContent,
+                      isUser ? styles.userMessageContent : styles.botMessageContent,
+                      isLoading && styles.loadingMessage
+                    ]}>
+                      {isUser ? (
+                        <LinearGradient
+                          colors={['rgba(255, 224, 195, 0.85)', 'rgba(255, 200, 170, 0.85)']}
+                          style={styles.userGradient}
+                        >
+                          {processMessageContent(message.text, true)}
+                        </LinearGradient>
+                      ) : (
+                        <View style={styles.botMessageTextContainer}>
+                          {isLoading ? (
+                            <View style={styles.loadingContainer}>
+                              <View style={styles.loadingDot} />
+                              <View style={[styles.loadingDot, { animationDelay: '0.2s' }]} />
+                              <View style={[styles.loadingDot, { animationDelay: '0.4s' }]} />
+                            </View>
+                          ) : (
+                            processMessageContent(message.text, false)
+                          )}
+                          
+                          {!isLoading && !isUser && renderMessageActions(message, index)}
+                        </View>
+                      )}
+                    </View>
+                    
+                    {isUser && (
+                      <View style={styles.avatarContainer}>
+                        <Image
+                          source={require('@/assets/images/default-user-avatar.png')}
+                          style={styles.avatar}
+                        />
+                      </View>
+                    )}
                   </View>
                 </View>
               );
@@ -605,7 +490,6 @@ const styles = StyleSheet.create({
   messageContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    width: '100%',
   },
   userMessageContainer: {
     justifyContent: 'flex-end',
@@ -626,10 +510,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#444',
   },
   messageContent: {
-    flex: 1,
-    maxWidth: MAX_WIDTH + 30, // Increased width since we removed side avatars
+    maxWidth: MAX_WIDTH,
     marginHorizontal: 8,
-    alignSelf: 'center',
   },
   userMessageContent: {
     alignSelf: 'flex-end',
@@ -653,10 +535,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 4,
     padding: 12,
     paddingHorizontal: 16,
-    width: '100%', // Ensure content takes full width available
-    paddingTop: 20, // Extra padding at top to accommodate avatar
-    maxWidth: '98%', // Ensure it doesn't exceed parent width
-    marginTop: 15, // Space for the avatar
   },
   botMessageText: {
     color: '#fff',
@@ -803,25 +681,6 @@ const styles = StyleSheet.create({
     marginRight: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderRadius: 18,
-  },
-  // Add a new style for rich content
-  richContentWrapper: {
-    width: '100%',
-    overflow: 'hidden',
-    borderRadius: 4,
-    paddingHorizontal: 2, // Add small padding to ensure margins
-  },
-  messageAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    position: 'absolute',
-    left: 10,
-    top: -15,
-    zIndex: 2,
-    backgroundColor: '#444',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.2)',
   },
 });
 

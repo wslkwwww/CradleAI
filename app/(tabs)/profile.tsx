@@ -21,7 +21,6 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadingIndicator from '@/components/LoadingIndicator';
 import ActionButton from '@/components/ActionButton';
 import { theme } from '@/constants/theme';
-
 const Profile: React.FC = () => {
   const { user, updateAvatar } = useUser();
   const router = useRouter();
@@ -63,14 +62,7 @@ const Profile: React.FC = () => {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={theme.colors.background} />
 
-      {/* Header Image */}
-      <Image 
-        source={require('@/assets/images/default-background.jpeg')}
-        style={styles.headerImage}
-        resizeMode="cover"
-      />
-
-      {/* User Profile */}
+      {/* 用户信息 */}
       <View style={styles.header}>
         <TouchableOpacity onPress={pickImage}>
           <Image
@@ -83,32 +75,38 @@ const Profile: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Menu Items */}
+      {/* 项目列表 - 使用新的ListItem组件 */}
       <ScrollView style={styles.content}>
+        <ListItem
+          title="我的Agent"
+          leftIcon="person-outline"
+          chevron={true}
+          onPress={() => router.push('/pages/global-settings')}
+        />
+        
+        <ListItem
+          title="Agent集市"
+          leftIcon="storefront"
+          leftIconColor="#777777"
+          chevron={true}
+          onPress={() => router.push('/pages/global-settings')}
+        />
+        
+        <ListItem
+          title="全局设置"
+          leftIcon="settings-outline"
+          chevron={true}
+          onPress={() => router.push('/pages/global-settings')}
+        />
+        
         <ListItem
           title="API 设置"
           leftIcon="cloud-outline"
           chevron={true}
           onPress={() => router.push('/pages/api-settings')}
         />
-        
-        <ListItem
-          title="加入社区"
-          leftIcon="people-outline"
-          onPress={() => {
-            // Add community links handling
-          }}
-          subtitle="Discord | QQ群"
-        />
-        
-        <ListItem
-          title="关于"
-          leftIcon="information-circle-outline"
-          chevron={true}
-          subtitle="版本 1.0.0"
-        />
 
-        {/* Danger Zone */}
+        {/* 危险区域 - 使用我们的新组件 */}
         <View style={styles.dangerSection}>
           <Text style={styles.dangerSectionTitle}>危险区域</Text>
           <ActionButton 
@@ -158,12 +156,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background,
   },
-  headerImage: {
-    width: '100%',
-    height: 200,
-  },
   header: {
-    marginTop: -60, // Overlap with header image
     padding: 16,
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
     alignItems: 'center',

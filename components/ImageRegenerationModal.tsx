@@ -101,7 +101,6 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       return;
     }
     
-    // Set loading state just for UI feedback
     setIsLoading(true);
     setError(null);
     
@@ -162,40 +161,102 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         throw new Error(data.error || '图像生成请求失败');
       }
       
-      // 获取任务ID
+      // 获取任务ID并等待结果
       const taskId = data.task_id;
       console.log(`[图片重生成] 已提交任务，ID: ${taskId}`);
       
-      // Create a placeholder image record to track this generation task
-      const placeholderImage: CharacterImage = {
-        id: `img_${Date.now()}`,
-        url: '',
-        characterId: character.id,
-        createdAt: Date.now(),
-        tags: {
-          positive: useCustomPrompt ? [customPrompt] : positiveTags,
-          negative: negativeTags,
-        },
-        isFavorite: false,
-        generationTaskId: taskId,
-        generationStatus: 'pending'
-      };
+      // 开始轮询任务状态
+      await waitForGenerationResult(taskId);
       
-      // Pass the placeholder to parent component
-      onSuccess(placeholderImage);
-      
-      // Close the modal immediately after submitting the request
-      onClose();
+      // Don't close the modal automatically after generation completes
+      // Let user see the result and decide what to do next
       
     } catch (error) {
       console.error('[图片重生成] 生成失败:', error);
       setError(error instanceof Error ? error.message : '生成图像失败');
-      // Show error for 2 seconds, then close
-      setTimeout(() => {
-        onClose();
-      }, 2000);
     } finally {
       setIsLoading(false);
+    }
+  };
+  
+  // Wait for generation task to complete with exponential backoff
+  const waitForGenerationResult = async (taskId: string) => {
+    let attempts = 0;
+    const maxAttempts = 60; // Maximum number of attempts (10 minutes total with backoff)
+    
+    while (attempts < maxAttempts) {
+      try {
+        // Calculate backoff time - starts at 5s and increases
+        const backoffTime = Math.min(5000 * Math.pow(1.2, attempts), 20000);
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
+        
+        console.log(`[图片重生成] 检查任务状态 (尝试 ${attempts + 1}/${maxAttempts})...`);
+        
+        // Request status from server
+        const statusResponse = await fetch(`http://152.69.219.182:5000/task_status/${taskId}`);
+        if (!statusResponse.ok) {
+          throw new Error(`获取任务状态失败: HTTP ${statusResponse.status}`);
+        }
+        
+        const statusData = await statusResponse.json();
+        
+        // If task is complete
+        if (statusData.done) {
+          if (statusData.success && statusData.image_url) {
+            console.log(`[图片重生成] 图像生成成功: ${statusData.image_url}`);
+            setGeneratedImageUrl(statusData.image_url);
+            
+            // Download image and save locally
+            const localImageUri = await downloadAndSaveImage(
+              statusData.image_url,
+              character.id,
+              'avatar'
+            );
+            
+            // Store the prompts used
+            const imagePrompts = {
+              positive: useCustomPrompt ? [customPrompt] : positiveTags,
+              negative: negativeTags,
+              artistPrompt: selectedArtistPrompt || undefined
+            };
+            
+            // Create image record
+            const newImage: CharacterImage = {
+              id: `img_${Date.now()}`,
+              url: statusData.image_url,
+              localUri: localImageUri || statusData.image_url,
+              createdAt: Date.now(),
+              characterId: character.id,
+              tags: imagePrompts,
+              isFavorite: false
+            };
+            
+            // Pass to parent component but DON'T close the modal
+            // We're just saving the image to history but keeping modal open
+            onSuccess(newImage);
+            
+            // Don't add any auto-closing behavior here
+            return;
+            
+          } else {
+            throw new Error(statusData.error || '图像生成失败');
+          }
+        } 
+        // Task is still in progress
+        else if (statusData.queue_info) {
+          console.log(`[图片重生成] 仍在队列中: 位置 ${statusData.queue_info.position}, 预计等待 ${Math.round(statusData.queue_info.estimated_wait / 60)} 分钟`);
+        }
+        
+        attempts++;
+      } catch (error) {
+        console.error('[图片重生成] 检查任务状态出错:', error);
+        attempts++;
+        
+        // If we've exhausted all attempts, set the error
+        if (attempts >= maxAttempts) {
+          setError('图像生成超时，请稍后再试');
+        }
+      }
     }
   };
   

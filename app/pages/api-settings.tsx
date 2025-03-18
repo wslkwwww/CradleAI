@@ -49,10 +49,6 @@ const ApiSettings = () => {
 
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
   
-  // Activation code settings
-  const [useActivationCode, setUseActivationCode] = useState(false);
-  const [activationCode, setActivationCode] = useState('');
-
   // Handle API provider toggle
   const handleProviderToggle = (value: boolean) => {
     setOpenRouterEnabled(value);
@@ -190,32 +186,6 @@ const ApiSettings = () => {
         style={styles.container}
       >
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          {/* Activation Code Section */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>激活码</Text>
-              <Switch
-                value={useActivationCode}
-                onValueChange={setUseActivationCode}
-                trackColor={{ false: '#767577', true: 'rgba(255, 158, 205, 0.4)' }}
-                thumbColor={useActivationCode ? theme.colors.primary : '#f4f3f4'}
-              />
-            </View>
-
-            {useActivationCode && (
-              <View style={styles.contentSection}>
-                <TextInput
-                  style={styles.input}
-                  value={activationCode}
-                  onChangeText={setActivationCode}
-                  placeholder="输入激活码"
-                  placeholderTextColor="#999"
-                  secureTextEntry={true}
-                />
-              </View>
-            )}
-          </View>
-
           {/* Gemini API Settings */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>

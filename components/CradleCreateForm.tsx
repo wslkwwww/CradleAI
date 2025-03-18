@@ -232,8 +232,8 @@ const AGE_RANGES = [
 
 // Modified sidebar sections - only two tabs now
 const SIDEBAR_SECTIONS = [
-  { id: 'appearance', icon: 'image-outline',  },
-  { id: 'character', icon: 'person-outline',  },
+  { id: 'appearance', title: '外观设定', icon: 'image-outline' },
+  { id: 'character', title: '角色设定', icon: 'person-outline' },
 ];
 
 const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
@@ -255,8 +255,7 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   const [backgroundUri, setBackgroundUri] = useState<string | null>(null);
   const [cardImageUri, setCardImageUri] = useState<string | null>(null);
   
-  // When embedded, default to appearance section
-  const [activeSection, setActiveSection] = useState(embedded ? 'appearance' : 'character');
+  const [activeSection, setActiveSection] = useState('appearance');
   
   // Add state variables for trait customization that were previously outside the component
   const [traitCategories, setTraitCategories] = useState<TraitCategory[]>(DEFAULT_TRAIT_CATEGORIES);
@@ -1525,12 +1524,6 @@ const handleCreateCharacter = async () => {
                   size={24} 
                   color={activeSection === section.id ? "#FFD700" : "#aaa"} 
                 />
-                <Text style={[
-                  styles.sidebarItemText,
-                  activeSection === section.id && styles.activeSidebarItemText
-                ]}>
-
-                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -1605,6 +1598,7 @@ const handleCreateCharacter = async () => {
                   styles.tabButtonText,
                   activeSection === section.id && styles.activeTabButtonText
                 ]}>
+                  {section.title}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -2081,39 +2075,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#222',
   },
   sidebarContainer: {
-    width: 80,
-    backgroundColor: 'rgba(40, 40, 40, 0.9)',
+    width: 50,
+    backgroundColor: '#333',
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.1)',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 8,
   },
   sidebarNavItems: {
-    flex: 1,
+    paddingTop: 20,
   },
   sidebarItem: {
-    flexDirection: 'row',
+    padding: 16,
     alignItems: 'center',
-    padding: 12,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderLeftWidth: 2,
+    borderLeftWidth: 3,
     borderLeftColor: 'transparent',
   },
   activeSidebarItem: {
     backgroundColor: 'rgba(255, 215, 0, 0.1)',
     borderLeftColor: '#FFD700',
-  },
-  sidebarItemText: {
-    color: '#aaa',
-    marginLeft: 8,
-    fontSize: 13,
-  },
-  activeSidebarItemText: {
-    color: '#FFD700',
   },
   sidebarCreateButton: {
     width: 30,
@@ -2122,7 +2103,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD700',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 16,
     alignSelf: 'center',
   },
   contentContainer: {

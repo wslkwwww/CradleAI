@@ -11,7 +11,6 @@ import {
   Text,
   Alert,
   KeyboardAvoidingView,
-  AppState,
 } from 'react-native';
 
 import ChatDialog from '@/components/ChatDialog';
@@ -31,8 +30,6 @@ import TopBarWithBackground from '@/components/TopBarWithBackground';
 import { NodeSTManager } from '@/utils/NodeSTManager';  // 导入 NodeSTManager
 import { chatSaveService } from '@/services/ChatSaveService';
 import { EventRegister } from 'react-native-event-listeners';
-import RichTextRenderer from '@/components/RichTextRenderer';
-import { containsComplexHtml } from '@/utils/textParser';
 
 const App = () => {
   const router = useRouter();
@@ -81,9 +78,6 @@ const App = () => {
   const autoMessageIntervalRef = useRef<number>(5); // Default 5 minutes
   const lastMessageTimeRef = useRef<number>(Date.now());
   const waitingForUserReplyRef = useRef<boolean>(false); // Track if bot is waiting for user reply
-
-  // Add state to preserve chat scroll positions
-  const [chatScrollPositions, setChatScrollPositions] = useState<Record<string, number>>({});
 
   const toggleSettingsSidebar = () => {
     setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
@@ -883,53 +877,6 @@ const App = () => {
     };
   }, [selectedCharacter, setupAutoMessageTimer]);
 
-  // Save scroll positions on app pause/background
-  useEffect(() => {
-    const saveScrollPositions = async () => {
-      try {
-        if (Object.keys(chatScrollPositions).length > 0) {
-          await AsyncStorage.setItem('chatScrollPositions', JSON.stringify(chatScrollPositions));
-        }
-      } catch (error) {
-        console.error('Failed to save scroll positions:', error);
-      }
-    };
-    
-    // Add app state change listener
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        saveScrollPositions();
-      }
-    });
-    
-    // Load saved scroll positions on mount
-    const loadScrollPositions = async () => {
-      try {
-        const savedPositions = await AsyncStorage.getItem('chatScrollPositions');
-        if (savedPositions) {
-          setChatScrollPositions(JSON.parse(savedPositions));
-        }
-      } catch (error) {
-        console.error('Failed to load scroll positions:', error);
-      }
-    };
-    
-    loadScrollPositions();
-    
-    return () => {
-      subscription.remove();
-      saveScrollPositions();
-    };
-  }, [chatScrollPositions]);
-
-  // Update ChatDialog props to include scroll position handling
-  const handleScrollPositionChange = (characterId: string, position: number) => {
-    setChatScrollPositions(prev => ({
-      ...prev,
-      [characterId]: position
-    }));
-  };
-
   return (
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
@@ -994,8 +941,6 @@ const App = () => {
                   selectedCharacter={selectedCharacter}
                   onRateMessage={handleRateMessage}
                   onRegenerateMessage={handleRegenerateMessage}
-                  savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
-                  onScrollPositionChange={handleScrollPositionChange}
                 />
                 
                 {/* 测试按钮容器 */}

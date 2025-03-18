@@ -489,6 +489,10 @@ const RelationshipGraphPage = () => {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>角色关系图谱</Text>
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => {
@@ -1049,6 +1053,3 @@ const styles = StyleSheet.create({
 });
 
 export default RelationshipGraphPage;
-
-// Add export to make component available
-export { default as RelationshipGraphPage } from './relationship-graph';
