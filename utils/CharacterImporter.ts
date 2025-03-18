@@ -13,7 +13,8 @@ interface PresetPrompt {
   injection_depth?: number;
   role?: string;
   order?: number; // 添加 order 字段
-  sortOrder?: number; // 添加 sortOrder 字段
+  sortOrder?: number; 
+  enable?: boolean; // 重命名 enabled 为 enable
 }
 
 export class CharacterImporter {
@@ -230,15 +231,15 @@ export class CharacterImporter {
               ? orderMap.get(prompt.identifier)! 
               : Number.MAX_SAFE_INTEGER;
 
-            // 获取启用状态
-            const enabled = enabledMap.has(prompt.identifier)
+            // 获取启用状态 - use the correct field name enable instead of enabled
+            const enable = enabledMap.has(prompt.identifier)
               ? enabledMap.get(prompt.identifier)
               : (prompt.system_prompt ?? prompt.enabled ?? true);
 
             return {
               name: String(prompt.name || ''),
               content: String(prompt.content || ''),
-              enabled,
+              enable: enable, // Use 'enable' instead of 'enabled' to match our interface
               identifier: String(prompt.identifier),
               role: normalizedRole,
               injection_position,
@@ -257,7 +258,7 @@ export class CharacterImporter {
           finalOrder: idx,
           injection_position: p.injection_position,
           injection_depth: p.injection_depth,
-          enabled: p.enabled
+          enable: p.enable // Updated to use the correct field name
         })));
 
       } else {
@@ -281,7 +282,7 @@ export class CharacterImporter {
       // 构建最终的order数组
       const order = prompts.map((p: PresetPrompt): { identifier: string; enabled: boolean } => ({
         identifier: p.identifier,
-        enabled: p.enabled ?? false // 使用上面设置的enabled值
+        enabled: p.enable ?? false // Updated to use the correct field name
       }));
 
       const presetJson: PresetJson = {

@@ -14,7 +14,7 @@ import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
 import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
 import { CharacterGeneratorService } from '@/NodeST/nodest/services/character-generator-service';
 import { NodeSTManager } from '@/utils/NodeSTManager';
-
+import { CharacterImage } from '@/shared/types';
 const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
 // Initialize CradleService with API key from environment or settings
 const API_KEY = "YOUR_API_KEY_HERE"; // In production, load from secure storage
@@ -870,20 +870,54 @@ const addCradleCharacter = async (character: CradleCharacter): Promise<CradleCha
         }
       }
       
-      // Update character in state
-      setCharacters(prevChars => prevChars.map(char => 
-        char.id === updatedCharacter.id ? { ...updatedCharacter, updatedAt: Date.now() } : char
-      ));
+      // 添加: 首先从文件系统读取最新的角色数据，以确保我们有最新的状态
+      const existingDataStr = await FileSystem.readAsStringAsync(
+        FileSystem.documentDirectory + 'characters.json'
+      ).catch(() => '[]');
       
-      // Update character in storage
-      const updatedCharacters = characters.map(char => 
+      const existingCharacters = JSON.parse(existingDataStr);
+      
+      // 更新角色数组中的数据
+      const updatedCharacters = existingCharacters.map((char: any) => 
         char.id === updatedCharacter.id ? { ...updatedCharacter, updatedAt: Date.now() } : char
       );
+      
+      // 如果角色不存在，添加它（极少情况）
+      if (!updatedCharacters.some((char: any) => char.id === updatedCharacter.id)) {
+        updatedCharacters.push({...updatedCharacter, updatedAt: Date.now()});
+        console.log(`[CharactersContext] 角色不存在，已添加到列表中: ${updatedCharacter.id}`);
+      }
+      
+      // 保存到文件系统
       await FileSystem.writeAsStringAsync(
         FileSystem.documentDirectory + 'characters.json',
         JSON.stringify(updatedCharacters),
         { encoding: FileSystem.EncodingType.UTF8 }
       );
+      
+      // 更新内存中的角色数组
+      setCharacters(updatedCharacters);
+      
+      // 验证更新
+      const savedDataStr = await FileSystem.readAsStringAsync(
+        FileSystem.documentDirectory + 'characters.json'
+      );
+      
+      const savedCharacters = JSON.parse(savedDataStr);
+      const savedCharacter = savedCharacters.find((c: any) => c.id === updatedCharacter.id);
+      
+      if (!savedCharacter) {
+        console.error(`[CharactersContext] 更新失败，找不到角色: ${updatedCharacter.id}`);
+      } else {
+        // 验证图像历史是否已更新
+        const imageHistoryUpdated = savedCharacter.imageHistory && 
+          savedCharacter.imageHistory.length === updatedCharacter.imageHistory?.length;
+          
+        console.log(`[CharactersContext] 更新验证: 图像历史已更新? ${imageHistoryUpdated ? '是' : '否'}`);
+        if (updatedCharacter.imageHistory) {
+          console.log(`[CharactersContext] 更新后图像数量: ${updatedCharacter.imageHistory.length}`);
+        }
+      }
       
       console.log(`[CharactersContext] 摇篮角色更新成功: ${updatedCharacter.name}, ID: ${updatedCharacter.id}`);
     } catch (error) {
@@ -891,8 +925,7 @@ const addCradleCharacter = async (character: CradleCharacter): Promise<CradleCha
       throw error;
     }
   };
-  
-  // 删除摇篮角色
+
   const deleteCradleCharacter = async (id: string) => {
     console.log('[摇篮系统] 删除摇篮角色:', id);
     
@@ -1685,6 +1718,95 @@ const ensureCharacterInCradle = async (character: Character): Promise<void> => {
   } catch (error) {
     console.error('[CharactersContext] Error ensuring character in cradle:', error);
   }
+};
+
+// 增强图片生成状态轮询机制
+const pollImageGenerationTask = async (characterId: string, taskId: string, maxRetries: number = 30): Promise<boolean> => {
+  console.log(`[CharactersContext] 开始轮询图片生成任务: ${taskId}, 角色ID: ${characterId}`);
+  
+  let retries = 0;
+  
+  while (retries < maxRetries) {
+    try {
+      // 获取任务状态
+      const response = await fetch(`http://152.69.219.182:5000/task_status/${taskId}`);
+      
+      if (!response.ok) {
+        console.warn(`[CharactersContext] 获取任务状态失败: HTTP ${response.status}`);
+        retries++;
+        await new Promise(resolve => setTimeout(resolve, 10000)); // 10秒后重试
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      // 任务完成并成功
+      if (data.done && data.success && data.image_url) {
+        console.log(`[CharactersContext] 图像生成成功: ${data.image_url}`);
+        
+        // 找到对应的角色
+        const character = characters.find(c => c.id === characterId) as CradleCharacter | undefined;
+        
+        if (character) {
+          // 找到对应的图像记录
+          const imageRecord = character.imageHistory?.find(img => img.generationTaskId === taskId);
+          
+          if (imageRecord) {
+            // 下载图像并保存到本地
+            const localImageUri = await downloadAndSaveImage(
+              data.image_url,
+              characterId,
+              'gallery'
+            );
+            
+            // 更新图像历史 - Fix: properly type the updated images
+            const updatedImageHistory = (character.imageHistory || []).map(img => 
+              img.generationTaskId === taskId ? {
+                ...img,
+                url: data.image_url,
+                localUri: localImageUri || data.image_url,
+                generationStatus: 'success' as 'idle' | 'pending' | 'success' | 'error', // Fix: Use explicit type assertion
+                generationTaskId: undefined
+              } : img
+            ) as CharacterImage[]; // Add explicit type assertion
+            
+            // 更新角色
+            const updatedCharacter: CradleCharacter = {
+              ...character,
+              imageHistory: updatedImageHistory
+            };
+            
+            // 保存更新后的角色
+            await updateCradleCharacter(updatedCharacter);
+            
+            console.log(`[CharactersContext] 角色图像历史已更新，新增图像: ${data.image_url}`);
+            return true;
+          }
+        }
+        
+        return true; // 任务已完成
+      }
+      
+      // 任务完成但失败
+      if (data.done && !data.success) {
+        console.error(`[CharactersContext] 图像生成失败: ${data.error || '未知错误'}`);
+        return false;
+      }
+      
+      // 任务仍在进行中
+      retries++;
+      console.log(`[CharactersContext] 任务仍在进行中，已尝试 ${retries}/${maxRetries} 次`);
+      await new Promise(resolve => setTimeout(resolve, 10000)); // 10秒后再次检查
+      
+    } catch (error) {
+      console.error(`[CharactersContext] 轮询出错:`, error);
+      retries++;
+      await new Promise(resolve => setTimeout(resolve, 10000)); // 出错后10秒再重试
+    }
+  }
+  
+  console.log(`[CharactersContext] 达到最大重试次数: ${maxRetries}`);
+  return false;
 };
 
   return (

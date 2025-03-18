@@ -166,7 +166,7 @@ export interface Character {
   metadata?: CharacterMetadata;
   age?: string;
   gender?: string;
-  
+  imageHistory?: CharacterImage[];
   // Add unified cradle fields directly to Character
   inCradleSystem?: boolean; // Whether this character is in the cradle system
   cradleStatus?: 'growing' | 'mature' | 'ready'; // The status of the character in the cradle
@@ -341,18 +341,33 @@ export interface CharacterImage {
   id: string;
   url: string;
   localUri?: string;
-  createdAt: number;
   characterId?: string;
+  createdAt: number;
   mimeType?: string;
   tags?: {
     positive?: string[];
     negative?: string[];
   };
+isAvatar: boolean;
+
   isFavorite: boolean;
   isEdited?: boolean;  // Flag to mark if this image has been edited
+  isDefaultAvatar?: boolean; // Flag to mark if this is the default avatar
+  isDefaultBackground?: boolean; // Flag to mark if this is the default background
   originalImageId?: string; // Reference to the original image if this is an edited version
   editHistory?: string[]; // Store prompts used to edit this image
   data?: string; // Base64 encoded image data
+  generationStatus?: 'idle' | 'pending' | 'success' | 'error';
+  generationTaskId?: string;
+  setAsAvatar?: boolean;
+  setAsBackground?: boolean;
+  generationError?: string;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 // Fix the CradleCharacter interface by making it extend Character
@@ -469,3 +484,15 @@ export interface RegexTool {
     target: 'ai' | 'user';
     enabled: boolean;
   }
+
+// Add new props to ChatDialogProps
+
+export interface ChatDialogProps {
+  messages: Message[];
+  style?: any;
+  selectedCharacter?: Character | null;
+  onRateMessage?: (messageId: string, isUpvote: boolean) => void;
+  onRegenerateMessage?: (messageId: string, messageIndex: number) => void;
+  savedScrollPosition?: number;
+  onScrollPositionChange?: (characterId: string, position: number) => void;
+}

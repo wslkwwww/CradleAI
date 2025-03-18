@@ -9,73 +9,6 @@ import * as ImageManipulator from 'expo-image-manipulator';
  * @param type The type of image ('avatar', 'background')
  * @returns The local URI of the saved image
  */
-export async function downloadAndSaveImage(imageUrl: string, characterId: string, type: 'avatar' | 'background'): Promise<string | null> {
-  try {
-    console.log(`[ImageUtils] 开始下载并保存图片: ${imageUrl}`);
-    
-    // Create directory if it doesn't exist
-    const characterImagesDir = `${FileSystem.documentDirectory}characterImages/${characterId}`;
-    const dirInfo = await FileSystem.getInfoAsync(characterImagesDir);
-    
-    if (!dirInfo.exists) {
-      console.log(`[ImageUtils] 创建角色图片目录: ${characterImagesDir}`);
-      await FileSystem.makeDirectoryAsync(characterImagesDir, { intermediates: true });
-    }
-    
-    // Generate a unique filename based on image type and timestamp
-    const fileExtension = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-    const localFilename = `${type}_${Date.now()}.${fileExtension}`;
-    const localUri = `${characterImagesDir}/${localFilename}`;
-    
-    console.log(`[ImageUtils] 下载图片到本地路径: ${localUri}`);
-    
-    // Download the file
-    const downloadResult = await FileSystem.downloadAsync(
-      imageUrl,
-      localUri
-    );
-    
-    if (downloadResult.status !== 200) {
-      throw new Error(`Download failed with status ${downloadResult.status}`);
-    }
-    
-    console.log(`[ImageUtils] 图片下载成功: ${localUri}`);
-    
-    // For performance reasons, optionally resize large images
-    if (type === 'background') {
-      try {
-        // Get file info to check size
-        const fileInfo = await FileSystem.getInfoAsync(localUri);
-        
-        // If file is larger than 2MB, resize it
-        if (fileInfo.exists && fileInfo.size && fileInfo.size > 2 * 1024 * 1024) {
-          console.log(`[ImageUtils] 图片过大 (${Math.round(fileInfo.size/1024/1024)}MB)，进行压缩`);
-          const manipResult = await ImageManipulator.manipulateAsync(
-            localUri,
-            [{ resize: { width: 1080 } }], // Resize to reasonable width
-            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-          );
-          
-          // Replace original with compressed version
-          await FileSystem.moveAsync({
-            from: manipResult.uri,
-            to: localUri
-          });
-          
-          console.log(`[ImageUtils] 图片压缩完成`);
-        }
-      } catch (resizeError) {
-        // Log but continue - original image is still usable
-        console.warn('[ImageUtils] 图片压缩失败，使用原始图片:', resizeError);
-      }
-    }
-    
-    return localUri;
-  } catch (error) {
-    console.error('[ImageUtils] 图片下载失败:', error);
-    return null;
-  }
-}
 
 /**
  * Cleans up all local images associated with a character
@@ -94,3 +27,54 @@ export async function deleteCharacterImages(characterId: string): Promise<void> 
     console.error('[ImageUtils] 删除角色图片失败:', error);
   }
 }
+
+export const downloadAndSaveImage = async (
+  url: string, 
+  characterId: string,
+  type: 'avatar' | 'background' | 'gallery' = 'gallery'
+): Promise<string | null> => {
+  try {
+    console.log(`[ImageUtils] 开始下载图像: ${url}`);
+    
+    // Create the directory path
+    const dirUri = `${FileSystem.documentDirectory}characters/${characterId}`;
+    const fileName = `${type}_${Date.now()}.png`;
+    const fileUri = `${dirUri}/${fileName}`;
+    
+    // Ensure directory exists
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(dirUri);
+      if (!dirInfo.exists) {
+        console.log(`[ImageUtils] 创建目录: ${dirUri}`);
+        await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+      }
+    } catch (dirError) {
+      console.error('[ImageUtils] 创建目录失败:', dirError);
+      // Continue anyway, as the download might still work
+    }
+    
+    // Download the file
+    console.log(`[ImageUtils] 下载图像到: ${fileUri}`);
+    const downloadResult = await FileSystem.downloadAsync(url, fileUri);
+    
+    if (downloadResult.status === 200) {
+      console.log(`[ImageUtils] 图像下载成功: ${fileUri}`);
+      
+      // Verify the file exists
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (fileInfo.exists) {
+        console.log(`[ImageUtils] 文件确认存在: ${fileUri}, 大小: ${fileInfo.size} 字节`);
+        return fileUri;
+      } else {
+        console.error(`[ImageUtils] 下载完成但文件不存在: ${fileUri}`);
+        return null;
+      }
+    } else {
+      console.error(`[ImageUtils] 图像下载失败: HTTP ${downloadResult.status}`);
+      return null;
+    }
+  } catch (error) {
+    console.error('[ImageUtils] 下载图像时出错:', error);
+    return null;
+  }
+};

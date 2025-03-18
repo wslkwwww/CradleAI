@@ -43,8 +43,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const [positiveTags, setPositiveTags] = useState<string[]>([]);
   const [negativeTags, setNegativeTags] = useState<string[]>([]);
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
-  const [replaceBackground, setReplaceBackground] = useState(true); // Set default to true
-  const [replaceAvatar, setReplaceAvatar] = useState(true); // Add avatar replacement option with default true
+  const [replaceBackground, setReplaceBackground] = useState(true);
+  const [replaceAvatar, setReplaceAvatar] = useState(false); // Change default to false
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -82,7 +82,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       setIsLoading(false);
       // Set defaults for both image replacement options
       setReplaceBackground(true);
-      setReplaceAvatar(true);
+      setReplaceAvatar(false); // Default to false
       // Reset custom prompt
       setCustomPrompt('');
       setUseCustomPrompt(false);
@@ -101,6 +101,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       return;
     }
     
+    // Set loading state just for UI feedback
     setIsLoading(true);
     setError(null);
     
@@ -161,105 +162,130 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         throw new Error(data.error || '图像生成请求失败');
       }
       
-      // 获取任务ID并等待结果
+      // 获取任务ID
       const taskId = data.task_id;
       console.log(`[图片重生成] 已提交任务，ID: ${taskId}`);
       
-      // 开始轮询任务状态
-      await waitForGenerationResult(taskId);
+      // Create a placeholder image record to track this generation task
+      const placeholderImage: CharacterImage = {
+        id: `img_${Date.now()}`,
+        url: '',
+        characterId: character.id,
+        createdAt: Date.now(),
+        tags: {
+          positive: useCustomPrompt ? [customPrompt] : positiveTags,
+          negative: negativeTags,
+        },
+        isFavorite: false,
+        generationTaskId: taskId,
+        generationStatus: 'pending',
+        // Save background flag but NOT avatar flag (we'll use the cropper for that)
+        setAsBackground: replaceBackground,
+        // Don't set avatar flag automatically
+        isAvatar: false,
+      };
       
-      // Don't close the modal automatically after generation completes
-      // Let user see the result and decide what to do next
+      console.log(`[图片重生成] 创建待处理图片记录:`, {
+        id: placeholderImage.id,
+        status: placeholderImage.generationStatus,
+        taskId: placeholderImage.generationTaskId
+      });
+      
+      // Pass the placeholder to parent component
+      onSuccess(placeholderImage);
+      
+      // Close the modal immediately after submitting the request
+      onClose();
+      
+      // 修改：在关闭后立即启动状态检查，而不是等待下一个刷新
+      // 这里我们使用setTimeout来确保模态窗口已经关闭，避免UI阻塞
+      setTimeout(() => {
+        checkImageGenerationStatus(character.id, taskId, placeholderImage.id);
+      }, 500);
       
     } catch (error) {
       console.error('[图片重生成] 生成失败:', error);
       setError(error instanceof Error ? error.message : '生成图像失败');
+      // Show error for 2 seconds, then close
+      setTimeout(() => {
+        onClose();
+      }, 2000);
     } finally {
       setIsLoading(false);
     }
   };
   
-  // Wait for generation task to complete with exponential backoff
-  const waitForGenerationResult = async (taskId: string) => {
-    let attempts = 0;
-    const maxAttempts = 60; // Maximum number of attempts (10 minutes total with backoff)
+  // 添加图片生成状态检查函数
+  const checkImageGenerationStatus = async (characterId: string, taskId: string, imageId: string) => {
+    console.log(`[图片重生成] 开始检查任务状态: ${taskId}`);
     
-    while (attempts < maxAttempts) {
+    const MAX_RETRIES = 30;  // 最多检查30次，大约5分钟
+    let retries = 0;
+    
+    // 创建轮询函数
+    const poll = async () => {
       try {
-        // Calculate backoff time - starts at 5s and increases
-        const backoffTime = Math.min(5000 * Math.pow(1.2, attempts), 20000);
-        await new Promise(resolve => setTimeout(resolve, backoffTime));
+        console.log(`[图片重生成] 检查 #${retries+1}, 任务: ${taskId}`);
         
-        console.log(`[图片重生成] 检查任务状态 (尝试 ${attempts + 1}/${maxAttempts})...`);
-        
-        // Request status from server
-        const statusResponse = await fetch(`http://152.69.219.182:5000/task_status/${taskId}`);
-        if (!statusResponse.ok) {
-          throw new Error(`获取任务状态失败: HTTP ${statusResponse.status}`);
+        const response = await fetch(`http://152.69.219.182:5000/task_status/${taskId}`);
+        if (!response.ok) {
+          console.warn(`[图片重生成] 获取任务状态失败: HTTP ${response.status}`);
+          return setTimeout(poll, 10000); // 10秒后重试
         }
         
-        const statusData = await statusResponse.json();
+        const data = await response.json();
         
-        // If task is complete
-        if (statusData.done) {
-          if (statusData.success && statusData.image_url) {
-            console.log(`[图片重生成] 图像生成成功: ${statusData.image_url}`);
-            setGeneratedImageUrl(statusData.image_url);
+        // 如果任务完成
+        if (data.done) {
+          if (data.success && data.image_url) {
+            console.log(`[图片重生成] 图像生成成功: ${data.image_url}`);
             
-            // Download image and save locally
-            const localImageUri = await downloadAndSaveImage(
-              statusData.image_url,
-              character.id,
-              'avatar'
-            );
-            
-            // Store the prompts used
-            const imagePrompts = {
-              positive: useCustomPrompt ? [customPrompt] : positiveTags,
-              negative: negativeTags,
-              artistPrompt: selectedArtistPrompt || undefined
-            };
-            
-            // Create image record
-            const newImage: CharacterImage = {
-              id: `img_${Date.now()}`,
-              url: statusData.image_url,
-              localUri: localImageUri || statusData.image_url,
+            // 创建完整的图片对象，包含生成的URL
+            const completedImage: CharacterImage = {
+              id: imageId,
+              url: data.image_url,
+              characterId: characterId,
               createdAt: Date.now(),
-              characterId: character.id,
-              tags: imagePrompts,
-              isFavorite: false
+              tags: {
+                positive: useCustomPrompt ? [customPrompt] : positiveTags,
+                negative: negativeTags,
+              },
+              isFavorite: false,
+              generationStatus: 'success',
+              setAsBackground: replaceBackground,
+              isAvatar: false,
             };
             
-            // Pass to parent component but DON'T close the modal
-            // We're just saving the image to history but keeping modal open
-            onSuccess(newImage);
-            
-            // Don't add any auto-closing behavior here
-            return;
-            
+            // 通知父组件更新图库
+            onSuccess(completedImage);
           } else {
-            throw new Error(statusData.error || '图像生成失败');
+            console.error(`[图片重生成] 任务失败: ${data.error || '未知错误'}`);
           }
-        } 
-        // Task is still in progress
-        else if (statusData.queue_info) {
-          console.log(`[图片重生成] 仍在队列中: 位置 ${statusData.queue_info.position}, 预计等待 ${Math.round(statusData.queue_info.estimated_wait / 60)} 分钟`);
+          return; // 结束轮询
         }
         
-        attempts++;
+        // 如果任务仍在进行中且未超过最大重试次数
+        retries++;
+        if (retries < MAX_RETRIES) {
+          setTimeout(poll, 10000); // 10秒后再次检查
+        } else {
+          console.log(`[图片重生成] 达到最大检查次数 (${MAX_RETRIES})，停止检查`);
+        }
       } catch (error) {
         console.error('[图片重生成] 检查任务状态出错:', error);
-        attempts++;
         
-        // If we've exhausted all attempts, set the error
-        if (attempts >= maxAttempts) {
-          setError('图像生成超时，请稍后再试');
+        // 出错时仍然继续尝试，除非达到最大重试次数
+        retries++;
+        if (retries < MAX_RETRIES) {
+          setTimeout(poll, 10000);
         }
       }
-    }
+    };
+    
+    // 立即开始第一次检查
+    poll();
   };
-  
+
   // Handle confirming and saving the generated image
   const handleConfirm = () => {
     // Close the modal when user explicitly confirms
@@ -322,7 +348,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                   resizeMode="contain"
                 />
                 
-                {/* Add options for both background and avatar */}
+                {/* Only show background option, remove avatar option */}
                 <View style={styles.resultOptions}>
                   <Text style={styles.optionText}>设为角色背景图片</Text>
                   <Switch
@@ -333,15 +359,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                   />
                 </View>
                 
-                <View style={styles.resultOptions}>
-                  <Text style={styles.optionText}>设为角色头像</Text>
-                  <Switch
-                    value={replaceAvatar}
-                    onValueChange={setReplaceAvatar}
-                    trackColor={{ false: '#767577', true: '#bfe8ff' }}
-                    thumbColor={replaceAvatar ? '#007bff' : '#f4f3f4'}
-                  />
-                </View>
+                {/* Remove the avatar switch option */}
                 
                 <TouchableOpacity 
                   style={styles.confirmButton}

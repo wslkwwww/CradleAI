@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,6 @@ import { CharacterImage, CradleCharacter } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import ImageEditorModal from './ImageEditorModal';
 import { useUser } from '@/constants/UserContext';
-
 const { width, height } = Dimensions.get('window');
 
 interface CharacterImageGallerySidebarProps {
@@ -26,9 +25,16 @@ interface CharacterImageGallerySidebarProps {
   onToggleFavorite: (imageId: string) => void;
   onDelete: (imageId: string) => void;
   onSetAsBackground: (imageId: string) => void;
+  onSetAsAvatar?: (imageId: string) => void; // Add this new prop
   isLoading?: boolean;
   character: CradleCharacter;
   onAddNewImage?: (newImage: CharacterImage) => void;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 const imageSize = (width * 0.75 - 64) / 2; // 2 images per row in the sidebar
@@ -40,6 +46,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   onToggleFavorite,
   onDelete,
   onSetAsBackground,
+  onSetAsAvatar, // Add the new prop here
   isLoading = false,
   character,
   onAddNewImage
@@ -53,11 +60,82 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   const [activeImage, setActiveImage] = useState<CharacterImage | null>(null);
   const { user } = useUser();
   
+  // Add state for image cropping
+  const [showCropper, setShowCropper] = useState(false);
+  const [cropImageUri, setCropImageUri] = useState<string | null>(null);
+  const [pendingAvatarImageId, setPendingAvatarImageId] = useState<string | null>(null);
+  
+  // Add state variable to track updates and force re-renders
+  const [updateCounter, setUpdateCounter] = useState(0);
+  const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(Date.now());
+
   // Get API key for image editing
   const apiKey = user?.settings?.chat?.characterApiKey || '';
   
+  // Create a combined image array that includes initial character images
+  const allImages = useMemo(() => {
+    console.log(`[图库侧栏] 计算图库内容 (更新计数: ${updateCounter}), 图像数量: ${images.length}`);
+    
+    let combinedImages = [...images];
+    
+    // Add character avatar as the first image if it exists and isn't already in the gallery
+    if (character.avatar && !images.some(img => img.url === character.avatar || img.localUri === character.avatar)) {
+      const avatarImage: CharacterImage = {
+        id: `avatar_${character.id}_${lastUpdateTimestamp}`, // Add timestamp for uniqueness
+        url: character.avatar,
+        localUri: character.avatar,
+        characterId: character.id,
+        createdAt: character.createdAt || Date.now(),
+        isFavorite: false,
+        isAvatar: true
+      };
+      combinedImages.unshift(avatarImage);
+    }
+    
+    // Add background image if it exists and isn't already in the gallery
+    if (character.backgroundImage && 
+        !images.some(img => img.url === character.backgroundImage || img.localUri === character.backgroundImage) &&
+        character.backgroundImage !== character.avatar) {
+      const bgImage: CharacterImage = {
+        id: `bg_${character.id}_${lastUpdateTimestamp}`, // Add timestamp for uniqueness
+        url: character.backgroundImage,
+        localUri: character.backgroundImage,
+        characterId: character.id,
+        createdAt: character.createdAt || Date.now(),
+        isFavorite: false,
+        isDefaultBackground: true,
+        isAvatar: false
+      };
+      combinedImages.unshift(bgImage);
+    }
+    
+    // Find and log any pending images
+    const pendingImages = combinedImages.filter(img => img.generationStatus === 'pending');
+    if (pendingImages.length > 0) {
+      console.log(`[图库侧栏] 发现 ${pendingImages.length} 个待处理图像`);
+    }
+    
+    return combinedImages;
+  }, [images, character.avatar, character.backgroundImage, updateCounter, lastUpdateTimestamp]);
+  
+  // Ensure UI refreshes when images or character changes
+  useEffect(() => {
+    console.log('[图库侧栏] 图像数据已更新, 总数:', images.length);
+    
+    // Update timestamp to force useMemo recalculation
+    setLastUpdateTimestamp(Date.now());
+    
+    // Increment the update counter to trigger re-renders
+    setUpdateCounter(prev => prev + 1);
+  }, [images, character.avatar, character.backgroundImage]);
+  
   useEffect(() => {
     if (visible) {
+      console.log('[图库侧栏] 侧栏变为可见，刷新内容');
+      
+      // Force refresh when sidebar becomes visible
+      setUpdateCounter(prev => prev + 1);
+      
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 300,
@@ -95,6 +173,27 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     setActiveImage(image);
     setShowOptionsMenu(true);
   };
+
+  // Modify the handleSetAsAvatar function to show cropper first
+  const handleSetAsAvatar = (imageId: string) => {
+    const image = allImages.find(img => img.id === imageId);
+    if (image) {
+      setCropImageUri(image.localUri || image.url);
+      setPendingAvatarImageId(imageId);
+      setShowCropper(true);
+      setShowOptionsMenu(false);
+    }
+  };
+
+  // Add handler for crop completion
+  const handleCropComplete = (croppedUri: string) => {
+    if (pendingAvatarImageId && onSetAsAvatar) {
+      onSetAsAvatar(pendingAvatarImageId);
+      setShowCropper(false);
+      setCropImageUri(null);
+      setPendingAvatarImageId(null);
+    }
+  };
   
   if (!visible) return null;
   
@@ -128,7 +227,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
               <ActivityIndicator size="large" color={theme.colors.primary} />
               <Text style={styles.loadingText}>正在加载图像...</Text>
             </View>
-          ) : images.length === 0 ? (
+          ) : allImages.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Ionicons name="images-outline" size={60} color="#555" />
               <Text style={styles.emptyText}>暂无图片</Text>
@@ -136,39 +235,91 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
             </View>
           ) : (
             <FlatList
-              data={images}
-              keyExtractor={(item) => item.id}
+              data={allImages}
+              key={`gallery-${updateCounter}`} // Add key to force re-render on update
+              keyExtractor={(item) => `${item.id}-${updateCounter}`} // Include update counter for unique keys
               numColumns={2}
               contentContainerStyle={styles.galleryContainer}
+              extraData={updateCounter} // Make sure FlatList rerenders when this changes
+              initialNumToRender={6} // Optimize initial rendering
+              maxToRenderPerBatch={10}
               renderItem={({ item }) => (
                 <View style={styles.imageCard}>
                   <TouchableOpacity
                     style={styles.imageContainer}
                     onPress={() => handleViewImage(item)}
                   >
-                    <Image 
-                      source={{ uri: item.localUri || item.url }}
-                      style={styles.thumbnail}
-                      resizeMode="cover"
-                    />
+                    {item.generationStatus === 'pending' ? (
+                      <View style={styles.pendingImageContainer}>
+                        <ActivityIndicator size="large" color="#fff" />
+                        <Text style={styles.pendingText}>生成中...</Text>
+                      </View>
+                    ) : (
+                      <Image 
+                        source={{ uri: item.localUri || item.url }}
+                        style={styles.thumbnail}
+                        resizeMode="cover"
+                        onError={(e) => console.log(`[图库侧栏] 加载图片失败: ${item.id}`, e.nativeEvent.error)}
+                      />
+                    )}
+                    
+                    {item.isAvatar && (
+                      <View style={styles.imageTypeOverlay}>
+                        <Text style={styles.imageTypeText}>头像</Text>
+                      </View>
+                    )}
+                    
+                    {item.isDefaultBackground && (
+                      <View style={styles.imageTypeOverlay}>
+                        <Text style={styles.imageTypeText}>背景</Text>
+                      </View>
+                    )}
+                    
                     {item.isFavorite && (
                       <View style={styles.favoriteOverlay}>
                         <Ionicons name="heart" size={18} color="#FF6B6B" />
                       </View>
                     )}
+                    
+                    {/* Add View button overlay */}
+                    <View style={styles.viewButtonOverlay}>
+                      <TouchableOpacity
+                        style={styles.viewButton}
+                        onPress={() => handleViewImage(item)}
+                      >
+                        <Ionicons name="eye-outline" size={16} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
                   </TouchableOpacity>
                   
-                  {/* Simplified to a single options button */}
-                  <View style={styles.imageActions}>
-                    <TouchableOpacity
-                      style={styles.imageActionButton}
-                      onPress={() => showImageOptions(item)}
-                    >
-                      <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
+                  {/* Only show actions for non-pending images */}
+                  {item.generationStatus !== 'pending' && (
+                    <View style={styles.imageActions}>
+                      {/* Restore the edit button */}
+                      <TouchableOpacity
+                        style={styles.imageActionButton}
+                        onPress={() => handleEdit(item)}
+                      >
+                        <Ionicons name="brush-outline" size={18} color="#fff" />
+                      </TouchableOpacity>
+                      
+                      {/* Options menu button */}
+                      <TouchableOpacity
+                        style={styles.imageActionButton}
+                        onPress={() => showImageOptions(item)}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               )}
+              onRefresh={() => {
+                // Manual refresh handler
+                console.log('[图库侧栏] 手动刷新图库');
+                setUpdateCounter(prev => prev + 1);
+              }}
+              refreshing={isLoading}
             />
           )}
         </View>
@@ -182,7 +333,11 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           image={selectedImage}
           character={character}
           apiKey={apiKey}
-          onSuccess={handleEditSuccess}
+          onSuccess={(newImage) => {
+            handleEditSuccess(newImage);
+            // Force gallery refresh after editing
+            setUpdateCounter(prev => prev + 1);
+          }}
         />
       )}
 
@@ -245,6 +400,20 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                   </Text>
                 </TouchableOpacity>
 
+                {/* Add Set as Avatar option */}
+                {onSetAsAvatar && (
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={() => {
+                      handleSetAsAvatar(activeImage.id);
+                      setShowOptionsMenu(false);
+                    }}
+                  >
+                    <Ionicons name="person-circle-outline" size={22} color="#FFF" />
+                    <Text style={styles.menuItemText}>设为头像</Text>
+                  </TouchableOpacity>
+                )}
+
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={() => {
@@ -282,6 +451,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           </View>
         </TouchableOpacity>
       </Modal>
+
     </View>
   );
 };
@@ -384,7 +554,7 @@ const styles = StyleSheet.create({
   },
   imageActions: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     padding: 8,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
@@ -392,6 +562,7 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.1)',
+    marginHorizontal: 4,
   },
   fullImageContainer: {
     flex: 1,
@@ -454,7 +625,47 @@ const styles = StyleSheet.create({
   },
   deleteMenuItemText: {
     color: '#FF6B6B',
-  }
+  },
+  // Add new styles for pending images and view button
+  pendingImageContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pendingText: {
+    color: '#fff',
+    marginTop: 10,
+    fontSize: 12,
+  },
+  imageTypeOverlay: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  imageTypeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  viewButtonOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+  },
+  viewButton: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
 
 export default CharacterImageGallerySidebar;

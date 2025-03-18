@@ -261,7 +261,8 @@ const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         isFavorite: false,
         isEdited: true,
         originalImageId: image.id,
-        data: editedImage // Store the base64 data
+        data: editedImage, // Store the base64 data
+        isAvatar: image.isAvatar,
       };
 
       // Call the onSuccess callback with the new image

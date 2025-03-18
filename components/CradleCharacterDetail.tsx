@@ -40,6 +40,11 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   // 判断角色是否已生成
   const isGenerated = character.isCradleGenerated === true;
 
+  // 检查角色是否正在生成图像
+  const isGeneratingImage = character.imageGenerationStatus === 'pending';
+  const hasGeneratingImage = character.imageHistory?.some(img => img.generationStatus === 'pending');
+  const isLoading = isGeneratingImage || hasGeneratingImage;
+
   // 前往聊天页面
   const navigateToChat = () => {
     if (character.generatedCharacterId) {
@@ -79,6 +84,14 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
         </View>
       )}
       
+      {/* 显示加载状态指示器 */}
+      {isLoading && (
+        <View style={styles.imageLoadingOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>图像生成中...</Text>
+        </View>
+      )}
+      
       {/* 渐变叠加层 */}
       <LinearGradient
         colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}
@@ -97,22 +110,24 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
             </TouchableOpacity>
           </View>
           
-          {/* 角色描述 - 可展开/折叠 */}
+          {/* 添加角色描述 */}
           <View style={styles.descriptionContainer}>
-            <Text style={styles.characterDetailDescription}>
-              {truncatedDescription}
-            </Text>
-            
-            {shouldTruncate && (
-              <TouchableOpacity 
-                style={styles.expandButton} 
-                onPress={toggleDescription}
-              >
-                <Text style={styles.expandButtonText}>
-                  {isDescriptionExpanded ? "收起" : "展开"}
-                </Text>
-              </TouchableOpacity>
-            )}
+            <View style={styles.descriptionContent}>
+              <Text style={styles.characterDetailDescription}>
+                {truncatedDescription}
+              </Text>
+              
+              {shouldTruncate && (
+                <TouchableOpacity 
+                  style={styles.expandButton} 
+                  onPress={toggleDescription}
+                >
+                  <Text style={styles.expandButtonText}>
+                    {isDescriptionExpanded ? "收起" : "展开"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
           
           {/* 角色操作按钮 - 只显示主要操作 */}
@@ -137,7 +152,7 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
             )}
             
             {/* 生成图片按钮 - 作为第二主要操作 */}
-            {onRegenerateImage && (
+            {onRegenerateImage && !isLoading && (
               <TouchableOpacity 
                 style={[styles.characterActionButton, styles.secondaryButton]}
                 onPress={onRegenerateImage}
@@ -267,18 +282,24 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     zIndex: 5, // Lower z-index than header elements
   },
+  descriptionContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
   characterDetailDescription: {
     color: '#eee',
     fontSize: 14,
     lineHeight: 20,
+    flexShrink: 1,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: {width: 1, height: 1},
     textShadowRadius: 3,
   },
   expandButton: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
+    marginLeft: 8,
     paddingVertical: 2,
+    paddingHorizontal: 4,
   },
   expandButtonText: {
     color: theme.colors.primary,
@@ -339,7 +360,24 @@ const styles = StyleSheet.create({
   },
   deleteMenuItemText: {
     color: '#FF6B6B',
-  }
+  },
+  // Add new styles for loading overlay
+  imageLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 10,
+    fontWeight: '500',
+  },
 });
 
 export default CradleCharacterDetail;
