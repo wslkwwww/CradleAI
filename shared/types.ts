@@ -7,6 +7,7 @@ import { MessageBoxItem } from '@/shared/types/relationship-types';
 import { VNDBCharacter } from '@/src/services/vndb/types';
 
 // ============= 基础类型 =============
+
 export interface User {
     id: string;
     avatar?: string;
@@ -46,6 +47,7 @@ export interface GlobalSettings {
 }
 
 // ============= NodeST 核心类型 =============
+
 export interface RoleCardJson {
     name: string;
     first_mes: string;
@@ -115,6 +117,7 @@ export interface AuthorNoteJson {
 }
 
 // ============= 聊天消息类型 =============
+
 export interface MessagePart {
     text?: string;
     role?: string;
@@ -150,6 +153,7 @@ export interface SidebarItemProps {
   }
 
 // ============= 角色类型 =============
+
 export interface Character {
   id: string;
   name: string;
@@ -273,6 +277,7 @@ export interface ChatInputProps {
 }
 
 // ============= 社交圈功能类型 =============
+
 export interface CirclePost {
     id: string;
     characterId: string;
@@ -311,6 +316,7 @@ export interface CircleLike {
     createdAt: string;
   }
 // ============= 功能选项类型 =============
+
 export interface ProcessChatOptions {
     userMessage: string;
     conversationId: string;
@@ -321,6 +327,7 @@ export interface ProcessChatOptions {
 }
 
 // Cradle-specific types
+
 export type FeedType = 'about' | 'knowledge' | 'material' | 'image' | 'voice' | 'text';
 
 export interface FeedQueue {
@@ -329,7 +336,6 @@ export interface FeedQueue {
   lastProcessed?: number;
   processing: boolean;
 }
-
 
 export interface Feed {
   id: string;
@@ -341,6 +347,7 @@ export interface Feed {
 
 // Add CharacterImage type
 // Add this interface for image generation configuration
+
 export interface ImageGenerationConfig {
   positiveTags: string[];
   negativeTags: string[];
@@ -385,6 +392,7 @@ export interface CharacterImage {
 
 // Fix the CradleCharacter interface by making it extend Character
 // Now it's just an extension with some specialized cradle fields
+
 export interface CradleCharacter extends Character {
   inCradleSystem: boolean; // Must be true for cradle characters
   importedFromCharacter?: boolean; // Was this imported from a normal character
@@ -402,9 +410,13 @@ export interface CradleCharacter extends Character {
   
   // Add image history array
   imageHistory?: CharacterImage[];
-  }
+  
+  // Flag to indicate if the character is directly editable through dialog
+  isDialogEditable?: boolean;
+}
 
 // Add chat save/restore system types
+
 export interface ChatSave {
   id: string;
   conversationId: string;
@@ -458,7 +470,6 @@ export interface WorldBookEntry {
     vectorized?: boolean;
 }
 
-
 export interface PresetPrompt {
     name: string;
     content: string;
@@ -469,9 +480,8 @@ export interface PresetPrompt {
     role?: string;
 }
 
-
-
 // Chat History专用类型
+
 export interface ChatHistoryEntity {
     name: string;
     role: string;
@@ -480,6 +490,7 @@ export interface ChatHistoryEntity {
 }
 
 // Gemini API请求消息格式
+
 export interface GeminiMessage {
     role: "user" | "model";
     parts: MessagePart[];

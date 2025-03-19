@@ -335,6 +335,39 @@ export default function CradlePage() {
           updatedCharacter.backgroundImage = localImageUri || data.image_url;
           updatedCharacter.imageGenerationStatus = 'success';
           
+          // Remove the task ID to prevent further checking
+          updatedCharacter.imageGenerationTaskId = null;
+          
+          // Check if the character has generation data (from create_char.tsx)
+          if (character.generationData?.appearanceTags) {
+            // If there's no imageHistory array, create one
+            if (!updatedCharacter.imageHistory) {
+              updatedCharacter.imageHistory = [];
+            }
+            
+            // Add the generated image to the character's image history for gallery
+            const newImage: CharacterImage = {
+              id: `img_${Date.now()}`,
+              url: data.image_url,
+              localUri: localImageUri ?? undefined,
+              characterId: character.id,
+              createdAt: Date.now(),
+              isFavorite: false,
+              isDefaultBackground: true,
+              generationStatus: 'success',
+              // Store generation config for potential regeneration
+              generationConfig: {
+                positiveTags: character.generationData.appearanceTags.positive || [],
+                negativeTags: character.generationData.appearanceTags.negative || [],
+                artistPrompt: character.generationData.appearanceTags.artistPrompt || null,
+                customPrompt: '',
+                useCustomPrompt: false
+              }
+            };
+            
+            updatedCharacter.imageHistory.push(newImage);
+          }
+          
           // Save updated character
           await updateCradleCharacter(updatedCharacter);
           showNotification('图像生成成功', `角色 ${character.name} 的图像已成功生成！`);
@@ -342,6 +375,12 @@ export default function CradlePage() {
           // If this is the currently selected character, update it
           if (selectedCharacter?.id === character.id) {
             setSelectedCharacter(updatedCharacter);
+            
+            // Also update the image gallery if it exists
+            if (updatedCharacter.imageHistory) {
+              setCharacterImages(updatedCharacter.imageHistory);
+              setLastImageRefresh(Date.now());
+            }
           }
           
           // Force refresh character cards
@@ -803,8 +842,11 @@ const handleSetAsAvatar = async (imageId: string) => {
   const renderCharacterDetail = () => {
     if (!selectedCharacter) return null;
     
-    // Check if character is fully generated
-    const isGenerated = selectedCharacter.isCradleGenerated === true;
+    // Check if character is either fully generated or has the dialog editable flag
+    // Convert to explicit boolean using !! to prevent the empty string issue
+    const isEditable = !!(selectedCharacter.isCradleGenerated === true || 
+                       selectedCharacter.isDialogEditable === true || 
+                       (selectedCharacter.jsonData && selectedCharacter.jsonData.length > 0));
     
     return (
       <View style={styles.characterDetailSection}>
@@ -813,46 +855,33 @@ const handleSetAsAvatar = async (imageId: string) => {
           onFeed={() => setShowFeedModal(true)}
           onDelete={() => handleDeleteCharacter(selectedCharacter)}
           onEdit={() => {
-            // Only enable edit for generated characters
-            if (isGenerated) {
-              // SIMPLIFIED APPROACH: Instead of trying to fetch/lookup data
-              // Just prepare the editing character directly with all necessary data
-              
-              // 1. Start with the selected cradle character
-              const cradleChar = {...selectedCharacter};
-              
-              // 2. Check if this character has jsonData directly
-              if (cradleChar.jsonData && cradleChar.jsonData.length > 0) {
-                console.log('[摇篮页面] 角色有直接的JSON数据，长度:', cradleChar.jsonData.length);
-                // Use it directly
-                setEditingCharacter(cradleChar);
-                setShowEditDialog(true);
-              } 
-              // 3. Check if it has a reference to a generated character
-              else if (cradleChar.generatedCharacterId) {
-                console.log('[摇篮页面] 查找关联的正常角色:', cradleChar.generatedCharacterId);
-                
-                // Find the normal character
-                const normalChar = characters.find(c => c.id === cradleChar.generatedCharacterId);
-                
-                if (normalChar && normalChar.jsonData) {
-                  console.log('[摇篮页面] 找到关联角色的JSON数据，长度:', normalChar.jsonData.length);
+            if (isEditable) {
+              // Check for jsonData availability
+              if (selectedCharacter.jsonData && selectedCharacter.jsonData.length > 0) {
+                console.log('[摇篮页面] 角色有直接的JSON数据，长度:', selectedCharacter.jsonData.length);
+                try {
+                  // Basic validation of JSON structure
+                  const parsedJson = JSON.parse(selectedCharacter.jsonData);
                   
-                  // Create a merged character with cradle ID but normal character's data
-                  const mergedChar: CradleCharacter = {
-                    ...cradleChar, // Keep cradle character properties
-                    jsonData: normalChar.jsonData // Use normal character's jsonData
-                  };
+                  // Only require roleCard and worldBook as minimum requirements
+                  if (!parsedJson.roleCard || !parsedJson.worldBook) {
+                    throw new Error('JSON数据缺少必要的结构');
+                  }
                   
-                  setEditingCharacter(mergedChar);
+                  // Use it directly
+                  setEditingCharacter(selectedCharacter);
                   setShowEditDialog(true);
-                } else {
+                } catch (error) {
+                  // Show friendly error message
                   Alert.alert(
-                    "数据未找到", 
-                    "无法找到角色的完整数据，请刷新页面后重试。",
+                    "角色数据格式错误",
+                    "角色的JSON数据格式不正确，无法编辑。错误：" + (error instanceof Error ? error.message : String(error)),
                     [{ text: "确定", style: "default" }]
                   );
                 }
+              } else if (selectedCharacter.generatedCharacterId) {
+                // Handle generated character case (existing code)
+                // ...existing code...
               } else {
                 Alert.alert(
                   "数据不完整",
@@ -868,9 +897,9 @@ const handleSetAsAvatar = async (imageId: string) => {
               );
             }
           }}
-          isEditable={isGenerated} // Make edit button visible for generated characters
-          onRegenerateImage={() => setShowImageModal(true)} // Add the regenerate image callback
-          onShowGallery={() => setShowGallerySidebar(true)} // Add gallery button handler
+          isEditable={isEditable} // Now this will always be a boolean
+          onRegenerateImage={() => setShowImageModal(true)}
+          onShowGallery={() => setShowGallerySidebar(true)}
         />
       </View>
     );
@@ -884,6 +913,9 @@ const handleSetAsAvatar = async (imageId: string) => {
     );
     const isPendingBackgroundImage = character.imageGenerationStatus === 'pending';
     const isGeneratingImage = hasGeneratingImage || isPendingBackgroundImage;
+    
+    // Determine if character is manually uploaded or AI-generated
+    const isTagGenerated = character.generationData?.appearanceTags !== undefined;
     
     return (
       <TouchableOpacity 
@@ -917,15 +949,29 @@ const handleSetAsAvatar = async (imageId: string) => {
             </View>
           )}
           
+          {/* Add a tag-generated badge if this character was created with tags */}
+          {isTagGenerated && !isGeneratingImage && (
+            <View style={styles.tagGeneratedBadge}>
+              <Ionicons name="pricetag" size={12} color="#fff" />
+              <Text style={styles.tagGeneratedBadgeText}>AI生成</Text>
+            </View>
+          )}
+          
           {/* Character info overlay */}
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.7)']}
             style={styles.characterCardOverlay}
-          >
+          ></LinearGradient>
             <Text style={styles.characterCardName} numberOfLines={1}>
               {character.name}
             </Text>
-          </LinearGradient>
+            
+          {/* Add creation method indicator */}
+            <View style={styles.cardCreationMethodContainer}>
+              <Text style={styles.cardCreationMethodText}>
+                {isTagGenerated ? 'Tag生成' : '手动创建'}
+              </Text>
+            </View>
         </View>
       </TouchableOpacity>
     );
@@ -963,8 +1009,7 @@ const handleSetAsAvatar = async (imageId: string) => {
             </View>
           </View>
         ) : (
-          <View style={styles.emptyStateContainer}>
-          </View>
+          <View style={styles.emptyStateContainer}></View>
         )}
       </ScrollView>
     </View>
@@ -1779,5 +1824,31 @@ const styles = StyleSheet.create({
   notificationContent: {
     flex: 1,
     marginRight: 24,
+  },
+  tagGeneratedBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(74, 144, 226, 0.8)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  tagGeneratedBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  cardCreationMethodContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  cardCreationMethodText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
   },
 });

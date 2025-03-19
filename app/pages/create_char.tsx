@@ -17,7 +17,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system'; // Fix: Correct FileSystem import
 import * as DocumentPicker from 'expo-document-picker'; // Fix: Correct DocumentPicker import
 import { useRouter } from 'expo-router';
-import { Character } from '@/shared/types';
+import { Character, CradleCharacter } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -116,7 +116,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
   const [loading, setLoading] = useState(false);
   
   // Character and role card state
-  const [character, setCharacter] = useState<Character>({
+  const [character, setCharacter] = useState<Character & Partial<CradleCharacter>>({
     id: '',
     name: '',
     avatar: null,
@@ -126,7 +126,13 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     personality: '',
     interests: [],
     createdAt: Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    // Add cradle system fields
+    inCradleSystem: true,
+    cradleStatus: 'growing',
+    feedHistory: [],
+    cradleCreatedAt: Date.now(),
+    cradleUpdatedAt: Date.now()
   });
   
   const [roleCard, setRoleCard] = useState<Partial<RoleCardJson>>({
@@ -496,6 +502,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
   const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
+  const [imageGenerationTaskId, setImageGenerationTaskId] = useState<string | null>(null);
 
   // Image generation task submission function (similar to CradleCreateForm)
   const submitImageGenerationTask = async (positive: string[], negative: string[]): Promise<string> => {
@@ -551,7 +558,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     }
   };
   
-  // Saving character
+  // Saving character - update to include cradle fields
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
       Alert.alert('保存失败', '角色名称不能为空。');
@@ -589,6 +596,9 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
           // Submit image generation request
           imageTaskId = await submitImageGenerationTask(finalPositiveTags, finalNegativeTags);
           console.log(`[角色创建] 已提交图像生成任务，ID: ${imageTaskId}`);
+          
+          // Store task ID for tracking
+          setImageGenerationTaskId(imageTaskId);
           
         } catch (error) {
           console.error('[角色创建] 提交图像生成任务失败:', error);
@@ -662,8 +672,34 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         }
       };
   
-      // 创建新角色对象
-      const newCharacter: Character = {
+      // Create cradle character specific properties
+      const cradleFields = {
+        inCradleSystem: true,
+        cradleStatus: 'growing' as 'growing' | 'mature' | 'ready',
+        cradleCreatedAt: Date.now(),
+        cradleUpdatedAt: Date.now(),
+        feedHistory: [],
+        // Flag to indicate this character is editable via dialog
+        isDialogEditable: true,
+        // Add image generation tracking if applicable
+        ...(imageTaskId ? {
+          imageGenerationTaskId: imageTaskId,
+          imageGenerationStatus: 'pending' as 'idle' | 'pending' | 'success' | 'error',
+        } : {}),
+        // Add appearance tags from the generation
+        ...(positiveTags.length > 0 ? {
+          generationData: {
+            appearanceTags: {
+              positive: positiveTags,
+              negative: negativeTags,
+              artistPrompt: selectedArtistPrompt || undefined // Change null to undefined to match expected type
+            }
+          }
+        } : {})
+      };
+  
+      // 创建新角色对象 - include cradle fields
+      const newCharacter: Character & Partial<CradleCharacter> = {
         id: characterId,
         name: roleCard.name.trim(),
         avatar: character.avatar,
@@ -674,7 +710,9 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         interests: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        jsonData: JSON.stringify(jsonData)
+        jsonData: JSON.stringify(jsonData),
+        // Add cradle-specific fields
+        ...cradleFields
       };
   
       // 保存角色和创建会话
@@ -687,11 +725,21 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       // 设置为当前会话
       await AsyncStorage.setItem('lastConversationId', characterId);
   
-      // 立即导航到首页对话界面
-      router.replace({
-        pathname: "/(tabs)",
-        params: { characterId }
-      });
+      // If we're using the tag-based image generation, navigate to cradle page
+      // Otherwise, navigate to the chat page as before
+      if (uploadMode === 'generate' && imageTaskId) {
+        // Navigate to cradle page to show generation progress
+        router.replace({
+          pathname: "/(tabs)/cradle",
+          params: { characterId }
+        });
+      } else {
+        // 立即导航到首页对话界面 - standard flow for manual uploads
+        router.replace({
+          pathname: "/(tabs)",
+          params: { characterId }
+        });
+      }
   
       // 异步初始化 NodeST，不阻塞导航
       NodeSTManager.processChatMessage({
@@ -702,8 +750,6 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         character: newCharacter
       }).catch(error => {
         console.error('NodeST initialization error:', error);
-        // 可以选择是否显示错误提示
-        // Alert.alert('提示', 'NodeST 初始化出现问题，可能会影响对话体验');
       });
   
     } catch (error) {
@@ -877,7 +923,91 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     }
   };
 
-  // Modify the renderContent function to unify the appearance tab UI
+  // Enhance the tag-based image section with more feedback about cradle integration
+  const renderTagGenerationSection = () => (
+    <View style={styles.tagGenerateContainer}>
+      <Text style={styles.tagInstructionsText}>
+        请选择描述角色外观的正面和负面标签，正面标签会被包含在生成中，负面标签会被排除
+      </Text>
+      
+      {/* Add note about cradle system integration */}
+      <View style={styles.cradleInfoContainer}>
+        <Ionicons name="information-circle-outline" size={20} color="#4fc3f7" />
+        <Text style={styles.cradleInfoText}>
+          使用标签生成的角色会自动添加到摇篮系统，可在摇篮页面查看生成进度
+        </Text>
+      </View>
+      
+      {/* Add artist reference selector */}
+      <ArtistReferenceSelector 
+        selectedGender={character.gender as 'male' | 'female' | 'other'}
+        onSelectArtist={setSelectedArtistPrompt}
+        selectedArtistPrompt={selectedArtistPrompt}
+      />
+      
+      {/* Tag selection summary */}
+      <View style={styles.tagSummaryContainer}>
+        <Text style={styles.tagSummaryTitle}>已选标签</Text>
+        <View style={styles.selectedTagsRow}>
+          {positiveTags.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {positiveTags.map((tag, index) => (
+                <TouchableOpacity
+                  key={`pos-${index}`}
+                  style={styles.selectedPositiveTag}
+                  onPress={() => {
+                    setPositiveTags(tags => tags.filter(t => t !== tag));
+                  }}
+                >
+                  <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                  <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.noTagsSelectedText}>未选择正面标签</Text>
+          )}
+        </View>
+        
+        <View style={styles.selectedTagsRow}>
+          {negativeTags.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {negativeTags.map((tag, index) => (
+                <TouchableOpacity
+                  key={`neg-${index}`}
+                  style={styles.selectedNegativeTag}
+                  onPress={() => {
+                    setNegativeTags(tags => tags.filter(t => t !== tag));
+                  }}
+                >
+                  <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                  <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.noTagsSelectedText}>未选择负面标签</Text>
+          )}
+        </View>
+        
+        {/* Add hint for default negative prompts */}
+        <Text style={styles.defaultTagsInfo}>
+          系统已添加默认的负面标签，以避免常见生成问题
+        </Text>
+      </View>
+      
+      {/* Open tag selector button */}
+      <TouchableOpacity 
+        style={styles.openTagSelectorButton}
+        onPress={() => setTagSelectorVisible(true)}
+      >
+        <Ionicons name="pricetag-outline" size={20} color="#fff" />
+        <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Modify the renderContent function to use the enhanced tag generation section
   const renderContent = () => {
     if (activeTab === 'basic') {
       return (
@@ -973,83 +1103,20 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
                   )}
                 </TouchableOpacity>
               </View>
-            </View>
-          ) : (
-            <View style={styles.tagGenerateContainer}>
-              <Text style={styles.tagInstructionsText}>
-                请选择描述角色外观的正面和负面标签，正面标签会被包含在生成中，负面标签会被排除
-              </Text>
               
-              {/* Add artist reference selector */}
-              <ArtistReferenceSelector 
-                selectedGender={character.gender as 'male' | 'female' | 'other'}
-                onSelectArtist={setSelectedArtistPrompt}
-                selectedArtistPrompt={selectedArtistPrompt}
-              />
-              
-              {/* Tag selection summary */}
-              <View style={styles.tagSummaryContainer}>
-                <Text style={styles.tagSummaryTitle}>已选标签</Text>
-                <View style={styles.selectedTagsRow}>
-                  {positiveTags.length > 0 ? (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {positiveTags.map((tag, index) => (
-                        <TouchableOpacity
-                          key={`pos-${index}`}
-                          style={styles.selectedPositiveTag}
-                          onPress={() => {
-                            setPositiveTags(tags => tags.filter(t => t !== tag));
-                          }}
-                        >
-                          <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
-                          <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  ) : (
-                    <Text style={styles.noTagsSelectedText}>未选择正面标签</Text>
-                  )}
-                </View>
-                
-                <View style={styles.selectedTagsRow}>
-                  {negativeTags.length > 0 ? (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {negativeTags.map((tag, index) => (
-                        <TouchableOpacity
-                          key={`neg-${index}`}
-                          style={styles.selectedNegativeTag}
-                          onPress={() => {
-                            setNegativeTags(tags => tags.filter(t => t !== tag));
-                          }}
-                        >
-                          <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
-                          <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  ) : (
-                    <Text style={styles.noTagsSelectedText}>未选择负面标签</Text>
-                  )}
-                </View>
-                
-                {/* Add hint for default negative prompts */}
-                <Text style={styles.defaultTagsInfo}>
-                  系统已添加默认的负面标签，以避免常见生成问题
+              {/* Add information about cradle system integration */}
+              <View style={styles.cradleInfoContainer}>
+                <Ionicons name="information-circle-outline" size={20} color="#4fc3f7" />
+                <Text style={styles.cradleInfoText}>
+                  创建的角色将自动添加到摇篮系统，可在摇篮页面进行培育和完善
                 </Text>
               </View>
-              
-              {/* Open tag selector button */}
-              <TouchableOpacity 
-                style={styles.openTagSelectorButton}
-                onPress={() => setTagSelectorVisible(true)}
-              >
-                <Ionicons name="pricetag-outline" size={20} color="#fff" />
-                <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
-              </TouchableOpacity>
             </View>
+          ) : (
+            renderTagGenerationSection()
           )}
 
-          {/* Tag selector modal */}
+          {/* Tag selector modal remains unchanged */}
           <Modal
             visible={tagSelectorVisible}
             transparent={false}
@@ -1181,7 +1248,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     }
   };
 
-  // Add new styles
+  // Add new styles for cradle integration
   const styles = StyleSheet.create({
     container: {
       flex: 1,
@@ -1521,6 +1588,21 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       color: '#FFD700',
       marginLeft: 4,
       fontSize: 14,
+    },
+    cradleInfoContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(79, 195, 247, 0.1)',
+      padding: 12,
+      borderRadius: 8,
+      marginTop: 16,
+    },
+    cradleInfoText: {
+      flex: 1,
+      color: '#4fc3f7',
+      fontSize: 13,
+      marginLeft: 8,
+      lineHeight: 18,
     },
   });
 

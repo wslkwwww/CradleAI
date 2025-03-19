@@ -18,10 +18,10 @@ interface CradleCharacterDetailProps {
   character: CradleCharacter;
   onFeed: () => void;
   onDelete: () => void;
-  onEdit?: () => void;
+  onEdit: () => void;
   isEditable?: boolean;
-  onRegenerateImage?: () => void;
-  onShowGallery?: () => void;
+  onRegenerateImage: () => void;
+  onShowGallery: () => void;
 }
 
 const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
@@ -44,6 +44,11 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   const isGeneratingImage = character.imageGenerationStatus === 'pending';
   const hasGeneratingImage = character.imageHistory?.some(img => img.generationStatus === 'pending');
   const isLoading = isGeneratingImage || hasGeneratingImage;
+
+  // Check if this character is either generated from cradle or directly editable
+  const showEditButton = isEditable || 
+                         character.isCradleGenerated === true || 
+                         character.isDialogEditable === true;
 
   // 前往聊天页面
   const navigateToChat = () => {
@@ -109,26 +114,7 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
               <Ionicons name="ellipsis-horizontal" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
-          
-          {/* 添加角色描述 */}
-          <View style={styles.descriptionContainer}>
-            <View style={styles.descriptionContent}>
-              <Text style={styles.characterDetailDescription}>
-                {truncatedDescription}
-              </Text>
-              
-              {shouldTruncate && (
-                <TouchableOpacity 
-                  style={styles.expandButton} 
-                  onPress={toggleDescription}
-                >
-                  <Text style={styles.expandButtonText}>
-                    {isDescriptionExpanded ? "收起" : "展开"}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
+
           
           {/* 角色操作按钮 - 只显示主要操作 */}
           <View style={styles.characterActionButtons}>
@@ -193,7 +179,7 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
             )}
             
             {/* 编辑选项 - 只对已生成角色显示 */}
-            {isEditable && isGenerated && (
+            {showEditButton && (
               <TouchableOpacity 
                 style={styles.menuItem}
                 onPress={() => {

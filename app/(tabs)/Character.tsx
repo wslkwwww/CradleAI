@@ -32,10 +32,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CreateChar from '@/app/pages/create_char';
 import CradleCreateForm from '@/components/CradleCreateForm';
 import RelationshipGraphPage from '../pages/relationship-graph';
-// Add WebView import for rich text rendering support
-import { WebView } from 'react-native-webview';
 
-// Add view mode constants
 const VIEW_MODE_SMALL = 'small';
 const VIEW_MODE_LARGE = 'large';
 

@@ -165,6 +165,39 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw error;
       }
   
+      // Check for cradle fields and handle appropriately
+      const isCradleCharacter = character.inCradleSystem === true;
+      if (isCradleCharacter) {
+        console.log('[Context] Character has inCradleSystem flag, handling as cradle character');
+        
+        // Ensure character has all required cradle fields
+        const cradleCharacter: CradleCharacter = {
+          ...character as Character,
+          inCradleSystem: true,
+          cradleStatus: (character as CradleCharacter).cradleStatus || 'growing',
+          cradleCreatedAt: (character as CradleCharacter).cradleCreatedAt || Date.now(),
+          cradleUpdatedAt: (character as CradleCharacter).cradleUpdatedAt || Date.now(),
+          feedHistory: (character as CradleCharacter).feedHistory || [],
+        };
+        
+        // Handle image generation tracking if task ID is present
+        if ((character as CradleCharacter).imageGenerationTaskId) {
+          console.log('[Context] Character has image generation task, setting up tracking');
+          
+          // Set image generation status
+          cradleCharacter.imageGenerationStatus = 'pending';
+          
+          // If character has generation data, add it to the image generation task
+          if ((character as any).generationData?.appearanceTags) {
+            cradleCharacter.generationData = (character as any).generationData;
+            console.log('[Context] Added generation data from appearance tags');
+          }
+        }
+  
+        // Add to characters list
+        character = cradleCharacter;
+      }
+    
       // 读取现有角色
       console.log('[Context 2] Reading existing characters...');
       let existingCharacters: Character[] = [];
@@ -177,7 +210,7 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } catch (e) {
         console.log('[Context Warning] No existing characters found:', e);
       }
-  
+    
       // 检查重复 ID
       console.log('[Context 4] Checking for duplicate ID...');
       const existingCharacter = existingCharacters.find(c => c.id === character.id);
@@ -186,7 +219,7 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.error('[Context Error 3]', error);
         throw error;
       }
-  
+    
       // 保存到文件系统
       console.log('[Context 5] Saving to filesystem...');
       const updatedCharacters = [...existingCharacters, character];
@@ -197,36 +230,36 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.error('[Context Error 4] Filesystem write failed:', error);
         throw error;
       });
-  
+    
       // 验证保存
-console.log('[Context 6] Verifying save...');
-console.log('[Context 6] character.id:', character.id); // 打印 character.id
-
-const savedContent = await FileSystem.readAsStringAsync(
-  FileSystem.documentDirectory + 'characters.json'
-);
-console.log('[Context 6] savedContent:', savedContent); // 打印文件内容
-
-const savedCharacters = JSON.parse(savedContent);
-console.log('[Context 6] savedCharacters:', savedCharacters); // 打印解析后的对象
-
-const savedCharacter = savedCharacters.find((c: Character) => {
-    console.log('[Context 6] Comparing: c.id=', c.id, 'character.id=', character.id, 'c.id === character.id', c.id === character.id ); //增加比较的log
-    return c.id === character.id;
-});
-
-if (!savedCharacter) {
-  const error = new Error('Failed to verify character save');
-  console.error('[Context Error 5]', error);
-  throw error;
-}
-  
+    console.log('[Context 6] Verifying save...');
+    console.log('[Context 6] character.id:', character.id); // 打印 character.id
+    
+    const savedContent = await FileSystem.readAsStringAsync(
+      FileSystem.documentDirectory + 'characters.json'
+    );
+    console.log('[Context 6] savedContent:', savedContent); // 打印文件内容
+    
+    const savedCharacters = JSON.parse(savedContent);
+    console.log('[Context 6] savedCharacters:', savedCharacters); // 打印解析后的对象
+    
+    const savedCharacter = savedCharacters.find((c: Character) => {
+        console.log('[Context 6] Comparing: c.id=', c.id, 'character.id=', character.id, 'c.id === character.id', c.id === character.id ); //增加比较的log
+        return c.id === character.id;
+    });
+    
+    if (!savedCharacter) {
+      const error = new Error('Failed to verify character save');
+      console.error('[Context Error 5]', error);
+      throw error;
+    }
+    
       // 更新状态
       console.log('[Context 7] Updating state...');
       setCharacters(updatedCharacters);
       
       console.log('[Context 8] Character added successfully');
-  
+    
     } catch (error) {
       console.error('[Context Error Final]', error);
       throw error;
