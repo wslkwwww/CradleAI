@@ -16,6 +16,7 @@ import { ChatSave, Message } from '@/shared/types';
 import { BlurView } from 'expo-blur';
 import { theme } from '@/constants/theme';
 import { formatDate } from '@/utils/dateUtils';
+import { NodeSTManager } from '@/utils/NodeSTManager';
 
 interface SaveManagerProps {
   visible: boolean;
@@ -136,7 +137,7 @@ const SaveManager: React.FC<SaveManagerProps> = ({
     );
   };
 
-  const handleLoadSave = (save: ChatSave) => {
+  const handleLoadSave = async (save: ChatSave) => {
     if (onLoadSave) {
       Alert.alert(
         'Load Save',
@@ -148,14 +149,50 @@ const SaveManager: React.FC<SaveManagerProps> = ({
           },
           {
             text: 'Load',
-            onPress: () => onLoadSave(save)
+            onPress: async () => {
+              setLoading(true);
+              try {
+                // First restore the NodeST chat history directly with AsyncStorage
+                if (save.nodestChatHistory) {
+                  console.log('[SaveManager] Restoring NodeST chat history before UI update');
+                  
+                  // First use NodeSTManager to restore
+                  const restored = await NodeSTManager.restoreChatHistory({
+                    conversationId: conversationId,
+                    chatHistory: save.nodestChatHistory
+                  });
+                  
+                  // Fall back to ChatSaveService if needed
+                  if (!restored) {
+                    console.log('[SaveManager] Falling back to ChatSaveService for history restoration');
+                    await chatSaveService.restoreNodeSTChatHistory(
+                      conversationId,
+                      save
+                    );
+                  }
+                  
+                  console.log('[SaveManager] NodeST chat history restoration complete');
+                } else {
+                  console.warn('[SaveManager] Save does not contain NodeST chat history');
+                }
+                
+                // Now call the onLoadSave callback to update UI
+                onLoadSave(save);
+                
+                setLoading(false);
+              } catch (error) {
+                console.error('[SaveManager] Error restoring chat state:', error);
+                Alert.alert('Error', 'Failed to restore chat state.');
+                setLoading(false);
+              }
+            }
           }
         ]
       );
     }
   };
 
-  const handlePreviewSave = (save: ChatSave) => {
+  const handlePreviewSave = async (save: ChatSave) => {
     setSelectedSave(save);
     if (onPreviewSave) {
       onPreviewSave(save);

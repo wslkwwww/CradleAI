@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChatSave, Message } from '@/shared/types';
+import { ChatSave, Message, ChatHistoryEntity } from '@/shared/types';
 
 /**
  * Service for managing chat saves (save points)
@@ -44,6 +44,9 @@ class ChatSaveService {
       // Get existing saves
       const saves = await this.getAllSaves();
       
+      // Get NodeST chat history for this conversation
+      const nodestHistory = await this.getNodeSTChatHistory(conversationId);
+      
       // Create new save point
       const newSave: ChatSave = {
         id: `save_${Date.now()}`,
@@ -55,7 +58,8 @@ class ChatSaveService {
         messageIds: messages.map(m => m.id),
         messages: [...messages], // Create a deep copy of messages
         previewText: this.generatePreviewText(messages),
-        thumbnail: thumbnail
+        thumbnail: thumbnail,
+        nodestChatHistory: nodestHistory ?? undefined // Save the NodeST chat history state
       };
       
       // Add to saves and store
@@ -81,6 +85,86 @@ class ChatSaveService {
       return true;
     } catch (error) {
       console.error('Error deleting save:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Get NodeST chat history for a conversation
+   * This retrieves the clean chat history without D-entries
+   */
+  async getNodeSTChatHistory(conversationId: string): Promise<ChatHistoryEntity | null> {
+    try {
+      const historyKey = `nodest_${conversationId}_history`;
+      const data = await AsyncStorage.getItem(historyKey);
+      
+      if (!data) {
+        console.log(`[ChatSaveService] No chat history found for conversation: ${conversationId}`);
+        return null;
+      }
+      
+      const chatHistory = JSON.parse(data) as ChatHistoryEntity;
+      
+      // Filter out D-entries, keeping only user messages and model responses
+      // This is the clean chat history we want to restore later
+      if (chatHistory && chatHistory.parts) {
+        chatHistory.parts = chatHistory.parts.filter(message => 
+          !message.is_d_entry && 
+          (message.role === 'user' || message.role === 'model' || message.role === 'assistant')
+        );
+      }
+      
+      console.log(`[ChatSaveService] Retrieved NodeST chat history with ${chatHistory?.parts?.length || 0} messages`);
+      return chatHistory;
+    } catch (error) {
+      console.error('[ChatSaveService] Error getting NodeST chat history:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Restore NodeST chat history from a save point
+   */
+  async restoreNodeSTChatHistory(conversationId: string, save: ChatSave): Promise<boolean> {
+    try {
+      if (!save.nodestChatHistory) {
+        console.error('[ChatSaveService] Cannot restore - save has no NodeST chat history');
+        return false;
+      }
+      
+      // Direct approach: modify the chat history in AsyncStorage
+      const currentHistoryKey = `nodest_${conversationId}_history`;
+      
+      try {
+        // Try to get current history first
+        const currentHistoryData = await AsyncStorage.getItem(currentHistoryKey);
+        let currentHistory = null;
+        
+        if (currentHistoryData) {
+          currentHistory = JSON.parse(currentHistoryData);
+        }
+        
+        // Create restored history by combining structure from current with data from saved
+        const restoredHistory = {
+          // Keep metadata from current history if available, otherwise use saved
+          name: currentHistory?.name || save.nodestChatHistory.name || "Chat History", 
+          role: currentHistory?.role || save.nodestChatHistory.role || "system",
+          identifier: currentHistory?.identifier || save.nodestChatHistory.identifier || "chatHistory",
+          // Always use the saved message parts
+          parts: save.nodestChatHistory.parts
+        };
+        
+        // Save directly to AsyncStorage
+        await AsyncStorage.setItem(currentHistoryKey, JSON.stringify(restoredHistory));
+        
+        console.log(`[ChatSaveService] Restored NodeST chat history with ${restoredHistory.parts.length} messages directly using AsyncStorage`);
+        return true;
+      } catch (error) {
+        console.error('[ChatSaveService] Error directly restoring chat history:', error);
+        return false;
+      }
+    } catch (error) {
+      console.error('[ChatSaveService] Error restoring NodeST chat history:', error);
       return false;
     }
   }

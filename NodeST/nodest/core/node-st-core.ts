@@ -964,17 +964,30 @@ export class NodeSTCore {
                 throw new Error('Required data not found');
             }
 
-            // 2. 重建框架
-            const [rFramework, _] = CharacterUtils.buildRFramework(
-                preset,
-                roleCard,
-                worldBook
+            // 2. Check if we need to rebuild the framework or reuse existing framework
+            let contents: ChatMessage[] = [];
+            
+            // First try loading existing framework/contents
+            const existingContents = await this.loadJson<ChatMessage[]>(
+                this.getStorageKey(sessionId, '_contents')
             );
+            
+            // Only rebuild framework if absolutely necessary - if it doesn't exist
+            if (!existingContents || existingContents.length === 0) {
+                console.log('[NodeSTCore] No existing framework found, rebuilding...');
+                // Rebuild framework
+                const [rFramework, _] = CharacterUtils.buildRFramework(
+                    preset,
+                    roleCard,
+                    worldBook
+                );
+                contents = [...rFramework];
+            } else {
+                console.log('[NodeSTCore] Using existing framework with length:', existingContents.length);
+                contents = [...existingContents];
+            }
 
-            // 3. 将更新后的聊天历史插入框架
-            const contents = [...rFramework];
-
-            // 查找聊天历史占位符的位置 
+            // 3. 查找聊天历史占位符的位置 
             const chatHistoryPlaceholderIndex = contents.findIndex(
                 item => item.is_chat_history_placeholder || 
                        (item.identifier === chatHistory.identifier)
@@ -1015,6 +1028,28 @@ export class NodeSTCore {
                     identifier: chatHistory.identifier
                 });
             }
+            
+            // Make sure there's only one chat history entry in the contents
+            // This fixes potential duplication issues after loading saved histories
+            const chatHistoryEntries = contents.filter(
+                item => item.name === "Chat History" || 
+                       (item.identifier && item.identifier.toLowerCase().includes('chathistory'))
+            );
+            
+            if (chatHistoryEntries.length > 1) {
+                console.warn(`[NodeSTCore] Multiple chat history entries detected (${chatHistoryEntries.length}), removing duplicates`);
+                // Remove duplicates by keeping only the entry at chatHistoryPlaceholderIndex
+                contents = contents.filter((item, index) => {
+                    // Skip entries that look like chat history but aren't at the correct index
+                    if ((item.name === "Chat History" || 
+                         (item.identifier && item.identifier.toLowerCase().includes('chathistory'))) && 
+                        index !== chatHistoryPlaceholderIndex) {
+                        return false;
+                    }
+                    return true;
+                });
+                console.log(`[NodeSTCore] Framework size after removing duplicates: ${contents.length}`);
+            }
 
             // 清理内容用于Gemini
             const cleanedContents = this.cleanContentsForGemini(
@@ -1041,7 +1076,7 @@ export class NodeSTCore {
             cleanedContents.forEach((msg, i) => {
                 console.log(`[Message ${i+1}] Role: ${msg.role}`);
                 msg.parts.forEach((part, j) => {
-                    console.log(`[Message ${i+1}][Part ${j+1}] Content: "${part.text}"`);
+                    console.log(`[Message ${i+1}][Part ${j+1}] Content length: ${part.text?.length || 0} chars`);
                 });
             });
 
@@ -1070,23 +1105,12 @@ export class NodeSTCore {
                 responseLength: response?.length || 0
             });
 
-            // 保存更新后的历史
+            // 保存更新后的历史和框架
             if (response) {
-                console.log('[NodeSTCore] Saving updated history...');
-                const updatedContents = contents ? contents.map(item => {
-                    if (item.name === "Chat History") {
-                        const messages = item.parts || [];
-                        return {
-                            name: "Chat History",
-                            role: "system",
-                            parts: messages,
-                            identifier: "chatHistory"
-                        } as ChatMessage;
-                    }
-                    return item;
-                }) : [chatHistory as unknown as ChatMessage];
-                await this.saveContents(updatedContents, sessionId);
-                console.log('[NodeSTCore] History saved successfully');
+                console.log('[NodeSTCore] Saving updated history and framework...');
+                // 保存更新后的框架内容
+                await this.saveContents(contents, sessionId);
+                console.log('[NodeSTCore] Content framework and history saved successfully');
             }
 
             return response;
@@ -1485,6 +1509,89 @@ export class NodeSTCore {
         } catch (error) {
             console.error('[NodeSTCore] Error in regenerateFromMessage:', error);
             return null;
+        }
+    }
+
+    // Add this method to the NodeSTCore class
+    async restoreChatHistory(
+        conversationId: string,
+        chatHistory: ChatHistoryEntity
+    ): Promise<boolean> {
+        try {
+            console.log('[NodeSTCore] Restoring chat history from save point:', {
+                conversationId,
+                messagesCount: chatHistory.parts.length
+            });
+            
+            // First, load the current history to preserve its identifier and structure
+            const currentHistory = await this.loadJson<ChatHistoryEntity>(
+                this.getStorageKey(conversationId, '_history')
+            );
+            
+            if (!currentHistory) {
+                console.error('[NodeSTCore] Cannot restore chat history - current history not found');
+                return false;
+            }
+            
+            // Create a new history entity that preserves the structure but uses saved messages
+            const restoredHistory: ChatHistoryEntity = {
+                ...currentHistory,
+                parts: chatHistory.parts || []
+            };
+            
+            console.log('[NodeSTCore] Saving restored chat history with', restoredHistory.parts.length, 'messages');
+            
+            // Save the restored history
+            await this.saveJson(
+                this.getStorageKey(conversationId, '_history'),
+                restoredHistory
+            );
+            
+            // Important: Also update the contents/framework to ensure proper integration
+            try {
+                // Load the current framework
+                const currentContents = await this.loadJson<ChatMessage[]>(
+                    this.getStorageKey(conversationId, '_contents')
+                );
+                
+                if (currentContents) {
+                    // Find the chat history placeholder in the framework
+                    const chatHistoryIndex = currentContents.findIndex(
+                        item => item.is_chat_history_placeholder || 
+                               (item.identifier === restoredHistory.identifier)
+                    );
+                    
+                    if (chatHistoryIndex !== -1) {
+                        // Replace the chat history in the framework
+                        console.log('[NodeSTCore] Updating chat history in framework at index', chatHistoryIndex);
+                        currentContents[chatHistoryIndex] = {
+                            name: "Chat History",
+                            role: "system",
+                            parts: restoredHistory.parts,
+                            identifier: restoredHistory.identifier
+                        };
+                        
+                        // Save the updated framework
+                        await this.saveJson(
+                            this.getStorageKey(conversationId, '_contents'),
+                            currentContents
+                        );
+                        
+                        console.log('[NodeSTCore] Framework updated successfully');
+                    } else {
+                        console.warn('[NodeSTCore] Chat history placeholder not found in framework');
+                    }
+                }
+            } catch (frameworkError) {
+                console.error('[NodeSTCore] Error updating framework:', frameworkError);
+                // Continue even if framework update fails - the chat history is still restored
+            }
+            
+            console.log('[NodeSTCore] Chat history successfully restored');
+            return true;
+        } catch (error) {
+            console.error('[NodeSTCore] Error restoring chat history:', error);
+            return false;
         }
     }
 }

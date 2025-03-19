@@ -1,6 +1,7 @@
 import { NodeST } from '@/NodeST/nodest';
-import { Character, GlobalSettings } from '@/shared/types';
+import { Character, GlobalSettings, ChatHistoryEntity } from '@/shared/types';
 import { CirclePostOptions, CircleResponse } from '@/NodeST/nodest/managers/circle-manager';
+import { NodeSTCore } from '@/NodeST/nodest/core/node-st-core'; // Add missing import
 
 /**
  * NodeST Manager
@@ -8,6 +9,10 @@ import { CirclePostOptions, CircleResponse } from '@/NodeST/nodest/managers/circ
  */
 class NodeSTManagerClass {
   private nodeST: NodeST;
+  private apiKey: string = ''; // Add missing property
+  private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = { // Add missing property
+    apiProvider: 'gemini'
+  };
 
   constructor() {
     this.nodeST = new NodeST();
@@ -41,6 +46,12 @@ class NodeSTManagerClass {
       hasOpenRouter: !!apiSettings?.openrouter,
       openRouterEnabled: apiSettings?.openrouter?.enabled
     });
+    
+    // Store the settings in this class
+    this.apiKey = apiKey;
+    if (apiSettings) {
+      this.apiSettings = apiSettings;
+    }
     
     // Pass full apiSettings to NodeST
     this.nodeST.updateApiSettings(apiKey, apiSettings);
@@ -603,6 +614,78 @@ class NodeSTManagerClass {
       console.error('[NodeSTManager] 生成文本失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * Restore chat history from a saved state
+   */
+  async restoreChatHistory(params: {
+    conversationId: string;
+    chatHistory: ChatHistoryEntity;
+  }): Promise<boolean> {
+    try {
+      console.log('[NodeSTManager] Restoring chat history for conversation:', params.conversationId);
+      
+      if (!this.nodeST) {
+        console.error('[NodeSTManager] NodeST instance not initialized');
+        throw new Error('NodeST instance not initialized');
+      }
+      
+      // Direct approach: restore the chat history using AsyncStorage
+      const historyKey = `nodest_${params.conversationId}_history`;
+      
+      try {
+        // Get the current history structure first to preserve metadata
+        const currentHistoryData = await AsyncStorage.getItem(historyKey);
+        let currentHistory: ChatHistoryEntity | null = null;
+        
+        if (currentHistoryData) {
+          currentHistory = JSON.parse(currentHistoryData);
+        }
+        
+        // Create the restored history object
+        const restoredHistory: ChatHistoryEntity = {
+          // Use existing structure if available, otherwise use saved structure
+          name: currentHistory?.name || params.chatHistory.name || "Chat History",
+          role: currentHistory?.role || params.chatHistory.role || "system",
+          identifier: currentHistory?.identifier || params.chatHistory.identifier || "chatHistory",
+          // Always use the saved message parts
+          parts: params.chatHistory.parts
+        };
+        
+        // Save directly to AsyncStorage
+        await AsyncStorage.setItem(historyKey, JSON.stringify(restoredHistory));
+        
+        console.log(`[NodeSTManager] Restored chat history with ${restoredHistory.parts.length} messages`);
+        return true;
+      } catch (storageError) {
+        console.error('[NodeSTManager] AsyncStorage error restoring chat history:', storageError);
+        
+        // Fallback to using NodeSTCore only if we have an API key
+        if (this.apiKey) {
+          console.log('[NodeSTManager] Falling back to NodeSTCore for restoration');
+          const core = new NodeSTCore(this.apiKey, this.apiSettings);
+          return await core.restoreChatHistory(
+            params.conversationId,
+            params.chatHistory
+          );
+        }
+        
+        return false;
+      }
+    } catch (error) {
+      console.error('[NodeSTManager] Error restoring chat history:', error);
+      return false;
+    }
+  }
+
+  // Add static method
+  static async restoreChatHistory(params: {
+    conversationId: string;
+    chatHistory: ChatHistoryEntity;
+  }): Promise<boolean> {
+    const instance = new NodeSTManagerClass();
+    return await instance.restoreChatHistory(params);
   }
 }
 

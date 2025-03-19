@@ -428,6 +428,7 @@ export interface ChatSave {
   messages: Message[]; // Copy of messages at save point
   previewText: string; // Short preview text
   thumbnail?: string; // Optional thumbnail (could be character avatar)
+  nodestChatHistory?: ChatHistoryEntity; // Add NodeST chat history
 }
 
 export interface RoleCardJson {

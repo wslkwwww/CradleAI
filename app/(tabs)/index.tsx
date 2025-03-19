@@ -29,10 +29,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TopBarWithBackground from '@/components/TopBarWithBackground';
 import { NodeSTManager } from '@/utils/NodeSTManager';  // 导入 NodeSTManager
-import { chatSaveService } from '@/services/ChatSaveService';
 import { EventRegister } from 'react-native-event-listeners';
-import RichTextRenderer from '@/components/RichTextRenderer';
-import { containsComplexHtml } from '@/utils/textParser';
 
 const App = () => {
   const router = useRouter();
@@ -154,11 +151,26 @@ const App = () => {
     }
   };
 
-  // Load a saved chat state
-  const handleLoadSave = (save: ChatSave) => {
+  // Update handleLoadSave function to properly restore NodeST chat history
+  const handleLoadSave = async (save: ChatSave) => {
     if (!selectedConversationId) return;
     
-    // First clear all messages
+    // First ensure NodeST chat history is restored (this should already happen in SaveManager)
+    if (save.nodestChatHistory) {
+      console.log('[App] Verifying NodeST chat history restoration');
+      try {
+        await NodeSTManager.restoreChatHistory({
+          conversationId: selectedConversationId,
+          chatHistory: save.nodestChatHistory
+        });
+      } catch (error) {
+        console.error('[App] Error restoring NodeST chat history:', error);
+      }
+    } else {
+      console.warn('[App] Save does not contain NodeST chat history');
+    }
+    
+    // Now clear all messages
     clearMessages(selectedConversationId)
       .then(async () => {
         // Add each message from the save
@@ -195,11 +207,6 @@ const App = () => {
 
   // 确保每次消息更新时重新获取消息
   const currentMessages = selectedConversationId ? getMessages(selectedConversationId) : [];
-
-  // 添加调试日志
-  // useEffect(() => {
-  //   console.log('Current messages:', currentMessages);
-  // }, [currentMessages]);
 
   const handleSendMessage = async (newMessage: string, sender: 'user' | 'bot', isLoading = false) => {
     // If in preview mode, exit it first
@@ -440,9 +447,7 @@ const App = () => {
   // 修改处理图像的函数
   const handleImageGenerated = async (imageUrl: string, taskId?: string) => {
     // If in preview mode, exit first
-    if (isPreviewMode) {
-      exitPreviewMode();
-    }
+    exitPreviewMode();
 
     if (!selectedConversationId) {
       console.warn('未选择对话，无法添加图片消息');
