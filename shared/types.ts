@@ -340,23 +340,31 @@ export interface Feed {
 }
 
 // Add CharacterImage type
+// Add this interface for image generation configuration
+export interface ImageGenerationConfig {
+  positiveTags: string[];
+  negativeTags: string[];
+  artistPrompt: string | null;
+  customPrompt: string;
+  useCustomPrompt: boolean;
+}
+
 export interface CharacterImage {
   id: string;
   url: string;
   localUri?: string;
-  characterId?: string;
+  characterId: string;
   createdAt: number;
-  mimeType?: string;
+  isFavorite: boolean;
+  isAvatar?: boolean;
+  isDefaultBackground?: boolean;
   tags?: {
     positive?: string[];
     negative?: string[];
   };
-isAvatar: boolean;
-
-  isFavorite: boolean;
   isEdited?: boolean;  // Flag to mark if this image has been edited
   isDefaultAvatar?: boolean; // Flag to mark if this is the default avatar
-  isDefaultBackground?: boolean; // Flag to mark if this is the default background
+ // Flag to mark if this is the default background
   originalImageId?: string; // Reference to the original image if this is an edited version
   editHistory?: string[]; // Store prompts used to edit this image
   data?: string; // Base64 encoded image data
@@ -371,6 +379,8 @@ isAvatar: boolean;
     width: number;
     height: number;
   };
+  // Add this property to store generation configuration for future regeneration
+  generationConfig?: ImageGenerationConfig;
 }
 
 // Fix the CradleCharacter interface by making it extend Character

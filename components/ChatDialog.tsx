@@ -17,10 +17,9 @@ import { Message, Character,ChatDialogProps } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { parseHtmlText, containsComplexHtml, containsCustomTags, extractCodeBlocks, reinsertCodeBlocks, optimizeHtmlForRendering } from '@/utils/textParser';
+import { parseHtmlText, containsComplexHtml, extractCodeBlocks, reinsertCodeBlocks, optimizeHtmlForRendering } from '@/utils/textParser';
 import { ratingService } from '@/services/ratingService';
-
-
+import RichTextRenderer from '@/components/RichTextRenderer';
 
 const { width } = Dimensions.get('window');
 // Adjust the maximum width to ensure proper margins
@@ -210,27 +209,103 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
 
   // 检测并处理消息中的图片链接
   const processMessageContent = (text: string, isUser: boolean) => {
+    // If text is empty, return a placeholder
+    if (!text || text.trim() === '') {
+      return (
+        <Text style={isUser ? styles.userMessageText : styles.botMessageText}>
+          (Empty message)
+        </Text>
+      );
+    }
+
+    // Remove excessive logging
+    // console.log(`Processing ${isUser ? 'user' : 'bot'} message:`, text.substring(0, 50));
+
+    // More comprehensive check for custom tags with various formats and spaces
+    const hasCustomTags = (
+      /<\s*(thinking|think|status)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status)\s*>/i.test(text) || 
+      /<\s*char\s+think\s*>([\s\S]*?)<\/\s*char\s+think\s*>/i.test(text)
+    );
+    
+    const hasMarkdown = /```[\w]*\s*([\s\S]*?)```/.test(text) || 
+                       /!\[[\s\S]*?\]\([\s\S]*?\)/.test(text) ||
+                       /\*\*([\s\S]*?)\*\*/.test(text) ||
+                       /\*([\s\S]*?)\*/.test(text);
+
     // Check for HTML content or interactive elements
-    const hasInteractive = text.includes('<button') || 
-                          text.includes('onclick=') || 
-                          text.includes('<audio') || 
-                          text.includes('<video') ||
-                          text.includes('<details') ||
-                          text.includes('<summary');
+    const hasHtml = /<\/?[a-z][^>]*>/i.test(text);
     
-    const hasHtmlDocument = text.includes('<!DOCTYPE html>') || 
-                          text.includes('<html') || 
-                          text.includes('<head') ||
-                          text.includes('class="music-container"') ||
-                          text.includes("class='music-container'");
-                          
-    // If it's complex HTML content, use the RichTextRenderer
+    // Remove excessive logging
+    // console.log(`Message content checks: customTags=${hasCustomTags}, markdown=${hasMarkdown}, html=${hasHtml}`);
 
+    // If it contains any special formatting that needs rich rendering
+    if (hasCustomTags || hasMarkdown || hasHtml || containsComplexHtml(text)) {
+      let processedText = text;
+      
+      // Process markdown formatting first
+      if (hasMarkdown) {
+        // Fix regex to correctly handle code blocks with or without language specification
+        processedText = processedText.replace(/```([\w]*)\s*([\s\S]*?)```/g, 
+          (match, lang, code) => {
+            return `<pre><code class="language-${lang || 'text'}">${code.trim()}</code></pre>`;
+        });
+        
+        // Convert markdown bold to HTML
+        processedText = processedText.replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>');
+        
+        // Convert markdown italic to HTML
+        processedText = processedText.replace(/\*([\s\S]*?)\*/g, '<i>$1</i>');
+      }
+      
+      // Process custom tags with more flexible regex patterns to handle various spacing
+      if (hasCustomTags) {
+        // Convert <thinking> tags with flexible spacing
+        processedText = processedText.replace(
+          /<\s*thinking[^>]*>([\s\S]*?)<\/\s*thinking\s*>/gi, 
+          '<div class="character-thinking">$1</div>'
+        );
+        
+        // Convert <think> tags with flexible spacing
+        processedText = processedText.replace(
+          /<\s*think[^>]*>([\s\S]*?)<\/\s*think\s*>/gi, 
+          '<div class="character-thinking">$1</div>'
+        );
+        
+        // Convert <char think> tags with flexible spacing
+        processedText = processedText.replace(
+          /<\s*char\s+think[^>]*>([\s\S]*?)<\/\s*char\s+think\s*>/gi, 
+          '<div class="character-thinking">$1</div>'
+        );
+        
+        // Convert <status> tags with flexible spacing
+        processedText = processedText.replace(
+          /<\s*status[^>]*>([\s\S]*?)<\/\s*status\s*>/gi, 
+          '<div class="character-status">$1</div>'
+        );
 
-    // Handle code blocks in markdown format
+        // Remove excessive logging
+        // console.log("After custom tag processing:", processedText.substring(0, 100));
+      }
+      
+      // Optimize HTML before rendering
+      const optimizedHtml = optimizeHtmlForRendering(processedText);
+      
+      // Remove excessive logging
+      // console.log("Final HTML to render:", optimizedHtml.substring(0, 100));
+      
+      return (
+        <View style={styles.richContentWrapper}>
+          <RichTextRenderer 
+            html={optimizedHtml} 
+            baseStyle={{ color: isUser ? '#333' : '#fff' }}
+            onImagePress={(url) => setFullscreenImage(url)}
+            maxImageHeight={MAX_IMAGE_HEIGHT}
+          />
+        </View>
+      );
+    }
 
-    
-    // Handle existing image markdown and links
+    // Handle simple image markdown and links as before
     const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)|!\[(.*?)\]\((data:image\/[^\s)]+)\)/g;
     let match: RegExpExecArray | null;
     let matches: { alt: string, url: string }[] = [];
@@ -451,8 +526,8 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
               </View>
             ) : (
               processMessageContent(message.text, false)
-            )}
-            
+            )
+            }
             {!message.isLoading && !isUser && renderMessageActions(message, index)}
           </View>
         )}

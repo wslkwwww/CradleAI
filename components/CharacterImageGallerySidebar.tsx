@@ -9,13 +9,20 @@ import {
   FlatList,
   Image,
   ActivityIndicator,
-  Modal
+  Modal,
+  Alert,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage, CradleCharacter } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import ImageEditorModal from './ImageEditorModal';
 import { useUser } from '@/constants/UserContext';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
+import ImageRegenerationModal from './ImageRegenerationModal';
+import { downloadAndSaveImage } from '@/utils/imageUtils';
 const { width, height } = Dimensions.get('window');
 
 interface CharacterImageGallerySidebarProps {
@@ -68,6 +75,10 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   // Add state variable to track updates and force re-renders
   const [updateCounter, setUpdateCounter] = useState(0);
   const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(Date.now());
+
+  // New state for image regeneration
+  const [showRegenerationModal, setShowRegenerationModal] = useState(false);
+  const [regenerationImageConfig, setRegenerationImageConfig] = useState<any>(null);
 
   // Get API key for image editing
   const apiKey = user?.settings?.chat?.characterApiKey || '';
@@ -194,6 +205,122 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       setPendingAvatarImageId(null);
     }
   };
+
+  // Add new function to handle image regeneration
+  const handleRegenerateImage = (image: CharacterImage) => {
+    // Check if image has tags or generation config
+    if (image.generationConfig || (image.tags && (image.tags.positive || image.tags.negative))) {
+      // Prepare configuration for regeneration
+      const config = {
+        positiveTags: image.generationConfig?.positiveTags || image.tags?.positive || [],
+        negativeTags: image.generationConfig?.negativeTags || image.tags?.negative || [],
+        artistPrompt: image.generationConfig?.artistPrompt || null,
+        customPrompt: image.generationConfig?.customPrompt || '',
+        useCustomPrompt: image.generationConfig?.useCustomPrompt || false
+      };
+      
+      setRegenerationImageConfig(config);
+      setShowRegenerationModal(true);
+    } else {
+      // No configuration found, show warning
+      Alert.alert(
+        "无法重新生成",
+        "该图像没有关联的生成配置，无法继续重新生成。请使用创建新图像功能。",
+        [{ text: "了解", style: "default" }]
+      );
+    }
+  };
+
+  // Add new function to save image to device
+  const handleSaveImageToDevice = async (image: CharacterImage) => {
+    try {
+      // Request permissions first
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          "权限被拒绝",
+          "需要存储权限才能保存图片",
+          [{ text: "好的", style: "default" }]
+        );
+        return;
+      }
+      
+      const imageUri = image.localUri || image.url;
+      if (!imageUri) {
+        Alert.alert("错误", "图片URI无效");
+        return;
+      }
+
+      // Show loading indicator
+      Alert.alert("正在保存...", "请等待图片保存完成");
+      
+      // Download image if it's a remote URL
+      let localUri = imageUri;
+      if (imageUri.startsWith('http')) {
+        try {
+          const fileUri = `${FileSystem.documentDirectory}temp_${Date.now()}.jpg`;
+          const downloadResult = await FileSystem.downloadAsync(imageUri, fileUri);
+          localUri = downloadResult.uri;
+        } catch (downloadError) {
+          console.error("下载图片失败:", downloadError);
+          Alert.alert(
+            "下载失败",
+            "无法下载远程图片: " + (downloadError instanceof Error ? downloadError.message : String(downloadError))
+          );
+          return;
+        }
+      }
+      
+      try {
+        // Save to media library
+        const asset = await MediaLibrary.createAssetAsync(localUri);
+        
+        // Create album if needed and add to it
+        let album = await MediaLibrary.getAlbumAsync("AI伙伴");
+        if (album === null) {
+          await MediaLibrary.createAlbumAsync("AI伙伴", asset, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+        }
+        
+        Alert.alert(
+          "保存成功", 
+          "图片已保存到您的相册中的'AI伙伴'相册",
+          [{ text: "太好了", style: "default" }]
+        );
+      } catch (saveError) {
+        console.error("保存到媒体库失败:", saveError);
+        
+        // Try alternative sharing method if available
+        if (Platform.OS !== 'web' && await Sharing.isAvailableAsync()) {
+          try {
+            await Sharing.shareAsync(localUri, {
+              mimeType: 'image/jpeg',
+              dialogTitle: '保存图片'
+            });
+          } catch (sharingError) {
+            console.error("分享图片失败:", sharingError);
+            Alert.alert(
+              "操作失败",
+              "无法保存或分享图片。请尝试截屏保存。"
+            );
+          }
+        } else {
+          Alert.alert(
+            "保存失败",
+            "无法保存图片到相册，请尝试截屏保存。"
+          );
+        }
+      }
+    } catch (error) {
+      console.error("保存图片失败:", error);
+      Alert.alert(
+        "保存失败",
+        "无法保存图片: " + (error instanceof Error ? error.message : String(error))
+      );
+    }
+  };
   
   if (!visible) return null;
   
@@ -303,6 +430,14 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                         <Ionicons name="brush-outline" size={18} color="#fff" />
                       </TouchableOpacity>
                       
+                      {/* Regenerate button - new */}
+                      <TouchableOpacity
+                        style={[styles.imageActionButton, styles.regenerateButton]}
+                        onPress={() => handleRegenerateImage(item)}
+                      >
+                        <Ionicons name="refresh-outline" size={18} color="#fff" />
+                      </TouchableOpacity>
+                      
                       {/* Options menu button */}
                       <TouchableOpacity
                         style={styles.imageActionButton}
@@ -400,19 +535,68 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                   </Text>
                 </TouchableOpacity>
 
-                {/* Add Set as Avatar option */}
-                {onSetAsAvatar && (
+                {/* Add Save to Device option */}
+                {Platform.OS !== 'web' && (
                   <TouchableOpacity
                     style={styles.menuItem}
                     onPress={() => {
-                      handleSetAsAvatar(activeImage.id);
+                      handleSaveImageToDevice(activeImage);
                       setShowOptionsMenu(false);
                     }}
                   >
-                    <Ionicons name="person-circle-outline" size={22} color="#FFF" />
-                    <Text style={styles.menuItemText}>设为头像</Text>
+                    <Ionicons name="download-outline" size={22} color="#FFF" />
+                    <Text style={styles.menuItemText}>保存到相册</Text>
                   </TouchableOpacity>
                 )}
+
+                {/* Add Share option for platforms that support it */}
+                {Platform.OS !== 'web' && (
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={async () => {
+                      const imageUri = activeImage.localUri || activeImage.url;
+                      if (imageUri && await Sharing.isAvailableAsync()) {
+                        try {
+                          // For Android, we need to ensure we have a file:// URI
+                          let shareableUri = imageUri;
+                          
+                          // If it's a remote URL, download first
+                          if (imageUri.startsWith('http')) {
+                            const fileUri = `${FileSystem.documentDirectory}share_temp_${Date.now()}.jpg`;
+                            const downloadResult = await FileSystem.downloadAsync(imageUri, fileUri);
+                            shareableUri = downloadResult.uri;
+                          }
+                          
+                          await Sharing.shareAsync(shareableUri, {
+                            mimeType: 'image/jpeg',
+                            dialogTitle: '分享图片'
+                          });
+                        } catch (error) {
+                          console.error("分享图片失败:", error);
+                          Alert.alert("分享失败", "无法分享图片");
+                        }
+                      } else {
+                        Alert.alert("分享功能不可用", "您的设备不支持分享功能");
+                      }
+                      setShowOptionsMenu(false);
+                    }}
+                  >
+                    <Ionicons name="share-social-outline" size={22} color="#FFF" />
+                    <Text style={styles.menuItemText}>分享图片</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Add Regenerate option */}
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    handleRegenerateImage(activeImage);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons name="refresh-outline" size={22} color="#FFF" />
+                  <Text style={styles.menuItemText}>重新生成</Text>
+                </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.menuItem}
@@ -451,6 +635,22 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Image Regeneration Modal */}
+      {showRegenerationModal && character && (
+        <ImageRegenerationModal
+          visible={showRegenerationModal}
+          character={character}
+          onClose={() => setShowRegenerationModal(false)}
+          onSuccess={(newImage) => {
+            if (onAddNewImage) {
+              onAddNewImage(newImage);
+            }
+            setShowRegenerationModal(false);
+          }}
+          existingImageConfig={regenerationImageConfig}
+        />
+      )}
 
     </View>
   );
@@ -665,6 +865,10 @@ const styles = StyleSheet.create({
     height: 30,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // Add new style for regenerate button
+  regenerateButton: {
+    backgroundColor: 'rgba(138, 43, 226, 0.4)',
   },
 });
 

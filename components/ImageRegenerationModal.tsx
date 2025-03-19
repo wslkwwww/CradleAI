@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,11 @@ import {
   Dimensions,
   Platform,
   SafeAreaView,
-  TextInput
+  TextInput,
+  PanResponder,
+  Animated
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { CradleCharacter, CharacterImage } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import TagSelector from './TagSelector';
@@ -31,20 +33,123 @@ interface ImageRegenerationModalProps {
   character: CradleCharacter;
   onClose: () => void;
   onSuccess: (imageData: CharacterImage) => void;
+  existingImageConfig?: {
+    positiveTags: string[];
+    negativeTags: string[];
+    artistPrompt: string | null;
+    customPrompt: string;
+    useCustomPrompt: boolean;
+  };
 }
+
+// Add a component for draggable tag items
+interface DraggableTagProps {
+  tag: string;
+  index: number;
+  moveTag: (dragIndex: number, hoverIndex: number) => void;
+  onRemove: () => void;
+  isPositive: boolean;
+}
+
+const DraggableTag: React.FC<DraggableTagProps> = ({ 
+  tag, 
+  index, 
+  moveTag, 
+  onRemove,
+  isPositive
+}) => {
+  const pan = useRef(new Animated.ValueXY()).current;
+  const [isDragging, setIsDragging] = useState(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        setIsDragging(true);
+        // Start the drag animation - make it more pronounced
+        Animated.timing(pan, {
+          toValue: { x: 0, y: -5 },
+          duration: 100,
+          useNativeDriver: true,
+        }).start();
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Update animated values
+        pan.setValue({ x: gestureState.dx, y: gestureState.dy });
+        
+        // Lower the threshold for movement to make it more responsive
+        const moveDistance = 20; // Reduced from 30
+        if (Math.abs(gestureState.dy) > moveDistance) {
+          // Calculate target index based on direction of movement
+          const direction = gestureState.dy > 0 ? 1 : -1;
+          const targetIndex = index + direction;
+          
+          // Perform the move if it's within bounds
+          moveTag(index, targetIndex);
+          
+          // Reset pan values after move
+          pan.setValue({ x: 0, y: 0 });
+        }
+      },
+      onPanResponderRelease: () => {
+        setIsDragging(false);
+        // Reset position with a smoother animation
+        Animated.spring(pan, {
+          toValue: { x: 0, y: 0 },
+          friction: 5,
+          useNativeDriver: true,
+        }).start();
+      },
+    })
+  ).current;
+
+  // Make the tag more visually responsive when dragging
+  return (
+    <Animated.View
+      {...panResponder.panHandlers}
+      style={[
+        isPositive ? styles.selectedPositiveTag : styles.selectedNegativeTag,
+        { 
+          transform: [{ translateX: pan.x }, { translateY: pan.y }],
+          elevation: isDragging ? 8 : 0, // Increased elevation for better visual feedback
+          zIndex: isDragging ? 1000 : 1,
+          shadowColor: "#000",
+          shadowOffset: isDragging ? { width: 0, height: 3 } : { width: 0, height: 0 },
+          shadowOpacity: isDragging ? 0.4 : 0,
+          shadowRadius: isDragging ? 5 : 0,
+          // Add scale effect when dragging
+          scaleX: isDragging ? 1.05 : 1,
+          scaleY: isDragging ? 1.05 : 1,
+        },
+        styles.draggableTag
+      ]}
+    >
+      <MaterialIcons name="drag-indicator" size={16} color={isPositive ? "#333" : "#ddd"} style={styles.dragHandle} />
+      <Text style={isPositive ? styles.tagText : styles.negativeTagText}>{tag}</Text>
+      <TouchableOpacity onPress={onRemove} style={styles.tagRemoveButton}>
+        <Ionicons 
+          name="close-circle" 
+          size={16} 
+          color={isPositive ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"} 
+        />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
 
 const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   visible,
   character,
   onClose,
-  onSuccess
+  onSuccess,
+  existingImageConfig
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [positiveTags, setPositiveTags] = useState<string[]>([]);
   const [negativeTags, setNegativeTags] = useState<string[]>([]);
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
   const [replaceBackground, setReplaceBackground] = useState(true);
-  const [replaceAvatar, setReplaceAvatar] = useState(false); // Change default to false
+  const [replaceAvatar, setReplaceAvatar] = useState(false);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -52,20 +157,31 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
   const [useExistingArtistPrompt, setUseExistingArtistPrompt] = useState(true);
   
-  // Add new state for custom prompt
+  // Add state for custom prompt
   const [customPrompt, setCustomPrompt] = useState('');
   const [useCustomPrompt, setUseCustomPrompt] = useState(false);
+  
+  // Add state for tag reordering
+  const [reorderingPositive, setReorderingPositive] = useState(false);
+  const [reorderingNegative, setReorderingNegative] = useState(false);
   
   // Reset state when modal opens
   useEffect(() => {
     if (visible) {
-      // If the character already has tags from previous generation, use them as defaults
-      if (character.generationData?.appearanceTags) {
-        // Preserve all original tags (don't filter out artist tags)
+      // First check if we have existing config passed in
+      if (existingImageConfig) {
+        setPositiveTags(existingImageConfig.positiveTags || []);
+        setNegativeTags(existingImageConfig.negativeTags || []);
+        setSelectedArtistPrompt(existingImageConfig.artistPrompt);
+        setUseExistingArtistPrompt(!!existingImageConfig.artistPrompt);
+        setCustomPrompt(existingImageConfig.customPrompt || '');
+        setUseCustomPrompt(existingImageConfig.useCustomPrompt || false);
+      }
+      // Otherwise use character generation data if available
+      else if (character.generationData?.appearanceTags) {
         setPositiveTags(character.generationData.appearanceTags.positive || []);
         setNegativeTags(character.generationData.appearanceTags.negative || []);
         
-        // Get artist prompt from character if available
         if (character.generationData.appearanceTags.artistPrompt) {
           setSelectedArtistPrompt(character.generationData.appearanceTags.artistPrompt);
           setUseExistingArtistPrompt(true);
@@ -77,19 +193,62 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         setNegativeTags([]);
         setSelectedArtistPrompt(null);
       }
+      
       setGeneratedImageUrl(null);
       setError(null);
       setIsLoading(false);
-      // Set defaults for both image replacement options
       setReplaceBackground(true);
-      setReplaceAvatar(false); // Default to false
-      // Reset custom prompt
-      setCustomPrompt('');
-      setUseCustomPrompt(false);
+      setReplaceAvatar(false);
+      if (!existingImageConfig) {
+        setCustomPrompt('');
+        setUseCustomPrompt(false);
+      }
+      
+      // Reset reordering state
+      setReorderingPositive(false);
+      setReorderingNegative(false);
     }
-  }, [visible, character]);
+  }, [visible, character, existingImageConfig]);
   
-  // Submit image generation request
+  // Function to move tags in the array (reordering)
+  const movePositiveTag = (fromIndex: number, toIndex: number) => {
+    // Prevent out of bounds moves
+    if (toIndex < 0 || toIndex >= positiveTags.length) return;
+    
+    // Create a copy of the array and move the item
+    const updatedTags = [...positiveTags];
+    const [movedItem] = updatedTags.splice(fromIndex, 1);
+    updatedTags.splice(toIndex, 0, movedItem);
+    
+    // Update state
+    setPositiveTags(updatedTags);
+  };
+  
+  const moveNegativeTag = (fromIndex: number, toIndex: number) => {
+    // Prevent out of bounds moves
+    if (toIndex < 0 || toIndex >= negativeTags.length) return;
+    
+    // Create a copy of the array and move the item
+    const updatedTags = [...negativeTags];
+    const [movedItem] = updatedTags.splice(fromIndex, 1);
+    updatedTags.splice(toIndex, 0, movedItem);
+    
+    // Update state
+    setNegativeTags(updatedTags);
+  };
+  
+  // Toggle reordering mode
+  const toggleReorderingPositive = () => {
+    setReorderingPositive(!reorderingPositive);
+    if (reorderingNegative) setReorderingNegative(false);
+  };
+  
+  const toggleReorderingNegative = () => {
+    setReorderingNegative(!reorderingNegative);
+    if (reorderingPositive) setReorderingPositive(false);
+  };
+
+  // Submit image generation request with updated config saving
   const submitImageGeneration = async () => {
     if (positiveTags.length === 0 && !useCustomPrompt) {
       Alert.alert('无法生成', '请至少添加一个正面标签来描述角色外观，或使用自定义提示词');
@@ -140,11 +299,11 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       const requestData = {
         prompt: positivePrompt,
         negative_prompt: negativePrompt,
-        model: 'nai-v4-full', // 默认使用NAI动漫v4完整版
+        model: 'nai-v4-full',
         sampler: 'k_euler_ancestral',
         steps: 28,
         scale: 11,
-        resolution: 'portrait', // 竖图，适合角色卡
+        resolution: 'portrait',
       };
       
       // 发送请求到服务器
@@ -166,6 +325,15 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       const taskId = data.task_id;
       console.log(`[图片重生成] 已提交任务，ID: ${taskId}`);
       
+      // Save generation configuration for future regeneration
+      const generationConfig = {
+        positiveTags: positiveTags,
+        negativeTags: negativeTags,
+        artistPrompt: selectedArtistPrompt,
+        customPrompt: customPrompt,
+        useCustomPrompt: useCustomPrompt
+      };
+      
       // Create a placeholder image record to track this generation task
       const placeholderImage: CharacterImage = {
         id: `img_${Date.now()}`,
@@ -179,17 +347,11 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         isFavorite: false,
         generationTaskId: taskId,
         generationStatus: 'pending',
-        // Save background flag but NOT avatar flag (we'll use the cropper for that)
         setAsBackground: replaceBackground,
-        // Don't set avatar flag automatically
         isAvatar: false,
+        // Add generation configuration
+        generationConfig: generationConfig
       };
-      
-      console.log(`[图片重生成] 创建待处理图片记录:`, {
-        id: placeholderImage.id,
-        status: placeholderImage.generationStatus,
-        taskId: placeholderImage.generationTaskId
-      });
       
       // Pass the placeholder to parent component
       onSuccess(placeholderImage);
@@ -197,8 +359,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       // Close the modal immediately after submitting the request
       onClose();
       
-      // 修改：在关闭后立即启动状态检查，而不是等待下一个刷新
-      // 这里我们使用setTimeout来确保模态窗口已经关闭，避免UI阻塞
+      // Start status check after closing
       setTimeout(() => {
         checkImageGenerationStatus(character.id, taskId, placeholderImage.id);
       }, 500);
@@ -301,6 +462,55 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   // Toggle custom prompt mode
   const toggleCustomPromptMode = (value: boolean) => {
     setUseCustomPrompt(value);
+  };
+
+  // Render tag list with reordering capabilities
+  const renderTagList = (tags: string[], isPositive: boolean, isReordering: boolean) => {
+    if (tags.length === 0) {
+      return <Text style={styles.noTagsText}>未选择{isPositive ? '正面' : '负面'}标签</Text>;
+    }
+    
+    return (
+      <View style={styles.tagsContainer}>
+        {tags.map((tag, index) => (
+          isReordering ? (
+            <DraggableTag
+              key={`${isPositive ? 'pos' : 'neg'}-${index}`}
+              tag={tag}
+              index={index}
+              moveTag={isPositive ? movePositiveTag : moveNegativeTag}
+              onRemove={() => {
+                if (isPositive) {
+                  setPositiveTags(currentTags => currentTags.filter((_, i) => i !== index));
+                } else {
+                  setNegativeTags(currentTags => currentTags.filter((_, i) => i !== index));
+                }
+              }}
+              isPositive={isPositive}
+            />
+          ) : (
+            <TouchableOpacity
+              key={`${isPositive ? 'pos' : 'neg'}-${index}`}
+              style={isPositive ? styles.selectedPositiveTag : styles.selectedNegativeTag}
+              onPress={() => {
+                if (isPositive) {
+                  setPositiveTags(tags => tags.filter(t => t !== tag));
+                } else {
+                  setNegativeTags(tags => tags.filter(t => t !== tag));
+                }
+              }}
+            >
+              <Text style={isPositive ? styles.tagText : styles.negativeTagText}>{tag}</Text>
+              <Ionicons 
+                name="close-circle" 
+                size={14} 
+                color={isPositive ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"} 
+              />
+            </TouchableOpacity>
+          )
+        ))}
+      </View>
+    );
   };
 
   return (
@@ -450,62 +660,86 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                   {/* Tag selection section - only show if not using custom prompt */}
                   {!useCustomPrompt && (
                     <View style={styles.tagSection}>
-                      {/* Tag summary */}
+                      {/* Tag summary with reordering feature */}
                       <View style={styles.tagSummaryContainer}>
-                        <Text style={styles.tagSectionTitle}>正面标签</Text>
-                        <View style={styles.tagsContainer}>
-                          {positiveTags.length > 0 ? (
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                              {positiveTags.map((tag, index) => (
-                                <TouchableOpacity
-                                  key={`pos-${index}`}
-                                  style={styles.selectedPositiveTag}
-                                  onPress={() => {
-                                    setPositiveTags(tags => tags.filter(t => t !== tag));
-                                  }}
-                                >
-                                  <Text style={styles.tagText}>{tag}</Text>
-                                  <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
-                                </TouchableOpacity>
-                              ))}
-                            </ScrollView>
-                          ) : (
-                            <Text style={styles.noTagsText}>未选择正面标签</Text>
+                        {/* Positive tags section header with reorder button */}
+                        <View style={styles.tagSectionHeader}>
+                          <Text style={styles.tagSectionTitle}>正面标签</Text>
+                          {positiveTags.length > 1 && (
+                            <TouchableOpacity 
+                              style={styles.reorderButton} 
+                              onPress={toggleReorderingPositive}
+                            >
+                              <Ionicons 
+                                name={reorderingPositive ? "checkmark-outline" : "reorder-three-outline"} 
+                                size={18} 
+                                color="#FFF" 
+                              />
+                              <Text style={styles.reorderButtonText}>
+                                {reorderingPositive ? "完成排序" : "重新排序"}
+                              </Text>
+                            </TouchableOpacity>
                           )}
                         </View>
                         
-                        <Text style={styles.tagSectionTitle}>负面标签</Text>
-                        <View style={styles.tagsContainer}>
-                          {negativeTags.length > 0 ? (
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                              {negativeTags.map((tag, index) => (
-                                <TouchableOpacity
-                                  key={`neg-${index}`}
-                                  style={styles.selectedNegativeTag}
-                                  onPress={() => {
-                                    setNegativeTags(tags => tags.filter(t => t !== tag));
-                                  }}
-                                >
-                                  <Text style={styles.negativeTagText}>{tag}</Text>
-                                  <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
-                                </TouchableOpacity>
-                              ))}
-                            </ScrollView>
-                          ) : (
-                            <Text style={styles.noTagsText}>未选择负面标签</Text>
+                        {/* Increase the size of the container when in reordering mode */}
+                        <View style={[
+                          styles.tagsContainer, 
+                          reorderingPositive && styles.tagsContainerReordering
+                        ]}>
+                          {/* Render tags with or without drag functionality */}
+                          {renderTagList(positiveTags, true, reorderingPositive)}
+                        </View>
+                        
+                        {/* Negative tags section header with reorder button */}
+                        <View style={styles.tagSectionHeader}>
+                          <Text style={styles.tagSectionTitle}>负面标签</Text>
+                          {negativeTags.length > 1 && (
+                            <TouchableOpacity 
+                              style={styles.reorderButton} 
+                              onPress={toggleReorderingNegative}
+                            >
+                              <Ionicons 
+                                name={reorderingNegative ? "checkmark-outline" : "reorder-three-outline"} 
+                                size={18} 
+                                color="#FFF" 
+                              />
+                              <Text style={styles.reorderButtonText}>
+                                {reorderingNegative ? "完成排序" : "重新排序"}
+                              </Text>
+                            </TouchableOpacity>
                           )}
+                        </View>
+                        
+                        <View style={[
+                          styles.tagsContainer,
+                          reorderingNegative && styles.tagsContainerReordering
+                        ]}>
+                          {renderTagList(negativeTags, false, reorderingNegative)}
                         </View>
                         
                         <Text style={styles.defaultTagsInfo}>
                           系统已添加默认的负面标签，以避免常见生成问题
                         </Text>
+                        
+                        {/* Add reordering instructions if active */}
+                        {(reorderingPositive || reorderingNegative) && (
+                          <View style={styles.reorderingInstructionsContainer}>
+                            <Text style={styles.reorderingInstructions}>
+                              <Ionicons name="information-circle" size={14} color="#70a1ff" /> 拖动标签调整顺序，前面的提示词权重更高
+                            </Text>
+                          </View>
+                        )}
                       </View>
                       
                       {/* Open tag selector button */}
                       <TouchableOpacity 
-                        style={styles.openTagSelectorButton}
+                        style={[
+                          styles.openTagSelectorButton,
+                          (reorderingPositive || reorderingNegative) && styles.disabledButton
+                        ]}
                         onPress={() => setTagSelectorVisible(true)}
-                        disabled={useCustomPrompt}
+                        disabled={reorderingPositive || reorderingNegative}
                       >
                         <Ionicons name="pricetag-outline" size={20} color="#fff" />
                         <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
@@ -517,8 +751,12 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 {/* Generate button */}
                 {!isLoading ? (
                   <TouchableOpacity 
-                    style={styles.generateButton}
+                    style={[
+                      styles.generateButton,
+                      (reorderingPositive || reorderingNegative) && styles.disabledButton
+                    ]}
                     onPress={submitImageGeneration}
+                    disabled={reorderingPositive || reorderingNegative}
                   >
                     <Ionicons name="image" size={20} color="#fff" />
                     <Text style={styles.generateButtonText}>生成图像</Text>
@@ -608,6 +846,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#222',
   },
+  tagSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   container: {
     flex: 1,
     backgroundColor: '#222',
@@ -683,36 +927,47 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     minHeight: 40,
     marginBottom: 12,
+    paddingHorizontal: 4, // Add horizontal padding to prevent edge issues
+  },
+  tagsContainerReordering: {
+    minHeight: 100, // Increase minimum height when reordering
+    backgroundColor: 'rgba(255, 255, 255, 0.03)', // Add subtle background to highlight area
+    borderRadius: 8,
+    paddingVertical: 12, // Add more vertical padding
+    paddingHorizontal: 8, // Add more horizontal padding
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 16, // Add more margin at the bottom
   },
   selectedPositiveTag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 224, 195, 0.8)',
     borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingVertical: 6, // Increased from 4
+    paddingHorizontal: 10, // Increased from 8
+    marginRight: 10, // Increased from 8
+    marginBottom: 10, // Increased from 8
   },
   selectedNegativeTag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 68, 68, 0.8)',
     borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingVertical: 6, // Increased from 4
+    paddingHorizontal: 10, // Increased from 8
+    marginRight: 10, // Increased from 8
+    marginBottom: 10, // Increased from 8
   },
   tagText: {
     color: '#000',
-    fontSize: 12,
-    marginRight: 4,
+    fontSize: 14, // Increased from 12
+    marginRight: 6, // Increased from 4
   },
   negativeTagText: {
     color: '#fff',
-    fontSize: 12,
-    marginRight: 4,
+    fontSize: 14, // Increased from 12
+    marginRight: 6, // Increased from 4
   },
   noTagsText: {
     color: '#aaa',
@@ -921,6 +1176,52 @@ const styles = StyleSheet.create({
   },
   tagSection: {
     marginBottom: 16,
+  },
+  // New styles for draggable tags
+  draggableTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 10, // Increased from 8
+    marginBottom: 10, // Increased from 8
+  },
+  dragHandle: {
+    marginRight: 6, // Increased from 4
+    padding: 2, // Add some padding to make it easier to grab
+  },
+  tagRemoveButton: {
+    padding: 4, // Add padding to make it easier to tap
+  },
+  reorderingInstructionsContainer: {
+    backgroundColor: 'rgba(112, 161, 255, 0.1)', // Light blue background
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 12,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  reorderingInstructions: {
+    color: '#70a1ff',
+    fontSize: 13, // Increased from 12
+    fontWeight: '500', // Added font weight to make it more visible
+    textAlign: 'center',
+  },
+  reorderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 144, 226, 0.3)',
+    borderRadius: 12,
+    paddingHorizontal: 10, // Increased from 8
+    paddingVertical: 6, // Increased from 4
+  },
+  reorderButtonText: {
+    color: '#fff',
+    fontSize: 13, // Increased from 12
+    marginLeft: 6, // Increased from 4
+    fontWeight: '500',
+  },
+  disabledButton: {
+    opacity: 0.5,
+    backgroundColor: '#666',
   },
 });
 
