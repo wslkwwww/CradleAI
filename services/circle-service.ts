@@ -220,11 +220,34 @@ export class CircleService {
           context += `\n请特别关注图片内容，优先对图片作出回应。`;
         }
       } else if (replyTo) {
-        // Reply to comment
-        context = `回复${replyTo.userName}的评论: ${comment}`;
+        // Enhanced: Reply to comment with better context including original post content
+        if (replyTo.userId === character.id) {
+          // User is replying to this character's comment
+          context = `在${post.characterName}发布的"${post.content}"帖子下，用户${replyTo.userName}回复了你的评论: "${comment}"`;
+        } else if (replyTo.userId === post.characterId) {
+          // User is replying to post author's comment
+          context = `在${post.characterName}发布的"${post.content}"帖子下，用户回复了帖子作者的评论: "${comment}"`;
+        } else {
+          // User is replying to another comment
+          context = `在${post.characterName}发布的"${post.content}"帖子下，用户回复了${replyTo.userName}的评论: "${comment}"`;
+        }
       } else {
         // Regular reply to post with image indication
         context = `回复${post.characterName}的朋友圈${imageInfo}: ${post.content}`;
+      }
+      
+      // Check interaction frequency if this is a character responding to another character
+      if (replyTo && replyTo.userId !== 'user-1' && character.id !== post.characterId) {
+        if (!this.checkInteractionLimits(character, replyTo.userId, 'comment')) {
+          console.log(`【朋友圈服务】角色 ${character.name} 已达到互动频率限制，跳过回复`);
+          return {
+            success: false,
+            error: `已达到互动频率限制`
+          };
+        }
+        
+        // Update interaction stats if we proceed
+        this.updateInteractionStats(character, replyTo.userId, 'comment');
       }
       
       // Create comment options with responderId
@@ -549,15 +572,31 @@ export class CircleService {
         `${author.name === '作家' ? '正在写一个新故事' : '遇到了一个有趣的人'}，让我感到很有灵感，想听听大家的经历。`
       ];
       
-      // 随机选择一个模板并生成内容
-      const content = postTemplates[Math.floor(Math.random() * postTemplates.length)];
+      // 随机选择一个模板作为提示词
+      const promptTemplate = postTemplates[Math.floor(Math.random() * postTemplates.length)];
       
       // 创建朋友圈帖子
-      const response = await this.createNewPost(author, content, apiKey);
+      const response = await this.createNewPost(author, promptTemplate, apiKey,);
       
       if (!response.success) {
         console.log(`【朋友圈服务】发布测试帖子失败: ${response.error}`);
         return { post: null, author: null };
+      }
+      
+      // 检查AI是否生成了帖子内容
+      let postContent = promptTemplate;
+      
+      // 优先使用AI生成的帖子内容
+      if (response.action?.comment) {
+        // AI返回的comment字段包含了生成的帖子内容
+        postContent = response.action.comment;
+        console.log(`【朋友圈服务】使用AI生成的帖子内容:`, postContent.substring(0, 30) + '...');
+      } else if (response.post) {
+        // 有些模型可能会使用post字段返回内容
+        postContent = response.post;
+        console.log(`【朋友圈服务】使用AI生成的帖子内容(from post字段):`, postContent.substring(0, 30) + '...');
+      } else {
+        console.log(`【朋友圈服务】AI未返回帖子内容，使用提示模板作为内容`);
       }
       
       // 构建帖子对象
@@ -566,7 +605,7 @@ export class CircleService {
         characterId: author.id,
         characterName: author.name,
         characterAvatar: author.avatar as string,
-        content: content,
+        content: postContent,
         createdAt: new Date().toISOString(),
         comments: [],
         likes: 0,
@@ -574,7 +613,7 @@ export class CircleService {
         hasLiked: false,
       };
       
-      console.log(`【朋友圈服务】成功发布测试帖子: "${content.substring(0, 30)}..."`);
+      console.log(`【朋友圈服务】成功发布测试帖子: "${postContent.substring(0, 30)}..."`);
       return { post: newPost, author };
     } catch (error) {
       console.error(`【朋友圈服务】发布测试帖子失败:`, error);

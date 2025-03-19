@@ -15,7 +15,7 @@ export interface CirclePost {
   hasLiked: boolean;
   likedBy?: CircleLike[];
   hasTriggeredResponse?: boolean;
-  isFavorited?: boolean;
+  isFavorited?: boolean; // Add new property for favorite status
 }
 
 export interface CircleComment {
@@ -104,20 +104,23 @@ export interface CirclePostOptions {
 
 export interface CircleResponse {
     success: boolean;
+    error?: string;
     action?: {
         like: boolean;
         comment?: string;
     };
-    error?: string;
+    emotion?: {
+        type: "positive" | "neutral" | "negative";
+        intensity: number;
+    };
     relationshipUpdates?: Array<{
         targetId: string;
         strengthDelta: number;
         newType?: string;
     }>;
-    emotion?: {
-        type: "positive" | "neutral" | "negative";
-        intensity: number;
-    };
+    reflection?: string;
+    expectation?: string;
+    post?: string;  // Add this field to handle new post content
 }
 
 export interface CircleMemorySystem {

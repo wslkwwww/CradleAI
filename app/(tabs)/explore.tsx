@@ -21,7 +21,7 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
-import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
 import { CirclePost, CircleComment, CircleLike, Character, Message } from '@/shared/types';
 import ForwardSheet from '@/components/ForwardSheet';
@@ -29,16 +29,11 @@ import TestResultsModal from '@/components/TestResultsModal';
 import { useUser } from '@/constants/UserContext';
 import { CircleService } from '@/services/circle-service';
 import { RelationshipAction } from '@/shared/types/relationship-types';
-import RelationshipActions from '@/components/RelationshipActions';
 import { ActionService } from '@/services/action-service';
-import CharacterSelector from '@/components/CharacterSelector';
-import EmptyState from '@/components/EmptyState';
 import RelationshipTestControls, { RelationshipTestOptions } from '@/components/RelationshipTestControls';
 import RelationshipTestResults, { RelationshipTestResult } from '@/components/RelationshipTestResults';
-import { RelationshipService, SocialInteraction, PostInteraction } from '@/services/relationship-service';
+import { RelationshipService,} from '@/services/relationship-service';
 import { Relationship } from '@/shared/types/relationship-types';
-import { format } from 'date-fns';
-import { ActionType } from '@/shared/types/relationship-types';
 import MessageBoxContent from '@/components/MessageBoxContent';
 import ActionCard from '@/components/ActionCard';
 import * as ImagePicker from 'expo-image-picker';
@@ -305,59 +300,36 @@ const Explore: React.FC = () => {
         return;
       }
 
-      // First try to load posts from AsyncStorage
-      try {
-        const storedPostsJson = await AsyncStorage.getItem('circle_posts');
-        if (storedPostsJson) {
-          const storedPosts = JSON.parse(storedPostsJson) as CirclePost[];
-          console.log(`【朋友圈】从存储加载了 ${storedPosts.length} 条帖子`);
-          
-          // Get fresh character data for avatars
-          const postsWithUpdatedAvatars = storedPosts.map(post => {
-            const character = characters.find(c => c.id === post.characterId);
-            return {
-              ...post,
-              characterAvatar: character?.avatar || post.characterAvatar
-            };
-          });
-          
-          setPosts(postsWithUpdatedAvatars);
-          return;
+      // Load posts from AsyncStorage and merge with character posts
+      const storedPosts = await CircleService.loadSavedPosts();
+      const refreshedPosts = await CircleService.refreshPosts(
+        characters,
+        storedPosts,
+        user?.settings?.chat?.characterApiKey,
+        {
+          apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+          openrouter: user?.settings?.chat?.openrouter
         }
-      } catch (storageError) {
-        console.error('【朋友圈】从存储加载帖子失败:', storageError);
-        // Continue with regular loading if storage fails
-      }
-
-      // Regular post loading logic from characters
-      const allPosts = characters.reduce((acc: CirclePost[], character) => {
-        if (character.circlePosts && Array.isArray(character.circlePosts)) {
-          const validPosts = character.circlePosts.filter(post => 
-            post && post.id && post.content && post.characterName
-          );
-          return [...acc, ...validPosts];
-        }
-        return acc;
-      }, []);
-
-      const sortedPosts = allPosts.sort((a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-
-      setPosts(sortedPosts);
       
-      // Save posts to AsyncStorage for persistence
-      await AsyncStorage.setItem('circle_posts', JSON.stringify(sortedPosts));
-      console.log(`【朋友圈】保存了 ${sortedPosts.length} 条帖子到存储`);
+      // Update favorite status for each post
+      const postsWithFavoriteStatus = refreshedPosts.map(post => {
+        const character = characters.find(c => c.id === post.characterId);
+        const isFavorited = character?.favoritedPosts?.includes(post.id) || false;
+        return { ...post, isFavorited };
+      });
+      
+      setPosts(postsWithFavoriteStatus);
+      console.log(`【朋友圈】加载了 ${postsWithFavoriteStatus.length} 条帖子`);
       
     } catch (err) {
-      console.error('【朋友圈测试】加载帖子失败:', err);
+      console.error('【朋友圈】加载帖子失败:', err);
       setError('加载动态失败，请重试');
     } finally {
       setIsLoading(false);
       setRefreshing(false);
     }
-  }, [characters, testModeEnabled, testPost]);
+  }, [characters, testModeEnabled, testPost, user?.settings?.chat]);
 
   // Add pull-to-refresh handler
   const onRefresh = useCallback(() => {
@@ -502,7 +474,8 @@ const Explore: React.FC = () => {
         content: commentText.trim(),
         createdAt: new Date().toISOString(),
         type: 'user',
-        replyTo: replyTo || undefined
+        replyTo: replyTo || undefined,
+        userAvatar: user?.avatar || undefined
       };
   
       // Update the post with the new comment immediately
@@ -520,12 +493,17 @@ const Explore: React.FC = () => {
       setReplyTo(null);
   
       // Save to AsyncStorage in the background
-      AsyncStorage.setItem('circle_posts', JSON.stringify(
-        posts.map(p => p.id === post.id ? updatedPost : p)
-      ));
+      try {
+        const allPosts = await CircleService.loadSavedPosts();
+        const updatedPosts = allPosts.map(p => p.id === post.id ? updatedPost : p);
+        await CircleService.savePosts(updatedPosts);
+      } catch (error) {
+        console.error('保存帖子到存储失败:', error);
+      }
       
       // Continue with character response handling
-      if (!replyTo && post.characterId !== 'user-1') {
+      // Only if this is a character's post (not a user post) and we're not replying to someone else
+      if (post.characterId !== 'user-1') {
         const character = characters.find(c => c.id === post.characterId);
         if (character) {
           // Process the interaction through CircleService
@@ -534,7 +512,7 @@ const Explore: React.FC = () => {
             post,
             commentText.trim(),
             user?.settings?.chat?.characterApiKey,
-            undefined,
+            replyTo || undefined, // Convert null to undefined
             {
               apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
               openrouter: user?.settings?.chat?.openrouter
@@ -566,18 +544,82 @@ const Explore: React.FC = () => {
             // Update posts state again without reloading
             setPosts(prevPosts => prevPosts.map(p => p.id === post.id ? updatedPost : p));
             
-            // Update AsyncStorage in the background
-            AsyncStorage.setItem('circle_posts', JSON.stringify(
-              posts.map(p => p.id === post.id ? updatedPost : p)
-            ));
+            // Save the updated post with character's response
+            try {
+              const allPosts = await CircleService.loadSavedPosts();
+              const updatedPosts = allPosts.map(p => p.id === post.id ? updatedPost : p);
+              await CircleService.savePosts(updatedPosts);
+            } catch (error) {
+              console.error('保存带角色回复的帖子到存储失败:', error);
+            }
+          }
+        }
+      }
+      
+      // Handle comment reply to character's comment (new feature)
+      if (replyTo && replyTo.userId !== 'user-1' && replyTo.userId !== post.characterId) {
+        // Find the commented character
+        const commentedCharacter = characters.find(c => c.id === replyTo.userId);
+        if (commentedCharacter) {
+          console.log(`【朋友圈】用户回复了角色 ${commentedCharacter.name} 的评论`);
+          
+          // Process the comment interaction
+          const response = await CircleService.processCommentInteraction(
+            commentedCharacter,
+            post,
+            commentText.trim(),
+            user?.settings?.chat?.characterApiKey,
+            {
+              userId: 'user-1',
+              userName: user?.settings?.self.nickname || 'Me'
+            },
+            {
+              apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+              openrouter: user?.settings?.chat?.openrouter
+            }
+          );
+          
+          if (response.success && response.action?.comment) {
+            // Add character's reply to the user's reply
+            const characterReply: CircleComment = {
+              id: String(Date.now() + 2),
+              userId: commentedCharacter.id,
+              userName: commentedCharacter.name,
+              userAvatar: commentedCharacter.avatar as string,
+              content: response.action.comment,
+              createdAt: new Date().toISOString(),
+              type: 'character',
+              replyTo: {
+                userId: 'user-1',
+                userName: user?.settings?.self.nickname || 'Me'
+              }
+            };
+            
+            // Update with the character's reply
+            updatedPost = {
+              ...updatedPost,
+              comments: [...updatedPost.comments, characterReply]
+            };
+            
+            // Update posts state again
+            setPosts(prevPosts => prevPosts.map(p => p.id === post.id ? updatedPost : p));
+            
+            // Save the updated post with character's reply
+            try {
+              const allPosts = await CircleService.loadSavedPosts();
+              const updatedPosts = allPosts.map(p => p.id === post.id ? updatedPost : p);
+              await CircleService.savePosts(updatedPosts);
+            } catch (error) {
+              console.error('保存带角色回复的帖子到存储失败:', error);
+            }
           }
         }
       }
     } catch (error) {
-      console.error('Error sending comment:', error);
+      console.error('发送评论失败:', error);
       Alert.alert('评论失败', '发送评论时出现错误');
     }
-  }, [activePostId, characters, commentText, posts, replyTo, updateCharacter, user]);
+  }, [activePostId, commentText, replyTo, characters, user, posts]);
 
   const handleReplyPress = useCallback((comment: CircleComment) => {
     setReplyTo({
@@ -679,10 +721,29 @@ const Explore: React.FC = () => {
   }, [activePostId]);
 
   const handleFavorite = useCallback(async (post: CirclePost) => {
-    const character = characters.find(c => c.id === post.characterId);
-    if (!character) return;
-    
-    await toggleFavorite(character.id, post.id);
+    try {
+      const character = characters.find(c => c.id === post.characterId);
+      if (!character) return;
+      
+      // Toggle favorite status
+      await toggleFavorite(character.id, post.id);
+      
+      // Update local posts state
+      setPosts(prevPosts => prevPosts.map(p => {
+        if (p.id === post.id) {
+          return { ...p, isFavorited: !p.isFavorited };
+        }
+        return p;
+      }));
+      
+      // Show feedback
+      const actionText = post.isFavorited ? '已取消收藏' : '已加入收藏';
+      console.log(`【朋友圈】${actionText}: ${post.characterName} 的帖子`);
+      
+    } catch (error) {
+      console.error('【朋友圈】收藏操作失败:', error);
+      Alert.alert('操作失败', '无法完成收藏操作');
+    }
   }, [characters, toggleFavorite]);
 
   // Toggle test mode and run the test

@@ -687,7 +687,6 @@ ${options.content.context ? `【上下文】${options.content.context}` : ''}
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
-  }
 }
 
 确保内容符合你的角色人设，展现出你独特的性格和表达方式。`;
@@ -899,24 +898,25 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
             
             const extractedJson = this.extractJson(response);
             if (!extractedJson) {
-                throw new Error('未能从AI回复中提取有效数据');
+                throw new Error('无法从响应中提取JSON');
             }
 
             console.log('【朋友圈】成功提取JSON:', extractedJson);
             
             // Handle different response formats based on what fields exist in the JSON
             if (extractedJson.post) {
-                // This is a post creation response format
+                // 处理新帖子创建的返回格式
                 return {
                     success: true,
+                    post: extractedJson.post,
                     action: {
-                        like: false, // No like for own post
+like: false, // No like for own post
                         comment: extractedJson.post // Use post content as comment
                     },
                     emotion: extractedJson.emotion // Preserve emotion data
                 };
             } else if (extractedJson.action) {
-                // This is a standard interaction response format
+                // 处理标准的互动响应格式
                 return {
                     success: true,
                     action: {
@@ -926,7 +926,7 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                     emotion: extractedJson.emotion
                 };
             } else if (extractedJson.reflection) {
-                // This is a reflection response (for self-post viewing)
+                // 处理反思格式
                 return {
                     success: true,
                     action: {
@@ -941,14 +941,14 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
             if (typeof extractedJson === 'object' && extractedJson !== null) {
                 // Look for any useful fields we might use
                 const possibleComment = 
-                    extractedJson.comment || 
-                    extractedJson.content || 
+extractedJson.comment || 
+extractedJson.content || 
                     extractedJson.message || 
-                    extractedJson.text;
+extractedJson.text;
                     
                 return {
                     success: true,
-                    action: {
+action: {
                         like: Boolean(extractedJson.like || false),
                         comment: typeof possibleComment === 'string' ? possibleComment : undefined
                     }

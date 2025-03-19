@@ -185,7 +185,7 @@ export interface Character {
   generatedCharacterId?: string;
   isCradleGenerated?: boolean;
   cradleCharacterId?: string; // Reference to a Cradle character if this character was generated from one
-  
+  favoritedPosts?: string[];
   // Custom user name that the character will use to address the user
   customUserName?: string;
   

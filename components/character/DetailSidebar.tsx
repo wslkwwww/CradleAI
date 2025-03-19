@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,18 @@ import {
   Dimensions,
   Keyboard,
   Switch,
-  Platform
+  Platform,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  BackHandler,
+  ViewStyle,
+  FlatList,
+  Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import Slider from '@react-native-community/slider';
+import TextEditorModal from '../common/TextEditorModal';
 
 interface DetailSidebarProps {
   isVisible: boolean;
@@ -49,9 +56,12 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
   const [localContent, setLocalContent] = useState(content);
   const [localName, setLocalName] = useState(name || '');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  
-  // Add local state to track option changes and ensure immediate UI updates
+  const [keyboardShown, setKeyboardShown] = useState(false);
   const [localOptions, setLocalOptions] = useState(entryOptions || {});
+  const [showTextEditor, setShowTextEditor] = useState(false);
+  
+  const translateYValue = useRef(new Animated.Value(0)).current;
+  const textInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     setLocalContent(content);
@@ -60,43 +70,83 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
   }, [content, name, entryOptions]);
 
   useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      'keyboardWillShow',
+      (event) => {
+        const keyboardHeight = event.endCoordinates.height;
+        setKeyboardHeight(keyboardHeight);
+        setKeyboardShown(true);
+        
+        Animated.timing(translateYValue, {
+          toValue: -keyboardHeight / 2,
+          duration: 250,
+          useNativeDriver: true
+        }).start();
+      }
+    );
+    
     const keyboardDidShowListener = Keyboard.addListener(
       'keyboardDidShow',
       (event) => {
-        setKeyboardHeight(event.endCoordinates.height);
+        const keyboardHeight = event.endCoordinates.height;
+        setKeyboardHeight(keyboardHeight);
+        setKeyboardShown(true);
       }
     );
+    
+    const keyboardWillHideListener = Keyboard.addListener(
+      'keyboardWillHide',
+      () => {
+        setKeyboardHeight(0);
+        setKeyboardShown(false);
+        
+        Animated.timing(translateYValue, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true
+        }).start();
+      }
+    );
+    
     const keyboardDidHideListener = Keyboard.addListener(
       'keyboardDidHide',
       () => {
         setKeyboardHeight(0);
+        setKeyboardShown(false);
       }
     );
 
     return () => {
+      keyboardWillShowListener.remove();
       keyboardDidShowListener.remove();
+      keyboardWillHideListener.remove();
       keyboardDidHideListener.remove();
     };
-  }, []);
+  }, [translateYValue]);
 
-  const handleSave = () => {
-    if (onContentChange) {
-      onContentChange(localContent);
+  useEffect(() => {
+    if (isVisible) {
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (isVisible) {
+          onClose();
+          return true;
+        }
+        return false;
+      });
+      
+      return () => {
+        backHandler.remove();
+      };
     }
-    if (onNameChange && name !== undefined) {
-      onNameChange(localName);
-    }
-    onClose();
-  };
+  }, [isVisible, onClose]);
 
-  // Update local options and call onOptionsChange
-  const handleOptionsChange = (updates: any) => {
+  const handleOptionsChange = useCallback((updates: any) => {
     const newOptions = { ...localOptions, ...updates };
     setLocalOptions(newOptions);
     if (onOptionsChange) {
       onOptionsChange(newOptions);
     }
-  };
+  }, [localOptions, onOptionsChange]);
 
   const handleUpdateSlider = useCallback((value: number) => {
     if (entryType === 'worldbook' && localOptions.position === 4) {
@@ -109,6 +159,37 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
       handleOptionsChange({ injection_depth: value });
     }
   }, [entryType, localOptions, handleOptionsChange]);
+
+  const handleSaveWithKeyboardDismiss = useCallback(() => {
+    Keyboard.dismiss();
+    setTimeout(() => {
+      if (onContentChange) {
+        onContentChange(localContent);
+      }
+      if (onNameChange && name !== undefined) {
+        onNameChange(localName);
+      }
+      onClose();
+    }, 100);
+  }, [localContent, localName, onContentChange, onNameChange, name, onClose]);
+
+  const handleCloseWithKeyboardDismiss = useCallback(() => {
+    Keyboard.dismiss();
+    setTimeout(() => {
+      onClose();
+    }, 100);
+  }, [onClose]);
+
+  const handleTextInputFocus = useCallback(() => {
+  }, []);
+
+  const handleTextPress = useCallback(() => {
+    setShowTextEditor(true);
+  }, []);
+
+  const handleTextSave = useCallback((newText: string) => {
+    setLocalContent(newText);
+  }, []);
 
   const renderEntryOptions = () => {
     if (!entryType || !localOptions) return null;
@@ -319,63 +400,80 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
       visible={isVisible}
       animationType="slide"
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={handleCloseWithKeyboardDismiss}
+      supportedOrientations={['portrait', 'landscape']}
     >
       <BlurView intensity={20} tint="dark" style={styles.container}>
-        <View style={[styles.content, { marginBottom: keyboardHeight }]}>
-          <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
-            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
-          {name !== undefined && (
-            <View style={styles.nameContainer}>
-              <Text style={styles.nameLabel}>名称:</Text>
-              <TextInput
-                style={styles.nameInput}
-                value={localName}
-                onChangeText={setLocalName}
-                editable={editable}
-                placeholder="输入名称..."
-                placeholderTextColor="#999"
-              />
-            </View>
-          )}
-
-          {renderEntryOptions()}
-
-          <ScrollView style={styles.scrollContainer}>
-            <TextInput
-              style={styles.textInput}
-              value={localContent}
-              onChangeText={setLocalContent}
-              multiline={true}
-              editable={editable}
-              placeholder="在此输入文本..."
-              placeholderTextColor="#999"
-              textAlignVertical="top"
-            />
-          </ScrollView>
-
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={[styles.button, styles.cancelButton]}
-              onPress={onClose}
-            >
-              <Text style={styles.buttonText}>取消</Text>
-            </TouchableOpacity>
-            {editable && (
-              <TouchableOpacity
-                style={[styles.button, styles.saveButton]}
-                onPress={handleSave}
+        <Animated.View 
+          style={[
+            styles.modalWrapper,
+            { transform: [{ translateY: translateYValue }] }
+          ]}
+        >
+          <View style={styles.content}>
+            <View style={styles.header}>
+              <Text style={styles.title}>{title}</Text>
+              <TouchableOpacity 
+                style={styles.closeButton} 
+                onPress={handleCloseWithKeyboardDismiss}
               >
-                <Text style={styles.buttonText}>保存</Text>
+                <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
+            </View>
+
+            {name !== undefined && (
+              <View style={styles.nameContainer}>
+                <Text style={styles.nameLabel}>名称:</Text>
+                <TextInput
+                  style={styles.nameInput}
+                  value={localName}
+                  onChangeText={setLocalName}
+                  editable={editable}
+                  placeholder="输入名称..."
+                  placeholderTextColor="#999"
+                />
+              </View>
             )}
+
+            {renderEntryOptions()}
+
+            <View style={styles.scrollContainer}>
+              <TouchableOpacity 
+                style={styles.textPreview} 
+                onPress={handleTextPress}
+                disabled={!editable}
+              >
+                <Text style={styles.textPreviewContent} numberOfLines={0}>
+                  {localContent || '点击编辑文本...'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity
+                style={[styles.button, styles.cancelButton]}
+                onPress={handleCloseWithKeyboardDismiss}
+              >
+                <Text style={styles.buttonText}>取消</Text>
+              </TouchableOpacity>
+              {editable && (
+                <TouchableOpacity
+                  style={[styles.button, styles.saveButton]}
+                  onPress={handleSaveWithKeyboardDismiss}
+                >
+                  <Text style={styles.buttonText}>保存</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TextEditorModal
+              isVisible={showTextEditor}
+              onClose={() => setShowTextEditor(false)}
+              onSave={handleTextSave}
+              initialText={localContent}
+            />
           </View>
-        </View>
+        </Animated.View>
       </BlurView>
     </Modal>
   );
@@ -384,17 +482,40 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  modalWrapper: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: Platform.OS === 'ios' ? 0 : 20,
   },
   content: {
     width: width * 0.9,
     maxWidth: 500,
     height: '80%',
+    maxHeight: 600,
     backgroundColor: '#333',
     borderRadius: 10,
     overflow: 'hidden',
-    paddingBottom: Platform.OS === 'ios' ? 20 : 0,
+    flexDirection: 'column',
+  },
+  scrollContainer: {
+    flex: 1,
+    minHeight: 200,
+  },
+  textPreview: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#444',
+    borderRadius: 8,
+    margin: 16,
+  },
+  textPreviewContent: {
+    color: '#fff',
+    fontSize: 16,
   },
   header: {
     flexDirection: 'row',
@@ -432,22 +553,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#444',
     borderRadius: 4,
   },
-  scrollContainer: {
-    flex: 1,
-  },
-  textInput: {
-    flex: 1,
-    color: '#fff',
-    padding: 16,
-    fontSize: 16,
-    minHeight: 200,
-  },
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: '#444',
+    backgroundColor: '#333',
+  },
+  buttonContainerWithKeyboard: {
+    borderTopWidth: 1,
+    borderTopColor: '#444',
+    backgroundColor: '#333',
   },
   button: {
     paddingVertical: 8,

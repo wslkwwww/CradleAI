@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Image,
-  TouchableOpacity,
   StyleSheet,
+  Modal,
+  TouchableOpacity,
   Dimensions,
-  SafeAreaView,
   StatusBar,
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -28,6 +28,18 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
 
+  const handlePrev = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  };
+
+  const handleNext = () => {
+    if (currentIndex < images.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  };
+
   return (
     <Modal
       visible={isVisible}
@@ -35,15 +47,13 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <StatusBar hidden />
       <SafeAreaView style={styles.container}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={onClose}
-        >
+        <StatusBar hidden />
+        
+        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
           <Ionicons name="close" size={28} color="#fff" />
         </TouchableOpacity>
-
+        
         <View style={styles.imageContainer}>
           <Image
             source={{ uri: images[currentIndex] }}
@@ -51,25 +61,32 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
             resizeMode="contain"
           />
         </View>
-
+        
         {images.length > 1 && (
           <View style={styles.navigation}>
             {currentIndex > 0 && (
-              <TouchableOpacity
-                style={[styles.navButton, styles.prevButton]}
-                onPress={() => setCurrentIndex(prev => prev - 1)}
-              >
-                <Ionicons name="chevron-back" size={30} color="#fff" />
+              <TouchableOpacity style={styles.navButton} onPress={handlePrev}>
+                <Ionicons name="chevron-back" size={36} color="#fff" />
               </TouchableOpacity>
             )}
+            
             {currentIndex < images.length - 1 && (
-              <TouchableOpacity
-                style={[styles.navButton, styles.nextButton]}
-                onPress={() => setCurrentIndex(prev => prev + 1)}
-              >
-                <Ionicons name="chevron-forward" size={30} color="#fff" />
+              <TouchableOpacity style={styles.navButton} onPress={handleNext}>
+                <Ionicons name="chevron-forward" size={36} color="#fff" />
               </TouchableOpacity>
             )}
+          </View>
+        )}
+        
+        {/* Image counter */}
+        {images.length > 1 && (
+          <View style={styles.counter}>
+            <View style={styles.counterContainer}>
+              <Ionicons name="images-outline" size={16} color="#fff" />
+              <View style={styles.counterText}>
+                {`${currentIndex + 1} / ${images.length}`}
+              </View>
+            </View>
           </View>
         )}
       </SafeAreaView>
@@ -81,16 +98,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+    justifyContent: 'center',
   },
   closeButton: {
     position: 'absolute',
-    top: 40,
+    top: 20,
     right: 20,
     zIndex: 10,
     padding: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   imageContainer: {
-    flex: 1,
+    width,
+    height,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -100,25 +121,34 @@ const styles = StyleSheet.create({
   },
   navigation: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 10,
   },
   navButton: {
-    padding: 20,
+    padding: 10,
+    borderRadius: 25,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
-  prevButton: {
-    borderTopRightRadius: 25,
-    borderBottomRightRadius: 25,
+  counter: {
+    position: 'absolute',
+    bottom: 30,
+    width: '100%',
+    alignItems: 'center',
   },
-  nextButton: {
-    borderTopLeftRadius: 25,
-    borderBottomLeftRadius: 25,
+  counterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  counterText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontSize: 14,
   },
 });
 

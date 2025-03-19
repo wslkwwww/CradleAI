@@ -4,11 +4,10 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { WorldBookEntryUI, PresetEntryUI } from '@/constants/types';
-import { AuthorNoteJson } from '@/shared/types';
 
 // WorldBookSection Component
 interface WorldBookSectionProps {
@@ -36,6 +35,32 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
   onViewDetail,
   onReorder
 }) => {
+  // Add a handler for entry press with delayed execution
+  const handleEntryPress = useCallback((entry: WorldBookEntryUI) => {
+    // Dismiss keyboard first if it's showing
+    Keyboard.dismiss();
+    
+    // Use setTimeout to ensure touch events are fully processed
+    setTimeout(() => {
+      onViewDetail(
+        entry.name || '世界书条目',
+        entry.content,
+        (text) => onUpdate(entry.id, { content: text }),
+        true,
+        'worldbook',
+        {
+          position: entry.position,
+          disable: entry.disable,
+          constant: entry.constant,
+          depth: entry.depth,
+        },
+        (options) => onUpdate(entry.id, options),
+        entry.name,
+        (name) => onUpdate(entry.id, { name })
+      );
+    }, 100);
+  }, [onViewDetail, onUpdate]);
+
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -58,24 +83,8 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
                 styles.entryItem,
                 entry.disable && styles.disabledEntry
               ]}
-              onPress={() => {
-                onViewDetail(
-                  entry.name || '世界书条目',
-                  entry.content,
-                  (text) => onUpdate(entry.id, { content: text }),
-                  true,
-                  'worldbook',
-                  {
-                    position: entry.position,
-                    disable: entry.disable,
-                    constant: entry.constant,
-                    depth: entry.depth,
-                  },
-                  (options) => onUpdate(entry.id, options),
-                  entry.name,
-                  (name) => onUpdate(entry.id, { name })
-                );
-              }}
+              activeOpacity={0.7}
+              onPress={() => handleEntryPress(entry)}
             >
               <View style={styles.entryHeader}>
                 <Text style={styles.entryTitle}>

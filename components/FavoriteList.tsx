@@ -1,199 +1,305 @@
-import React, { useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
+  FlatList,
   TouchableOpacity,
   Image,
-  SafeAreaView,
+  Dimensions,
+  ActivityIndicator,
+  Modal,
 } from 'react-native';
-import { CirclePost } from '@/shared/types';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { CirclePost, CircleComment } from '@/shared/types';
+import { useCharacters } from '@/constants/CharactersContext';
+
+const { width } = Dimensions.get('window');
+const CARD_WIDTH = width - 32;
+const AVATAR_SIZE = 40;
 
 interface FavoriteListProps {
   posts: CirclePost[];
   onClose: () => void;
-  onUpdatePost: (post: CirclePost) => void;
+  onUpdatePost?: (updatedPost: CirclePost) => void;
 }
 
-const FavoriteList: React.FC<FavoriteListProps> = ({
-  posts,
-  onClose,
-  onUpdatePost,
-}) => {
-  const favoritePosts = useMemo(() => 
-    posts.filter(post => post.isFavorited),
-    [posts]
-  );
+const FavoriteList: React.FC<FavoriteListProps> = ({ posts, onClose, onUpdatePost }) => {
+  const { characters, toggleFavorite } = useCharacters();
+  const [favoritePosts, setFavoritePosts] = useState<CirclePost[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const renderItem = ({ item }: { item: CirclePost }) => (
-    <View style={styles.postCard}>
-      <View style={styles.postHeader}>
-        <Image
-          source={
-            item.characterAvatar
-              ? { uri: item.characterAvatar }
-              : require('@/assets/images/default-avatar.png')
-          }
-          style={styles.avatar}
-        />
-        <View style={styles.postInfo}>
-          <Text style={styles.authorName}>{item.characterName}</Text>
-          <Text style={styles.timestamp}>
-            {new Date(item.createdAt).toLocaleString()}
-          </Text>
-        </View>
-      </View>
+  // Filter favorite posts
+  useEffect(() => {
+    const filtered = posts.filter(post => post.isFavorited);
+    setFavoritePosts(filtered);
+    setIsLoading(false);
+  }, [posts]);
 
-      <Text style={styles.content}>{item.content}</Text>
+  // Handle unfavorite
+  const handleUnfavorite = useCallback(async (post: CirclePost) => {
+    try {
+      // Find the corresponding character
+      const character = characters.find(c => c.id === post.characterId);
+      if (!character) return;
+      
+      // Toggle favorite status
+      await toggleFavorite(character.id, post.id);
+      
+      // Update local state
+      const updatedPost = { ...post, isFavorited: false };
+      setFavoritePosts(prevPosts => prevPosts.filter(p => p.id !== post.id));
+      
+      // Notify parent component
+      if (onUpdatePost) {
+        onUpdatePost(updatedPost);
+      }
+    } catch (error) {
+      console.error('Failed to unfavorite post:', error);
+    }
+  }, [characters, toggleFavorite, onUpdatePost]);
 
-      {item.images && item.images.length > 0 && (
-        <View style={styles.imagesContainer}>
-          {item.images.map((image, index) => (
-            <Image
-              key={index}
-              source={{ uri: image }}
-              style={styles.thumbnail}
-            />
-          ))}
-        </View>
-      )}
-
-      <View style={styles.postFooter}>
-        <Text style={styles.statsText}>
-          {item.likes} 赞 · {item.comments?.length || 0} 评论
+  // Render a comment
+  const renderComment = useCallback((comment: CircleComment) => (
+    <View key={comment.id} style={styles.comment}>
+      <Image
+        source={comment.userAvatar ? { uri: comment.userAvatar } : require('@/assets/images/default-avatar.png')}
+        style={styles.commentAvatar}
+      />
+      <View style={styles.commentContent}>
+        <Text style={styles.commentAuthor}>{comment.userName}</Text>
+        <Text style={styles.commentText}>
+          {comment.replyTo && <Text style={styles.replyText}>回复 {comment.replyTo.userName}：</Text>}
+          {comment.content}
         </Text>
-        <TouchableOpacity
-          onPress={() => {
-            const updatedPost = { ...item, isFavorited: false };
-            onUpdatePost(updatedPost);
-          }}
+      </View>
+    </View>
+  ), []);
+
+  // Render a post
+  const renderPost = useCallback(({ item }: { item: CirclePost }) => (
+    <View style={styles.card} key={item.id}>
+      <View style={styles.cardHeader}>
+        <Image
+          source={item.characterAvatar ? { uri: item.characterAvatar } : require('@/assets/images/default-avatar.png')}
+          style={styles.authorAvatar}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.authorName}>{item.characterName}</Text>
+          <Text style={styles.timestamp}>{new Date(item.createdAt).toLocaleString()}</Text>
+        </View>
+        
+        <TouchableOpacity 
+          style={styles.favoriteButton}
+          onPress={() => handleUnfavorite(item)}
         >
           <Ionicons name="bookmark" size={24} color="#FFD700" />
         </TouchableOpacity>
       </View>
+
+      <Text style={styles.content}>{item.content}</Text>
+      
+      {/* Show images if available */}
+      {item.images && item.images.length > 0 && (
+        <View style={styles.imagesContainer}>
+          {item.images.map((image, index) => (
+            <Image key={index} source={{ uri: image }} style={styles.contentImage} />
+          ))}
+        </View>
+      )}
+
+      {/* Show likes */}
+      {item.likes > 0 && (
+        <View style={styles.likesContainer}>
+          <Ionicons name="heart" size={16} color="#FF9ECD" style={styles.likeIcon} />
+          <Text style={styles.likeCount}>{item.likes} 赞</Text>
+        </View>
+      )}
+
+      {/* Show comments */}
+      {item.comments?.map(renderComment)}
     </View>
-  );
+  ), [handleUnfavorite, renderComment]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>收藏夹</Text>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <Ionicons name="close" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        data={favoritePosts}
-        renderItem={renderItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={() => (
+    <View style={styles.modalContainer}>
+      <View style={styles.modalContent}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>收藏夹</Text>
+          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#FF9ECD" />
+            <Text style={styles.loadingText}>加载中...</Text>
+          </View>
+        ) : favoritePosts.length > 0 ? (
+          <FlatList
+            data={favoritePosts}
+            renderItem={renderPost}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.listContainer}
+          />
+        ) : (
           <View style={styles.emptyContainer}>
             <Ionicons name="bookmark-outline" size={64} color="#666" />
-            <Text style={styles.emptyText}>暂无收藏的帖子</Text>
+            <Text style={styles.emptyText}>暂无收藏内容</Text>
+            <Text style={styles.emptySubText}>收藏的朋友圈会显示在这里</Text>
           </View>
         )}
-      />
-    </SafeAreaView>
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  modalContainer: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '100%',
+    height: '100%',
     backgroundColor: '#282828',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 16,
+    backgroundColor: 'rgba(51, 51, 51, 0.95)',
     borderBottomWidth: 1,
-    borderBottomColor: '#444',
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
-  title: {
+  headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
   },
   closeButton: {
-    padding: 8,
+    padding: 4,
   },
-  listContent: {
-    padding: 16,
-  },
-  postCard: {
-    backgroundColor: '#333',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  postHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
-  },
-  postInfo: {
+  loadingContainer: {
     flex: 1,
-  },
-  authorName: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  timestamp: {
-    color: '#999',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  content: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  imagesContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-  },
-  thumbnail: {
-    width: 80,
-    height: 80,
-    borderRadius: 4,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  postFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#444',
-    paddingTop: 12,
   },
-  statsText: {
-    color: '#999',
-    fontSize: 14,
+  loadingText: {
+    color: '#fff',
+    marginTop: 12,
+    fontSize: 16,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    padding: 20,
   },
   emptyText: {
-    color: '#666',
-    fontSize: 16,
+    color: '#fff',
+    fontSize: 18,
     marginTop: 16,
+  },
+  emptySubText: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  listContainer: {
+    padding: 16,
+  },
+  card: {
+    width: CARD_WIDTH,
+    backgroundColor: 'rgba(51, 51, 51, 0.95)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  authorAvatar: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    marginRight: 8,
+  },
+  authorName: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  timestamp: {
+    color: '#777777',
+    fontSize: 12,
+  },
+  content: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  favoriteButton: {
+    padding: 8,
+  },
+  likesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  likeIcon: {
+    marginRight: 6,
+  },
+  likeCount: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  comment: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#444',
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  commentContent: {
+    flex: 1,
+  },
+  commentAuthor: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  commentText: {
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  replyText: {
+    color: '#FF9ECD',
+    fontWeight: 'bold',
+    marginRight: 4,
+  },
+  imagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginVertical: 8,
+  },
+  contentImage: {
+    width: (CARD_WIDTH - 32) / 2,
+    height: 120,
+    borderRadius: 8,
+    margin: 4,
   },
 });
 

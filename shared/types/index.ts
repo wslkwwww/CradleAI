@@ -1,3 +1,4 @@
+import { CirclePost } from '@/shared/types/circle-types';
 export interface OpenRouterModel {
   id: string;
   name: string;
@@ -59,7 +60,6 @@ export interface User {
   settings: GlobalSettings;
 }
 
-
 export interface RegexTool {
   id: string;
   name: string;
@@ -67,4 +67,18 @@ export interface RegexTool {
   replacement: string;
   target: 'ai' | 'user';
   enabled: boolean;
+}
+
+export interface Character {
+  // Add these new properties for circle functionality
+  circlePosts?: CirclePost[];
+  circleInteraction?: boolean;
+  circleInteractionFrequency?: 'low' | 'medium' | 'high';
+  circlePostFrequency?: 'low' | 'medium' | 'high';
+  circleStats?: {
+    repliedToCharacters: Record<string, number>;
+    repliedToPostsCount: number;
+    repliedToCommentsCount: Record<string, number>;
+  };
+  favoritedPosts?: string[]; // Add this array to store favorited post IDs
 }

@@ -8,7 +8,6 @@ import {
   StatusBar,
   Alert,
   StyleSheet,
-  ActivityIndicator,
   Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -26,9 +25,6 @@ import {
 import { WorldBookEntryUI, PresetEntryUI } from '@/constants/types';
 import { BlurView } from 'expo-blur';
 import { theme } from '@/constants/theme';
-import { Ionicons } from '@expo/vector-icons';
-
-// Import our new components
 import CharacterDetailHeader from '@/components/character/CharacterDetailHeader';
 import CharacterAttributeEditor from '@/components/character/CharacterAttributeEditor';
 import LoadingIndicator from '@/components/LoadingIndicator';
@@ -36,13 +32,11 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import ActionButton from '@/components/ActionButton';
 import DetailSidebar from '@/components/character/DetailSidebar';
 
-// Import existing components that we'll continue to use
 import { 
   WorldBookSection,
   PresetSection,
   AuthorNoteSection
 } from '@/components/character/CharacterSections';
-import { POSITION_OPTIONS } from '@/components/character/CharacterFormComponents';
 
 // Update the DEFAULT_PRESET_ENTRIES to include all required properties
 const DEFAULT_PRESET_ENTRIES = {

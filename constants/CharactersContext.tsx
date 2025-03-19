@@ -650,8 +650,8 @@ const updateCharacter = async (character: Character) => {
   };
 
   const toggleFavorite = async (characterId: string, postId: string) => {
-    const character = characters.find(c => c.id === characterId);
-    if (!character) return;
+        const character = characters.find(c => c.id === characterId);
+      if (!character) return;
   
     // 创建更新后的角色对象，确保 circlePosts 存在
     if (!character.circlePosts) {
@@ -665,13 +665,13 @@ const updateCharacter = async (character: Character) => {
     // 创建更新后的帖子对象
     const post = character.circlePosts[postIndex];
     const isFavorited = !post.isFavorited;
-  
-    // 更新帖子的收藏状态
-    character.circlePosts = character.circlePosts.map(p =>
-      p.id === postId ? { ...p, isFavorited } : p
-    );
-  
-    // 更新收藏列表
+      
+      // 更新帖子的收藏状态
+character.circlePosts = character.circlePosts.map(p => 
+        p.id === postId ? { ...p, isFavorited } : p
+      );
+      
+      // 更新收藏列表
     if (isFavorited) {
       setFavorites(prev => [...prev, post]);
     } else {
