@@ -3,6 +3,7 @@
 2025-0305: 合并了nodest/types下的types文件，到shared/types文件中。
 2025-0306: 增强了角色创建流程，优化了D类条目插入规则，实现了摇篮角色生成系统。
 2025-0307: 实现了记忆总结功能，在长对话中自动总结历史记录，减轻LLM记忆衰退问题。
+2025-0308: 修复了对话历史恢复功能，解决了读取保存点后重复框架问题。
 
 # NodeST 架构文档
 
@@ -128,7 +129,63 @@ NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功�
 - 配置总结长度（500-2000字符）
 - 设置说明和帮助文本
 
+## 保存点系统和历史恢复
 
+### 1. 概述
+
+保存点系统允许用户在对话过程中创建保存点，以便稍后恢复对话状态。这个系统不仅保存了UI显示的消息，还保存了完整的NodeST内部聊天历史，确保恢复后的对话可以无缝继续。
+
+### 2. 保存点数据结构
+
+保存点包含以下数据：
+```typescript
+interface ChatSave {
+  id: string;                   // 唯一ID
+  conversationId: string;       // 对话ID
+  characterId: string;          // 角色ID
+  timestamp: number;            // 创建时间戳
+  description: string;          // 用户描述
+  messages: Message[];          // UI消息副本
+  nodestChatHistory?: ChatHistoryEntity; // NodeST聊天历史
+  previewText: string;          // 预览文本
+}
+```
+
+### 3. 保存点恢复流程
+
+1. **用户界面恢复**：
+   - 用户在SaveManager中选择要恢复的保存点
+   - SaveManager预览保存的对话状态
+   - 用户确认恢复选定的保存点
+
+2. **NodeST内部恢复**：
+   - 首先恢复NodeST的内部聊天历史状态
+   - 同时更新框架内容，确保D类条目正确注入
+   - 避免框架重复插入请求中
+
+3. **恢复关键优化**：
+   - 在`NodeSTCore.restoreChatHistory`中添加框架同步
+   - 在`NodeSTCore.processChat`中检测并移除重复的聊天历史条目
+   - 使用现有框架而不是每次都重建框架
+
+### 4. 框架同步机制
+
+为解决框架重复问题，进行了以下优化：
+
+1. **框架/历史同步**：
+   - 恢复历史时同时更新框架的聊天历史部分
+   - 保持框架和聊天历史的一致性
+   - 使用直接AsyncStorage操作提高性能
+
+2. **重复检测与清理**：
+   - 在处理请求前检测框架中是否存在多个聊天历史条目
+   - 保留在正确位置的聊天历史，移除其他重复项
+   - 通过标识符和placeholders正确定位聊天历史位置
+
+3. **渐进式框架构建**：
+   - 只在必要时重建框架（首次创建或框架缺失）
+   - 尽可能重用现有框架减少资源消耗
+   - 优先修改现有框架而非完全替换
 
 ## 角色创建系统
 
@@ -154,6 +211,10 @@ NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功�
 1. CradleService 管理投喂数据
 2. CharacterGeneratorService 负责生成角色
 3. 生成后通过 NodeST 系统初始化框架
+
+
+
+
 
 ## rFramework 构建
 

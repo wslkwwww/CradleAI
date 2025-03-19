@@ -476,7 +476,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setShowActions(!showActions);
   };
 
-  // Modified reset conversation handler - no longer sends first_mes itself
+  // Modified reset conversation handler that properly resets the chat history
   const handleResetConversation = () => {
     Alert.alert(
       '确定要重置对话吗？',
@@ -486,10 +486,50 @@ const ChatInput: React.FC<ChatInputProps> = ({
         { 
           text: '重置', 
           style: 'destructive',
-          onPress: () => {
-            // Reset the conversation - App component will handle sending first_mes
-            onResetConversation();
-            setShowActions(false);
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              
+              if (!selectedConversationId) {
+                Alert.alert('错误', '请先选择一个角色');
+                return;
+              }
+              
+              console.log('[ChatInput] Resetting conversation:', selectedConversationId);
+              
+              // Call NodeSTManager to reset the chat history
+              const success = await NodeSTManager.resetChatHistory(conversationId);
+              
+              if (success) {
+                console.log('[ChatInput] Chat history reset successful');
+                // Reset the conversation in the UI
+                onResetConversation();
+                // Send first_mes as the first message from bot
+                if (selectedCharacter?.jsonData) {
+                  try {
+                    const jsonData = JSON.parse(selectedCharacter.jsonData);
+                    if (jsonData.roleCard?.first_mes) {
+                      // Wait a moment before sending first_mes to ensure UI is ready
+                      setTimeout(() => {
+                        onSendMessage(jsonData.roleCard.first_mes, 'bot');
+                      }, 100);
+                    }
+                  } catch (e) {
+                    console.error('[ChatInput] Error parsing character JSON after reset:', e);
+                  }
+                }
+              } else {
+                console.error('[ChatInput] Failed to reset chat history');
+                Alert.alert('错误', '重置对话失败，请重试');
+              }
+              
+              setShowActions(false);
+            } catch (error) {
+              console.error('[ChatInput] Error during conversation reset:', error);
+              Alert.alert('错误', '重置对话时出现错误');
+            } finally {
+              setIsLoading(false);
+            }
           }
         },
       ]

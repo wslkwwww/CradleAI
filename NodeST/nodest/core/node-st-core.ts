@@ -1594,4 +1594,122 @@ export class NodeSTCore {
             return false;
         }
     }
+
+    async resetChatHistory(conversationId: string): Promise<boolean> {
+        try {
+            console.log('[NodeSTCore] Resetting chat history for conversation:', conversationId);
+            
+            // 1. Load the required data
+            const roleCard = await this.loadJson<RoleCardJson>(
+                this.getStorageKey(conversationId, '_role')
+            );
+            
+            const worldBook = await this.loadJson<WorldBookJson>(
+                this.getStorageKey(conversationId, '_world')
+            );
+            
+            const preset = await this.loadJson<PresetJson>(
+                this.getStorageKey(conversationId, '_preset')
+            );
+            
+            const authorNote = await this.loadJson<AuthorNoteJson>(
+                this.getStorageKey(conversationId, '_note')
+            );
+            
+            const currentHistory = await this.loadJson<ChatHistoryEntity>(
+                this.getStorageKey(conversationId, '_history')
+            );
+            
+            // Check if we have necessary data
+            if (!roleCard || !currentHistory) {
+                console.error('[NodeSTCore] Cannot reset chat history - missing required data');
+                return false;
+            }
+            
+            // 2. Create a fresh history with only first_mes
+            const resetHistory: ChatHistoryEntity = {
+                ...currentHistory, // Preserve structure, name, identifier
+                parts: [] // Start with empty parts array
+            };
+            
+            // 3. Add first_mes if available
+            if (roleCard.first_mes) {
+                resetHistory.parts.push({
+                    role: "model",
+                    parts: [{ text: roleCard.first_mes }],
+                    is_first_mes: true
+                });
+                console.log('[NodeSTCore] Added first_mes to reset history');
+            }
+            
+            // 4. Process D-entries if needed
+            if (preset && worldBook) {
+                const dEntries = CharacterUtils.extractDEntries(
+                    preset,
+                    worldBook,
+                    authorNote ?? undefined
+                );
+                
+                if (dEntries.length > 0) {
+                    // Insert D entries - we pass empty userMessage since we're resetting
+                    const historyWithDEntries = this.insertDEntriesToHistory(
+                        resetHistory,
+                        dEntries,
+                        ""  // No user message for reset history
+                    );
+                    
+                    resetHistory.parts = historyWithDEntries.parts;
+                    console.log(`[NodeSTCore] Added ${dEntries.length} D-entries to reset history`);
+                }
+            }
+            
+            // 5. Save the reset history
+            await this.saveJson(
+                this.getStorageKey(conversationId, '_history'),
+                resetHistory
+            );
+            
+            // 6. Also update the framework to maintain consistency
+            try {
+                const currentContents = await this.loadJson<ChatMessage[]>(
+                    this.getStorageKey(conversationId, '_contents')
+                );
+                
+                if (currentContents) {
+                    // Find chat history in framework
+                    const chatHistoryIndex = currentContents.findIndex(
+                        item => item.is_chat_history_placeholder || 
+                               (item.identifier === currentHistory.identifier)
+                    );
+                    
+                    if (chatHistoryIndex !== -1) {
+                        // Update the chat history in framework
+                        currentContents[chatHistoryIndex] = {
+                            name: "Chat History",
+                            role: "system",
+                            parts: resetHistory.parts,
+                            identifier: currentHistory.identifier
+                        };
+                        
+                        // Save updated framework
+                        await this.saveJson(
+                            this.getStorageKey(conversationId, '_contents'),
+                            currentContents
+                        );
+                        
+                        console.log('[NodeSTCore] Updated framework with reset chat history');
+                    }
+                }
+            } catch (frameworkError) {
+                console.error('[NodeSTCore] Error updating framework after reset:', frameworkError);
+                // Continue even if framework update fails
+            }
+            
+            console.log('[NodeSTCore] Chat history successfully reset');
+            return true;
+        } catch (error) {
+            console.error('[NodeSTCore] Error resetting chat history:', error);
+            return false;
+        }
+    }
 }

@@ -644,4 +644,24 @@ export class NodeST {
             throw error;
         }
     }
+
+    /**
+     * 重置对话历史，只保留角色的开场白
+     * @param conversationId 会话ID
+     * @returns 是否成功重置
+     */
+    async resetChatHistory(conversationId: string): Promise<boolean> {
+        try {
+            if (!this.nodeSTCore) {
+                console.error("[NodeST] Cannot reset chat history - NodeSTCore not initialized");
+                return false;
+            }
+            
+            console.log(`【NodeST】重置对话历史: ${conversationId}`);
+            return await this.nodeSTCore.resetChatHistory(conversationId);
+        } catch (error) {
+            console.error('[NodeST] Error resetting chat history:', error);
+            return false;
+        }
+    }
 }

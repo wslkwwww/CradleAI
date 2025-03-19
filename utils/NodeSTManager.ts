@@ -687,6 +687,29 @@ class NodeSTManagerClass {
     const instance = new NodeSTManagerClass();
     return await instance.restoreChatHistory(params);
   }
+
+  /**
+   * 重置对话历史，只保留角色的开场白
+   * @param conversationId 会话ID
+   * @returns 是否成功重置
+   */
+  async resetChatHistory(conversationId: string): Promise<boolean> {
+    try {
+        console.log('[NodeSTManager] Resetting chat history for conversation:', conversationId);
+        
+        // Call NodeST's reset method
+        return await this.nodeST.resetChatHistory(conversationId);
+    } catch (error) {
+        console.error('[NodeSTManager] Error resetting chat history:', error);
+        return false;
+    }
+  }
+
+  // Add static method
+  static async resetChatHistory(conversationId: string): Promise<boolean> {
+    const instance = new NodeSTManagerClass();
+    return await instance.resetChatHistory(conversationId);
+  }
 }
 
 // Create and export a singleton instance
