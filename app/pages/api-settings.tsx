@@ -118,7 +118,6 @@ const ApiSettings = () => {
           ...user?.settings?.chat,
           serverUrl: user?.settings?.chat?.serverUrl || '',
           characterApiKey: geminiKey,
-          memoryApiKey: user?.settings?.chat?.memoryApiKey || '',
           xApiKey: user?.settings?.chat?.xApiKey || '',
           apiProvider: openRouterEnabled ? 'openrouter' : 'gemini',
           typingDelay: user?.settings?.chat?.typingDelay || 50,

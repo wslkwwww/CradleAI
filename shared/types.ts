@@ -26,11 +26,10 @@ export interface GlobalSettings {
         // Legacy fields
         serverUrl: string | null | undefined; 
         characterApiKey: string;
-        memoryApiKey: string;
         xApiKey: string;
-        
+  
         // New API settings
-        apiProvider: 'gemini' | 'openrouter';
+        apiProvider: 'gemini' | 'openrouter' ;
         openrouter?: OpenRouterSettings;
         typingDelay: number;
         maxtokens: number;

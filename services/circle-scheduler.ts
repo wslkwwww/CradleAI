@@ -1,5 +1,5 @@
 import { Character, GlobalSettings } from '../shared/types';
-import { CirclePost,CirclePostOptions } from '../shared/types/circle-types';
+import { CirclePost, CirclePostOptions } from '../shared/types/circle-types';
 import { CircleService } from './circle-service';
 
 /**
@@ -48,7 +48,7 @@ export class CircleScheduler {
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
   ): Promise<{post: CirclePost, author: Character}> {
     return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 的发帖请求添加到队列`);
+      console.log(`【朋友圈调度器】将角色 ${character.name} 的发帖请求添加到队列，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
       
       // Add to queue
       this.postQueue.push({
@@ -78,7 +78,7 @@ export class CircleScheduler {
     images?: string[] // Add images parameter
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 对帖子 ${post.id} 的互动添加到队列${images?.length ? '，包含图片' : ''}`);
+      console.log(`【朋友圈调度器】将角色 ${character.name} 对帖子 ${post.id} 的互动添加到队列${images?.length ? '，包含图片' : ''}，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
       
       // Add to queue with images
       this.interactionQueue.push({
@@ -111,7 +111,7 @@ export class CircleScheduler {
     images?: string[] // Add images parameter
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 对用户帖子的互动添加到队列（优先级高）${images?.length ? '，包含图片' : ''}`);
+      console.log(`【朋友圈调度器】将角色 ${character.name} 对用户帖子的互动添加到队列（优先级高）${images?.length ? '，包含图片' : ''}，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
       
       // Add to the front of the queue to prioritize user posts
       this.interactionQueue.unshift({
@@ -162,7 +162,7 @@ export class CircleScheduler {
           this.interactionQueue = this.interactionQueue.filter(item => item !== userPostInteraction);
           
           try {
-            console.log(`【朋友圈调度器】优先处理角色 ${userPostInteraction.character.name} 对用户帖子的互动请求${userPostInteraction.images?.length ? "（包含图片）" : ""}`);
+            console.log(`【朋友圈调度器】优先处理角色 ${userPostInteraction.character.name} 对用户帖子的互动请求${userPostInteraction.images?.length ? "（包含图片）" : ""}，API Provider: ${userPostInteraction.apiSettings?.apiProvider || 'gemini'}`);
             
             // Create post options with image support
             const postOptions: CirclePostOptions = {
@@ -197,7 +197,7 @@ export class CircleScheduler {
           const postRequest = this.postQueue.shift();
           if (postRequest) {
             try {
-              console.log(`【朋友圈调度器】处理角色 ${postRequest.character.name} 的发帖请求`);
+              console.log(`【朋友圈调度器】处理角色 ${postRequest.character.name} 的发帖请求，API Provider: ${postRequest.apiSettings?.apiProvider || 'gemini'}`);
               const result = await CircleService.createNewPost(
                 postRequest.character,
                 this.generatePostContent(postRequest.character),
@@ -237,7 +237,7 @@ export class CircleScheduler {
           const interactionRequest = this.interactionQueue.shift();
           if (interactionRequest) {
             try {
-              console.log(`【朋友圈调度器】处理角色 ${interactionRequest.character.name} 的普通互动请求${interactionRequest.images?.length ? "（包含图片）" : ""}`);
+              console.log(`【朋友圈调度器】处理角色 ${interactionRequest.character.name} 的普通互动请求${interactionRequest.images?.length ? "（包含图片）" : ""}，API Provider: ${interactionRequest.apiSettings?.apiProvider || 'gemini'}`);
               
               // Create post options with image support
               const postOptions: CirclePostOptions = {
@@ -274,7 +274,7 @@ export class CircleScheduler {
         const request = this.postQueue.shift();
         if (request) {
           try {
-            console.log(`【朋友圈调度器】处理角色 ${request.character.name} 的发帖请求`);
+            console.log(`【朋友圈调度器】处理角色 ${request.character.name} 的发帖请求，API Provider: ${request.apiSettings?.apiProvider || 'gemini'}`);
             const result = await CircleService.createNewPost(
               request.character,
               this.generatePostContent(request.character),

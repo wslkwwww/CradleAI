@@ -13,6 +13,13 @@ class NodeSTManagerClass {
   private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = { // Add missing property
     apiProvider: 'gemini'
   };
+  
+  // Add static properties to fix the TypeScript errors
+  private static instance: NodeSTManagerClass | null = null;
+  private static apiKey: string = '';
+  private static apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = {
+    apiProvider: 'gemini'
+  };
 
   constructor() {
     this.nodeST = new NodeST();
@@ -55,6 +62,41 @@ class NodeSTManagerClass {
     
     // Pass full apiSettings to NodeST
     this.nodeST.updateApiSettings(apiKey, apiSettings);
+  }
+
+  /**
+   * 更新API设置
+   */
+  static updateApiSettings(
+    apiKey: string,
+    settings?: Partial<GlobalSettings['chat']>
+  ): void {
+    // Fix: Use static properties
+    NodeSTManagerClass.apiKey = apiKey;
+    
+    if (settings) {
+      // Create a properly typed object that satisfies the Pick requirements
+      const apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = {
+        // Default to 'gemini' if apiProvider is undefined
+        apiProvider: settings.apiProvider || 'gemini',
+        // Only include openrouter if it exists in settings
+        ...(settings.openrouter ? { openrouter: settings.openrouter } : {})
+      };
+      
+      NodeSTManagerClass.apiSettings = apiSettings;
+      
+      // 日志API配置信息
+      console.log('【NodeSTManager】更新API设置:', {
+        provider: settings.apiProvider || 'gemini',
+        hasOpenRouter: settings.apiProvider === 'openrouter' && settings.openrouter?.enabled,
+        openRouterModel: settings.openrouter?.model
+      });
+      
+      // 如果实例已存在，更新设置
+      if (NodeSTManagerClass.instance) {
+        NodeSTManagerClass.instance.updateApiSettings(apiKey, apiSettings);
+      }
+    }
   }
 
   /**
@@ -169,27 +211,7 @@ class NodeSTManagerClass {
     }
   }
 
-  // Add circle interaction methods
-  async initCharacterCircle(character: Character): Promise<boolean> {
-    try {
-      return await this.nodeST.initCharacterCircle(character);
-    } catch (error) {
-      console.error('[NodeSTManager] Circle init error:', error);
-      return false;
-    }
-  }
 
-  async processCircleInteraction(options: CirclePostOptions): Promise<CircleResponse> {
-    try {
-      return await this.nodeST.processCircleInteraction(options);
-    } catch (error) {
-      console.error('[NodeSTManager] Circle interaction error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
-  }
 
   static async processChatMessage(options: ProcessChatOptions): Promise<Message> {
     try {
@@ -444,6 +466,62 @@ class NodeSTManagerClass {
             success: false,
             error: error instanceof Error ? error.message : "未知错误"
 };
+    }
+  }
+
+  // Add circle interaction methods with proper API settings passing
+  async initCharacterCircle(
+    character: Character, 
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): Promise<boolean> {
+    try {
+      // If apiKey is provided, use it to update settings
+      if (apiKey) {
+        // When initializing for a circle, always make sure we have the latest API settings
+        this.updateApiSettings(apiKey, apiSettings);
+      }
+      
+      console.log('[NodeSTManager] Initializing circle for character:', character.name, {
+        apiProvider: apiSettings?.apiProvider || this.apiSettings.apiProvider,
+        hasOpenRouter: (apiSettings?.apiProvider === 'openrouter' && apiSettings?.openrouter?.enabled) || 
+                       (this.apiSettings.apiProvider === 'openrouter' && this.apiSettings.openrouter?.enabled),
+        openRouterModel: apiSettings?.openrouter?.model || this.apiSettings.openrouter?.model
+      });
+      
+      return await this.nodeST.initCharacterCircle(character);
+    } catch (error) {
+      console.error('[NodeSTManager] Circle init error:', error);
+      return false;
+    }
+  }
+
+  async processCircleInteraction(
+    options: CirclePostOptions, 
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): Promise<CircleResponse> {
+    try {
+      // If apiKey is provided, update settings before processing
+      if (apiKey) {
+        this.updateApiSettings(apiKey, apiSettings);
+      }
+      
+      // Log more detailed information about which adapter will be used
+      console.log('[NodeSTManager] Processing circle interaction:', {
+        type: options.type,
+        responderId: options.responderId,
+        apiProvider: apiSettings?.apiProvider || this.apiSettings.apiProvider,
+        hasImages: !!options.content.images?.length
+      });
+      
+      return await this.nodeST.processCircleInteraction(options);
+    } catch (error) {
+      console.error('[NodeSTManager] Circle interaction error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
     }
   }
 

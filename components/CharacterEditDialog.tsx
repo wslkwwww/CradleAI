@@ -1889,4 +1889,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  loadingText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontSize: 14,
+  },
 });
