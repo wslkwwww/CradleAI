@@ -20,6 +20,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { CradleCharacter } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
+import { useUser } from '@/constants/UserContext'; // Add import for useUser
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import TagSelector from './TagSelector';
@@ -245,7 +246,9 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   onSuccess
 }) => {
   const router = useRouter();
-  const { addCradleCharacter, getCradleSettings, generateCharacterFromCradle } = useCharacters();
+  // Add useUser hook to access API settings
+  const { addCradleCharacter, getCradleSettings, generateCharacterFromCradle, getCradleApiSettings } = useCharacters();
+  const { user } = useUser(); // Add this to get the user context
   
   // All state hooks should be called at the top level of the component
   const [step, setStep] = useState(1);
@@ -552,6 +555,15 @@ const handleCreateCharacter = async () => {
   try {
     console.log(`[摇篮角色创建] 开始创建角色: ${characterName}, 性别: ${gender}`);
     
+    // Get API settings from user context
+    const apiProvider = user?.settings?.chat?.apiProvider || 'gemini';
+    const apiKey = apiProvider === 'openrouter' ? 
+      user?.settings?.chat?.openrouter?.apiKey : 
+      user?.settings?.chat?.characterApiKey;
+    
+    // Log API settings for debugging
+    console.log(`[摇篮角色创建] 使用API提供商: ${apiProvider}, 密钥有效: ${!!apiKey}`);
+    
     // Perform VNDB search before creating character
     const vndbResults = await performVndbSearch();
     
@@ -562,6 +574,18 @@ const handleCreateCharacter = async () => {
     // 生成稳定的、唯一的ID
     const characterId = generateUniqueId();
     console.log(`[摇篮角色创建] 生成的角色ID: ${characterId}`);
+    
+    // Prepare API settings object to pass to character generation
+    const apiSettings = {
+      apiProvider,
+      ...(apiProvider === 'openrouter' && apiKey ? {
+        openrouter: {
+          enabled: true,
+          apiKey: apiKey,
+          model: user?.settings?.chat?.openrouter?.model || 'openai/gpt-3.5-turbo'
+        }
+      } : {})
+    };
     
     // Create a complete cradle character object with all necessary fields
     const cradleCharacter: CradleCharacter = {
@@ -591,6 +615,9 @@ const handleCreateCharacter = async () => {
       },
       isCradleGenerated: true, // Default to true since we're generating immediately now
       
+      // Add API settings to character for generation
+      apiSettings: apiSettings,
+      
       // Add formatted data for character generation
       generationData: {
         appearanceTags: uploadMode === 'generate' ? {
@@ -618,9 +645,10 @@ const handleCreateCharacter = async () => {
       // Give filesystem time to complete writing before proceeding
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Generate the character immediately
-      console.log(`[摇篮角色创建] 正在生成角色: ${addedCharacter.id}`);
+      // Generate the character immediately with proper API settings
+      console.log(`[摇篮角色创建] 正在生成角色: ${addedCharacter.id}, API提供商: ${apiProvider}`);
       try {
+        // Pass the character with API settings to the generation function
         const generatedCharacter = await generateCharacterFromCradle(addedCharacter);
         console.log(`[摇篮角色创建] 角色已成功生成，ID: ${generatedCharacter.id}`);
         

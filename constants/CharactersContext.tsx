@@ -1159,12 +1159,18 @@ const generateCharacterFromCradle = async (cradleIdOrCharacter: string | CradleC
       } else if (apiProvider === 'openrouter') {
         console.log('[摇篮生成] 使用OpenRouter适配器');
         const model = userSettings?.chat?.openrouter?.model || "anthropic/claude-3-haiku";
-        llmAdapter = new OpenRouterAdapter(apiKey, model);
+        
+        // 修复：这里应该使用 openrouter 的 apiKey，而不是 gemini 的 apiKey
+        // 检查角色对象是否包含 API 设置，优先使用角色对象中的设置
+        const openRouterApiKey = cradleCharacter.apiSettings?.openrouter?.apiKey || 
+                                userSettings?.chat?.openrouter?.apiKey || 
+                                apiKey;
+        
+        console.log(`[摇篮生成] OpenRouter API Key 有效性: ${!!openRouterApiKey}`);
+        llmAdapter = new OpenRouterAdapter(openRouterApiKey, model);
       } else {
         throw new Error(`不支持的API提供商: ${apiProvider}`);
       }
-      
-      // Create character generator service with the selected adapter
       const generator = new CharacterGeneratorService(llmAdapter);
       
       // Prepare data for character generator
@@ -1325,7 +1331,6 @@ const generateCharacterFromCradle = async (cradleIdOrCharacter: string | CradleC
         name: result.roleCard.name, // Use the possibly enhanced name from LLM
         description: result.roleCard.description,
         personality: result.roleCard.personality,
-        interests: extractInterestsFromWorldBook(result.worldBook) || [],
         updatedAt: Date.now(),
         inCradleSystem: true, // CHANGED: Keep in cradle system
         cradleStatus: 'ready', // Change status to 'generated' instead of 'mature'
@@ -1682,29 +1687,7 @@ const checkCradleGeneration = (): {
   };
 };
 
-// Add this function to fix the TypeScript error
-const extractInterestsFromWorldBook = (worldBook: WorldBookJson): string[] => {
-  try {
-    // Try to find interests in Alist entry
-    const alistEntry = worldBook.entries['Alist'];
-    if (alistEntry && alistEntry.content) {
-      // Extract likes from <attributes> section if it exists
-      const likesMatch = alistEntry.content.match(/<likes>(.*?)<\/likes>/);
-      if (likesMatch && likesMatch[1]) {
-        return likesMatch[1]
-          .split(',')
-          .map(item => item.trim())
-          .filter(item => item.length > 0);
-      }
-    }
-    
-    // Return empty array if no interests found
-    return [];
-  } catch (error) {
-    console.error('[提取兴趣爱好] 从WorldBook提取兴趣爱好时出错:', error);
-    return [];
-  }
-};
+
 
 // Add this function to ensure a character appears in both cradle and regular views
 const ensureCharacterInCradle = async (character: Character): Promise<void> => {

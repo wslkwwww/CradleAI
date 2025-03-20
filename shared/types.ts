@@ -397,11 +397,20 @@ export interface CradleCharacter extends Character {
   importedFromCharacter?: boolean; // Was this imported from a normal character
   importedCharacterId?: string; // ID of the original character if imported
   cradleAnimation?: CradleAnimation;
+  apiSettings?: {
+    apiProvider: 'gemini' | 'openrouter';
+    openrouter?: {
+      enabled: boolean;
+      apiKey: string;
+      model: string;
+    };
+  };
   cradle?: {
     startDate?: string;
     progress?: number;
     stage?: 'egg' | 'growing' | 'mature';
     lastFeedTimestamp?: number;
+  
   };
   
   // Add VNDB search results property (move from specific implementation to interface)

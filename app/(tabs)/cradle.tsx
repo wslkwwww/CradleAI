@@ -1578,21 +1578,6 @@ const handleSetAsAvatar = async (imageId: string) => {
       {/* Render improved notification */}
       {renderNotification()}
       
-      {/* Removed floating create button */}
-      
-      {/* Feed modal - when selectedCharacter exists */}
-      {selectedCharacter && (
-        <CradleFeedModal
-          visible={showFeedModal}
-          isVisible={showFeedModal}
-          character={selectedCharacter}
-          onClose={() => {
-            setShowFeedModal(false);
-            // Refresh character list after closing modal to show updated feed count
-            setTimeout(() => loadCradleCharacters(), 500);
-          }}
-        />
-      )}
       
       {/* Import modal */}
       <ImportToCradleModal

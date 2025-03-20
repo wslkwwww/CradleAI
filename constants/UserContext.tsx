@@ -47,7 +47,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 typingDelay: 300,
                 serverUrl: '',
                 characterApiKey: '',
-                memoryApiKey: '',
                 xApiKey: '',
                 apiProvider: 'gemini',
                 temperature: 0.7,
