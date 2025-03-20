@@ -34,6 +34,8 @@ import { formatVNDBCharactersForLLM } from '@/src/utils/vndbLLMFormatter';
 import ArtistReferenceSelector from './ArtistReferenceSelector';
 // Add import for default negative prompts
 import { DEFAULT_NEGATIVE_PROMPTS } from '@/constants/defaultPrompts';
+// Import theme
+import { theme } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -700,7 +702,7 @@ const handleCreateCharacter = async () => {
             <Ionicons 
               name="cloud-upload-outline" 
               size={24} 
-              color={uploadMode === 'upload' ? '#FFD700' : "#888"}
+              color={uploadMode === 'upload' ? theme.colors.primary : "#888"}
             />
           </View>
           <View style={styles.modeTextContainer}>
@@ -721,7 +723,7 @@ const handleCreateCharacter = async () => {
             <Ionicons 
               name="color-wand-outline" 
               size={24} 
-              color={uploadMode === 'generate' ? '#FFD700' : "#888"} 
+              color={uploadMode === 'generate' ? theme.colors.primary : "#888"} 
             />
           </View>
           <View style={styles.modeTextContainer}>
@@ -1042,82 +1044,47 @@ const handleCreateCharacter = async () => {
           </View>
         </View>
         
-        {/* Character age range - MODIFIED to include both preset and custom */}
+        {/* Character age - MODIFIED to only allow custom age input */}
         <View style={styles.inputGroup}>
-          <View style={styles.filterHeader}>
-            <Text style={styles.inputLabel}>角色年龄范围</Text>
-            <View style={styles.customFilterSwitch}>
-              <Text style={[styles.filterTypeText, !ageFilterValue && styles.activeFilterType]}>预设</Text>
-              <Switch
-                value={!!ageFilterValue}
-                onValueChange={(val) => {
-                  if (!val) setAgeFilterValue('');
-                  else setAgeFilterValue('18');
-                }}
-                trackColor={{ false: '#767577', true: '#bfe8ff' }}
-                thumbColor={!!ageFilterValue ? '#007bff' : '#f4f3f4'}
-              />
-              <Text style={[styles.filterTypeText, !!ageFilterValue && styles.activeFilterType]}>自定义</Text>
-            </View>
-          </View>
-          
-          {!ageFilterValue ? (
-            // Show preset age ranges
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              style={styles.ageRangeContainer}
-            >
-              {AGE_RANGES.map(age => (
+          <Text style={styles.inputLabel}>角色年龄</Text>
+          <View style={styles.ageInputContainer}>
+            <View style={styles.ageOperatorSelector}>
+              {['=', '>', '>=', '<', '<='].map(op => (
                 <TouchableOpacity
-                  key={age.id}
+                  key={op}
                   style={[
-                    styles.ageRangeButton,
-                    characterAge === age.id && styles.selectedAgeRange
+                    styles.operatorButton,
+                    ageFilterOperator === op && styles.selectedOperator
                   ]}
-                  onPress={() => setCharacterAge(age.id)}
+                  onPress={() => setAgeFilterOperator(op as any)}
                 >
                   <Text style={[
-                    styles.ageRangeText,
-                    characterAge === age.id && styles.selectedAgeRangeText
+                    styles.operatorText,
+                    ageFilterOperator === op && styles.selectedOperatorText
                   ]}>
-                    {age.name}
+                    {op}
                   </Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
-          ) : (
-            // Show custom age filter with operator
-            <View style={styles.customAgeFilterContainer}>
-              <View style={styles.ageOperatorSelector}>
-                {['=', '>', '>=', '<', '<='].map(op => (
-                  <TouchableOpacity
-                    key={op}
-                    style={[
-                      styles.operatorButton,
-                      ageFilterOperator === op && styles.selectedOperator
-                    ]}
-                    onPress={() => setAgeFilterOperator(op as any)}
-                  >
-                    <Text style={[
-                      styles.operatorText,
-                      ageFilterOperator === op && styles.selectedOperatorText
-                    ]}>
-                      {op}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TextInput
-                style={styles.ageFilterInput}
-                value={ageFilterValue}
-                onChangeText={setAgeFilterValue}
-                placeholder="输入年龄"
-                placeholderTextColor="#aaa"
-                keyboardType="numeric"
-              />
             </View>
-          )}
+            <TextInput
+              style={styles.ageFilterInput}
+              value={ageFilterValue}
+              onChangeText={setAgeFilterValue}
+              placeholder="输入年龄"
+              placeholderTextColor="#aaa"
+              keyboardType="numeric"
+              // Ensure we maintain focus even when text is empty
+              onSubmitEditing={() => {
+                if (ageFilterValue === '') {
+                  setAgeFilterValue('');
+                }
+              }}
+            />
+          </View>
+          <Text style={styles.ageHintText}>
+            请输入角色的具体年龄，例如: 18，25等
+          </Text>
         </View>
         
         {/* Character traits section - ENHANCED with AND/OR selection */}
@@ -1165,7 +1132,7 @@ const handleCreateCharacter = async () => {
               style={styles.selectTraitsButton}
               onPress={() => setTraitModalVisible(true)}
             >
-              <Ionicons name="add-circle-outline" size={20} color="#FFD700" />
+              <Ionicons name="add-circle-outline" size={20} color={theme.colors.primary} />
               <Text style={styles.selectTraitsText}>选择特征</Text>
             </TouchableOpacity>
           </View>
@@ -1433,7 +1400,7 @@ const handleCreateCharacter = async () => {
                 <Ionicons 
                   name={section.icon as any}
                   size={24} 
-                  color={activeSection === section.id ? "#FFD700" : "#aaa"} 
+                  color={activeSection === section.id ? theme.colors.primary : "#aaa"} 
                 />
                 <Text style={[
                   styles.sidebarItemText,
@@ -1509,7 +1476,7 @@ const handleCreateCharacter = async () => {
                 <Ionicons 
                   name={section.icon as any}
                   size={20} 
-                  color={activeSection === section.id ? "#FFD700" : "#aaa"} 
+                  color={activeSection === section.id ? theme.colors.primary : "#aaa"} 
                 />
                 <Text style={[
                   styles.tabButtonText,
@@ -1575,27 +1542,6 @@ const styles = StyleSheet.create({
   characterSettingsContainer: {
     flex: 1,
   },
-  ageRangeContainer: {
-    flexDirection: 'row',
-    marginVertical: 8,
-  },
-  ageRangeButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(60, 60, 60, 0.8)',
-    marginRight: 8,
-  },
-  selectedAgeRange: {
-    backgroundColor: 'rgba(74, 144, 226, 0.8)',
-  },
-  ageRangeText: {
-    color: '#aaa',
-  },
-  selectedAgeRangeText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
   traitHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1604,13 +1550,13 @@ const styles = StyleSheet.create({
   selectTraitsButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    backgroundColor: 'rgba(224, 196, 168, 0.2)', // Updated to use primaryDark with opacity
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 16,
   },
   selectTraitsText: {
-    color: '#FFD700',
+    color: theme.colors.primary,
     marginLeft: 4,
   },
   selectedTraitsContainer: {
@@ -1624,7 +1570,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(74, 144, 226, 0.3)',
+    backgroundColor: 'rgba(224, 196, 168, 0.3)', // Updated to use primaryDark with opacity
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -1725,7 +1671,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   selectedTraitButton: {
-    backgroundColor: 'rgba(74, 144, 226, 0.8)',
+    backgroundColor: theme.colors.primaryDark,
   },
   traitItemText: {
     color: '#ddd',
@@ -1757,7 +1703,7 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   confirmTraitsButton: {
-    backgroundColor: '#4A90E2',
+    backgroundColor: theme.colors.primaryDark,
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -1784,14 +1730,14 @@ const styles = StyleSheet.create({
   },
   activeTabButton: {
     borderBottomWidth: 2,
-    borderBottomColor: '#FFD700',
+    borderBottomColor: theme.colors.primary,
   },
   tabButtonText: {
     color: '#aaa',
     marginLeft: 6,
   },
   activeTabButtonText: {
-    color: '#FFD700',
+    color: theme.colors.primary,
     fontWeight: '500',
   },
   avatarButton: {
@@ -1810,7 +1756,7 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    backgroundColor: theme.colors.backgroundSecondary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1884,7 +1830,7 @@ const styles = StyleSheet.create({
   selectedPositiveTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 224, 195, 0.8)',
+    backgroundColor: theme.colors.primary,
     borderRadius: 16,
     paddingVertical: 4,
     paddingHorizontal: 8,
@@ -1912,7 +1858,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(74, 144, 226, 0.8)',
+    backgroundColor: theme.colors.primaryDark,
     borderRadius: 8,
     padding: 12,
     marginVertical: 8,
@@ -1979,7 +1925,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   nextButton: {
-    backgroundColor: '#4A90E2',
+    backgroundColor: theme.colors.primaryDark,
     marginLeft: 8,
   },
   buttonText: {
@@ -2019,7 +1965,7 @@ const styles = StyleSheet.create({
   },
   activeSidebarItem: {
     backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    borderLeftColor: '#FFD700',
+    borderLeftColor: theme.colors.primary,
   },
   sidebarItemText: {
     color: '#aaa',
@@ -2027,13 +1973,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   activeSidebarItemText: {
-    color: '#FFD700',
+    color: theme.colors.primary,
   },
   sidebarCreateButton: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#FFD700',
+    backgroundColor: theme.colors.primaryDark,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
@@ -2076,7 +2022,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   selectedGender: {
-    backgroundColor: '#4A90E2',
+    backgroundColor: theme.colors.primaryDark,
   },
   genderText: {
     color: '#aaa',
@@ -2104,8 +2050,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   activeMode: {
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    borderColor: '#FFD700',
+    backgroundColor: 'rgba(255, 224, 195, 0.1)',
+    borderColor: theme.colors.primary,
   },
   modeIconContainer: {
     width: 40,
@@ -2116,19 +2062,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  modeTextContainer: {
-    flex: 1,
-  },
   modeText: {
     fontSize: 16,
     color: '#aaa',
   },
   activeModeText: {
-    color: '#FFD700',
+    color: theme.colors.primary,
+  },
+  modeTextContainer: {
+    flex: 1,
   },
   modeDescription: {
-    fontSize: 12,
     color: '#888',
+    fontSize: 12,
     marginTop: 4,
   },
   // New styles for enhanced filtering UI
@@ -2167,7 +2113,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(60, 60, 60, 0.8)',
   },
   selectedOperator: {
-    backgroundColor: '#4A90E2',
+    backgroundColor: theme.colors.primaryDark,
   },
   operatorText: {
     color: '#aaa',
@@ -2192,7 +2138,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   selectedTraitOperator: {
-    backgroundColor: '#4A90E2',
+    backgroundColor: theme.colors.primaryDark,
   },
   traitOperatorText: {
     color: '#aaa',
@@ -2204,7 +2150,7 @@ const styles = StyleSheet.create({
   filterExplanation: {
     marginTop: 12,
     padding: 8,
-    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+    backgroundColor: 'rgba(224, 196, 168, 0.1)', // Updated to use primaryDark with opacity
     borderRadius: 6,
   },
   filterExplanationText: {
@@ -2220,7 +2166,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
-    marginLeft: 8,
+  },
+  ageHintText: {
+    color: '#aaa',
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
   },
   switchContainer: {
     flexDirection: 'row',
@@ -2238,6 +2189,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     marginTop: 4,
+  },
+  ageInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   // Add new style for default tags info
   defaultTagsInfo: {

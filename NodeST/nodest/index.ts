@@ -31,13 +31,15 @@ export { CirclePostOptions, CircleResponse };
 
 export class NodeST {
     private nodeSTCore: NodeSTCore | null = null;
-    private circleManager: CircleManager | null = null;
-    private apiKey: string;
+    private circleManager: CircleManager;
+    private apiKey: string = '';
     
 
-    constructor(apiKey?: string) {
-      this.apiKey = apiKey || '';
+    constructor(apiKey: string = '') {
+      this.apiKey = apiKey;
       console.log(`【NodeST】创建新实例，apiKey存在: ${!!apiKey}`);
+      // Initialize CircleManager with apiKey
+      this.circleManager = new CircleManager(apiKey);
     }
   
     setApiKey(apiKey: string): void {

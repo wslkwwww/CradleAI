@@ -44,12 +44,14 @@ const entry = {
 - **评论回复:** 回复帖子下的评论，包括发帖者回复其帖子下的评论
 - **频率控制:** 基于角色设置，合理控制互动频率
 - **角色一致性:** 确保所有互动内容符合角色设定
+- **多模型支持:** 支持 Gemini 和 OpenRouter 多种 AI 模型接口
+- **图片处理:** 支持包含图片的帖子分析和互动
 
 ## 2. 系统架构
 
 系统采用三层架构设计：
-1. **UI 层**：Explore 页面、SettingsSidebar 组件
-2. **服务层**：CircleService
+1. **UI 层**：Explore 页面、SettingsSidebar 组件、CircleManager 组件
+2. **服务层**：CircleService、CircleScheduler
 3. **核心层**：NodeST 的 CircleManager 实现
 
 ```mermaid
@@ -60,8 +62,14 @@ graph TD
     C -->|状态更新| B
     B -->|UI更新| A
     C -->|存取数据| D[AsyncStorage]
-    C -->|发送请求| E[Gemini API]
+    C -->|发送请求| E[AI API Provider]
+    E -->|Gemini API| G[Google AI]
+    E -->|OpenRouter API| H[OpenRouter]
+    H -->|模型路由| I[多种AI模型]
+    J[CircleScheduler] -->|队列管理| B
+    K[CircleManager组件] -->|自动触发| B
 ```
+
 ### 2.1 角色身份感知机制
 
 系统在处理朋友圈互动时，现已增强对"角色自我身份"的感知能力，特别是当角色是内容的发布者时：
@@ -70,9 +78,13 @@ graph TD
 2. **内容生成适配**：基于身份提供不同的提示词模板，确保输出内容的合理性
 3. **提示词差异化**：发帖者、回复者、评论回复者的提示词模板分别独立设计
 
+### 2.2 多 API 提供商支持机制
 
+系统现在完整支持多种 API 提供商，让用户可以选择最适合的 AI 模型：
 
-
+1. **Gemini API**：默认提供商，适合基本对话
+2. **OpenRouter**：支持高级模型如 Claude、GPT-4 等多种选择
+3. **API 设置透传**：从用户界面一直到底层 NodeST 完整传递 API 配置
 
 ## 3. 快速开始
 
@@ -81,21 +93,50 @@ graph TD
 ```typescript
 import { CircleService } from '@/services/circle-service';
 
-// 初始化角色的朋友圈框架
-const initialized = await CircleService.initCharacterCircle(character, apiKey);
+// 初始化角色的朋友圈框架，支持API设置
+const initialized = await CircleService.initCharacterCircle(
+  character, 
+  apiKey, 
+  {
+    apiProvider: 'openrouter',
+    openrouter: {
+      enabled: true,
+      apiKey: 'your-openrouter-key',
+      model: 'anthropic/claude-3-haiku'
+    }
+  }
+);
 
-// 创建新朋友圈帖子
-const postResponse = await CircleService.createNewPost(character, content, apiKey);
+// 创建新朋友圈帖子，支持API设置
+const postResponse = await CircleService.createNewPost(character, content, apiKey, apiSettings);
 
-// 处理角色对帖子的互动
-const response = await CircleService.processCircleInteraction(character, post, apiKey);
+// 处理角色对帖子的互动，支持图片
+const response = await CircleService.processCircleInteraction(
+  character, 
+  post, 
+  apiKey, 
+  apiSettings,
+  {
+    type: 'replyToPost',
+    content: {
+      authorId: post.characterId,
+      authorName: post.characterName,
+      text: post.content,
+      context: '这是一条朋友圈动态',
+      images: ['http://example.com/image.jpg'] // 支持图片分析
+    },
+    responderId: character.id,
+    responderCharacter: character
+  }
+);
 
 // 处理角色对评论的回复
 const commentResponse = await CircleService.replyToComment(
   character,
   post,
   comment,
-  apiKey
+  apiKey,
+  apiSettings
 );
 
 // 处理用户评论的角色响应
@@ -104,6 +145,7 @@ const userCommentResponse = await CircleService.processCommentInteraction(
   post,
   userComment,
   apiKey,
+  apiSettings,
   replyTo // 可选，回复特定评论
 );
 ```
@@ -111,98 +153,80 @@ const userCommentResponse = await CircleService.processCommentInteraction(
 ### 3.2 测试功能
 
 ```typescript
-// 发布测试帖子
-const { post, author } = await CircleService.publishTestPost(characters, apiKey);
+// 发布测试帖子，支持API设置
+const { post, author } = await CircleService.publishTestPost(
+  characters, 
+  apiKey, 
+  apiSettings
+);
 
 // 执行多角色互动测试
 const { updatedPost, results } = await CircleService.processTestInteraction(
   testPost, 
   enabledCharacters,
-  apiKey
+  apiKey,
+  apiSettings
 );
 ```
 
-## 4. 关键数据流
+## 4. API设置传递机制
 
-4. 关键数据流
-4.1 朋友圈 R 框架切换流程
+系统通过完整的设置传递链确保每个组件都能正确使用配置的 API 提供商：
 
-graph TD
-    A[角色详情页面] -->|启用社交功能| B[调用 initCharacterCircle]
-    B --> C{验证角色数据}
-    C -->|验证通过| D[构建朋友圈R框架]
-    D --> E[存储框架]
-    E --> G[更新角色状态]
+```typescript
+// 用户配置 API 设置
+const apiSettings = {
+  apiProvider: 'openrouter', // 'gemini' 或 'openrouter'
+  openrouter: {
+    enabled: true,
+    apiKey: 'your-openrouter-key',
+    model: 'anthropic/claude-3-haiku'
+  }
+};
 
+// CircleService 方法透传 API 设置
+const result = await CircleService.createNewPost(
+  character, 
+  content, 
+  apiKey, 
+  apiSettings
+);
 
-4.2 互动处理流程
+// NodeSTManager 更新和保持 API 设置
+NodeSTManager.updateApiSettings(apiKey, apiSettings);
 
-graph TD
-    A1[Explore页面] -->|社交事件| B1[事件类型判断]
-    B1 --> C1{构建互动请求}
-    C1 -->|新帖子| D1[createNewPost]
-    C1 -->|回复帖子| E1[processCircleInteraction]
-    C1 -->|回复评论| F1[replyToComment]
-    D1 & E1 & F1 --> G1[CircleManager.circlePost]
-    G1 --> H1[getScenePromptByType]
-    H1 --> I1[buildCirclePrompt]
-    I1 --> J1[调用LLM获取响应]
-    J1 --> K1[parseCircleResponse]
-    K1 --> L1[updateCircleMemory]
-    K1 --> M1[更新UI]
-4.3 互动频率控制流程
-
-graph TD
-    A2[互动请求] --> B2[checkInteractionLimits]
-    B2 --> C2{频率设置}
-    C2 -->|低| D2["最多回复同一角色1次<br>最多回复5个不同角色<br>最多回复评论1次"]
-    C2 -->|中| E2["最多回复同一角色3次<br>最多回复5个不同角色<br>最多回复评论3次"]
-    C2 -->|高| F2["最多回复同一角色5次<br>最多回复7个不同角色<br>最多回复评论5次"]
-    D2 & E2 & F2 --> G2{检查限制}
-    G2 -->|超过限制| H2[拒绝请求]
-    G2 -->|限制内| I2[执行互动]
-    I2 --> J2[updateInteractionStats]
+// 底层 CircleManager 实现根据设置选择适当的适配器
+if (apiSettings.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled) {
+  // 使用 OpenRouter 适配器
+  this.openRouterAdapter = new OpenRouterAdapter(
+    apiSettings.openrouter.apiKey,
+    apiSettings.openrouter.model
+  );
+} else {
+  // 使用 Gemini 适配器
+  this.geminiAdapter = new GeminiAdapter(apiKey);
+}
+```
 
 ## 5. 核心文件与职责
+
 ### 5.1 前端 UI
-### 5.1 前端 UI
-
-`/app/(tabs)/explore.tsx`：朋友圈页面，负责展示帖子、处理交互
-'handleCirclePostUpdate'：处理帖子互动测试
-'handlePublishTestPost'：处理发布测试帖子
-'handleComment'：处理用户评论
-'renderComment'：渲染评论组件
-
-`/components/SettingsSidebar.tsx`：角色设置侧边栏
-'CircleInteractionSettings'：朋友圈互动设置组件
-'handleFrequencyChange'：处理频率设置变更
-
-'/components/TestResultsModal.tsx'：测试结果显示组件
+- **`/app/(tabs)/explore.tsx`**：朋友圈页面，展示帖子、处理交互
+- **`/components/SettingsSidebar.tsx`**：角色设置侧边栏，朋友圈启用开关
+- **`/app/components/circle/CircleManager.tsx`**：管理自动帖子生成
+- **`/app/pages/api-settings.tsx`**：API 设置界面，包括 OpenRouter 配置
 
 ### 5.2 服务层
--`/services/circle-service.ts`：中间层服务，处理业务逻辑
-'createNewPost'：创建新朋友圈帖子
-'processCircleInteraction'：处理对帖子的互动
-'replyToComment'：处理对评论的回复
-'publishTestPost'：发布测试帖子
-'checkInteractionLimits'：检查互动频率限制
-'updateInteractionStats'：更新互动统计
-
-`/NodeST/nodest/index.ts`：NodeST API 封装层
+- **`/services/circle-service.ts`**：中间层服务，处理业务逻辑，API设置透传
+- **`/services/circle-scheduler.ts`**：管理互动队列，控制API调用频率
+- **`/utils/NodeSTManager.ts`**：NodeST API 封装层，确保API设置一致传递
 
 ### 5.3 核心层
-`/NodeST/nodest/services/prompt-builder-service`：# 构建 AI 请求体的核心通用服务（新增）
-
-`/NodeST/nodest/managers/circle-manager.ts`：朋友圈核心处理器
-'circleInit'：初始化角色朋友圈框架
-'circlePost'：处理各类朋友圈交互
-'getScenePromptByType'：根据互动类型获取场景提示词
-'parseCircleResponse'：解析 AI 返回的 JSON 响应
-
-`/shared/types/circle-types.ts`：相关类型定义
-'CircleRFramework'：朋友圈R框架结构
-'CirclePostOptions'：交互选项参数
-'CircleResponse'：交互响应结构
+- **`/NodeST/nodest/index.ts`**：NodeST 核心入口，处理API设置更新
+- **`/NodeST/nodest/managers/circle-manager.ts`**：朋友圈核心处理器
+- **`/NodeST/nodest/services/prompt-builder-service`**：构建 AI 请求体的服务
+- **`/NodeST/nodest/utils/openrouter-adapter.ts`**：OpenRouter API 适配器
+- **`/NodeST/nodest/utils/gemini-adapter.ts`**：Gemini API 适配器
 
 ## 6. 关键接口与实现
 
@@ -227,191 +251,178 @@ interface CircleRFramework {
         }
     }
 }
-
+```
 
 ### 6.2 交互选项
 
+```typescript
 interface CirclePostOptions {
-    type: 'newPost' | 'replyToComment' | 'replyToPost';  // 交互类型
+    type: 'newPost' | 'replyToComment' | 'replyToPost' | 'forwardedPost';  // 交互类型
     content: {
         authorId: string;           // 帖子作者ID
+        authorName: string;         // 帖子作者名称
         text: string;               // 帖子/评论内容
         context?: string;           // 上下文信息
+        images?: string[];          // 图片URL数组（可选）
     };
     responderId: string;            // 响应者ID（角色ID）
+    responderCharacter?: Character; // 响应者角色对象（可选，用于初始化）
 }
 ```
 
-### 6.3 场景提示词设计
-
-
-
-#### 6.3.0 D类条目可靠性改进
-
-系统现在能够检测关键D类条目（如关系状态检视）是否被成功包含在最终提示中：
+### 6.3 API 设置接口
 
 ```typescript
-// Log important information about the constructed prompt
-console.log(`[PromptBuilderService] Final prompt includes D-entries: ${hasIncludedDEntries}, includes relationship review: ${hasIncludedRelationshipReview}`);
-
-// If relationship review should be present but isn't, add a diagnostic message
-if (!hasIncludedRelationshipReview && hasReviewInOriginal) {
-  console.error("[PromptBuilderService] WARNING: Relationship State Review was present in original messages but not included in final text!");
+interface OpenRouterSettings {
+  enabled: boolean;              // 是否启用OpenRouter
+  apiKey: string;                // OpenRouter API密钥
+  model: string;                 // 选择的模型ID
+  useBackupModels?: boolean;     // 是否使用备用模型（可选）
+  backupModels?: string[];       // 备用模型列表（可选）
 }
 
-当系统检测到关系状态检视未被包含时，会实施备用策略：
-
-// 如果日志中没有检测到状态检视提示词，但我们确实创建了它，那么手动添加它
-if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
-  console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
-  const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
-  // ...使用修改后的提示词
+interface ApiSettings {
+  apiProvider: 'gemini' | 'openrouter';  // API提供商
+  openrouter?: OpenRouterSettings;       // OpenRouter设置（可选）
 }
-
 ```
 
-#### 6.3.1 针对帖子发布者的场景提示词
+### 6.4 CircleScheduler 队列管理系统
 
-当角色是内容发布者时（即 authorId 与 responderId 相同）使用的提示词：
-作为一个角色，请基于你的性格和背景，创作一条适合发布在朋友圈的内容。
+CircleScheduler 提供了强大的队列管理功能，确保 API 调用的频率限制和任务优先级：
 
-这次发布可能的主题是：${contentText} ${options.content.context ? 【上下文】${options.content.context} : ''}
-
-请以JSON格式提供你的朋友圈帖子： { "post": "你要发布的朋友圈内容", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
-
-确保内容符合你的角色人设，展现出你独特的性格和表达方式。
-
-
-#### 6.3.2 自我帖子反思场景提示词
-
-当角色查看自己发布的帖子时使用的提示词：
-
-
+```typescript
+class CircleScheduler {
+  // 用于创建帖子的请求队列
+  private postQueue: Array<{
+    character: Character;
+    apiKey?: string;
+    apiSettings?: ApiSettings;
+    // ...
+  }>;
+  
+  // 用于互动的请求队列
+  private interactionQueue: Array<{
+    character: Character;
+    post: CirclePost;
+    apiKey?: string;
+    apiSettings?: ApiSettings;
+    images?: string[]; // 支持图片分析
+    // ...
+  }>;
+  
+  // 安排帖子创建任务
+  public schedulePost(character, apiKey?, apiSettings?): Promise<...>;
+  
+  // 安排互动任务（支持图片）
+  public scheduleInteraction(character, post, apiKey?, apiSettings?, images?): Promise<...>;
+  
+  // 优先处理用户帖子互动
+  public scheduleUserPostInteraction(character, userPost, apiKey?, apiSettings?, images?): Promise<...>;
+  
+  // 处理队列中的任务
+  private async processQueues(): Promise<void>;
+}
 ```
 
-这是你自己发布的朋友圈动态，现在你正在查看别人对你帖子的反应：
+## 7. 队列处理优先级
 
-【你发布的内容】${contentText} 【上下文】${options.content.context || '无'}
+CircleScheduler 按以下优先级处理任务：
 
-基于你的角色性格，请以JSON格式回应：
+1. **用户帖子互动** - 用户创建的帖子获得最高优先级
+2. **角色发帖请求** - 当没有用户帖子互动时处理
+3. **普通互动请求** - 最低优先级
 
-你对自己发布的这条内容的感受
-你希望获得什么样的评论或互动
-包含你的情感状态
-严格按以下格式回复： { "reflection": "对自己帖子的反思或补充想法", "expectation": "期待获得的互动类型", "emotion": { "type": "positive/neutral/negative", "intensity": 0.0-1.0 } }
+```typescript
+// 优先处理用户帖子互动
+const userPostInteraction = this.interactionQueue.find(
+  item => item.post.characterId.startsWith('user-')
+);
+
+if (userPostInteraction) {
+  // 优先处理用户帖子互动
+} else if (this.postQueue.length > 0) {
+  // 其次处理发帖请求
+} else {
+  // 最后处理普通互动请求
+}
 ```
 
+## 8. API 提供商实现
 
-#### 6.3.3 其他角色回复评论的场景提示词
+### 8.1 Gemini 适配器
 
-
-```
-你看到一条朋友圈评论。基于你的角色性格和上下文信息，请以JSON格式回应：
-- 决定是否点赞（like: true/false）
-- 可选择是否回复此评论（comment字段）
-- 包含你的情感反应（emotion对象，含type和intensity）
-
-严格按以下格式回复，不要包含任何其他文字：
-{
-  "action": {
-    "like": true/false,
-    "comment": "你对评论的回复内容（如不回复则省略此字段）"
-  },
-  "emotion": {
-    "type": "positive/neutral/negative",
-    "intensity": 0.0-1.0
+```typescript
+class GeminiAdapter {
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+  
+  async generateContent(messages: any[]): Promise<string> {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=' + this.apiKey, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: messages, generationConfig: {...} })
+    });
+    // 处理响应...
+  }
+  
+  async generateMultiModalContent(prompt: string, imageData: any): Promise<{text: string}> {
+    // 处理包含图片的请求...
   }
 }
 ```
-```
-```
-```
-```
-```
-```
-### 6.4 角色配置
-在角色设置中添加了以下朋友圈相关配置：
+
+### 8.2 OpenRouter 适配器
 
 ```typescript
-interface Character {
-    // ...现有属性
-    circleInteraction?: boolean;                  // 是否启用朋友圈互动
-    circlePostFrequency?: 'low' | 'medium' | 'high';  // 发布频率
-    circleInteractionFrequency?: 'low' | 'medium' | 'high';  // 互动频率
-    circleStats?: {
-        repliedToCharacters: Record<string, number>;  // 已回复角色ID和次数
-        repliedToPostsCount: number;                  // 已回复的不同角色帖子数
-        repliedToCommentsCount: Record<string, number>; // 已回复评论ID和次数
-    };
-}
-```
-### 6.5 频率控制实现
-
-
-```typescript
-private static checkInteractionLimits(
-  character: Character, 
-  targetId: string,
-  type: 'post' | 'comment'
-): boolean {
-  // 如果没有设置互动频率，默认为中等
-  const frequency = character.circleInteractionFrequency || 'medium';
-  
-  // 初始化互动统计
-  if (!character.circleStats) {
-    character.circleStats = {
-      repliedToCharacters: {},
-      repliedToPostsCount: 0,
-      repliedToCommentsCount: {}
-    };
-    return true; // 首次互动，允许
+class OpenRouterAdapter {
+  constructor(apiKey: string, model: string = 'anthropic/claude-3-haiku') {
+    this.apiKey = apiKey;
+    this.model = model;
   }
   
-  if (type === 'post') {
-    // 检查对特定角色的回复次数
-    const repliesCount = character.circleStats.repliedToCharacters[targetId] || 0;
-    const maxRepliesPerCharacter = frequency === 'low' ? 1 : 
-                                  (frequency === 'medium' ? 3 : 5);
-    
-    // 检查不同角色帖子的回复总数
-    const maxDifferentCharacters = frequency === 'low' ? 5 : 
-                                  (frequency === 'medium' ? 5 : 7);
-    
-    // 如果已达到限制，拒绝互动
-    if (repliesCount >= maxRepliesPerCharacter) return false;
-    
-    if (character.circleStats.repliedToPostsCount >= maxDifferentCharacters && 
-        !character.circleStats.repliedToCharacters[targetId]) {
-      return false;
-    }
-    
-    return true;
-  } else if (type === 'comment') {
-    // 检查对评论的回复次数
-    const repliesCount = character.circleStats.repliedToCommentsCount[targetId] || 0;
-    const maxRepliesPerComment = frequency === 'low' ? 1 : 
-                                (frequency === 'medium' ? 3 : 5);
-    
-    if (repliesCount >= maxRepliesPerComment) return false;
-    
-    return true;
+  async generateContent(messages: any[]): Promise<string> {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+        'HTTP-Referer': 'https://my-app.com',
+        'X-Title': 'My App Circle'
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages: messages.map(msg => ({
+          role: this.convertRole(msg.role),
+          content: msg.parts[0].text
+        })),
+        // 其他配置...
+      })
+    });
+    // 处理响应...
   }
   
-  return true;
+  // 转换Gemini角色到OpenRouter角色
+  private convertRole(role: string): string {
+    return role === 'user' ? 'user' : 
+           role === 'model' ? 'assistant' : 
+           role === 'system' ? 'system' : 'assistant';
+  }
 }
 ```
 
-## 7. 角色互动频率设置
+## 9. 角色互动频率设置
 
 系统在 SettingsSidebar 中提供了发布频率和互动频率的设置：
 
-### 7.1 发布频率
+### 9.1 发布频率
 
 * **低**: 1次/天
 * **中**: 3次/天
 * **高**: 5次/天
 
-### 7.2 互动频率
+### 9.2 互动频率
 
 互动频率控制角色在朋友圈中的互动行为限制：
 
@@ -430,253 +441,150 @@ private static checkInteractionLimits(
   * 最多回复7个不同角色的朋友圈
   * 最多回复朋友圈下其他角色的评论5次
 
-### 7.3 统计实现
+## 10. 自动帖子管理
 
-系统通过 `circleStats` 字段记录互动统计数据：
-
-```typescript
-circleStats: {
-  repliedToCharacters: Record<string, number>; // 已回复角色ID和次数
-  repliedToPostsCount: number;                 // 已回复的不同角色帖子数
-  repliedToCommentsCount: Record<string, number>; // 已回复评论ID和次数
-}
-```
-
-## 8. JSON响应解析机制
-
-系统采用多层次的JSON解析策略，确保能准确提取有效数据：
-
-1. **直接解析** - 尝试将整个回复作为JSON解析
-2. **正则提取** - 使用正则表达式寻找回复中的JSON对象
-3. **验证有效性** - 检查是否包含必要的action字段
-4. **优雅降级** - 在无法获取有效JSON时使用模拟数据
-
-关键代码：
-```typescript
-// 使用正则表达式寻找文本中的JSON部分
-const jsonPattern = /\{(?:[^{}]|(?:\{[^{}]*\}))*\}/g;
-const matches = text.match(jsonPattern);
-            
-if (!matches || matches.length === 0) {
-  console.error('【朋友圈】未找到JSON格式内容');
-  return null;
-}
-```
-
-## 9. 测试功能与调试
-
-系统提供两种测试方式：
-
-1. **互动测试**: 测试角色对现有帖子的回应
-   ```javascript
-   const { updatedPost, results } = await CircleService.processTestInteraction(
-     testPost, 
-     enabledCharacters,
-     apiKey
-   );
-   ```
-
-2. **发布测试**: 测试角色生成新帖子并获取其他角色回应
-   ```javascript
-   const { post, author } = await CircleService.publishTestPost(characters, apiKey);
-   ```
-
-使用 TestResultsModal 组件可视化展示测试结果，包含成功率、互动内容等统计数据。
-
-### 9.1 角色身份检测
-
-在 `getScenePromptByType` 方法中，系统会检查角色是否为内容的作者，并相应地提供不同的提示词模板：
+系统通过 CircleManager 组件实现自动的帖子生成和互动：
 
 ```typescript
-// 检查是否为自己发布的帖子（发帖者和响应者是同一角色）
-const isOwnPost = options.content.authorId === options.responderId;
-
-// 根据不同情况选择不同提示词模板
-if (options.type === 'newPost') {
-  if (isOwnPost) {
-    // 使用发帖者提示词模板
-    scenePrompt = `作为一个角色，请基于你的性格和背景，创作...`;
-  } else {
-    // 使用回应者提示词模板
-    scenePrompt = `作为一个角色，你正在创建一条新的朋友圈动态...`;
-  }
-}
-```
-## 9.2 提示词嵌入检测与修复
-系统现在能够检测特定D类条目（如关系状态检视提示词）是否成功嵌入到最终提示中，并在失败时进行手动修复：
-
-``` typescript
-// 检查关系状态检视提示词是否被包含
-if (prompt.indexOf("关系状态检查") === -1 && relationshipReviewPrompt) {
-  console.warn(`【角色关系】警告：关系状态检视提示词没有被包含在最终请求中，手动添加`);
-  const modifiedPrompt = prompt + "\n\n" + relationshipReviewPrompt;
+export const CircleManager = () => {
+  // ...existing code...
   
-  // 使用修改后的提示词
-  const response = await this.getChatResponse(modifiedPrompt);
-  // ...处理响应
-}
-
-
-## 10. 开发建议与最佳实践
-
-1. **模块化开发** - 将新互动类型封装在独立模块中
-
-2. **类型安全** - 利用TypeScript类型系统保证数据一致性
-   ```typescript
-   type CircleInteractionType = 'newPost' | 'replyToComment' | 'replyToPost' | '新互动类型';
-   ```
-
-3. **日志分级** - 使用统一的日志前缀便于筛选
-   ```
-   【朋友圈】: 核心层日志
-   【朋友圈服务】: 服务层日志
-   【朋友圈测试】: 测试相关日志
-   ```
-
-4. **错误处理** - 在每个关键节点添加try-catch并提供用户友好提示
-   ```typescript
-   try {
-     // 操作代码
-   } catch (error) {
-     console.error('【朋友圈服务】操作失败:', error);
-     return { success: false, error: '友好的错误提示' };
-   }
-   ```
-
-
-## 11. 开发者指南
-
-### 11.1 添加新的互动类型
-
-要添加新的互动类型，需要：
-
-扩展 CirclePostOptions 的 type 字段
-在 getScenePromptByType 方法中添加新类型的场景提示词
-在 CircleService 中添加对应的处理方法
-```typescript
-// 步骤1：扩展类型
-type CircleInteractionType = 'newPost' | 'replyToComment' | 'replyToPost' | '新互动类型';
-
-// 步骤2：添加场景提示词
-private getScenePromptByType(framework: CircleRFramework, options: CirclePostOptions): CircleRFramework {
-  // ...现有代码
-  
-  switch (options.type) {
-    // ...现有类型
-    case '新互动类型':
-      scenePrompt = `针对新互动类型的场景提示词...`;
-      break;
-  }
-  
-  // ...剩余代码
-}
-
-// 步骤3：添加服务方法
-static async processNewInteractionType(
-  character: Character,
-  targetData: any,
-  apiKey?: string
-): Promise<CircleResponse> {
-  // 实现新互动类型的处理逻辑
-}
-```
-
-### 11.2 回复评论实现方式
-系统实现了角色对评论的回复功能，关键代码：
-```typescript
-static async replyToComment(
-  character: Character,
-  post: CirclePost,
-  comment: CircleComment,
-  apiKey?: string
-): Promise<CircleResponse> {
-  // 检查互动频率限制
-  if (!this.checkInteractionLimits(character, comment.id, 'comment')) {
-    return { success: false, error: `已达到互动频率限制` };
-  }
-  
-  // 确定是否为帖子作者
-  const isPostAuthor = character.id === post.characterId;
-  
-  // 阻止角色回复自己的评论（除非是帖子作者）
-  if (character.id === comment.userId && !isPostAuthor) {
-    return { success: false, error: `不允许回复自己的评论` };
-  }
-  
-  // 根据不同角色设置上下文
-  let context = '';
-  if (isPostAuthor) {
-    context = `你是帖子"${post.content}"的作者，${comment.userName}评论了你的帖子...`;
-  } else {
-    context = `在${post.characterName}的帖子下，${comment.userName}发表了评论...`;
-  }
-  
-  // 构建请求选项
-  const commentOptions = {
-    type: 'replyToComment',
-    content: { ... },
-    responderId: character.id
+  // 获取API设置，确保正确使用OpenRouter
+  const getApiSettings = () => {
+    const apiKey = user?.settings?.chat?.characterApiKey || '';
+    
+    const apiSettings = {
+      apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+      openrouter: user?.settings?.chat?.apiProvider === 'openrouter' && user?.settings?.chat?.openrouter
+        ? {
+            enabled: true,
+            apiKey: user?.settings?.chat?.openrouter.apiKey,
+            model: user?.settings?.chat?.openrouter.model
+          }
+        : undefined
+    };
+    
+    return { apiKey, apiSettings };
   };
   
-  // 处理请求并返回结果
-  // ...
-}
-```
-
-### 11.3 测试工具使用
-系统提供了两种测试方式：
-
-互动测试：测试所有启用朋友圈互动的角色对一条固定帖子的反应
-发布测试：随机选择一个角色发布一条测试朋友圈，然后测试其他角色的反应
-
-```typescript
-// 发布测试按钮处理
-const handlePublishTestPost = async () => {
-  try {
-    setPublishingPost(true);
+  // 创建测试帖子
+  const createTestPost = async () => {
+    const { apiKey, apiSettings } = getApiSettings();
+    const result = await CircleService.publishTestPost(
+      enabledCharacters,
+      apiKey,
+      apiSettings
+    );
+    // ...处理结果...
+  };
+  
+  // 定时生成帖子逻辑
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      checkSchedule();
+    }, 5 * 60 * 1000); // 每5分钟检查一次
     
-    // 获取API Key
-    const apiKey = user?.settings?.chat?.characterApiKey;
-    
-    // 使用CircleService创建测试帖子
-    const { post, author } = await CircleService.publishTestPost(characters, apiKey);
-    
-    // 创建新帖子列表
-    const updatedPosts = [post, ...posts];
-    setPosts(updatedPosts);
-    
-    // 更新角色数据
-    await updateCharacter(/* ... */);
-    
-    // 让其他角色互动
-    setTimeout(() => {
-      handleCirclePostUpdate(post);
-    }, 500);
-    
-  } catch (error) {
-    // 错误处理
-  } finally {
-    setPublishingPost(false);
-  }
+    return () => clearInterval(intervalId);
+  }, [lastPostTimestamp, isProcessing, characters]);
+  
+  // ...existing code...
 };
 ```
 
+## 11. 最佳实践与注意事项
 
-## 12. 后续计划与路线图
-**短期计划 (1-2个月)**
-- 朋友圈记忆提取为摘要，摘要定期生成为WorldBook条目（默认constant值为false）
-- 异步处理记忆总结
-- 实现自动化定时发布机制
-- 优化频率限制算法
-- 增加更丰富的互动类型
+1. **API 设置传递** - 确保从UI层到底层服务完整传递 API 设置
+   ```typescript
+   await CircleService.processCircleInteraction(
+     character, post, apiKey, apiSettings, postOptions
+   );
+   ```
 
-**中期计划 (3-6个月)**
-- 实现朋友圈与聊天记忆的统一
-- 增加群组讨论功能
-- 优化UI交互体验
-- 批量更新WorldBook
+2. **图片处理** - 处理带图片的帖子需要使用 `multimodal` 请求
+   ```typescript
+   if (hasImages && this.geminiAdapter) {
+     const multimodalResponse = await this.geminiAdapter.generateMultiModalContent(
+       promptText,
+       { images: [imageInput] }
+     );
+   }
+   ```
 
-**长期计划 (6个月以上)**
-- 开发高级的社交关系网络
-- 实现基于记忆的个性化互动
-- 打造完整的角色社交生态系统
+3. **适配器选择** - 根据 API 设置自动选择正确的适配器
+   ```typescript
+   if (this.openRouterAdapter) {
+     console.log('【朋友圈】使用OpenRouter适配器发送请求');
+     response = await this.openRouterAdapter.generateContent([message]);
+   } else if (this.geminiAdapter) {
+     console.log('【朋友圈】使用Gemini适配器发送请求');
+     response = await this.geminiAdapter.generateContent([message]);
+   }
+   ```
+
+4. **日志记录** - 记录详细的 API 设置和适配器使用情况，方便调试
+   ```typescript
+   console.log(`【朋友圈服务】获取NodeST实例，apiKey存在: ${!!apiKey}，provider: ${apiSettings?.apiProvider || 'gemini'}`, 
+     openRouterConfig ? {
+       hasOpenRouterKey: !!openRouterConfig.apiKey,
+       model: openRouterConfig.model
+     } : 'no openrouter config'
+   );
+   ```
+
+## 12. 故障排除
+
+### 12.1 API 设置未正确传递
+
+如果 OpenRouter 配置未生效，请检查设置传递链：
+
+1. **API 设置页面** - 确认启用了 OpenRouter 开关，并正确设置了 API Key 和模型
+2. **CircleService** - 查看日志确认 `apiSettings` 参数正确传递
+3. **NodeSTManager** - 查看 `updateApiSettings` 是否收到并保存了设置
+4. **CircleManager** - 查看适配器选择日志，确认使用了正确的适配器
+
+### 12.2 图片处理失败
+
+如果图片分析功能失败：
+
+1. 检查 Gemini API Key 是否有效（OpenRouter 暂不支持图片分析）
+2. 确认图片 URL 可公开访问
+3. 检查图片格式是否支持（JPG, PNG, WebP）
+4. 尝试降低图片分辨率（1024x1024 以下最佳）
+
+### 12.3 频率限制问题
+
+如果 API 调用频繁失败：
+
+1. 增加 CircleScheduler 的 `processingInterval` 值（默认3000ms）
+2. 降低角色的互动频率设置
+3. 对于 OpenRouter，考虑使用备用模型选项
+4. 实现更复杂的指数退避重试机制
+
+## 13. 后续发展计划
+
+1. **实时互动** - 引入 WebSocket 支持实时角色互动
+2. **情感分析** - 基于互动内容分析角色情感，调整关系发展
+3. **多模态增强** - 支持音频、视频等多种互动内容
+4. **角色关系网络** - 可视化展示角色之间的社交网络和关系发展
+5. **自适应交互** - 根据用户参与度自动调整互动频率和内容深度
+6. **跨平台同步** - 支持多设备同步朋友圈内容和互动
+
+## 更新日志
+
+### v1.2.0 (当前版本)
+- 新增 OpenRouter 完整支持，从UI到底层全链路透传API设置
+- 改进 CircleManager 组件实现自动帖子生成
+- 增强 API 设置页面，支持详细 OpenRouter 配置
+- 优化 CircleScheduler 支持图片处理和API设置传递
+
+### v1.1.0
+- 新增角色身份感知机制
+- 引入频率控制系统
+- 实现关系影响与更新
+- 添加帖子评论互动支持
+
+### v1.0.0
+- 基础朋友圈功能
+- 帖子创建与互动
+- Gemini API 支持
+- 角色设置界面

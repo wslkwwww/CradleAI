@@ -1220,7 +1220,7 @@ const handleSetAsAvatar = async (imageId: string) => {
     );
   };
 
-  // Update the render character card function to show pending image status
+  // Update the render character card function to show action buttons below the card
   const renderCharacterCard = (character: CradleCharacter) => {
     // Check if any images are being generated
     const hasGeneratingImage = character.imageHistory?.some(img => 
@@ -1233,62 +1233,141 @@ const handleSetAsAvatar = async (imageId: string) => {
     const isTagGenerated = character.generationData?.appearanceTags !== undefined;
     
     return (
-      <TouchableOpacity 
-        key={character.id}
-        style={[
-          styles.characterCard,
-          selectedCharacter?.id === character.id && styles.selectedCharacterCard
-        ]}
-        onPress={() => {
-          setSelectedCharacter(character);
-        }}
-      >
-        {/* Character image container */}
-        <View style={styles.characterImageContainer}>
-          {character.backgroundImage ? (
-            <Image
-              source={{ uri: character.backgroundImage }}
-              style={styles.characterImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.characterImagePlaceholder}>
-              <Ionicons name="image-outline" size={24} color="#666" />
-            </View>
-          )}
-          
-          {/* Image generation status indicator */}
-          {isGeneratingImage && (
-            <View style={styles.loadingIconOverlay}>
-              <ActivityIndicator size="small" color="#fff" />
-            </View>
-          )}
-          
-          {/* Add a tag-generated badge if this character was created with tags */}
-          {isTagGenerated && !isGeneratingImage && (
-            <View style={styles.tagGeneratedBadge}>
-              <Ionicons name="pricetag" size={12} color="#fff" />
-              <Text style={styles.tagGeneratedBadgeText}>AI生成</Text>
-            </View>
-          )}
-          
-          {/* Character info overlay */}
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.characterCardOverlay}
-          ></LinearGradient>
-            <Text style={styles.characterCardName} numberOfLines={1}>
-              {character.name}
-            </Text>
+      <View key={character.id} style={styles.characterCardWrapper}>
+        <TouchableOpacity 
+          style={[
+            styles.characterCard,
+            selectedCharacter?.id === character.id && styles.selectedCharacterCard
+          ]}
+          onPress={() => {
+            setSelectedCharacter(character);
+          }}
+        >
+          {/* Character image container */}
+          <View style={styles.characterImageContainer}>
+            {character.backgroundImage ? (
+              <Image
+                source={{ uri: character.backgroundImage }}
+                style={styles.characterImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.characterImagePlaceholder}>
+                <Ionicons name="image-outline" size={24} color="#666" />
+              </View>
+            )}
             
-          {/* Add creation method indicator */}
-            <View style={styles.cardCreationMethodContainer}>
-              <Text style={styles.cardCreationMethodText}>
-                {isTagGenerated ? 'Tag生成' : '手动创建'}
+            {/* Image generation status indicator */}
+            {isGeneratingImage && (
+              <View style={styles.loadingIconOverlay}>
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            )}
+            
+            {/* Add a tag-generated badge if this character was created with tags */}
+            {isTagGenerated && !isGeneratingImage && (
+              <View style={styles.tagGeneratedBadge}>
+                <Ionicons name="pricetag" size={12} color="#fff" />
+                <Text style={styles.tagGeneratedBadgeText}>AI生成</Text>
+              </View>
+            )}
+            
+            {/* Character info overlay */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.7)']}
+              style={styles.characterCardOverlay}
+            ></LinearGradient>
+              <Text style={styles.characterCardName} numberOfLines={1}>
+                {character.name}
               </Text>
-            </View>
+              
+            {/* Add creation method indicator */}
+              <View style={styles.cardCreationMethodContainer}>
+                <Text style={styles.cardCreationMethodText}>
+                  {isTagGenerated ? 'Tag生成' : '手动创建'}
+                </Text>
+              </View>
+          </View>
+        </TouchableOpacity>
+        
+        {/* Add image-gallery-like action buttons below the card */}
+        <View style={styles.characterCardActions}>
+          {/* Edit button */}
+          <TouchableOpacity
+            style={styles.imageActionButton}
+            onPress={() => {
+              // Check if character is editable
+              const isEditable = !!(character.isCradleGenerated === true || 
+                                    character.isDialogEditable === true || 
+                                    (character.jsonData && character.jsonData.length > 0));
+                                    
+              if (isEditable) {
+                // Set the editing character and show edit dialog
+                if (character.jsonData && character.jsonData.length > 0) {
+                  try {
+                    const parsedJson = JSON.parse(character.jsonData);
+                    if (!parsedJson.roleCard || !parsedJson.worldBook) {
+                      throw new Error('JSON数据缺少必要的结构');
+                    }
+                    setEditingCharacter(character);
+                    setShowEditDialog(true);
+                  } catch (error) {
+                    Alert.alert(
+                      "角色数据格式错误",
+                      "角色的JSON数据格式不正确，无法编辑。错误：" + (error instanceof Error ? error.message : String(error)),
+                      [{ text: "确定", style: "default" }]
+                    );
+                  }
+                } else {
+                  Alert.alert(
+                    "数据不完整",
+                    "该角色缺少必要的数据，无法编辑。请尝试先完成角色培育。",
+                    [{ text: "确定", style: "default" }]
+                  );
+                }
+              } else {
+                Alert.alert(
+                  "角色尚未生成",
+                  "请先完成角色培育并生成，然后才能通过对话修改角色数据。",
+                  [{ text: "了解", style: "default" }]
+                );
+              }
+            }}
+          >
+            <Ionicons name="brush-outline" size={18} color="#fff" />
+          </TouchableOpacity>
+          
+          
+          {/* Image regeneration button */}
+          <TouchableOpacity
+            style={[styles.imageActionButton, styles.regenerateButton]}
+            onPress={() => {
+              setSelectedCharacter(character);
+              setShowImageModal(true);
+            }}
+          >
+            <Ionicons name="refresh-outline" size={18} color="#fff" />
+          </TouchableOpacity>
+          
+          {/* Generate character button - for characters not yet generated */}
+          {!character.isCradleGenerated && (
+            <TouchableOpacity
+              style={[styles.imageActionButton, styles.generateButton]}
+              onPress={() => handleGenerateCharacter(character)}
+            >
+              <Ionicons name="flash-outline" size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
+          
+          {/* Delete button */}
+          <TouchableOpacity
+            style={[styles.imageActionButton, styles.deleteButton]}
+            onPress={() => handleDeleteCharacter(character)}
+          >
+            <Ionicons name="trash-outline" size={18} color="#fff" />
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
     );
   };
 
@@ -1499,13 +1578,7 @@ const handleSetAsAvatar = async (imageId: string) => {
       {/* Render improved notification */}
       {renderNotification()}
       
-      {/* Floating create button - keep it */}
-      <TouchableOpacity
-        style={styles.floatingCreateButton}
-        onPress={() => router.push('/pages/create_char_cradle')}
-      >
-        <Ionicons name="add" size={24} color="#000" />
-      </TouchableOpacity>
+      {/* Removed floating create button */}
       
       {/* Feed modal - when selectedCharacter exists */}
       {selectedCharacter && (
@@ -2097,16 +2170,26 @@ const styles = StyleSheet.create({
   },
   characterCardActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingHorizontal: 2,
   },
-  characterCardButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
+  imageActionButton: {
+    padding: 6,
+    borderRadius: 4,
+    backgroundColor: 'rgba(80, 80, 80, 0.8)',
     alignItems: 'center',
-    marginLeft: 8,
+    justifyContent: 'center',
+    width: ((SCREEN_WIDTH - 48) / 2 - 20) / 5, // Distribute buttons evenly
+  },
+  regenerateButton: {
+    backgroundColor: 'rgba(138, 43, 226, 0.6)',
+  },
+  generateButton: {
+    backgroundColor: 'rgba(46, 204, 113, 0.6)',
+  },
+  deleteButton: {
+    backgroundColor: 'rgba(231, 76, 60, 0.6)',
   },
   fullImageContainer: {
     flex: 1,
@@ -2175,5 +2258,10 @@ const styles = StyleSheet.create({
   cardCreationMethodText: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 12,
+  },
+  characterCardWrapper: {
+    width: (SCREEN_WIDTH - 48) / 2, // 2 columns with proper spacing
+    marginBottom: 20,
+    marginHorizontal: 4,
   },
 });

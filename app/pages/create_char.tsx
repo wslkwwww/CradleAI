@@ -41,6 +41,7 @@ import CharacterAttributeEditor from '@/components/character/CharacterAttributeE
 import { Ionicons } from '@expo/vector-icons';
 import TagSelector from '@/components/TagSelector';
 import ArtistReferenceSelector from '@/components/ArtistReferenceSelector';
+import { theme } from '@/constants/theme';
 // Default preset entries
 export const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
@@ -823,7 +824,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       
       {/* Update note about cradle system integration */}
       <View style={styles.cradleInfoContainer}>
-        <Ionicons name="information-circle-outline" size={20} color="#4fc3f7" />
+        <Ionicons name="information-circle-outline" size={20} color={theme.colors.info} />
         <Text style={styles.cradleInfoText}>
           选择的标签将保存为角色的外观描述数据，但不会自动生成图像
         </Text>
@@ -898,14 +899,14 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     </View>
   );
 
-  // Modify the renderContent function to use the enhanced tag generation section
+  // Update the renderContent function to use the improved styling matching CradleCreateForm
   const renderContent = () => {
     if (activeTab === 'basic') {
       return (
         <View style={styles.tabContent}>
           <Text style={styles.sectionTitle}>角色外观</Text>
           
-          {/* Add mode selection similar to CradleCreateForm */}
+          {/* Mode selection with improved styling to match CradleCreateForm */}
           <View style={styles.modeSelectionContainer}>
             <TouchableOpacity 
               style={[styles.modeButton, uploadMode === 'upload' && styles.activeMode]}
@@ -915,7 +916,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
                 <Ionicons 
                   name="cloud-upload-outline" 
                   size={24} 
-                  color={uploadMode === 'upload' ? '#FFD700' : "#888"}
+                  color={uploadMode === 'upload' ? theme.colors.primary : "#888"}
                 />
               </View>
               <View style={styles.modeTextContainer}>
@@ -936,7 +937,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
                 <Ionicons 
                   name="color-wand-outline" 
                   size={24} 
-                  color={uploadMode === 'generate' ? '#FFD700' : "#888"} 
+                  color={uploadMode === 'generate' ? theme.colors.primary : "#888"} 
                 />
               </View>
               <View style={styles.modeTextContainer}>
@@ -952,62 +953,56 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
           
           {/* Render content based on selected mode */}
           {uploadMode === 'upload' ? (
-            <View style={styles.cardPreviewSection}>
-              <Text style={styles.inputLabel}>角色卡图片 (9:16)</Text>
-              <View style={styles.cardImageContainer}>
-                <TouchableOpacity
-                  style={styles.cardImagePicker}
-                  onPress={pickBackgroundImage}
-                >
-                  {character.backgroundImage ? (
-                    <Image source={{ uri: character.backgroundImage }} style={styles.cardImagePreview} />
-                  ) : (
-                    <>
-                      <Ionicons name="card-outline" size={40} color="#aaa" />
-                      <Text style={styles.imageButtonText}>添加角色卡图片</Text>
-                      <Text style={styles.imageButtonSubtext}>(9:16比例)</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.imageSeparator}>
-                <View style={styles.imageSeparatorLine} />
-                <Text style={styles.imageSeparatorText}>或</Text>
-                <View style={styles.imageSeparatorLine} />
-              </View>
-              
-              {/* Avatar selection */}
-              <Text style={styles.inputLabel}>头像图片 (方形)</Text>
-              <View style={styles.avatarContainer}>
-                <TouchableOpacity
-                  style={styles.avatarButton}
-                  onPress={pickAvatar}
-                >
-                  {character.avatar ? (
-                    <Image source={{ uri: character.avatar }} style={styles.avatarPreview} />
-                  ) : (
-                    <>
-                      <Ionicons name="person-circle-outline" size={40} color="#aaa" />
-                      <Text style={styles.imageButtonText}>添加头像</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-              
-              {/* Add information about cradle system integration */}
-              <View style={styles.cradleInfoContainer}>
-                <Ionicons name="information-circle-outline" size={20} color="#4fc3f7" />
-                <Text style={styles.cradleInfoText}>
-                  创建的角色将自动添加到摇篮系统，可在摇篮页面进行培育和完善
-                </Text>
+            <View style={styles.uploadContainer}>
+              <View style={styles.cardPreviewSection}>
+                <Text style={styles.inputLabel}>角色卡图片 (9:16)</Text>
+                <View style={styles.cardImageContainer}>
+                  <TouchableOpacity
+                    style={styles.cardImagePicker}
+                    onPress={pickBackgroundImage}
+                  >
+                    {character.backgroundImage ? (
+                      <Image source={{ uri: character.backgroundImage }} style={styles.cardImagePreview} />
+                    ) : (
+                      <>
+                        <Ionicons name="card-outline" size={40} color="#aaa" />
+                        <Text style={styles.imageButtonText}>添加角色卡图片</Text>
+                        <Text style={styles.imageButtonSubtext}>(9:16比例)</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.imageSeparator}>
+                  <View style={styles.imageSeparatorLine} />
+                  <Text style={styles.imageSeparatorText}>或</Text>
+                  <View style={styles.imageSeparatorLine} />
+                </View>
+                
+                {/* Avatar selection */}
+                <Text style={styles.inputLabel}>头像图片 (方形)</Text>
+                <View style={styles.imageSelectionContainer}>
+                  <TouchableOpacity
+                    style={styles.avatarButton}
+                    onPress={pickAvatar}
+                  >
+                    {character.avatar ? (
+                      <Image source={{ uri: character.avatar }} style={styles.avatarPreview} />
+                    ) : (
+                      <>
+                        <Ionicons name="person-circle-outline" size={40} color="#aaa" />
+                        <Text style={styles.imageButtonText}>添加头像</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           ) : (
             renderTagGenerationSection()
           )}
 
-          {/* Tag selector modal remains unchanged */}
+          {/* Tag selector modal */}
           <Modal
             visible={tagSelectorVisible}
             transparent={false}
@@ -1139,16 +1134,16 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     }
   };
 
-  // Add new styles for cradle integration
+  // Update styles to match CradleCreateForm and use theme colors consistently
   const styles = StyleSheet.create({
     container: {
       flex: 1,
       flexDirection: 'row',
-      backgroundColor: '#282828',
+      backgroundColor: theme.colors.background,
     },
     sidebarContainer: {
       width: 80,
-      backgroundColor: 'rgba(40, 40, 40, 0.9)',
+      backgroundColor: theme.colors.backgroundSecondary,
       borderRightWidth: 1,
       borderRightColor: 'rgba(255,255,255,0.1)',
       display: 'flex',
@@ -1170,22 +1165,22 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       borderLeftColor: 'transparent',
     },
     activeSidebarItem: {
-      backgroundColor: 'rgba(255, 215, 0, 0.1)',
-      borderLeftColor: '#FFD700',
+      backgroundColor: 'rgba(255, 224, 195, 0.1)',
+      borderLeftColor: theme.colors.primary,
     },
     sidebarItemText: {
-      color: '#aaa',
+      color: theme.colors.textSecondary,
       marginLeft: 8,
       fontSize: 13,
     },
     activeSidebarItemText: {
-      color: '#FFD700',
+      color: theme.colors.primary,
     },
     sidebarSaveButton: {
       width: 30,
       height: 30,
       borderRadius: 15,
-      backgroundColor: '#FFD700',
+      backgroundColor: theme.colors.primaryDark,
       justifyContent: 'center',
       alignItems: 'center',
       marginBottom: 8,
@@ -1200,24 +1195,34 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     tabContent: {
       padding: 16,
     },
-    attributeSection: {
-      marginTop: 20,
+    sectionTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: theme.colors.text,
+      marginBottom: 16,
     },
-    // Remove bottom bar styles
-    
-    imageSelectionSection: {
-      flexDirection: 'row',
+    uploadContainer: {
+      flex: 1,
+      alignItems: 'center',
+      padding: 16,
+    },
+    cardPreviewSection: {
+      alignItems: 'center',
+      width: '100%',
       marginBottom: 20,
     },
-    avatarContainer: {
-      width: 100,
-      marginRight: 16,
+    // Avatar, card image, and image selection styles
+    imageSelectionContainer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginVertical: 16, 
     },
     avatarButton: {
-      width: 100,
-      height: 100,
-      borderRadius: 50,
-      backgroundColor: '#333',
+      width: 120,
+      height: 120,
+      borderRadius: 60,
+      backgroundColor: theme.colors.backgroundSecondary,
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 1,
@@ -1227,197 +1232,14 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     avatarPreview: {
       width: '100%',
       height: '100%',
-      borderRadius: 50,
-    },
-    backgroundContainer: {
-      flex: 1,
-    },
-    backgroundButton: {
-      aspectRatio: 9/16,
-      backgroundColor: '#333',
-      borderRadius: 8,
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.2)',
-      overflow: 'hidden',
-      height: 200,
-    },
-    backgroundPreview: {
-      width: '100%',
-      height: '100%',
-    },
-    imageButtonText: {
-      color: '#aaa',
-      marginTop: 8,
-      fontSize: 12,
-      textAlign: 'center',
-    },
-    // Add styles for tag-based image generation
-    modeSelectionContainer: {
-      marginBottom: 16,
-    },
-    modeButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      padding: 12,
-      borderRadius: 8,
-      marginBottom: 8,
-      backgroundColor: 'rgba(60, 60, 60, 0.8)',
-      borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.1)',
-    },
-    activeMode: {
-      backgroundColor: 'rgba(255, 215, 0, 0.1)',
-      borderColor: '#FFD700',
-    },
-    modeIconContainer: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginRight: 12,
-    },
-    modeTextContainer: {
-      flex: 1,
-    },
-    modeText: {
-      fontSize: 16,
-      color: '#aaa',
-    },
-    activeModeText: {
-      color: '#FFD700',
-    },
-    modeDescription: {
-      fontSize: 12,
-      color: '#888',
-      marginTop: 4,
-    },
-    tagGenerateContainer: {
-      flex: 1,
-      padding: 16,
-    },
-    tagInstructionsText: {
-      color: '#aaa',
-      fontSize: 14,
-      marginBottom: 16,
-    },
-    tagSummaryContainer: {
-      backgroundColor: '#333',
-      borderRadius: 8,
-      padding: 12,
-      marginVertical: 16,
-    },
-    tagSummaryTitle: {
-      color: '#fff',
-      fontSize: 16,
-      marginBottom: 8,
-    },
-    selectedTagsRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      minHeight: 36,
-      marginBottom: 8,
-    },
-    selectedPositiveTag: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: 'rgba(255, 224, 195, 0.8)',
-      borderRadius: 16,
-      paddingVertical: 4,
-      paddingHorizontal: 8,
-      marginRight: 8,
-    },
-    selectedNegativeTag: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: 'rgba(255, 68, 68, 0.8)',
-      borderRadius: 16,
-      paddingVertical: 4,
-      paddingHorizontal: 8,
-      marginRight: 8,
-    },
-    selectedTagText: {
-      fontSize: 12,
-      marginRight: 4,
-      maxWidth: 100,
-    },
-    noTagsSelectedText: {
-      color: '#aaa',
-      fontStyle: 'italic',
-    },
-    defaultTagsInfo: {
-      color: '#888',
-      fontSize: 11,
-      fontStyle: 'italic',
-      marginTop: 8,
-      textAlign: 'center',
-    },
-    openTagSelectorButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(74, 144, 226, 0.8)',
-      borderRadius: 8,
-      padding: 12,
-      marginVertical: 8,
-    },
-    openTagSelectorText: {
-      color: '#fff',
-      marginLeft: 8,
-    },
-    sectionTitle: {
-      fontSize: 20,
-      fontWeight: 'bold',
-      color: '#fff',
-      marginTop: 24,
-      marginBottom: 16,
-    },
-    tagSelectorModalContainer: {
-      flex: 1,
-      backgroundColor: '#222',
-    },
-    tagSelectorHeader: {
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 16,
-      backgroundColor: '#333',
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(255,255,255,0.1)',
-      position: 'relative',
-      // Add status bar height adjustment for iOS
-      paddingTop: Platform.OS === 'ios' ? 44 : 16,
-    },
-    tagSelectorTitle: {
-      color: '#fff',
-      fontSize: 18,
-      fontWeight: 'bold',
-    },
-    tagSelectorCloseButton: {
-      position: 'absolute',
-      right: 16,
-      // Adjust for iOS status bar
-      top: Platform.OS === 'ios' ? 44 : 16,
-      padding: 4,
-    },
-    tagSelectorContent: {
-      flex: 1, // This ensures the TagSelector fills the available space
-    },
-    // Add or modify styles for unified appearance
-    cardPreviewSection: {
-      alignItems: 'center',
-      width: '100%',
-      marginBottom: 20,
+      borderRadius: 60,
     },
     cardImageContainer: {
-      width: 120,   
+      width: 120,
       height: 200,
       borderRadius: 8,
       overflow: 'hidden',
-      backgroundColor: 'rgba(60, 60, 60, 0.8)',
+      backgroundColor: theme.colors.backgroundSecondary,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -1432,8 +1254,14 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       height: '100%',
       resizeMode: 'cover',
     },
+    imageButtonText: {
+      color: theme.colors.textSecondary,
+      marginTop: 8,
+      fontSize: 12,
+      textAlign: 'center',
+    },
     imageButtonSubtext: {
-      color: '#888',
+      color: theme.colors.textSecondary,
       fontSize: 12,
       marginTop: 4,
     },
@@ -1449,51 +1277,198 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       backgroundColor: 'rgba(255,255,255,0.1)',
     },
     imageSeparatorText: {
-      color: '#aaa',
+      color: theme.colors.textSecondary,
       marginHorizontal: 8,
     },
     inputLabel: {
-      color: '#fff',
+      color: theme.colors.text,
       fontSize: 16,
       marginBottom: 8,
-      alignSelf: 'flex-start',
     },
-    
-    // Add new styles for preset import
-    presetSectionHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginTop: 24,
+    // Mode selection styles to match CradleCreateForm
+    modeSelectionContainer: {
       marginBottom: 16,
     },
-    importPresetButton: {
+    modeButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(255, 215, 0, 0.1)',
+      padding: 12,
       borderRadius: 8,
-      paddingVertical: 6,
-      paddingHorizontal: 12,
+      marginBottom: 8,
+      backgroundColor: theme.colors.backgroundSecondary,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.1)',
     },
-    importPresetText: {
-      color: '#FFD700',
-      marginLeft: 4,
+    activeMode: {
+      backgroundColor: 'rgba(255, 224, 195, 0.1)',
+      borderColor: theme.colors.primary,
+    },
+    modeIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    modeTextContainer: {
+      flex: 1,
+    },
+    modeText: {
+      fontSize: 16,
+      color: theme.colors.textSecondary,
+    },
+    activeModeText: {
+      color: theme.colors.primary,
+    },
+    modeDescription: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginTop: 4,
+    },
+    // Tag generation styles to match CradleCreateForm
+    tagGenerateContainer: {
+      flex: 1,
+      padding: 16,
+    },
+    tagInstructionsText: {
+      color: theme.colors.textSecondary,
       fontSize: 14,
+      marginBottom: 16,
     },
+    tagSummaryContainer: {
+      backgroundColor: theme.colors.cardBackground,
+      borderRadius: 8,
+      padding: 12,
+      marginVertical: 16,
+    },
+    tagSummaryTitle: {
+      color: theme.colors.text,
+      fontSize: 16,
+      marginBottom: 8,
+    },
+    selectedTagsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 36,
+      marginBottom: 8,
+    },
+    selectedPositiveTag: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.primary,
+      borderRadius: 16,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      marginRight: 8,
+    },
+    selectedNegativeTag: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.danger,
+      borderRadius: 16,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      marginRight: 8,
+    },
+    selectedTagText: {
+      fontSize: 12,
+      marginRight: 4,
+      maxWidth: 100,
+      color: theme.colors.black, // For positive tags with light background
+    },
+    noTagsSelectedText: {
+      color: theme.colors.textSecondary,
+      fontStyle: 'italic',
+    },
+    defaultTagsInfo: {
+      color: theme.colors.textSecondary,
+      fontSize: 11,
+      fontStyle: 'italic',
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    openTagSelectorButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.primaryDark,
+      borderRadius: 8,
+      padding: 12,
+      marginVertical: 8,
+    },
+    openTagSelectorText: {
+      color: theme.colors.black,
+      marginLeft: 8,
+      fontWeight: '500',
+    },
+    // Tag selector modal styles
+    tagSelectorModalContainer: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    tagSelectorHeader: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 16,
+      backgroundColor: theme.colors.cardBackground,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(255,255,255,0.1)',
+      position: 'relative',
+      paddingTop: Platform.OS === 'ios' ? 44 : 16,
+    },
+    tagSelectorTitle: {
+      color: theme.colors.text,
+      fontSize: 18,
+      fontWeight: 'bold',
+    },
+    tagSelectorCloseButton: {
+      position: 'absolute',
+      right: 16,
+      top: Platform.OS === 'ios' ? 44 : 16,
+      padding: 4,
+    },
+    tagSelectorContent: {
+      flex: 1,
+    },
+    // Add styles for the cradle info container
     cradleInfoContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(79, 195, 247, 0.1)',
+      backgroundColor: 'rgba(33, 150, 243, 0.1)',
       padding: 12,
       borderRadius: 8,
       marginTop: 16,
     },
     cradleInfoText: {
       flex: 1,
-      color: '#4fc3f7',
+      color: theme.colors.info,
       fontSize: 13,
       marginLeft: 8,
       lineHeight: 18,
+    },
+    attributeSection: {
+      marginTop: 16,
+    },
+    presetSectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    importPresetButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 8,
+      borderRadius: 4,
+      backgroundColor: 'rgba(224, 196, 168, 0.2)', // Updated to use primaryDark with opacity
+    },
+    importPresetText: {
+      color: theme.colors.primary, // Updated to use theme colors
+      marginLeft: 4,
+      fontSize: 12,
     },
   });
 
@@ -1513,7 +1488,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             <Ionicons 
               name="document-outline"
               size={24} 
-              color={activeTab === 'basic' ? "#FFD700" : "#aaa"} 
+              color={activeTab === 'basic' ? theme.colors.primary : theme.colors.textSecondary} 
             />
           </TouchableOpacity>
           
@@ -1527,7 +1502,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             <Ionicons 
               name="settings-outline"
               size={24} 
-              color={activeTab === 'advanced' ? "#FFD700" : "#aaa"} 
+              color={activeTab === 'advanced' ? theme.colors.primary : theme.colors.textSecondary} 
             />
           </TouchableOpacity>
         </View>
@@ -1539,9 +1514,9 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
           disabled={isSaving}
         >
           {isSaving ? (
-            <ActivityIndicator size="small" color="#000" />
+            <ActivityIndicator size="small" color={theme.colors.black} />
           ) : (
-            <Ionicons name="save-outline" size={18} color="#000" />
+            <Ionicons name="save-outline" size={18} color={theme.colors.black} />
           )}
         </TouchableOpacity>
       </View>

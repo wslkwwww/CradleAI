@@ -75,7 +75,7 @@ export class CircleService {
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
   ): Promise<CircleResponse> {
     try {
-      console.log(`【朋友圈服务】角色 ${character.name} 创建新朋友圈帖子`);
+      console.log(`【朋友圈服务】角色 ${character.name} 创建新朋友圈帖子，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
       
       // 初始化角色的朋友圈（如果尚未初始化）
       const isInitialized = await this.initCharacterCircle(character, apiKey, apiSettings);
@@ -211,6 +211,14 @@ export class CircleService {
         `（包含${post.images!.length}张图片）` : 
         '';
       
+      // Determine if replyTo is the user
+      const isReplyToUser = replyTo?.userId === 'user-1';
+      
+      // Use customUserName for the user if available, otherwise use userName
+      const userDisplayName = isReplyToUser && character.customUserName ? 
+        character.customUserName : 
+        (replyTo?.userName || '用户');
+      
       if (isForwarded) {
         // Enhanced special context for forwarded posts with image indication
         context = `用户转发了${post.characterName}的朋友圈给你${imageInfo}: "${post.content}"`;
@@ -223,13 +231,16 @@ export class CircleService {
         // Enhanced: Reply to comment with better context including original post content
         if (replyTo.userId === character.id) {
           // User is replying to this character's comment
-          context = `在${post.characterName}发布的"${post.content}"帖子下，用户${replyTo.userName}回复了你的评论: "${comment}"`;
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}回复了你的评论: "${comment}"`;
         } else if (replyTo.userId === post.characterId) {
           // User is replying to post author's comment
-          context = `在${post.characterName}发布的"${post.content}"帖子下，用户回复了帖子作者的评论: "${comment}"`;
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}回复了帖子作者的评论: "${comment}"`;
+        } else if (isReplyToUser) {
+          // User is being replied to - make it clear this is the user
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}（用户本人）发表了评论: "${comment}"，请回复这条评论`;
         } else {
           // User is replying to another comment
-          context = `在${post.characterName}发布的"${post.content}"帖子下，用户回复了${replyTo.userName}的评论: "${comment}"`;
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}回复了${replyTo.userName}的评论: "${comment}"`;
         }
       } else {
         // Regular reply to post with image indication
@@ -548,7 +559,7 @@ export class CircleService {
   static async publishTestPost(
     characters: Character[],
     apiKey?: string,
-    apiSettings?: { apiProvider: string, openrouter?: any }
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
   ): Promise<{post: CirclePost | null, author: Character | null}> {
     try {
       console.log(`【朋友圈服务】尝试发布测试帖子`);
@@ -564,6 +575,13 @@ export class CircleService {
       const author = enabledCharacters[Math.floor(Math.random() * enabledCharacters.length)];
       console.log(`【朋友圈服务】选择角色 ${author.name} 作为发帖者`);
       
+      // Log API settings to debug
+      console.log(`【朋友圈服务】发布测试帖子使用的API配置:`, {
+        provider: apiSettings?.apiProvider || 'gemini',
+        hasOpenRouter: apiSettings?.apiProvider === 'openrouter' && apiSettings?.openrouter?.enabled,
+        openRouterModel: apiSettings?.openrouter?.model
+      });
+      
       // 生成测试内容模板
       const postTemplates = [
         `今天的心情真不错！刚刚${author.name === '厨师' ? '做了一道新菜' : '看了一部有趣的电影'}，大家有什么推荐吗？`,
@@ -575,8 +593,8 @@ export class CircleService {
       // 随机选择一个模板作为提示词
       const promptTemplate = postTemplates[Math.floor(Math.random() * postTemplates.length)];
       
-      // 创建朋友圈帖子
-      const response = await this.createNewPost(author, promptTemplate, apiKey,);
+      // 创建朋友圈帖子 - 确保正确传递apiSettings
+      const response = await this.createNewPost(author, promptTemplate, apiKey, apiSettings);
       
       if (!response.success) {
         console.log(`【朋友圈服务】发布测试帖子失败: ${response.error}`);
@@ -1112,18 +1130,19 @@ export class CircleService {
     updates: Array<{characterId: string, changes: any}>
   }> {
     try {
-      console.log(`【朋友圈服务】开始批量互动测试，生成 ${postCount} 条测试帖子`);
+      console.log(`【朋友圈服务】开始批量互动测试，生成 ${postCount} 条测试帖子，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
       
       const testPosts: CirclePost[] = [];
       const characterUpdates: Array<{characterId: string, changes: any}> = [];
       
       // Generate test posts
       for (let i = 0; i < postCount; i++) {
+        // Ensure apiSettings are correctly passed to publishTestPost
         const { post, author } = await this.publishTestPost(characters, apiKey, apiSettings);
         if (post && author) {
           testPosts.push(post);
           
-          // Process interactions for this post
+          // Process interactions for this post - ensure apiSettings are passed here too
           const { updatedPost, updatedCharacters } = await this.processTestInteraction(
             post,
             characters.filter(c => c.id !== author.id && c.circleInteraction),

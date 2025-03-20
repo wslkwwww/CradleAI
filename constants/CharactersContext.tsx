@@ -466,7 +466,16 @@ const updateCharacter = async (character: Character) => {
   };
 
   const getApiKey = () => {
-    return user?.settings?.chat.characterApiKey || '';
+    // Check which API provider is being used
+    const apiProvider = user?.settings?.chat?.apiProvider || 'gemini';
+    
+    // Return the appropriate API key based on provider
+    if (apiProvider === 'openrouter' && user?.settings?.chat?.openrouter?.enabled) {
+      return user?.settings?.chat?.openrouter?.apiKey || '';
+    }
+    
+    // Default to Gemini API key
+    return user?.settings?.chat?.characterApiKey || '';
   };
 
   const getCharacterConversationId = (characterId: string) => {
@@ -1668,7 +1677,7 @@ const checkCradleGeneration = (): {
   }
   
   return {
-    readyCharactersCount: readyCharacters.length,
+    readyCharactersCount:     readyCharacters.length,
     readyCharacters
   };
 };

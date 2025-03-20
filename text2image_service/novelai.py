@@ -402,7 +402,7 @@ class NovelAIClient:
             "parameters": {
                 "width": dimensions.get('width', 832),
                 "height": dimensions.get('height', 1216),
-                "scale": params.get('scale', 11),
+                "scale": params.get('scale', 5.5),
                 "sampler": params.get('sampler', 'k_euler_ancestral'),
                 "steps": params.get('steps', 28),
                 "n_samples": params.get('batch_size', 1),

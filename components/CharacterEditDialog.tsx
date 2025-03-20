@@ -13,7 +13,9 @@ import {
   Platform,
   Keyboard,
   Switch,
-  Dimensions
+  Dimensions,
+  Image,
+  Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Character, CradleCharacter } from '@/shared/types';
@@ -1162,14 +1164,35 @@ ${JSON.stringify(characterJsonData, null, 2)}
             isUser ? styles.userMessageContainer : styles.botMessageContainer
           ]}
         >
+          {/* Avatar or icon for the sender */}
+          {!isUser && (
+            <View style={styles.avatarContainer}>
+              <Ionicons name="construct-outline" size={20} color="#fff" />
+            </View>
+          )}
+          
           <View
             style={[
               styles.messageBubble,
               isUser ? styles.userMessageBubble : styles.botMessageBubble
             ]}
           >
-            <Text style={styles.messageText}>{message.text}</Text>
+            <Text style={[
+              styles.messageText,
+              isUser ? styles.userMessageText : styles.botMessageText
+            ]}>
+              {message.text}
+            </Text>
           </View>
+          
+          {/* Time indicator (simplified) */}
+          <Text style={styles.messageTime}>
+            {new Date(message.timestamp).toLocaleTimeString('zh-CN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            })}
+          </Text>
         </View>
       );
     });
@@ -1341,6 +1364,17 @@ ${JSON.stringify(characterJsonData, null, 2)}
     );
   };
 
+  const getBackgroundImage = () => {
+    // Use the character's background image if available, otherwise use a default
+    if (character.backgroundImage) {
+      return character.backgroundImage;
+    } else if (character.localBackgroundImage) {
+      return character.localBackgroundImage;
+    }
+    // Return a default background or null
+    return null;
+  };
+
   return (
     <Modal
       visible={isVisible}
@@ -1444,20 +1478,34 @@ ${JSON.stringify(characterJsonData, null, 2)}
           {/* Preview (conditionally rendered) */}
           {showPreview ? renderPreview() : (
             <>
-              {/* Chat area */}
-              <ScrollView
-                ref={scrollViewRef}
-                style={styles.chatArea}
-                contentContainerStyle={styles.chatContainer}
-              >
-                {renderChatBubbles()}
-                {isProcessing && (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="small" color="#4CAF50" />
-                    <Text style={styles.loadingText}>处理中...</Text>
-                  </View>
+              {/* Chat area with background image */}
+              <View style={styles.chatAreaContainer}>
+                {/* Character background image as chat background */}
+                {getBackgroundImage() && (
+                  <Image
+                    source={{ uri: getBackgroundImage() || undefined }}
+                    style={styles.chatBackgroundImage}
+                    blurRadius={5} // Apply a slight blur to improve readability
+                  />
                 )}
-              </ScrollView>
+                
+                {/* Semi-transparent overlay for better readability */}
+                <View style={styles.chatBackgroundOverlay} />
+                
+                <ScrollView
+                  ref={scrollViewRef}
+                  style={styles.chatArea}
+                  contentContainerStyle={styles.chatContainer}
+                >
+                  {renderChatBubbles()}
+                  {isProcessing && (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="small" color="#4CAF50" />
+                      <Text style={styles.loadingText}>处理中...</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
 
               {/* Input area */}
               <View style={styles.inputContainer}>
@@ -1561,9 +1609,28 @@ const styles = StyleSheet.create({
   actionButtonTextDisabled: {
     color: '#888',
   },
+  chatAreaContainer: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 8,
+    margin: 4,
+  },
+  chatBackgroundImage: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    opacity: 0.2,
+  },
+  chatBackgroundOverlay: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(30, 30, 30, 0.7)', // Semi-transparent dark overlay
+  },
   chatArea: {
     flex: 1,
-    backgroundColor: '#1E1E1E',
+    zIndex: 2, // Ensure it's above the background
   },
   chatContainer: {
     padding: 16,
@@ -1572,42 +1639,80 @@ const styles = StyleSheet.create({
   messageBubbleContainer: {
     marginBottom: 16,
     flexDirection: 'row',
+    alignItems: 'flex-end',
+    maxWidth: '85%',
   },
   userMessageContainer: {
     justifyContent: 'flex-end',
+    alignSelf: 'flex-end',
   },
   botMessageContainer: {
     justifyContent: 'flex-start',
+    alignSelf: 'flex-start',
+  },
+  avatarContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#4A90E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
   messageBubble: {
     borderRadius: 16,
     padding: 12,
-    maxWidth: '80%',
+    maxWidth: '90%',
+    minWidth: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
   },
   userMessageBubble: {
     backgroundColor: '#4A90E2',
+    borderBottomRightRadius: 4,
+    marginLeft: 'auto',
   },
   botMessageBubble: {
-    backgroundColor: '#444',
+    backgroundColor: 'rgba(68, 68, 68, 0.9)',
+    borderBottomLeftRadius: 4,
   },
   messageText: {
-    color: '#fff',
     fontSize: 16,
+    lineHeight: 22,
+  },
+  userMessageText: {
+    color: '#fff',
+  },
+  botMessageText: {
+    color: '#fff',
+  },
+  messageTime: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 4,
+    marginHorizontal: 8,
   },
   inputContainer: {
     flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: 'rgba(42, 42, 42, 0.9)',
     alignItems: 'flex-end',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   input: {
     flex: 1,
-    backgroundColor: '#333',
+    backgroundColor: 'rgba(51, 51, 51, 0.8)',
     borderRadius: 20,
     padding: 12,
     color: '#fff',
     fontSize: 16,
     maxHeight: 120,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   sendButton: {
     marginLeft: 12,
@@ -1621,18 +1726,17 @@ const styles = StyleSheet.create({
   sendButtonDisabled: {
     opacity: 0.5,
   },
+  sendButtonActive: {
+    backgroundColor: '#4CAF50',
+  },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#333',
+    backgroundColor: 'rgba(51, 51, 51, 0.8)',
     padding: 12,
     borderRadius: 16,
     marginBottom: 16,
-  },
-  loadingText: {
-    color: '#ccc',
-    marginLeft: 8,
   },
   previewContainer: {
     flex: 1,
@@ -1784,5 +1888,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  loadingText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontSize: 14,
   },
 });
