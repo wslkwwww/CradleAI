@@ -277,11 +277,6 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   // Add these new state variables for tag weighting
   const [tagWeightMode, setTagWeightMode] = useState<'none' | 'increase' | 'decrease'>('none');
   
-  // 添加新的状态变量，用于存储生图任务ID和状态
-  const [imageTaskId, setImageTaskId] = useState<string | null>(null);
-  const [imageGenerationStatus, setImageGenerationStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
-  const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
-  
   // New state variables for character settings tab
   const [userGender, setUserGender] = useState<'male' | 'female' | 'other'>('male');
   const [characterAge, setCharacterAge] = useState<string>('young-adult');
@@ -387,60 +382,6 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
     }
   };
 
-  // 提交图像生成任务的函数需要增强日志记录
-  const submitImageGenerationTask = async (positive: string[], negative: string[]): Promise<string> => {
-    try {
-      // 将标签数组转换为以逗号分隔的字符串
-      const positivePrompt = positive.join(', ');
-      const negativePrompt = negative.join(', ');
-      
-      console.log(`[摇篮角色创建] 准备提交图像生成请求`);
-      console.log(`[摇篮角色创建] 角色名称: ${characterName}, 性别: ${gender}`);
-      console.log(`[摇篮角色创建] 正向提示词 (${positive.length}个标签): ${positivePrompt}`);
-      console.log(`[摇篮角色创建] 负向提示词 (${negative.length}个标签): ${negativePrompt}`);
-      
-      // 构建请求参数，使用与NovelAITestModal相似的默认参数
-      const requestData = {
-        prompt: positivePrompt,
-        negative_prompt: negativePrompt,
-        model: 'nai-v4-full', // 默认使用NAI动漫v4完整版
-        sampler: 'k_euler_ancestral',
-        steps: 28,
-        scale: 11,
-        resolution: 'portrait', // 竖图，适合角色卡
-      };
-      
-      console.log(`[摇篮角色创建] 生图参数配置: 模型=${requestData.model}, 采样器=${requestData.sampler}, 步数=${requestData.steps}, 缩放比例=${requestData.scale}, 分辨率=${requestData.resolution}`);
-      
-      // 发送请求到服务器
-      console.log(`[摇篮角色创建] 正在向服务器发送生图请求...`);
-      const response = await fetch('http://152.69.219.182:5000/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData),
-      });
-      
-      // 解析响应
-      const data = await response.json();
-      
-      // 检查响应是否成功
-      if (!data.success) {
-        console.error(`[摇篮角色创建] 图像生成请求失败: ${data.error || '未知错误'}`);
-        throw new Error(`图像生成请求失败: ${data.error || '未知错误'}`);
-      }
-      
-      console.log(`[摇篮角色创建] 图像生成任务已成功提交，任务ID: ${data.task_id}`);
-      console.log(`[摇篮角色创建] 角色将在培育期结束后 (${cradleSettings.duration || 7} 天) 获取生成的图像`);
-      
-      // 返回任务ID
-      return data.task_id;
-    } catch (error) {
-      console.error('[摇篮角色创建] 提交图像生成请求失败:', error);
-      throw error;
-    }
-  };
   // Add a new function to perform VNDB search based on user inputs
 const performVndbSearch = async () => {
   try {
@@ -620,35 +561,6 @@ const handleCreateCharacter = async () => {
     const characterId = generateUniqueId();
     console.log(`[摇篮角色创建] 生成的角色ID: ${characterId}`);
     
-    // 准备图像生成请求
-    let imageTaskId = null;
-    if (uploadMode === 'generate' && positiveTags.length > 0) {
-      try {
-        console.log(`[摇篮角色创建] 检测到需要AI生成图片，已选择标签: 正向=${positiveTags.length}个, 负向=${negativeTags.length}个`);
-        
-        // Add artist prompt to positive tags if selected
-        let finalPositiveTags = [...positiveTags];
-        if (selectedArtistPrompt) {
-          console.log(`[摇篮角色创建] 使用画师风格提示词`);
-          if (!finalPositiveTags.includes(selectedArtistPrompt)) {
-            finalPositiveTags.push(selectedArtistPrompt);
-          }
-        }
-        
-        // Combine with default negative prompts
-        const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
-        
-        // 提交生图请求到服务器
-        imageTaskId = await submitImageGenerationTask(finalPositiveTags, finalNegativeTags);
-        console.log(`[摇篮角色创建] 已提交图像生成任务，ID: ${imageTaskId}`);
-        
-      } catch (error) {
-        console.error('[摇篮角色创建] 提交图像生成任务失败:', error);
-        setImageGenerationError(error instanceof Error ? error.message : '提交图像生成任务失败');
-        // 即使图片生成请求失败，也继续创建角色
-      }
-    }
-    
     // Create a complete cradle character object with all necessary fields
     const cradleCharacter: CradleCharacter = {
       // Character base properties
@@ -676,8 +588,6 @@ const handleCreateCharacter = async () => {
         description,
       },
       isCradleGenerated: true, // Default to true since we're generating immediately now
-      imageGenerationTaskId: imageTaskId,
-      imageGenerationStatus: imageTaskId ? 'pending' : 'idle',
       
       // Add formatted data for character generation
       generationData: {
@@ -816,10 +726,10 @@ const handleCreateCharacter = async () => {
           </View>
           <View style={styles.modeTextContainer}>
             <Text style={[styles.modeText, uploadMode === 'generate' && styles.activeModeText]}>
-              根据Tag生成图片
+              设置外观标签
             </Text>
             <Text style={styles.modeDescription}>
-              通过组合标签生成符合需求的角色形象
+              指定外观标签作为角色描述，不会生成图像
             </Text>
           </View>
         </TouchableOpacity>
@@ -875,7 +785,7 @@ const handleCreateCharacter = async () => {
       ) : (
         <View style={styles.tagGenerateContainer}>
           <Text style={styles.tagInstructionsText}>
-            请选择描述角色外观的正面和负面标签，正面标签会被包含在生成中，负面标签会被排除
+            请选择描述角色外观的正面和负面标签，这些标签将保存为角色数据的一部分
           </Text>
           
           {/* Add artist reference selector */}
@@ -932,7 +842,7 @@ const handleCreateCharacter = async () => {
             
             {/* Add hint for default negative prompts */}
             <Text style={styles.defaultTagsInfo}>
-              系统已添加默认的负面标签，以避免常见生成问题
+              这些标签可以帮助您更好地描述角色的外观特征
             </Text>
           </View>
           
@@ -2033,6 +1943,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
     position: 'relative',
+    // Add status bar height adjustment for iOS
+    paddingTop: Platform.OS === 'ios' ? 44 : 16,
   },
   modalTitle: {
     color: '#fff',
@@ -2042,6 +1954,8 @@ const styles = StyleSheet.create({
   closeButton: {
     position: 'absolute',
     left: 16,
+    // Adjust for iOS status bar
+    top: Platform.OS === 'ios' ? 44 : 16,
     padding: 4,
   },
   modalContent: {

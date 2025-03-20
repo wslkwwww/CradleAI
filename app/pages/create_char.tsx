@@ -501,63 +501,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
   const [negativeTags, setNegativeTags] = useState<string[]>([]);
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
-  const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
-  const [imageGenerationTaskId, setImageGenerationTaskId] = useState<string | null>(null);
 
-  // Image generation task submission function (similar to CradleCreateForm)
-  const submitImageGenerationTask = async (positive: string[], negative: string[]): Promise<string> => {
-    try {
-      // Convert tag arrays to comma-separated strings
-      const positivePrompt = positive.join(', ');
-      const negativePrompt = negative.join(', ');
-      
-      console.log(`[角色创建] 准备提交图像生成请求`);
-      console.log(`[角色创建] 角色名称: ${roleCard.name}, 性别: ${character.gender}`);
-      console.log(`[角色创建] 正向提示词 (${positive.length}个标签): ${positivePrompt}`);
-      console.log(`[角色创建] 负向提示词 (${negative.length}个标签): ${negativePrompt}`);
-      
-      // Build request parameters
-      const requestData = {
-        prompt: positivePrompt,
-        negative_prompt: negativePrompt,
-        model: 'nai-v4-full', // Default to NAI anime v4 full version
-        sampler: 'k_euler_ancestral',
-        steps: 28,
-        scale: 11,
-        resolution: 'portrait', // Portrait orientation for character cards
-      };
-      
-      console.log(`[角色创建] 生图参数配置: 模型=${requestData.model}, 采样器=${requestData.sampler}, 步数=${requestData.steps}, 缩放比例=${requestData.scale}, 分辨率=${requestData.resolution}`);
-      
-      // Send request to server
-      console.log(`[角色创建] 正在向服务器发送生图请求...`);
-      const response = await fetch('http://152.69.219.182:5000/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData),
-      });
-      
-      // Parse response
-      const data = await response.json();
-      
-      // Check if response was successful
-      if (!data.success) {
-        console.error(`[角色创建] 图像生成请求失败: ${data.error || '未知错误'}`);
-        throw new Error(`图像生成请求失败: ${data.error || '未知错误'}`);
-      }
-      
-      console.log(`[角色创建] 图像生成任务已成功提交，任务ID: ${data.task_id}`);
-      
-      // Return task ID
-      return data.task_id;
-    } catch (error) {
-      console.error('[角色创建] 提交图像生成请求失败:', error);
-      throw error;
-    }
-  };
-  
   // Saving character - update to include cradle fields
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
@@ -569,44 +513,6 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     const characterId = String(Date.now());
     
     try {
-      // Prepare image generation request if using tag-based generation
-      let imageTaskId = null;
-      if (uploadMode === 'generate' && positiveTags.length > 0) {
-        try {
-          console.log(`[角色创建] 检测到需要AI生成图片，已选择标签: 正向=${positiveTags.length}个, 负向=${negativeTags.length}个`);
-          
-          // Add artist prompt to positive tags if selected
-          let finalPositiveTags = [...positiveTags];
-          if (selectedArtistPrompt) {
-            console.log(`[角色创建] 使用画师风格提示词`);
-            if (!finalPositiveTags.includes(selectedArtistPrompt)) {
-              finalPositiveTags.push(selectedArtistPrompt);
-            }
-          }
-          
-          // Combine with default negative prompts from CradleCreateForm
-          const DEFAULT_NEGATIVE_PROMPTS = [
-            'nsfw', 'nude', 'naked', 'porn', 'explicit', 'nipples', 'pussy',
-            'lowres', 'bad anatomy', 'bad hands', 'text', 'error', 'cropped',
-            'worst quality', 'low quality', 'normal quality', 'jpeg artifacts',
-            'signature', 'watermark', 'username', 'blurry'
-          ];
-          const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
-          
-          // Submit image generation request
-          imageTaskId = await submitImageGenerationTask(finalPositiveTags, finalNegativeTags);
-          console.log(`[角色创建] 已提交图像生成任务，ID: ${imageTaskId}`);
-          
-          // Store task ID for tracking
-          setImageGenerationTaskId(imageTaskId);
-          
-        } catch (error) {
-          console.error('[角色创建] 提交图像生成任务失败:', error);
-          setImageGenerationError(error instanceof Error ? error.message : '提交图像生成任务失败');
-          // Continue creating character even if image generation fails
-        }
-      }
-      
       // 构建角色数据
       const jsonData = {
         roleCard: {
@@ -681,18 +587,13 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         feedHistory: [],
         // Flag to indicate this character is editable via dialog
         isDialogEditable: true,
-        // Add image generation tracking if applicable
-        ...(imageTaskId ? {
-          imageGenerationTaskId: imageTaskId,
-          imageGenerationStatus: 'pending' as 'idle' | 'pending' | 'success' | 'error',
-        } : {}),
-        // Add appearance tags from the generation
+        // Store appearance tags even though we're not generating images
         ...(positiveTags.length > 0 ? {
           generationData: {
             appearanceTags: {
               positive: positiveTags,
               negative: negativeTags,
-              artistPrompt: selectedArtistPrompt || undefined // Change null to undefined to match expected type
+              artistPrompt: selectedArtistPrompt || undefined
             }
           }
         } : {})
@@ -725,21 +626,11 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       // 设置为当前会话
       await AsyncStorage.setItem('lastConversationId', characterId);
   
-      // If we're using the tag-based image generation, navigate to cradle page
-      // Otherwise, navigate to the chat page as before
-      if (uploadMode === 'generate' && imageTaskId) {
-        // Navigate to cradle page to show generation progress
-        router.replace({
-          pathname: "/(tabs)/cradle",
-          params: { characterId }
-        });
-      } else {
-        // 立即导航到首页对话界面 - standard flow for manual uploads
-        router.replace({
-          pathname: "/(tabs)",
-          params: { characterId }
-        });
-      }
+      // Always use the standard flow since we're not generating images
+      router.replace({
+        pathname: "/(tabs)",
+        params: { characterId }
+      });
   
       // 异步初始化 NodeST，不阻塞导航
       NodeSTManager.processChatMessage({
@@ -923,18 +814,18 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     }
   };
 
-  // Enhance the tag-based image section with more feedback about cradle integration
+  // Enhance the tag-based image section with more feedback about tag storage
   const renderTagGenerationSection = () => (
     <View style={styles.tagGenerateContainer}>
       <Text style={styles.tagInstructionsText}>
-        请选择描述角色外观的正面和负面标签，正面标签会被包含在生成中，负面标签会被排除
+        请选择描述角色外观的正面和负面标签，这些标签将被保存作为角色描述的一部分
       </Text>
       
-      {/* Add note about cradle system integration */}
+      {/* Update note about cradle system integration */}
       <View style={styles.cradleInfoContainer}>
         <Ionicons name="information-circle-outline" size={20} color="#4fc3f7" />
         <Text style={styles.cradleInfoText}>
-          使用标签生成的角色会自动添加到摇篮系统，可在摇篮页面查看生成进度
+          选择的标签将保存为角色的外观描述数据，但不会自动生成图像
         </Text>
       </View>
       
@@ -990,9 +881,9 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
           )}
         </View>
         
-        {/* Add hint for default negative prompts */}
+        {/* Add hint for tag use */}
         <Text style={styles.defaultTagsInfo}>
-          系统已添加默认的负面标签，以避免常见生成问题
+          选择的标签仅用于保存角色外观描述，不会触发图像生成
         </Text>
       </View>
       
