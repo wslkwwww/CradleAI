@@ -269,7 +269,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       
       // If using custom prompt, use it directly
       if (useCustomPrompt) {
-        positivePrompt = customPrompt.trim();
+        // Process custom prompt to remove spaces after commas
+        positivePrompt = customPrompt.trim().replace(/, /g, ',');
         console.log(`[图片重生成] 使用自定义提示词: ${positivePrompt}`);
       } else {
         // Prepare final positive tags list with artist prompt if selected
@@ -284,12 +285,14 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           }
         }
         
-        positivePrompt = finalPositiveTags.join(', ');
+        // Join with commas but NO spaces after commas
+        positivePrompt = finalPositiveTags.join(',');
       }
       
       // Combine negative tags with default negative prompts
       const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
-      const negativePrompt = finalNegativeTags.join(', ');
+      // Join with commas but NO spaces after commas
+      const negativePrompt = finalNegativeTags.join(',');
       
       console.log(`[图片重生成] 正在为角色 "${character.name}" 生成新图像`);
       console.log(`[图片重生成] 正向提示词: ${positivePrompt}`);
@@ -330,7 +333,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         positiveTags: positiveTags,
         negativeTags: negativeTags,
         artistPrompt: selectedArtistPrompt,
-        customPrompt: customPrompt,
+        customPrompt: customPrompt.trim().replace(/, /g, ','), // Fix: Save custom prompt without spaces after commas
         useCustomPrompt: useCustomPrompt
       };
       
@@ -341,7 +344,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         characterId: character.id,
         createdAt: Date.now(),
         tags: {
-          positive: useCustomPrompt ? [customPrompt] : positiveTags,
+          positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
           negative: negativeTags,
         },
         isFavorite: false,
@@ -350,7 +353,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         setAsBackground: replaceBackground,
         isAvatar: false,
         // Add generation configuration
-        generationConfig: generationConfig
+        generationConfig: generationConfig,
+        
       };
       
       // Pass the placeholder to parent component
@@ -359,10 +363,10 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       // Close the modal immediately after submitting the request
       onClose();
       
-      // Start status check after closing
+      // Don't start checking immediately - let the server start processing first
       setTimeout(() => {
         checkImageGenerationStatus(character.id, taskId, placeholderImage.id);
-      }, 500);
+      }, 3000); // Wait 3 seconds before first check
       
     } catch (error) {
       console.error('[图片重生成] 生成失败:', error);
@@ -408,19 +412,52 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               characterId: characterId,
               createdAt: Date.now(),
               tags: {
-                positive: useCustomPrompt ? [customPrompt] : positiveTags,
+                // Fix to ensure no spaces after commas in tags
+                positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
                 negative: negativeTags,
               },
               isFavorite: false,
               generationStatus: 'success',
+              // Clear task ID to prevent duplicate checks
+              generationTaskId: undefined,
               setAsBackground: replaceBackground,
               isAvatar: false,
+              // Keep generation config for future regeneration
+              generationConfig: {
+                positiveTags: positiveTags,
+                negativeTags: negativeTags,
+                artistPrompt: selectedArtistPrompt,
+                customPrompt: customPrompt.trim().replace(/, /g, ','), // Fix here too
+                useCustomPrompt: useCustomPrompt
+              }
             };
             
             // 通知父组件更新图库
             onSuccess(completedImage);
           } else {
             console.error(`[图片重生成] 任务失败: ${data.error || '未知错误'}`);
+            
+            // Create failed image object with error status
+            const failedImage: CharacterImage = {
+              id: imageId,
+              url: '',
+              characterId: characterId,
+              createdAt: Date.now(),
+              tags: {
+                positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
+                negative: negativeTags,
+              },
+              isFavorite: false,
+              generationStatus: 'error',
+              generationError: data.error || '未知错误',
+              // Clear task ID to prevent duplicate checks
+              generationTaskId: undefined,
+              setAsBackground: false,
+              isAvatar: false
+            };
+            
+            // Notify parent of failure
+            onSuccess(failedImage);
           }
           return; // 结束轮询
         }

@@ -28,7 +28,8 @@ export const DEFAULT_NEGATIVE_PROMPTS = [
   "displeasing"
 ];
 
-// Function to get default negative prompts as a string
+// Function to get default negative prompts as a string WITHOUT SPACES after commas
 export const getDefaultNegativePromptsString = (): string => {
-  return DEFAULT_NEGATIVE_PROMPTS.join(', ');
+  // Use join with just ',' - no space after comma
+  return DEFAULT_NEGATIVE_PROMPTS.join(',');
 };

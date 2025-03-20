@@ -160,49 +160,192 @@ export default function CradlePage() {
   // Handle refresh - check character generation status and image generation status
   const handleRefresh = useCallback(async () => {
     try {
+      if (refreshing) return; // Prevent multiple refreshes
+      
       setRefreshing(true);
+      
+      // Load latest character data
       loadCradleCharacters();
-      await checkCharacterImagesStatus();
+      
+      // Clear the checkedTaskIds to allow fresh checks after manual refresh
+      checkedTaskIds.current.clear();
+      
+      // Only check images that are ACTUALLY pending (no URL yet) AND have a task ID
+      if (selectedCharacter?.imageHistory) {
+        const actuallyPendingImages = selectedCharacter.imageHistory.filter(
+          img => img.generationStatus === 'pending' && 
+                img.generationTaskId && 
+                !img.url
+        );
+        
+        if (actuallyPendingImages.length > 0) {
+          console.log(`[摇篮页面] 刷新: 检查 ${actuallyPendingImages.length} 个真正待处理的图像`);
+          
+          // Check each image individually
+          for (const pendingImage of actuallyPendingImages) {
+            await checkImageThumbnailGenerationStatus(selectedCharacter.id, pendingImage);
+          }
+        } else {
+          console.log(`[摇篮页面] 刷新: 没有待处理的图像需要检查`);
+        }
+      }
     } catch (error) {
       console.error('[摇篮页面] 刷新失败:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [cradleCharacters]);
+  }, [selectedCharacter, cradleCharacters]);
   
   // Enhanced function to check image generation status for all characters
   const checkCharacterImagesStatus = async () => {
     // Check for pending image generations in character history
+    let updatedAnyImages = false;
+    
     for (const character of cradleCharacters) {
       if (character.imageHistory) {
-        for (const image of character.imageHistory) {
-          if (image.generationStatus === 'pending' && image.generationTaskId) {
-            await checkImageThumbnailGenerationStatus(character.id, image);
-          }
+        const pendingImages = character.imageHistory.filter(
+          img => img.generationStatus === 'pending' && img.generationTaskId
+        );
+        
+        // Only check status for images that have a valid task ID and are still pending
+        for (const image of pendingImages) {
+          const wasUpdated = await checkImageThumbnailGenerationStatus(character.id, image);
+          if (wasUpdated) updatedAnyImages = true;
         }
       }
       
       // Also check for character background image generation
       if (character.imageGenerationTaskId && 
           character.imageGenerationStatus === 'pending') {
-        await checkImageGenerationStatus(character);
+        const wasUpdated = await checkImageGenerationStatus(character);
+        if (wasUpdated) updatedAnyImages = true;
       }
+    }
+    
+    // Only refresh UI if we actually updated something
+    if (updatedAnyImages) {
+      setLastImageRefresh(Date.now());
     }
   };
 
   // New function to check status of image thumbnails in gallery
-  const checkImageThumbnailGenerationStatus = async (characterId: string, image: CharacterImage) => {
-    if (!image.generationTaskId) return;
+  const checkImageThumbnailGenerationStatus = async (characterId: string, image: CharacterImage): Promise<boolean> => {
+    if (!image.generationTaskId) return false;
     
-    console.log(`[摇篮页面] 检查图像生成任务状态: ${image.generationTaskId}`);
+    const taskId = image.generationTaskId;
+    
+    // IMPORTANT: Skip if we already have the image and it's marked as complete
+    if (image.url && image.localUri && image.generationStatus === 'success') {
+      console.log(`[摇篮页面] 图像已完成，跳过检查:`, image.id);
+      return false;
+    }
+    
+    // Add taskId tracking to prevent infinite loops - if we've checked this task too many times, skip it
+    if (checkedTaskIds.current.has(taskId)) {
+      console.log(`[摇篮页面] 任务 ${taskId} 已检查过多次，跳过`);
+      
+      // Since we're skipping, let's mark this image as complete to prevent future checks
+      try {
+        const character = characters.find(c => c.id === characterId);
+        if (character?.imageHistory) {
+          const updatedHistory = character.imageHistory.map(img => 
+            img.id === image.id && img.generationTaskId === taskId
+              ? { 
+                  ...img, 
+                  generationStatus: image.url ? 'success' : 'error' as ImageGenerationStatus,
+                  generationTaskId: undefined, // Clear task ID to prevent future checks
+                  generationError: !image.url ? '多次检查后未找到图像URL' : undefined
+                } 
+              : img
+          );
+          
+          // Only update if changes were made
+          if (JSON.stringify(updatedHistory) !== JSON.stringify(character.imageHistory)) {
+            const updatedCharacter = {
+              ...character,
+              imageHistory: updatedHistory,
+              inCradleSystem: character.inCradleSystem === undefined ? true : character.inCradleSystem
+            };
+            
+            await updateCradleCharacter(updatedCharacter as CradleCharacter);
+            
+            // Update UI if needed
+            if (selectedCharacter?.id === character.id) {
+              setSelectedCharacter(updatedCharacter as CradleCharacter);
+              setCharacterImages(updatedHistory);
+              setLastImageRefresh(Date.now());
+            }
+            
+            return true; // We did perform an update
+          }
+        }
+      } catch (error) {
+        console.error('[摇篮页面] 更新循环检查图像状态失败:', error);
+      }
+      
+      return false;
+    }
+    
+    // Add to checked list after a certain number of attempts
+    // We'll still check a few times before giving up
+    const CHECK_THRESHOLD = 3;
+    const checkCount = Array.from(checkedTaskIds.current).filter(id => id === taskId).length;
+    if (checkCount >= CHECK_THRESHOLD) {
+      checkedTaskIds.current.add(taskId);
+    }
+    
+    // Check if this image already has a URL but is still marked as pending
+    if (image.url) {
+      console.log(`[摇篮页面] 图像已有URL但状态仍为pending，修正状态:`, image.id);
+      
+      // Update the character to mark this image as completed
+      try {
+        const character = characters.find(c => c.id === characterId);
+        if (character?.imageHistory) {
+          const updatedHistory = character.imageHistory.map(img => 
+            img.id === image.id
+              ? { 
+                  ...img, 
+                  generationStatus: 'success' as ImageGenerationStatus, 
+                  generationTaskId: undefined // Clear task ID
+                } 
+              : img
+          );
+          
+          if (JSON.stringify(updatedHistory) !== JSON.stringify(character.imageHistory)) {
+            const updatedCharacter = {
+              ...character,
+              imageHistory: updatedHistory,
+              inCradleSystem: character.inCradleSystem === undefined ? true : character.inCradleSystem
+            };
+            
+            await updateCradleCharacter(updatedCharacter as CradleCharacter);
+            
+            if (selectedCharacter?.id === character.id) {
+              setSelectedCharacter(updatedCharacter as CradleCharacter);
+              setCharacterImages(updatedHistory);
+              setLastImageRefresh(Date.now());
+            }
+            
+            return true;
+          }
+        }
+      } catch (error) {
+        console.error('[摇篮页面] 更新已完成图像状态失败:', error);
+      }
+      
+      return false;
+    }
+    
+    console.log(`[摇篮页面] 检查图像生成任务状态: ${taskId}`);
     
     try {
       // Request status from server
-      const response = await fetch(`http://152.69.219.182:5000/task_status/${image.generationTaskId}`);
+      const response = await fetch(`http://152.69.219.182:5000/task_status/${taskId}`);
       
       if (!response.ok) {
         console.warn(`[摇篮页面] 获取任务状态失败: HTTP ${response.status}`);
-        return;
+        return false;
       }
       
       const data = await response.json();
@@ -211,18 +354,98 @@ export default function CradlePage() {
       if (data.done && data.success && data.image_url) {
         console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
         
-        // Download the image to local storage
-        const localImageUri = await downloadAndSaveImage(
-          data.image_url,
-          characterId,
-          'gallery'
+        // First check if this image is already in our collection with this URL
+        const alreadyExists = characters.some(c => 
+          c.imageHistory?.some(img => 
+            img.url === data.image_url && img.generationStatus === 'success'
+          )
         );
+        
+        if (alreadyExists) {
+          console.log(`[摇篮页面] 图像已存在于集合中，跳过下载:`, data.image_url);
+          
+          // Just update the status to success and clear task ID
+          try {
+            const character = characters.find(c => c.id === characterId);
+            if (character?.imageHistory) {
+              const updatedHistory = character.imageHistory.map(img => 
+                img.id === image.id
+                  ? { 
+                      ...img, 
+                      url: data.image_url,
+                      generationStatus: 'success' as ImageGenerationStatus,
+                      generationTaskId: undefined
+                    } 
+                  : img
+              );
+              
+              const updatedCharacter = {
+                ...character,
+                imageHistory: updatedHistory,
+                inCradleSystem: character.inCradleSystem === undefined ? true : character.inCradleSystem
+              };
+              
+              await updateCradleCharacter(updatedCharacter as CradleCharacter);
+              
+              if (selectedCharacter?.id === character.id) {
+                setSelectedCharacter(updatedCharacter as CradleCharacter);
+                setCharacterImages(updatedHistory);
+                setLastImageRefresh(Date.now());
+              }
+              
+              return true;
+            }
+          } catch (error) {
+            console.error('[摇篮页面] 更新现有图像URL失败:', error);
+          }
+          
+          return false;
+        }
+        
+        // Check if we already have a local copy of this image
+        const existingCharacter = characters.find(c => c.id === characterId);
+        let existingImage = existingCharacter?.imageHistory?.find(
+          img => (img.generationTaskId === taskId || img.url === data.image_url) && img.localUri
+        );
+        
+        let localImageUri = existingImage?.localUri;
+        
+        // Only download if we don't have a local copy already
+        if (!localImageUri) {
+          try {
+            localImageUri = (await downloadAndSaveImage(
+              data.image_url,
+              characterId,
+              'gallery'
+            )) ?? undefined;
+            console.log(`[摇篮页面] 下载图像成功, 本地路径:`, localImageUri);
+          } catch (downloadError) {
+            console.error(`[摇篮页面] 下载图像失败:`, downloadError);
+            // Even if download fails, we can still update with the remote URL
+            localImageUri = undefined;
+          }
+        } else {
+          console.log(`[摇篮页面] 使用现有本地图像:`, localImageUri);
+        }
         
         // Find the character to update
         const character = characters.find(c => c.id === characterId);
         if (!character || !character.imageHistory) {
           console.error(`[摇篮页面] 无法找到角色 ${characterId} 或其图像历史`);
-          return;
+          return false;
+        }
+        
+        // Check if this image was already updated
+        const imageIndex = character.imageHistory.findIndex(img => img.id === image.id);
+        if (imageIndex === -1) {
+          console.log(`[摇篮页面] 无法找到要更新的图像，可能已被删除`);
+          return false;
+        }
+        
+        const currentImage = character.imageHistory[imageIndex];
+        if (currentImage.generationStatus === 'success' && currentImage.url === data.image_url) {
+          console.log(`[摇篮页面] 图像已经更新过，跳过更新`);
+          return false;
         }
         
         // Create updated image object
@@ -231,12 +454,16 @@ export default function CradlePage() {
           url: data.image_url,
           localUri: localImageUri || data.image_url,
           generationStatus: 'success' as ImageGenerationStatus,
-          generationTaskId: undefined
+          generationTaskId: undefined // Clear task ID
         };
         
-        // Call handleImageRegenerationSuccess with the completed image to update UI
+        // Update the image in storage
         handleImageRegenerationSuccess(updatedImage);
         
+        // Mark task as fully processed to prevent future checks
+        checkedTaskIds.current.add(taskId);
+        
+        return true;
       } else if (data.done && !data.success) {
         // Task failed
         console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
@@ -245,50 +472,62 @@ export default function CradlePage() {
         const character = cradleCharacters.find(c => c.id === characterId);
         if (!character || !character.imageHistory) {
           console.error(`[摇篮页面] 无法找到角色 ${characterId} 或其图像历史`);
-          return;
+          return false;
         }
         
-        // Update the image in the character's imageHistory with proper type casting
+        // Check if image already marked as error
+        const imageToUpdate = character.imageHistory.find(img => img.id === image.id);
+        if (!imageToUpdate || imageToUpdate.generationStatus === 'error') {
+          return false;
+        }
+        
+        // Update the image in the character's imageHistory
         const updatedImageHistory = character.imageHistory.map(img => 
           img.id === image.id ? 
           { 
             ...img, 
             generationStatus: 'error' as ImageGenerationStatus,
             generationError: data.error || '未知错误',
-            generationTaskId: undefined 
+            generationTaskId: undefined // Clear task ID
           } : img
         );
         
         // Update character with new image history
         const updatedCharacter = { 
           ...character, 
-          imageHistory: updatedImageHistory as CharacterImage[]
+          imageHistory: updatedImageHistory as CharacterImage[],
+          inCradleSystem: character.inCradleSystem === undefined ? true : character.inCradleSystem
         };
         
-        await updateCradleCharacter(updatedCharacter);
+        await updateCradleCharacter(updatedCharacter as CradleCharacter);
         
         // Update UI
         if (selectedCharacter?.id === characterId) {
-          setSelectedCharacter(updatedCharacter);
+          setSelectedCharacter(updatedCharacter as CradleCharacter);
           setCharacterImages(updatedImageHistory as CharacterImage[]);
-          
-          // Trigger a refresh
           setLastImageRefresh(Date.now());
         }
         
         // Show failure notification
         showNotification('图像生成失败', `"${character.name}"的图像生成失败：${data.error || '未知错误'}`);
+        
+        // Mark task as fully processed to prevent future checks
+        checkedTaskIds.current.add(taskId);
+        
+        return true;
       }
-      // If task is still processing, we'll check again next interval
       
+      // If task is still processing, we'll check again next interval
+      return false;
     } catch (error) {
       console.error(`[摇篮页面] 检查图像生成状态失败:`, error);
+      return false;
     }
   };
 
   // Check the status of a single character's image generation task
-  const checkImageGenerationStatus = async (character: CradleCharacter) => {
-    if (!character.imageGenerationTaskId) return;
+  const checkImageGenerationStatus = async (character: CradleCharacter): Promise<boolean> => {
+    if (!character.imageGenerationTaskId) return false;
     
     const MAX_RETRIES = 3;
     let retries = 0;
@@ -313,7 +552,7 @@ export default function CradlePage() {
           
           // If we've exhausted retries, return without updating
           console.error(`[摇篮页面] 达到最大重试次数 (${MAX_RETRIES})，放弃检查任务状态`);
-          return;
+          return false;
         }
         
         const data = await response.json();
@@ -322,7 +561,23 @@ export default function CradlePage() {
         if (data.done && data.success && data.image_url) {
           console.log(`[摇篮页面] 图像生成成功: ${data.image_url}`);
           
-          // Download the image to local storage
+          // Check if this character already has this image to prevent duplicate downloads
+          const hasImageAlready = character.backgroundImage === data.image_url || 
+                                 character.localBackgroundImage === data.image_url;
+                                 
+          if (hasImageAlready) {
+            console.log(`[摇篮页面] 角色已拥有该图像，跳过下载`);
+            
+            // Still update status to mark task as completed
+            let updatedCharacter = { ...character };
+            updatedCharacter.imageGenerationStatus = 'success';
+            updatedCharacter.imageGenerationTaskId = null;
+            
+            await updateCradleCharacter(updatedCharacter);
+            return true;
+          }
+          
+          // Download the image to local storage only if needed
           const localImageUri = await downloadAndSaveImage(
             data.image_url,
             character.id,
@@ -345,27 +600,34 @@ export default function CradlePage() {
               updatedCharacter.imageHistory = [];
             }
             
-            // Add the generated image to the character's image history for gallery
-            const newImage: CharacterImage = {
-              id: `img_${Date.now()}`,
-              url: data.image_url,
-              localUri: localImageUri ?? undefined,
-              characterId: character.id,
-              createdAt: Date.now(),
-              isFavorite: false,
-              isDefaultBackground: true,
-              generationStatus: 'success',
-              // Store generation config for potential regeneration
-              generationConfig: {
-                positiveTags: character.generationData.appearanceTags.positive || [],
-                negativeTags: character.generationData.appearanceTags.negative || [],
-                artistPrompt: character.generationData.appearanceTags.artistPrompt || null,
-                customPrompt: '',
-                useCustomPrompt: false
-              }
-            };
+            // Check if this image is already in the history to prevent duplication
+            const imageExists = updatedCharacter.imageHistory.some(
+              img => img.url === data.image_url
+            );
             
-            updatedCharacter.imageHistory.push(newImage);
+            if (!imageExists) {
+              // Add the generated image to the character's image history for gallery
+              const newImage: CharacterImage = {
+                id: `img_${Date.now()}`,
+                url: data.image_url,
+                localUri: localImageUri ?? undefined,
+                characterId: character.id,
+                createdAt: Date.now(),
+                isFavorite: false,
+                isDefaultBackground: true,
+                generationStatus: 'success',
+                // Store generation config for potential regeneration
+                generationConfig: {
+                  positiveTags: character.generationData.appearanceTags.positive || [],
+                  negativeTags: character.generationData.appearanceTags.negative || [],
+                  artistPrompt: character.generationData.appearanceTags.artistPrompt || null,
+                  customPrompt: '',
+                  useCustomPrompt: false
+                }
+              };
+              
+              updatedCharacter.imageHistory.push(newImage);
+            }
           }
           
           // Save updated character
@@ -385,14 +647,23 @@ export default function CradlePage() {
           
           // Force refresh character cards
           refreshCharacterCards();
+          return true;
         } 
         // If task is done but failed
         else if (data.done && !data.success) {
           console.error(`[摇篮页面] 图像生成失败: ${data.error || '未知错误'}`);
           
+          // Prevent duplicate updates
+          if (character.imageGenerationStatus === 'error') {
+            console.log(`[摇篮页面] 错误状态已经设置，跳过更新`);
+            return false;
+          }
+          
           let updatedCharacter = { ...character };
           updatedCharacter.imageGenerationStatus = 'error';
           updatedCharacter.imageGenerationError = data.error || '未知错误';
+          // Clear the task ID to prevent further checks
+          updatedCharacter.imageGenerationTaskId = null;
           
           // Save updated character
           await updateCradleCharacter(updatedCharacter);
@@ -402,6 +673,7 @@ export default function CradlePage() {
           if (selectedCharacter?.id === character.id) {
             setSelectedCharacter(updatedCharacter);
           }
+          return true;
         }
         // If task is still in queue
         else if (data.queue_info) {
@@ -410,6 +682,7 @@ export default function CradlePage() {
           const estimatedWait = data.queue_info.estimated_wait || 0;
           
           console.log(`[摇篮页面] 图像生成任务在队列中，位置: ${queuePosition}，预计等待时间: ${Math.round(estimatedWait / 60)} 分钟`);
+          return false; // No update needed
         }
         
         // If we get here, we've successfully processed the response
@@ -428,6 +701,8 @@ export default function CradlePage() {
         }
       }
     }
+    
+    return false; // No update by default
   };
 
   // Function to force refresh the character cards when needed
@@ -520,27 +795,64 @@ export default function CradlePage() {
       if (selectedCharacter?.imageHistory && selectedCharacter.imageHistory.length > 0) {
         console.log(`[摇篮页面] 找到 ${selectedCharacter.imageHistory.length} 张图像`);
         
-        // Check for pending images - FIX: Add explicit undefined check
+        // Clear checkedTaskIds when loading new images
+        checkedTaskIds.current.clear();
+        
+        // Clean up: correct any images with URLs but still marked as pending
+        const needsCorrection = selectedCharacter.imageHistory.some(
+          img => img.generationStatus === 'pending' && (img.url || img.localUri)
+        );
+        
+        if (needsCorrection) {
+          console.log(`[摇篮页面] 发现需要修正状态的图像`);
+          
+          // Create corrected image history
+          const correctedHistory = selectedCharacter.imageHistory.map(img => 
+            (img.generationStatus === 'pending' && (img.url || img.localUri))
+              ? { ...img, generationStatus: 'success' as ImageGenerationStatus, generationTaskId: undefined }
+              : img
+          );
+          
+          // Update the character with corrected history
+          const updatedCharacter = {
+            ...selectedCharacter,
+            imageHistory: correctedHistory,
+            inCradleSystem: selectedCharacter.inCradleSystem === undefined ? true : selectedCharacter.inCradleSystem
+          };
+          
+          await updateCradleCharacter(updatedCharacter as CradleCharacter);
+          
+          // Update local state
+          setSelectedCharacter(updatedCharacter as CradleCharacter);
+          setCharacterImages(correctedHistory);
+          setLastImageRefresh(Date.now());
+        } 
+        else {
+          // No correction needed, just set the images
+          setCharacterImages(selectedCharacter.imageHistory);
+        }
+        
+        // Check for pending images - without the URL check to find truly pending images
         const hasPendingImages = selectedCharacter.imageHistory.some(
-          img => img.generationStatus === 'pending' && img.generationTaskId
+          img => img.generationStatus === 'pending' && img.generationTaskId && !img.url
         );
         
         // If we have pending images, set up automatic refresh
         if (hasPendingImages && !autoRefreshTimer) {
           console.log(`[摇篮页面] 检测到待处理的图像，启动自动刷新`);
           const timer = setInterval(() => {
+            // Only check if component is still mounted
+            if (!autoRefreshTimer) return;
             checkCharacterImagesStatus();
           }, 10000); // Check every 10 seconds
           
-          setAutoRefreshTimer(timer as unknown as NodeJS.Timeout); // Type cast to fix compatibility issues
+          setAutoRefreshTimer(timer as unknown as NodeJS.Timeout);
         } else if (!hasPendingImages && autoRefreshTimer) {
           // If no more pending images, clear the auto-refresh
           console.log(`[摇篮页面] 没有待处理的图像，停止自动刷新`);
           clearInterval(autoRefreshTimer);
           setAutoRefreshTimer(null);
         }
-        
-        setCharacterImages(selectedCharacter.imageHistory);
       } else {
         // No images found
         console.log(`[摇篮页面] 未找到图像`);
@@ -736,14 +1048,17 @@ export default function CradlePage() {
       const updatedCharacter = {
         ...selectedCharacter,
         backgroundImage: image.localUri || image.url,
-        localBackgroundImage: image.localUri
+        // Fix: Avoid setting null directly by using undefined instead when null
+        localBackgroundImage: image.localUri || undefined,
+        // Ensure inCradleSystem is always a boolean
+        inCradleSystem: selectedCharacter.inCradleSystem === undefined ? true : selectedCharacter.inCradleSystem
       };
       
       // Save the updated character
-      await updateCradleCharacter(updatedCharacter);
+      await updateCradleCharacter(updatedCharacter as CradleCharacter);
       
       // Update the selected character in state
-      setSelectedCharacter(updatedCharacter);
+      setSelectedCharacter(updatedCharacter as CradleCharacter);
       
       // Show success notification
       showNotification('背景已更新', '已将选择的图像设置为角色背景');
@@ -1133,6 +1448,16 @@ const handleSetAsAvatar = async (imageId: string) => {
       }
     }
   }, [lastImageRefresh]);
+
+  // Add this utility function to keep track of already checked task IDs to prevent infinite loops
+  const checkedTaskIds = useRef<Set<string>>(new Set());
+  
+  // Clear checked tasks when component unmounts or on dependency changes
+  useEffect(() => {
+    return () => {
+      checkedTaskIds.current.clear();
+    };
+  }, []);
 
   return (
     <KeyboardAvoidingView 

@@ -120,7 +120,28 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       combinedImages.unshift(bgImage);
     }
     
-    // Find and log any pending images
+    // Critical fix: Process pending images that actually have a URL
+    // This fixes images stuck in pending state even though they're generated
+    combinedImages = combinedImages.map(img => {
+      // If image is marked as pending but already has a URL/URI, it's actually completed
+      if (img.generationStatus === 'pending' && (img.url || img.localUri)) {
+        console.log(`[图库侧栏] 发现已有URL的待处理图像，修正状态:`, img.id);
+        return {
+          ...img,
+          generationStatus: 'success',
+          // Clear task ID to prevent repeated checking
+          generationTaskId: undefined
+        };
+      }
+      return img;
+    });
+    
+    // Also filter out any pending images with missing generationTaskId
+    combinedImages = combinedImages.filter(img => 
+      !(img.generationStatus === 'pending' && !img.generationTaskId)
+    );
+    
+    // Find and log any remaining pending images
     const pendingImages = combinedImages.filter(img => img.generationStatus === 'pending');
     if (pendingImages.length > 0) {
       console.log(`[图库侧栏] 发现 ${pendingImages.length} 个待处理图像`);
@@ -450,6 +471,9 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                 </View>
               )}
               onRefresh={() => {
+                // Don't trigger refresh operation during loading
+                if (isLoading) return;
+                
                 // Manual refresh handler
                 console.log('[图库侧栏] 手动刷新图库');
                 setUpdateCounter(prev => prev + 1);
