@@ -13,11 +13,8 @@ import {
   Animated,
   StatusBar,
   Platform,
-  Modal,
-  Switch,
   ViewStyle,
   TextStyle,
-  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, FontAwesome, MaterialIcons } from '@expo/vector-icons';
@@ -32,6 +29,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CreateChar from '@/app/pages/create_char';
 import CradleCreateForm from '@/components/CradleCreateForm';
 import RelationshipGraphPage from '../pages/relationship-graph';
+import { theme } from '@/constants/theme';
 
 const VIEW_MODE_SMALL = 'small';
 const VIEW_MODE_LARGE = 'large';
@@ -615,11 +613,11 @@ const styles = StyleSheet.create<Styles>({
     // Remove background color
   },
   tabText: {
-    color: '#aaa',
+    color: theme.colors.textSecondary,  // Updated to use theme color
     fontSize: 14,
   },
   activeTabText: {
-    color: 'rgb(255, 224, 195)', // Change to cream color
+    color: theme.colors.primary, // Updated to use theme color
     fontWeight: '500',
   },
   activeTabIndicator: {
@@ -628,7 +626,7 @@ const styles = StyleSheet.create<Styles>({
     left: '20%',
     right: '20%',
     height: 2,
-    backgroundColor: 'rgb(255, 224, 195)', // Change to cream color
+    backgroundColor: theme.colors.primary, // Updated to use theme color
   },
   mainContainer: {
     flex: 1,
@@ -699,7 +697,7 @@ const styles = StyleSheet.create<Styles>({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: COLOR_BUTTON,  // Updated to use the standardized color
+    backgroundColor: theme.colors.primaryDark,  // Updated to use theme color
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -712,10 +710,10 @@ const styles = StyleSheet.create<Styles>({
     elevation: 5,
   },
   activeButton: {
-    backgroundColor: '#FF4444',
+    backgroundColor: theme.colors.danger,  // Updated to use theme color
   },
   deleteButton: {
-    backgroundColor: '#FF4444',
+    backgroundColor: theme.colors.danger,  // Updated to use theme color
   },
   // Styles for large card view
   largeCard: {
@@ -898,7 +896,7 @@ const styles = StyleSheet.create<Styles>({
     padding: 2,
   },
   sidebarToggleTrackActive: {
-    backgroundColor: 'rgba(255, 215, 0, 0.3)',
+    backgroundColor: 'rgba(224, 196, 168, 0.3)', // Using primaryDark with opacity
   },
   sidebarToggleThumb: {
     width: 16,
@@ -910,7 +908,7 @@ const styles = StyleSheet.create<Styles>({
   },
   sidebarToggleThumbActive: {
     transform: [{ translateX: 16 }],
-    backgroundColor: '#FFD700',
+    backgroundColor: theme.colors.primaryDark, // Using primaryDark directly
   },
   sidebarToggleText: {
     color: '#fff',

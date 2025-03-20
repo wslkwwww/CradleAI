@@ -71,25 +71,22 @@ export class CircleManager {
         
         this.apiKey = apiKey;
         
+        // Clear existing adapters to prevent conflicts
+        this.geminiAdapter = null;
+        this.openRouterAdapter = null;
+        
         // Only update OpenRouter configuration if explicitly provided
-        if (openRouterConfig) {
+        if (openRouterConfig && openRouterConfig.apiKey) {
             this.openRouterConfig = openRouterConfig;
             
             // If OpenRouter config is provided, use it
-            if (openRouterConfig.apiKey) {
-                this.openRouterAdapter = new OpenRouterAdapter(
-                    openRouterConfig.apiKey,
-                    openRouterConfig.model || 'openai/gpt-3.5-turbo'
-                );
-                this.geminiAdapter = null; // Clear Gemini adapter
-                console.log('【CircleManager】已初始化/更新 OpenRouter 适配器，模型:', openRouterConfig.model);
-            }
+            this.openRouterAdapter = new OpenRouterAdapter(
+                openRouterConfig.apiKey,
+                openRouterConfig.model || 'openai/gpt-3.5-turbo'
+            );
+            console.log('【CircleManager】已初始化/更新 OpenRouter 适配器，模型:', openRouterConfig.model);
         } 
-        // If no OpenRouter config is provided but we already have one, keep using it
-        else if (this.openRouterAdapter && this.openRouterConfig?.apiKey) {
-            console.log('【CircleManager】保留现有 OpenRouter 配置');
-        }
-        // Otherwise, use/update Gemini adapter
+        // Otherwise, use Gemini adapter
         else {
             this.geminiAdapter = new GeminiAdapter(apiKey);
             console.log('【CircleManager】已初始化/更新 Gemini 适配器');
@@ -126,6 +123,11 @@ export class CircleManager {
                 this.openRouterAdapter ? 'OpenRouter' : 'Gemini'
             );
             
+            // If we don't have any adapters configured, throw an error
+            if (!this.openRouterAdapter && !this.geminiAdapter) {
+                throw new Error('没有配置API适配器');
+            }
+            
             // Return a promise that will be resolved when the request is processed
             return new Promise((resolve, reject) => {
                 // Add request to queue
@@ -147,7 +149,7 @@ export class CircleManager {
         }
     }
     
-    // Add a new method to process the request queue
+    // Update the processRequestQueue method to better handle adapter selection
     private async processRequestQueue(): Promise<void> {
         // Set processing flag
         CircleManager.isProcessing = true;
@@ -176,10 +178,12 @@ export class CircleManager {
                 
                 let response: string;
                 
-                // Use the correct adapter
+                // Prioritize OpenRouter adapter if available
                 if (this.openRouterAdapter) {
+                    console.log('【朋友圈】使用OpenRouter适配器发送请求');
                     response = await this.openRouterAdapter.generateContent([message]);
                 } else if (this.geminiAdapter) {
+                    console.log('【朋友圈】使用Gemini适配器发送请求');
                     response = await this.geminiAdapter.generateContent([message]);
                 } else {
                     console.log('【朋友圈】没有可用的API适配器，使用模拟数据');
