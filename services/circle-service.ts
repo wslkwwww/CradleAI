@@ -211,6 +211,14 @@ export class CircleService {
         `（包含${post.images!.length}张图片）` : 
         '';
       
+      // Determine if replyTo is the user
+      const isReplyToUser = replyTo?.userId === 'user-1';
+      
+      // Use customUserName for the user if available, otherwise use userName
+      const userDisplayName = isReplyToUser && character.customUserName ? 
+        character.customUserName : 
+        (replyTo?.userName || '用户');
+      
       if (isForwarded) {
         // Enhanced special context for forwarded posts with image indication
         context = `用户转发了${post.characterName}的朋友圈给你${imageInfo}: "${post.content}"`;
@@ -223,13 +231,16 @@ export class CircleService {
         // Enhanced: Reply to comment with better context including original post content
         if (replyTo.userId === character.id) {
           // User is replying to this character's comment
-          context = `在${post.characterName}发布的"${post.content}"帖子下，用户${replyTo.userName}回复了你的评论: "${comment}"`;
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}回复了你的评论: "${comment}"`;
         } else if (replyTo.userId === post.characterId) {
           // User is replying to post author's comment
-          context = `在${post.characterName}发布的"${post.content}"帖子下，用户回复了帖子作者的评论: "${comment}"`;
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}回复了帖子作者的评论: "${comment}"`;
+        } else if (isReplyToUser) {
+          // User is being replied to - make it clear this is the user
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}（用户本人）发表了评论: "${comment}"，请回复这条评论`;
         } else {
           // User is replying to another comment
-          context = `在${post.characterName}发布的"${post.content}"帖子下，用户回复了${replyTo.userName}的评论: "${comment}"`;
+          context = `在${post.characterName}发布的"${post.content}"帖子下，${userDisplayName}回复了${replyTo.userName}的评论: "${comment}"`;
         }
       } else {
         // Regular reply to post with image indication
