@@ -237,7 +237,7 @@ ${formattedMessages}`
       
       // Create summary message
       const summaryMessage: ChatMessage & SummaryData = {
-        role: "system",
+        role: "user",
         parts: [{ 
           text: `--- CONVERSATION SUMMARY (AI-GENERATED, NOT VISIBLE TO USER) ---\n${summaryText}\n--- END OF SUMMARY ---` 
         }],

@@ -27,7 +27,7 @@ export interface GlobalSettings {
         serverUrl: string | null | undefined; 
         characterApiKey: string;
         xApiKey: string;
-  
+        
         // New API settings
         apiProvider: 'gemini' | 'openrouter' ;
         openrouter?: OpenRouterSettings;

@@ -263,6 +263,7 @@ const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         originalImageId: image.id,
         data: editedImage, // Store the base64 data
         isAvatar: image.isAvatar,
+        characterId: character.id
       };
 
       // Call the onSuccess callback with the new image

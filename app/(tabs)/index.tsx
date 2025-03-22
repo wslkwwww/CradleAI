@@ -31,6 +31,13 @@ import TopBarWithBackground from '@/components/TopBarWithBackground';
 import { NodeSTManager } from '@/utils/NodeSTManager';  // 导入 NodeSTManager
 import { EventRegister } from 'react-native-event-listeners';
 
+// 引入 Mem0 相关组件
+import { MemoryProvider } from '@/src/memory/providers/MemoryProvider';
+import Mem0Initializer from '@/src/memory/components/Mem0Initializer';
+
+// 确保导入 polyfills
+import '@/src/memory/utils/polyfills';
+
 const App = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -938,159 +945,198 @@ const App = () => {
   return (
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
-      <ImageBackground
-        source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
-        style={styles.backgroundImage}
-        resizeMode="cover"
-      >
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.keyboardAvoidView}
+      {/* 添加 MemoryProvider 包裹整个应用 */}
+      <MemoryProvider config={{
+        embedder: {
+          provider: 'mobile_openai',
+          config: {
+            apiKey: user?.settings?.chat.apiProvider === 'openrouter' 
+              ? user?.settings?.chat.openrouter?.apiKey || ''
+              : user?.settings?.chat.characterApiKey || '',
+            model: 'text-embedding-ada-002',
+            url: 'https://www.blueshirtmap.com/v1/embeddings', // 使用代理URL
+          },
+        },
+        vectorStore: {
+          provider: 'mobile_sqlite',
+          config: {
+            collectionName: 'character_memories',
+            dimension: 1536, // text-embedding-ada-002 的维度
+            dbName: 'vector_store.db',
+          },
+        },
+        llm: {
+          provider: 'mobile_llm',
+          config: {
+            // 使用正确的 API key 根据当前 API provider
+            apiKey: user?.settings?.chat.apiProvider === 'openrouter' 
+              ? user?.settings?.chat.openrouter?.apiKey || ''
+              : user?.settings?.chat.characterApiKey || '',
+            // 使用用户设置的模型
+            model: user?.settings?.chat.apiProvider === 'openrouter'
+              ? user?.settings?.chat.openrouter?.model || 'gpt-3.5-turbo'
+              : 'gpt-3.5-turbo',
+            // 传递完整的 API 设置
+            apiProvider: user?.settings?.chat.apiProvider || 'gemini',
+            openrouter: user?.settings?.chat.openrouter,
+          },
+        },
+      }}>
+        <Mem0Initializer />
+        <ImageBackground
+          source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
+          style={styles.backgroundImage}
+          resizeMode="cover"
         >
-          <View style={[
-            styles.container,
-            selectedCharacter ? styles.transparentBackground : styles.darkBackground
-          ]}>
-            <TopBarWithBackground
-              selectedCharacter={selectedCharacter}
-              onAvatarPress={handleAvatarPress}
-              onMemoPress={() => setIsMemoSheetVisible(true)}
-              onSettingsPress={toggleSettingsSidebar}
-              onMenuPress={toggleSidebar}
-              onSaveManagerPress={toggleSaveManager} // Add save manager button handler
-              showBackground={false} // 不在 TopBar 中显示背景，因为我们已经在整个屏幕上设置了背景
-            />
-
-            <SafeAreaView style={[
-              styles.safeArea,
-              selectedCharacter && styles.transparentBackground
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.keyboardAvoidView}
+          >
+            <View style={[
+              styles.container,
+              selectedCharacter ? styles.transparentBackground : styles.darkBackground
             ]}>
-              {/* Preview Mode Banner */}
-              {isPreviewMode && previewBannerVisible && (
-                <View style={styles.previewBanner}>
-                  <Text style={styles.previewBannerText}>
-                    You are previewing a saved chat state
-                  </Text>
-                  <View style={styles.previewBannerButtons}>
+              <TopBarWithBackground
+                selectedCharacter={selectedCharacter}
+                onAvatarPress={handleAvatarPress}
+                onMemoPress={() => setIsMemoSheetVisible(true)}
+                onSettingsPress={toggleSettingsSidebar}
+                onMenuPress={toggleSidebar}
+                onSaveManagerPress={toggleSaveManager} // Add save manager button handler
+                showBackground={false} // 不在 TopBar 中显示背景，因为我们已经在整个屏幕上设置了背景
+              />
+
+              <SafeAreaView style={[
+                styles.safeArea,
+                selectedCharacter && styles.transparentBackground
+              ]}>
+                {/* Preview Mode Banner */}
+                {isPreviewMode && previewBannerVisible && (
+                  <View style={styles.previewBanner}>
+                    <Text style={styles.previewBannerText}>
+                      You are previewing a saved chat state
+                    </Text>
+                    <View style={styles.previewBannerButtons}>
+                      <TouchableOpacity 
+                        style={styles.previewBannerButton}
+                        onPress={exitPreviewMode}
+                      >
+                        <Text style={styles.previewBannerButtonText}>Exit Preview</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        style={[styles.previewBannerButton, styles.restoreButton]}
+                        onPress={() => currentPreviewSave && handleLoadSave(currentPreviewSave)}
+                      >
+                        <Text style={styles.previewBannerButtonText}>Restore This State</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+                
+                <View style={[
+                  styles.contentContainer,
+                  selectedCharacter && styles.transparentBackground
+                ]}>
+                  <ChatDialog
+                    messages={messages}
+                    style={styles.chatDialog}
+                    selectedCharacter={selectedCharacter}
+                    onRateMessage={handleRateMessage}
+                    onRegenerateMessage={handleRegenerateMessage}
+                    savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
+                    onScrollPositionChange={handleScrollPositionChange}
+                  />
+                  
+                  {/* 测试按钮容器 */}
+                  <View style={styles.testButtonContainer}>
+                    {/* NovelAI 测试按钮 */}
                     <TouchableOpacity 
-                      style={styles.previewBannerButton}
-                      onPress={exitPreviewMode}
+                      style={styles.testButton}
+                      onPress={() => setIsNovelAITestVisible(true)}
                     >
-                      <Text style={styles.previewBannerButtonText}>Exit Preview</Text>
+                      <Text style={styles.testButtonText}>NovelAI 图像测试</Text>
                     </TouchableOpacity>
                     
+                    {/* VNDB 测试按钮 */}
                     <TouchableOpacity 
-                      style={[styles.previewBannerButton, styles.restoreButton]}
-                      onPress={() => currentPreviewSave && handleLoadSave(currentPreviewSave)}
+                      style={[styles.testButton, styles.vndbButton]}
+                      onPress={() => setIsVNDBTestVisible(true)}
                     >
-                      <Text style={styles.previewBannerButtonText}>Restore This State</Text>
+                      <Text style={styles.testButtonText}>VNDB 角色查询</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
-              )}
-              
-              <View style={[
-                styles.contentContainer,
-                selectedCharacter && styles.transparentBackground
-              ]}>
-                <ChatDialog
-                  messages={messages}
-                  style={styles.chatDialog}
-                  selectedCharacter={selectedCharacter}
-                  onRateMessage={handleRateMessage}
-                  onRegenerateMessage={handleRegenerateMessage}
-                  savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
-                  onScrollPositionChange={handleScrollPositionChange}
-                />
-                
-                {/* 测试按钮容器 */}
-                <View style={styles.testButtonContainer}>
-                  {/* NovelAI 测试按钮 */}
-                  <TouchableOpacity 
-                    style={styles.testButton}
-                    onPress={() => setIsNovelAITestVisible(true)}
-                  >
-                    <Text style={styles.testButtonText}>NovelAI 图像测试</Text>
-                  </TouchableOpacity>
-                  
-                  {/* VNDB 测试按钮 */}
-                  <TouchableOpacity 
-                    style={[styles.testButton, styles.vndbButton]}
-                    onPress={() => setIsVNDBTestVisible(true)}
-                  >
-                    <Text style={styles.testButtonText}>VNDB 角色查询</Text>
-                  </TouchableOpacity>
+
+                <View style={[
+                  styles.inputBar,
+                  selectedCharacter && styles.transparentBackground
+                ]}>
+                  {selectedCharacter && (
+                    <ChatInput
+                      onSendMessage={handleSendMessage}
+                      selectedConversationId={selectedConversationId}
+                      conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
+                      onResetConversation={handleResetConversation}
+                      selectedCharacter={selectedCharacter}
+                    />
+                  )}
                 </View>
-              </View>
 
-              <View style={[
-                styles.inputBar,
-                selectedCharacter && styles.transparentBackground
-              ]}>
-                {selectedCharacter && (
-                  <ChatInput
-                    onSendMessage={handleSendMessage}
-                    selectedConversationId={selectedConversationId}
-                    conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
-                    onResetConversation={handleResetConversation}
-                    selectedCharacter={selectedCharacter}
-                  />
-                )}
-              </View>
+                {/* Sidebars and overlays */}
+                <Sidebar
+                  isVisible={isSidebarVisible}
+                  conversations={characters}
+                  selectedConversationId={selectedConversationId}
+                  onSelectConversation={handleSelectConversation}
+                  onClose={toggleSidebar}
+                />
+                <SettingsSidebar
+                  isVisible={isSettingsSidebarVisible}
+                  onClose={toggleSettingsSidebar}
+                  selectedCharacter={selectedCharacter}
+                />
+                {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
+              </SafeAreaView>
 
-              {/* Sidebars and overlays */}
-              <Sidebar
-                isVisible={isSidebarVisible}
-                conversations={characters}
-                selectedConversationId={selectedConversationId}
-                onSelectConversation={handleSelectConversation}
-                onClose={toggleSidebar}
+              {/* 直接在主视图中渲染 MemoOverlay */}
+              <MemoOverlay
+                isVisible={isMemoSheetVisible}
+                onClose={() => setIsMemoSheetVisible(false)}
               />
-              <SettingsSidebar
-                isVisible={isSettingsSidebarVisible}
-                onClose={toggleSettingsSidebar}
-                selectedCharacter={selectedCharacter}
+              
+              {/* VNDB测试模态框 */}
+              <VNDBTestModal
+                visible={isVNDBTestVisible}
+                onClose={() => setIsVNDBTestVisible(false)}
               />
-              {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
-            </SafeAreaView>
 
-            {/* 直接在主视图中渲染 MemoOverlay */}
-            <MemoOverlay
-              isVisible={isMemoSheetVisible}
-              onClose={() => setIsMemoSheetVisible(false)}
-            />
-            
-            {/* VNDB测试模态框 */}
-            <VNDBTestModal
-              visible={isVNDBTestVisible}
-              onClose={() => setIsVNDBTestVisible(false)}
-            />
-
-            {/* NovelAI测试模态框 */}
-            <NovelAITestModal
-              visible={isNovelAITestVisible}
-              onClose={() => setIsNovelAITestVisible(false)}
-              onImageGenerated={handleImageGenerated}
-            />
-            
-            {/* Save Manager */}
-            {selectedCharacter && (
-              <SaveManager
-                visible={isSaveManagerVisible}
-                onClose={() => setIsSaveManagerVisible(false)}
-                conversationId={selectedConversationId || ''}
-                characterId={selectedCharacter.id}
-                characterName={selectedCharacter.name}
-                characterAvatar={selectedCharacter.avatar || undefined}
-                messages={messages}
-                onSaveCreated={handleSaveCreated}
-                onLoadSave={handleLoadSave}
-                onPreviewSave={handlePreviewSave}
+              {/* NovelAI测试模态框 */}
+              <NovelAITestModal
+                visible={isNovelAITestVisible}
+                onClose={() => setIsNovelAITestVisible(false)}
+                onImageGenerated={handleImageGenerated}
               />
-            )}
-          </View>
-        </KeyboardAvoidingView>
-      </ImageBackground>
+              
+              {/* Save Manager */}
+              {selectedCharacter && (
+                <SaveManager
+                  visible={isSaveManagerVisible}
+                  onClose={() => setIsSaveManagerVisible(false)}
+                  conversationId={selectedConversationId || ''}
+                  characterId={selectedCharacter.id}
+                  characterName={selectedCharacter.name}
+                  characterAvatar={selectedCharacter.avatar || undefined}
+                  messages={messages}
+                  onSaveCreated={handleSaveCreated}
+                  onLoadSave={handleLoadSave}
+                  onPreviewSave={handlePreviewSave}
+                />
+              )}
+            </View>
+          </KeyboardAvoidingView>
+        </ImageBackground>
+      </MemoryProvider>
     </View>
   );
 };

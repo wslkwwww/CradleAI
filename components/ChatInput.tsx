@@ -22,6 +22,7 @@ import { useRegex } from '@/constants/RegexContext';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
+import Mem0Service from '@/src/memory/services/Mem0Service';
 
 interface ChatInputProps {
   onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean) => void;
@@ -130,6 +131,22 @@ const ChatInput: React.FC<ChatInputProps> = ({
       // Send user message
       onSendMessage(processedMessage, 'user');
       
+      // 添加到 Mem0 记忆系统
+      if (selectedCharacter?.id) {
+        try {
+          const mem0Service = Mem0Service.getInstance();
+          await mem0Service.addChatMemory(
+            processedMessage,
+            'user',
+            selectedCharacter.id,
+            selectedConversationId
+          );
+        } catch (memoryError) {
+          console.error('[ChatInput] 添加用户消息到记忆系统失败:', memoryError);
+          // 继续处理消息，不阻断主流程
+        }
+      }
+      
       // Create temp loading message for bot
       const tempId = `temp-${Date.now()}`;
       onSendMessage('', 'bot', true);
@@ -159,6 +176,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
         // 在发送AI回复前也应用正则工具
         const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
         onSendMessage(processedResponse, 'bot');
+        
+        // 添加到 Mem0 记忆系统
+        if (selectedCharacter?.id) {
+          try {
+            const mem0Service = Mem0Service.getInstance();
+            await mem0Service.addChatMemory(
+              processedResponse,
+              'bot',
+              selectedCharacter.id,
+              selectedConversationId
+            );
+            
+            // 演示搜索功能
+            await mem0Service.searchMemories(
+              messageToSend,
+              selectedCharacter.id,
+              selectedConversationId
+            );
+          } catch (memoryError) {
+            console.error('[ChatInput] 添加AI回复到记忆系统失败:', memoryError);
+          }
+        }
       } else {
         onSendMessage('抱歉，处理消息时出现了错误，请重试。', 'bot');
         console.error('NodeST error:', result.error);
