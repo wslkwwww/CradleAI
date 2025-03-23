@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -38,11 +38,91 @@ import Mem0Initializer from '@/src/memory/components/Mem0Initializer';
 // 确保导入 polyfills
 import '@/src/memory/utils/polyfills';
 
+// Create a stable memory configuration outside the component
+type MemoryConfig = {
+  embedder: {
+    provider: string;
+    config: {
+      apiKey: string;
+      model: string;
+      dimensions: number;
+      url: string;
+    };
+  };
+  vectorStore: {
+    provider: string;
+    config: {
+      collectionName: string;
+      dimension: number;
+      dbName: string;
+    };
+  };
+  llm: {
+    provider: string;
+    config: {
+      apiKey: string;
+      model: string;
+      apiProvider: string;
+      openrouter?: {
+        apiKey?: string;
+        model?: string;
+      };
+    };
+  };
+};
+
+interface CreateConfigFunction {
+  (user: any): MemoryConfig;
+  config?: MemoryConfig;
+}
+
+const createStableMemoryConfig: CreateConfigFunction = (user: any): MemoryConfig => {
+  // Create config only once and memoize it
+  if (!createStableMemoryConfig.config) {
+    createStableMemoryConfig.config = {
+      embedder: {
+        provider: 'zhipu',
+        config: {
+          apiKey: user?.settings?.chat?.zhipuApiKey || '',
+          model: 'embedding-3',
+          dimensions: 1024,
+          url: 'https://open.bigmodel.cn/api/paas/v4/embeddings'
+        }
+      },
+      vectorStore: {
+        provider: 'mobile_sqlite',
+        config: {
+          collectionName: 'character_memories',
+          dimension: 1024,
+          dbName: 'vector_store.db',
+        },
+      },
+      llm: {
+        provider: 'mobile_llm',
+        config: {
+          apiKey: user?.settings?.chat?.apiProvider === 'openrouter' 
+            ? user?.settings?.chat?.openrouter?.apiKey || ''
+            : user?.settings?.chat?.characterApiKey || '',
+          model: user?.settings?.chat?.apiProvider === 'openrouter'
+            ? user?.settings?.chat?.openrouter?.model || 'gpt-3.5-turbo'
+            : 'gpt-3.5-turbo',
+          apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+          openrouter: user?.settings?.chat?.openrouter,
+        },
+      },
+    };
+  }
+  return createStableMemoryConfig.config;
+};
+
 const App = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   const characterId = params.characterId as string;
   const { user } = useUser(); // 获取用户设置
+
+  // Create a stable memory configuration that won't change on every render
+  const memoryConfig = useMemo(() => createStableMemoryConfig(user), []);
 
   // 简化状态管理，只保留必要的状态
   const {
@@ -946,42 +1026,7 @@ const App = () => {
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
       {/* 添加 MemoryProvider 包裹整个应用 */}
-      <MemoryProvider config={{
-        embedder: {
-          // 只使用智谱嵌入
-          provider: 'zhipu',
-          config: {
-            apiKey: user?.settings?.chat?.zhipuApiKey || '',
-            model: 'embedding-3',
-            dimensions: 1024,
-            url: 'https://open.bigmodel.cn/api/paas/v4/embeddings'
-          }
-        },
-        vectorStore: {
-          provider: 'mobile_sqlite',
-          config: {
-            collectionName: 'character_memories',
-            dimension: 1024, // 使用1024维度（智谱embedding-3的维度）
-            dbName: 'vector_store.db',
-          },
-        },
-        llm: {
-          provider: 'mobile_llm',
-          config: {
-            // 使用正确的 API key 根据当前 API provider
-            apiKey: user?.settings?.chat?.apiProvider === 'openrouter' 
-              ? user?.settings?.chat?.openrouter?.apiKey || ''
-              : user?.settings?.chat?.characterApiKey || '',
-            // 使用用户设置的模型
-            model: user?.settings?.chat?.apiProvider === 'openrouter'
-              ? user?.settings?.chat?.openrouter?.model || 'gpt-3.5-turbo'
-              : 'gpt-3.5-turbo',
-            // 传递完整的 API 设置
-            apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-            openrouter: user?.settings?.chat?.openrouter,
-          },
-        },
-      }}>
+      <MemoryProvider config={memoryConfig}>
         <Mem0Initializer />
         <ImageBackground
           source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}

@@ -7,6 +7,9 @@ import { AddMemoryOptions, SearchMemoryOptions } from '../memory.types';
  */
 class Mem0Service {
   private static instance: Mem0Service | null = null;
+  // Make memoryRef public so it can be accessed by other services
+  public memoryRef: any = null; // Add a reference to the memory instance
+  
   private memoryActions: {
     add: (messages: string | Message[], options: AddMemoryOptions) => Promise<any>;
     search: (query: string, options: SearchMemoryOptions) => Promise<any>;
@@ -15,7 +18,6 @@ class Mem0Service {
     delete: (memoryId: string) => Promise<any>;
     reset: () => Promise<any>;
   } | null = null;
-  private memoryRef: any = null; // Add a reference to the memory instance
   
   private initialized = false;
   private isEmbeddingAvailable = true; // 跟踪嵌入服务是否可用
@@ -479,6 +481,40 @@ class Mem0Service {
       console.log('[Mem0Service] LLM配置已更新成功');
     } catch (error) {
       console.error('[Mem0Service] 更新LLM配置时出错:', error);
+    }
+  }
+  
+  /**
+   * 更新嵌入器API密钥
+   * @param apiKey 智谱API密钥
+   */
+  public updateEmbedderApiKey(apiKey: string): void {
+    try {
+      if (!this.initialized || !this.memoryRef) {
+        console.warn('[Mem0Service] 记忆服务尚未初始化，无法更新嵌入器API密钥');
+        return;
+      }
+      
+      if (!apiKey) {
+        console.warn('[Mem0Service] API密钥为空，跳过更新');
+        return;
+      }
+      
+      console.log('[Mem0Service] 正在更新嵌入器API密钥', apiKey.length > 0 ? `长度: ${apiKey.length}` : '空API密钥');
+      
+      // 直接调用记忆实例的方法更新API密钥
+      if (typeof this.memoryRef.updateEmbedderApiKey === 'function') {
+        this.memoryRef.updateEmbedderApiKey(apiKey);
+        console.log('[Mem0Service] 成功更新嵌入器API密钥');
+      } else if (this.memoryRef.embedder && typeof this.memoryRef.embedder.updateApiKey === 'function') {
+        // 如果记忆实例没有专门的方法，尝试直接访问嵌入器
+        this.memoryRef.embedder.updateApiKey(apiKey);
+        console.log('[Mem0Service] 通过直接访问嵌入器更新API密钥');
+      } else {
+        console.warn('[Mem0Service] 记忆实例或嵌入器不支持更新API密钥');
+      }
+    } catch (error) {
+      console.error('[Mem0Service] 更新嵌入器API密钥时出错:', error);
     }
   }
 }

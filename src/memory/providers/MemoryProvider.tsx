@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MobileMemory } from '../mobile-memory';
 import { 
   MemoryConfig, 
@@ -37,50 +37,148 @@ interface MemoryProviderProps {
   config?: Partial<MemoryConfig>;
 }
 
+// Create a singleton configuration to prevent constant re-creation
+let singletonMemoryInstance: MobileMemory | null = null;
+let lastConfigReference = null;
+
 export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [memory, setMemory] = useState<MobileMemory | undefined>(undefined);
   const { user } = useUser();
   
-  // 追踪嵌入配置变更
+  // Track initialization state at module level
+  const isInitializedRef = useRef(false);
+  
+  // Track API key changes with refs
   const zhipuApiKeyRef = useRef<string>('');
-  
-  // Track LLM config changes
   const llmConfigRef = useRef<LLMConfig | null>(null);
-  
-  // Add a ref to track if we've logged the "skip initialization" message
   const hasLoggedSkipMessage = useRef(false);
   
+  // Create a stable configuration reference to break update cycles
+  const configRef = useRef(config);
+  
+  // Compare configuration and only update the ref if there are significant changes
   useEffect(() => {
+    // Deep comparison of important config fields
+    if (configRef.current !== config) {
+      const currentEmbedderKey = configRef.current?.embedder?.config?.apiKey;
+      const newEmbedderKey = config?.embedder?.config?.apiKey;
+      
+      const currentLlmKey = configRef.current?.llm?.config?.apiKey;
+      const newLlmKey = config?.llm?.config?.apiKey;
+      
+      const currentProvider = configRef.current?.llm?.config?.apiProvider;
+      const newProvider = config?.llm?.config?.apiProvider;
+      
+      // Only update reference if important fields changed
+      if (currentEmbedderKey !== newEmbedderKey || 
+          currentLlmKey !== newLlmKey || 
+          currentProvider !== newProvider) {
+        configRef.current = config;
+      }
+    }
+  }, [config]);
+  
+  // Get user settings directly from AsyncStorage at initialization
+  const fetchStoredZhipuApiKey = useCallback(async (): Promise<string | null> => {
+    try {
+      // Try localStorage first (web environment)
+      if (typeof localStorage !== 'undefined') {
+        const settingsStr = localStorage.getItem('user_settings');
+        if (settingsStr) {
+          const settings = JSON.parse(settingsStr);
+          const apiKey = settings?.chat?.zhipuApiKey;
+          if (apiKey) {
+            console.log('[MemoryProvider] Found Zhipu API key in localStorage:', apiKey.length > 0 ? `Length: ${apiKey.length}` : 'Empty');
+            return apiKey;
+          }
+        }
+      }
+      
+      // Try AsyncStorage (React Native environment)
+      if (typeof require !== 'undefined') {
+        try {
+          const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+          const settingsStr = await AsyncStorage.getItem('user_settings');
+          if (settingsStr) {
+            const settings = JSON.parse(settingsStr);
+            const apiKey = settings?.chat?.zhipuApiKey;
+            if (apiKey) {
+              console.log('[MemoryProvider] Found Zhipu API key in AsyncStorage:', apiKey.length > 0 ? `Length: ${apiKey.length}` : 'Empty');
+              return apiKey;
+            }
+          }
+        } catch (e) {
+          console.error('[MemoryProvider] Error accessing AsyncStorage:', e);
+        }
+      }
+    } catch (error) {
+      console.error('[MemoryProvider] Error fetching stored Zhipu API key:', error);
+    }
+    return null;
+  }, []);
+  
+  // Initialize memory only when necessary
+  useEffect(() => {
+    // Skip initialization if already done
+    if (isInitializedRef.current && memory === singletonMemoryInstance) {
+      if (!hasLoggedSkipMessage.current) {
+        console.log('[MemoryProvider] Memory already initialized, skipping');
+        hasLoggedSkipMessage.current = true;
+      }
+      return;
+    }
+    
     const initializeMemory = async () => {
       try {
         setLoading(true);
         
-        // 获取智谱API密钥
-        const zhipuApiKey = user?.settings?.chat?.zhipuApiKey || '';
+        // First try to get the API key from user context
+        let zhipuApiKey = user?.settings?.chat?.zhipuApiKey || '';
         
-        // 检查API密钥是否变更
+        // If not found or empty, try to get from storage directly
+        if (!zhipuApiKey) {
+          console.log('[MemoryProvider] No Zhipu API key in user context, checking storage');
+          const storedKey = await fetchStoredZhipuApiKey();
+          if (storedKey) {
+            console.log('[MemoryProvider] Using Zhipu API key from storage');
+            zhipuApiKey = storedKey;
+          }
+        } else {
+          console.log('[MemoryProvider] Using Zhipu API key from user context, length:', zhipuApiKey.length);
+        }
+        
+        // Check for significant API key changes
         const apiKeyChanged = zhipuApiKeyRef.current !== zhipuApiKey;
         
-        // 如果API密钥未变更且记忆实例已存在，则跳过重新初始化
-        if (memory && !apiKeyChanged) {
-          // Only log this message once to avoid repetition
-          if (!hasLoggedSkipMessage.current) {
-            console.log('[MemoryProvider] API密钥未变更，跳过重新初始化');
-            hasLoggedSkipMessage.current = true;
+        // If memory exists and API key hasn't changed, use existing instance
+        if (singletonMemoryInstance && !apiKeyChanged) {
+          console.log('[MemoryProvider] Using existing memory instance');
+          
+          // Even if we're reusing the instance, update the embedded API key if available
+          if (zhipuApiKey && singletonMemoryInstance.embedder?.updateApiKey) {
+            try {
+              console.log('[MemoryProvider] Updating embedder API key in existing instance');
+              singletonMemoryInstance.embedder.updateApiKey(zhipuApiKey);
+            } catch (error) {
+              console.warn('[MemoryProvider] Failed to update embedder API key:', error);
+            }
           }
+          
+          setMemory(singletonMemoryInstance);
           setLoading(false);
+          isInitializedRef.current = true;
           return;
         }
         
-        // Reset the log tracking if we're actually initializing
+        // Reset logging state for new initialization
         hasLoggedSkipMessage.current = false;
         
-        // 更新API密钥引用
+        // Update API key reference
         zhipuApiKeyRef.current = zhipuApiKey;
         
-        // 保存API密钥到存储中，确保它在整个应用中可用
+        // Save API key to storage
         try {
           // 尝试使用localStorage（Web）
           if (typeof localStorage !== 'undefined') {
@@ -128,162 +226,144 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
           // 继续执行，不中断主流程
         }
         
-        // 合并用户提供的配置和默认配置
-        const mergedConfig = ConfigManager.mergeConfig(config || {});
-
-        // 配置智谱嵌入服务
-        console.log('[MemoryProvider] 配置智谱清言嵌入服务');
+        // Merge configuration
+        const mergedConfig = ConfigManager.mergeConfig(configRef.current || {});
+        
+        // Configure Zhipu embedding
+        console.log('[MemoryProvider] Configuring Zhipu embedding service, API key length:', zhipuApiKey.length);
         mergedConfig.embedder = {
           provider: 'zhipu',
           config: {
             apiKey: zhipuApiKey,
             model: 'embedding-3',
-            dimensions: 1024, // 使用1024维度
+            dimensions: 1024,
             url: 'https://open.bigmodel.cn/api/paas/v4/embeddings'
           }
         };
         
-        // 设置向量存储维度
+        // Set vector store dimension
         mergedConfig.vectorStore.config.dimension = 1024;
-        console.log('[MemoryProvider] 向量存储维度设置为1024（智谱模型）');
         
-        // 记录嵌入配置
-        console.log(`[MemoryProvider] 使用嵌入提供商: zhipu, API密钥长度: ${zhipuApiKey?.length || 0}`);
-
-        // 重置旧的记忆实例（如果存在）
-        if (memory) {
+        // Reset existing memory instance if needed
+        if (singletonMemoryInstance) {
           try {
-            console.log('[MemoryProvider] 重置现有记忆实例');
-            await memory.reset();
+            console.log('[MemoryProvider] Resetting existing memory instance');
+            await singletonMemoryInstance.reset();
           } catch (resetErr) {
-            console.warn('[MemoryProvider] 重置记忆实例失败:', resetErr);
+            console.warn('[MemoryProvider] Reset failed:', resetErr);
           }
         }
-
-        // 创建新记忆实例
-        console.log('[MemoryProvider] 创建新的记忆实例');
-        const memoryInstance = new MobileMemory(mergedConfig);
-        setMemory(memoryInstance);
-        console.log('[MemoryProvider] 记忆系统初始化完成');
+        
+        // Create new memory instance
+        console.log('[MemoryProvider] Creating new memory instance');
+        singletonMemoryInstance = new MobileMemory(mergedConfig);
+        setMemory(singletonMemoryInstance);
+        isInitializedRef.current = true;
         setLoading(false);
       } catch (err) {
-        console.error('[MemoryProvider] 初始化记忆系统失败:', err);
+        console.error('[MemoryProvider] Memory initialization failed:', err);
         setError(err instanceof Error ? err : new Error(String(err)));
         setLoading(false);
       }
     };
-
+    
     initializeMemory();
-  }, [config, user?.settings?.chat?.zhipuApiKey]); // 只在API密钥变更时重新初始化
+  }, [user?.settings?.chat?.zhipuApiKey, fetchStoredZhipuApiKey]); // Only depend on zhipu API key
 
-  // New effect to update LLM config when API settings change
-  // Also add log tracking to this effect
-  const hasLoggedConfigChange = useRef(false);
-  
+  // Update LLM config when API settings change
   useEffect(() => {
-    if (!memory || !user?.settings?.chat) return;
+    if (!memory || !singletonMemoryInstance) return;
     
-    // Get current API settings
-    const apiProvider = user.settings.chat.apiProvider || 'gemini';
+    // Get current settings
+    const apiProvider = user?.settings?.chat?.apiProvider || 'gemini';
     const apiKey = apiProvider === 'openrouter' 
-      ? user.settings.chat.openrouter?.apiKey 
-      : user.settings.chat.characterApiKey;
+      ? user?.settings?.chat?.openrouter?.apiKey 
+      : user?.settings?.chat?.characterApiKey;
     
-    // Get the model based on the provider
     const model = apiProvider === 'openrouter'
-      ? user.settings.chat.openrouter?.model || 'openai/gpt-3.5-turbo'
+      ? user?.settings?.chat?.openrouter?.model || 'openai/gpt-3.5-turbo'
       : 'gemini-2.0-flash-exp';
     
-    // Check if the configuration has changed
+    // Check if config has changed from last update
     const hasChanged = 
       llmConfigRef.current?.apiKey !== apiKey ||
       llmConfigRef.current?.apiProvider !== apiProvider ||
       llmConfigRef.current?.model !== model;
     
     if (hasChanged && apiKey) {
-      // Reset log tracking when config changes
-      hasLoggedConfigChange.current = false;
+      console.log('[MemoryProvider] API configuration changed, updating LLM config');
       
-      console.log('[MemoryProvider] API配置已变更，更新LLM配置:', {
-        provider: apiProvider,
-        model,
-        apiKeyLength: apiKey?.length || 0
-      });
-      
-      // Create the new config
+      // Create new config
       const newLLMConfig: LLMConfig = {
         apiKey,
         model,
         apiProvider,
         openrouter: apiProvider === 'openrouter' ? {
           enabled: true,
-          apiKey: user.settings.chat.openrouter?.apiKey || '',
-          model: user.settings.chat.openrouter?.model || 'openai/gpt-3.5-turbo',
-          useBackupModels: user.settings.chat.openrouter?.useBackupModels || false,
-          backupModels: user.settings.chat.openrouter?.backupModels || []
+          apiKey: user?.settings?.chat?.openrouter?.apiKey || '',
+          model: user?.settings?.chat?.openrouter?.model || 'openai/gpt-3.5-turbo',
+          useBackupModels: user?.settings?.chat?.openrouter?.useBackupModels || false,
+          backupModels: user?.settings?.chat?.openrouter?.backupModels || []
         } : undefined
       };
       
       // Update memory's LLM config
       memory.updateLLMConfig(newLLMConfig);
       
-      // Save the current config for future comparison
+      // Save reference for comparison
       llmConfigRef.current = newLLMConfig;
-    } else if (!hasLoggedConfigChange.current) {
-      // Log only once that config hasn't changed
-      console.log('[MemoryProvider] LLM配置未变更，跳过更新');
-      hasLoggedConfigChange.current = true;
     }
   }, [
-    memory, 
+    memory,
     user?.settings?.chat?.apiProvider,
     user?.settings?.chat?.characterApiKey,
     user?.settings?.chat?.openrouter?.apiKey,
     user?.settings?.chat?.openrouter?.model
   ]);
 
-  // 记忆系统操作方法
-  const addMemory = async (messages: string | any[], options: AddMemoryOptions) => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  // Create memory operations with useCallback to maintain stable function references
+  const addMemory = useCallback(async (messages: string | any[], options: AddMemoryOptions) => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.add(messages, options);
-  };
+  }, [memory]);
 
-  const searchMemory = async (query: string, options: SearchMemoryOptions) => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  const searchMemory = useCallback(async (query: string, options: SearchMemoryOptions) => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.search(query, options);
-  };
+  }, [memory]);
 
-  const getMemory = async (memoryId: string) => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  const getMemory = useCallback(async (memoryId: string) => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.get(memoryId);
-  };
+  }, [memory]);
 
-  const updateMemory = async (memoryId: string, data: string) => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  const updateMemory = useCallback(async (memoryId: string, data: string) => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.update(memoryId, data);
-  };
+  }, [memory]);
 
-  const deleteMemory = async (memoryId: string) => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  const deleteMemory = useCallback(async (memoryId: string) => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.delete(memoryId);
-  };
+  }, [memory]);
 
-  const deleteAllMemory = async (options: DeleteAllMemoryOptions) => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  const deleteAllMemory = useCallback(async (options: DeleteAllMemoryOptions) => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.deleteAll(options);
-  };
+  }, [memory]);
 
-  const resetMemory = async () => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  const resetMemory = useCallback(async () => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.reset();
-  };
+  }, [memory]);
 
-  const getAllMemory = async (options: GetAllMemoryOptions) => {
-    if (!memory) throw new Error('记忆系统未初始化');
+  const getAllMemory = useCallback(async (options: GetAllMemoryOptions) => {
+    if (!memory) throw new Error('Memory system not initialized');
     return await memory.getAll(options);
-  };
+  }, [memory]);
 
-  const value = {
+  // Create a stable context value with useMemo
+  const contextValue = useMemo(() => ({
     loading,
     error,
     memory,
@@ -295,10 +375,22 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
     deleteAllMemory,
     resetMemory,
     getAllMemory,
-  };
+  }), [
+    loading,
+    error,
+    memory,
+    addMemory,
+    searchMemory,
+    getMemory,
+    updateMemory,
+    deleteMemory,
+    deleteAllMemory,
+    resetMemory,
+    getAllMemory,
+  ]);
 
   return (
-    <MemoryContext.Provider value={value}>
+    <MemoryContext.Provider value={contextValue}>
       {children}
     </MemoryContext.Provider>
   );

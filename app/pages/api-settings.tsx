@@ -228,6 +228,20 @@ const ApiSettings = () => {
       try {
         // 这是一个冗余的保存操作，确保即使其他方式失败，至少智谱API密钥被保存
         if (useZhipuEmbedding && zhipuApiKey) {
+          // 同时，直接更新Memory服务中的嵌入器API密钥
+          try {
+            const mem0Service = Mem0Service.getInstance();
+            if (mem0Service && mem0Service.memoryRef) {
+              // 如果内存服务已初始化，直接更新嵌入器
+              if (typeof mem0Service.memoryRef.updateEmbedderApiKey === 'function') {
+                mem0Service.memoryRef.updateEmbedderApiKey(zhipuApiKey);
+                console.log('直接更新了Memory嵌入器的API密钥');
+              }
+            }
+          } catch (memError) {
+            console.warn('直接更新Memory嵌入器API密钥失败:', memError);
+          }
+          
           // Web环境
           if (typeof localStorage !== 'undefined') {
             const existingSettingsStr = localStorage.getItem('user_settings');

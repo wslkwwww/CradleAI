@@ -33,7 +33,7 @@ import {LLMConfig} from '@/src/memory/types';
 export class MobileMemory {
   private config: MemoryConfig;
   private customPrompt: string | undefined;
-  private embedder: any;
+  public embedder: any; // Make the embedder accessible
   private vectorStore: any;
   public llm: any; // 改为公共属性以便更新配置
   private db: MobileSQLiteManager;
@@ -114,6 +114,48 @@ export class MobileMemory {
       // 它需要单独的智谱API密钥，通过MemoryProvider配置提供
     } catch (error) {
       console.error('[MobileMemory] 更新LLM配置时出错:', error);
+    }
+  }
+
+  /**
+   * 更新嵌入器API密钥
+   * @param apiKey 新的API密钥
+   */
+  public updateEmbedderApiKey(apiKey: string): void {
+    if (!apiKey) {
+      console.warn('[MobileMemory] 尝试用空API密钥更新嵌入器配置，忽略更新');
+      return;
+    }
+    
+    console.log('[MobileMemory] 正在更新嵌入器API密钥，长度:', apiKey.length);
+    
+    try {
+      // 检查嵌入器实例是否存在
+      if (!this.embedder) {
+        console.warn('[MobileMemory] 嵌入器实例不存在，重新创建');
+        this.embedder = EmbedderFactory.create(
+          this.config.embedder.provider,
+          { ...this.config.embedder.config, apiKey }
+        );
+      } else if (typeof this.embedder.updateApiKey === 'function') {
+        // 使用实例方法更新API密钥
+        this.embedder.updateApiKey(apiKey);
+        console.log('[MobileMemory] 嵌入器API密钥已通过updateApiKey方法更新成功');
+      } else {
+        // 如果没有更新方法，重新创建实例
+        console.log('[MobileMemory] 嵌入器实例不支持updateApiKey，重新创建实例');
+        this.embedder = EmbedderFactory.create(
+          this.config.embedder.provider,
+          { ...this.config.embedder.config, apiKey }
+        );
+      }
+      
+      // 更新内部配置引用
+      this.config.embedder.config.apiKey = apiKey;
+      
+      console.log('[MobileMemory] 嵌入器API密钥已更新成功');
+    } catch (error) {
+      console.error('[MobileMemory] 更新嵌入器API密钥时出错:', error);
     }
   }
 

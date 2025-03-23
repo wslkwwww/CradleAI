@@ -48,7 +48,20 @@ export class ZhipuEmbedder implements Embedder {
     const newKeyStatus = apiKey ? '已设置' : '未设置';
     
     console.log(`[ZhipuEmbedder] 更新API密钥: ${prevKeyStatus} -> ${newKeyStatus}`);
+    
+    // Skip if the same key is provided
+    if (this.config.apiKey === apiKey) {
+      console.log('[ZhipuEmbedder] 相同的API密钥，跳过更新');
+      return;
+    }
+    
     this.config.apiKey = apiKey;
+    
+    // Reset fallback vector when we get a valid key
+    if (apiKey && this.fallbackVector) {
+      console.log('[ZhipuEmbedder] 有效的API密钥已设置，清除备用向量');
+      this.fallbackVector = null;
+    }
   }
 
   /**
