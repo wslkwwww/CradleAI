@@ -1,5 +1,5 @@
 import { Embedder } from '../embeddings/base';
-import { MobileOpenAIEmbedder } from '../embeddings/mobile-openai';
+import { ZhipuEmbedder } from '../embeddings/zhipu-embedder';
 import { VectorStore } from '../vector-stores/base';
 import { MobileSQLiteVectorStore } from '../vector-stores/mobile-sqlite';
 import { 
@@ -22,12 +22,14 @@ export class EmbedderFactory {
    * @returns 嵌入器实例
    */
   static create(provider: string, config: EmbeddingConfig): Embedder {
-    switch (provider.toLowerCase()) {
-      case 'mobile_openai':
-        return new MobileOpenAIEmbedder(config);
-      default:
-        throw new Error(`不支持的嵌入器提供商: ${provider}`);
+    console.log(`[EmbedderFactory] 创建嵌入器: provider=${provider}, 密钥长度=${config.apiKey?.length || 0}`);
+    
+    // 只支持智谱嵌入器
+    if (provider.toLowerCase() !== 'zhipu') {
+      console.warn(`[EmbedderFactory] 不支持的嵌入器提供商: ${provider}，使用智谱嵌入器替代`);
     }
+    
+    return new ZhipuEmbedder(config);
   }
 }
 

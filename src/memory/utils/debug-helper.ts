@@ -4,72 +4,99 @@
  */
 
 /**
- * 检查初始状态 - 验证API配置
- * @param settings 聊天设置
+ * 检查初始化状态并记录
+ * @param config API配置
  */
-export function checkInitialState(settings: any): void {
-  try {
-    // 检查是否存在必要的设置字段
-    const hasApiProvider = !!settings.apiProvider;
-    const isOpenRouter = settings.apiProvider === 'openrouter';
-    const isGemini = settings.apiProvider === 'gemini';
+export function checkInitialState(config: any) {
+  // 检查所有必要字段
+  const requiredFields = ['apiProvider', 'characterApiKey'];
+  const missingFields = requiredFields.filter(field => !config[field]);
+  
+  if (missingFields.length > 0) {
+    console.warn(`[Mem0初始化] 缺少以下配置字段: ${missingFields.join(', ')}`);
+  } else {
+    console.log('[Mem0初始化] 配置检查通过，所有基础字段已提供');
+  }
+  
+  // 检查嵌入设置
+  if (!config.zhipuApiKey) {
+    console.warn('[Mem0初始化] 未提供智谱API密钥，嵌入功能将尝试使用备用向量');
     
-    const hasOpenRouterKey = isOpenRouter && !!settings.openrouter?.apiKey;
-    const hasGeminiKey = isGemini && !!settings.characterApiKey;
-    
-    const hasApiKey = hasOpenRouterKey || hasGeminiKey;
-    
-    // 总结配置状态
-    const configStatus = {
-      hasApiProvider,
-      provider: settings.apiProvider,
-      hasApiKey,
-      openRouterEnabled: isOpenRouter,
-      hasOpenRouterKey,
-      hasGeminiKey,
-    };
-    
-    if (hasApiProvider && hasApiKey) {
-      console.log('[Mem0初始化] 配置检查通过，所有必要字段已提供');
-    } else {
-      const missingFields = [];
-      if (!hasApiProvider) missingFields.push('apiProvider');
-      if (!hasApiKey) missingFields.push('apiKey');
-      
-      console.warn(`[Mem0初始化] 配置检查失败，缺少字段: ${missingFields.join(', ')}`);
-      console.warn('[Mem0初始化] 配置状态:', configStatus);
-    }
-  } catch (error) {
-    console.error('[Mem0初始化] 配置检查出错:', error);
+    // 尝试从存储中获取密钥
+    tryLoadZhipuApiKeyFromStorage().then(apiKey => {
+      if (apiKey) {
+        console.log('[Mem0初始化] 从存储中恢复智谱API密钥成功，长度:', apiKey.length);
+        // 动态更新配置
+        config.zhipuApiKey = apiKey;
+      } else {
+        console.warn('[Mem0初始化] 无法从存储中恢复智谱API密钥');
+      }
+    });
+  } else {
+    console.log('[Mem0初始化] 智谱API密钥已提供，长度:', config.zhipuApiKey.length);
   }
 }
 
 /**
- * 记录API配置
- * @param settings 聊天设置
+ * 从存储中尝试加载智谱API密钥
  */
-export function logApiConfig(settings: any): void {
+async function tryLoadZhipuApiKeyFromStorage(): Promise<string | null> {
   try {
-    const apiProvider = settings.apiProvider || 'unknown';
+    // 尝试使用localStorage（Web）
+    if (typeof localStorage !== 'undefined') {
+      const settingsStr = localStorage.getItem('user_settings');
+      if (settingsStr) {
+        const settings = JSON.parse(settingsStr);
+        if (settings?.chat?.zhipuApiKey) {
+          return settings.chat.zhipuApiKey;
+        }
+      }
+    }
     
-    // 确定正确的API密钥和模型
-    const apiKey = apiProvider === 'openrouter' 
-      ? settings.openrouter?.apiKey 
-      : settings.characterApiKey;
-      
-    const model = apiProvider === 'openrouter'
-      ? settings.openrouter?.model || 'openai/gpt-3.5-turbo'
-      : 'gemini-2.0-flash-exp';
-    
-    // 打印配置信息
-    console.log('-------------------- Mem0 API 配置 --------------------');
-    console.log(`API提供商: ${apiProvider}`);
-    console.log(`LLM模型: ${model}`);
-    console.log(`API密钥长度: ${apiKey?.length || 0} 字符`);
-    console.log('-------------------------------------------------------');
+    // 尝试使用AsyncStorage（React Native）
+    if (typeof require !== 'undefined') {
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const settingsStr = await AsyncStorage.getItem('user_settings');
+        if (settingsStr) {
+          const settings = JSON.parse(settingsStr);
+          if (settings?.chat?.zhipuApiKey) {
+            return settings.chat.zhipuApiKey;
+          }
+        }
+      } catch (e) {
+        console.log('[Mem0初始化] 从AsyncStorage加载失败:', e);
+      }
+    }
   } catch (error) {
-    console.error('[Mem0] 记录API配置时出错:', error);
+    console.error('[Mem0初始化] 尝试从存储加载智谱API密钥失败:', error);
   }
+  return null;
+}
+
+/**
+ * 记录当前API配置
+ * @param config API配置
+ */
+export function logApiConfig(config: any) {
+  console.log('-------------------- Mem0 API 配置 --------------------');
+  console.log(`API提供商: ${config.apiProvider || 'gemini'}`);
+  console.log(`LLM模型: ${config.apiProvider === 'openrouter' 
+    ? config.openrouter?.model || 'openai/gpt-3.5-turbo'
+    : 'gemini-2.0-flash-exp'}`);
+  
+  const apiKey = config.apiProvider === 'openrouter' 
+    ? config.openrouter?.apiKey 
+    : config.characterApiKey;
+  console.log(`API密钥长度: ${apiKey?.length || 0} 字符`);
+  
+  // 记录智谱嵌入设置
+  console.log(`嵌入提供商: 智谱清言`); // 只使用智谱清言
+  console.log(`智谱API密钥状态: ${config.zhipuApiKey ? '已设置' : '未设置'}`);
+  console.log(`智谱API密钥长度: ${config.zhipuApiKey?.length || 0} 字符`);
+  console.log(`智谱嵌入模型: embedding-3`);
+  console.log(`嵌入维度: 1024`);
+  console.log('-------------------------------------------------------');
 }
 
 /**

@@ -91,4 +91,6 @@ export interface MemoryConfig {
   customPrompt?: string;
   historyDbPath?: string;
   version?: string;
+  useZhipuEmbedding?: boolean; // 新增：是否使用智谱嵌入
+  zhipuApiKey?: string; // 新增：智谱API密钥
 }

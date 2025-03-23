@@ -35,6 +35,8 @@ export interface GlobalSettings {
         maxtokens: number;
         temperature: number;
         maxTokens: number;
+        useZhipuEmbedding: boolean;
+        zhipuApiKey: string;
     };
     app?: {
         darkMode?: boolean;

@@ -355,10 +355,10 @@ const App = () => {
       const result = await NodeSTManager.regenerateFromMessage({
         messageIndex: messageIndex,
         conversationId: selectedConversationId,
-        apiKey: user?.settings?.chat.characterApiKey || '',
+        apiKey: user?.settings?.chat?.characterApiKey || '',
         apiSettings: {
-          apiProvider: user?.settings?.chat.apiProvider || 'gemini',
-          openrouter: user?.settings?.chat.openrouter
+          apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+          openrouter: user?.settings?.chat?.openrouter
         },
         character: selectedCharacter || undefined
       });
@@ -791,10 +791,10 @@ const App = () => {
             userMessage: "[AUTO_MESSAGE] 用户已经一段时间没有回复了。请基于上下文和你的角色设定，主动发起一条合适的消息。这条消息应该自然，不要直接提及用户长时间未回复的事实。",
             status: "同一角色继续对话",
             conversationId: selectedConversationId,
-            apiKey: user?.settings?.chat.characterApiKey || '',
+            apiKey: user?.settings?.chat?.characterApiKey || '',
             apiSettings: {
-              apiProvider: user?.settings?.chat.apiProvider || 'gemini',
-              openrouter: user?.settings?.chat.openrouter
+              apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+              openrouter: user?.settings?.chat?.openrouter
             },
             character: selectedCharacter
           });
@@ -948,20 +948,20 @@ const App = () => {
       {/* 添加 MemoryProvider 包裹整个应用 */}
       <MemoryProvider config={{
         embedder: {
-          provider: 'mobile_openai',
+          // 只使用智谱嵌入
+          provider: 'zhipu',
           config: {
-            apiKey: user?.settings?.chat.apiProvider === 'openrouter' 
-              ? user?.settings?.chat.openrouter?.apiKey || ''
-              : user?.settings?.chat.characterApiKey || '',
-            model: 'text-embedding-ada-002',
-            url: 'https://www.blueshirtmap.com/v1/embeddings', // 使用代理URL
-          },
+            apiKey: user?.settings?.chat?.zhipuApiKey || '',
+            model: 'embedding-3',
+            dimensions: 1024,
+            url: 'https://open.bigmodel.cn/api/paas/v4/embeddings'
+          }
         },
         vectorStore: {
           provider: 'mobile_sqlite',
           config: {
             collectionName: 'character_memories',
-            dimension: 1536, // text-embedding-ada-002 的维度
+            dimension: 1024, // 使用1024维度（智谱embedding-3的维度）
             dbName: 'vector_store.db',
           },
         },
@@ -969,16 +969,16 @@ const App = () => {
           provider: 'mobile_llm',
           config: {
             // 使用正确的 API key 根据当前 API provider
-            apiKey: user?.settings?.chat.apiProvider === 'openrouter' 
-              ? user?.settings?.chat.openrouter?.apiKey || ''
-              : user?.settings?.chat.characterApiKey || '',
+            apiKey: user?.settings?.chat?.apiProvider === 'openrouter' 
+              ? user?.settings?.chat?.openrouter?.apiKey || ''
+              : user?.settings?.chat?.characterApiKey || '',
             // 使用用户设置的模型
-            model: user?.settings?.chat.apiProvider === 'openrouter'
-              ? user?.settings?.chat.openrouter?.model || 'gpt-3.5-turbo'
+            model: user?.settings?.chat?.apiProvider === 'openrouter'
+              ? user?.settings?.chat?.openrouter?.model || 'gpt-3.5-turbo'
               : 'gpt-3.5-turbo',
             // 传递完整的 API 设置
-            apiProvider: user?.settings?.chat.apiProvider || 'gemini',
-            openrouter: user?.settings?.chat.openrouter,
+            apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+            openrouter: user?.settings?.chat?.openrouter,
           },
         },
       }}>

@@ -23,6 +23,7 @@ import ModelSelector from '@/components/settings/ModelSelector';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { GlobalSettings } from '@/shared/types';
 import { theme } from '@/constants/theme';
+import Mem0Service from '@/src/memory/services/Mem0Service';
 
 const ApiSettings = () => {
   const router = useRouter();
@@ -45,6 +46,14 @@ const ApiSettings = () => {
   );
   const [useBackupModels, setUseBackupModels] = useState(
     user?.settings?.chat?.openrouter?.useBackupModels || false
+  );
+
+  // Zhipu embedding settings
+  const [useZhipuEmbedding, setUseZhipuEmbedding] = useState(
+    user?.settings?.chat?.useZhipuEmbedding || false
+  );
+  const [zhipuApiKey, setZhipuApiKey] = useState(
+    user?.settings?.chat?.zhipuApiKey || ''
   );
 
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
@@ -109,6 +118,55 @@ const ApiSettings = () => {
     }
   };
 
+  // Test Zhipu embeddings
+  const testZhipuEmbedding = async () => {
+    try {
+      setIsTesting(true);
+      
+      if (!zhipuApiKey) {
+        Alert.alert('错误', '请输入智谱清言API密钥');
+        return;
+      }
+      
+      // 构建请求体，测试嵌入功能
+      const testUrl = 'https://open.bigmodel.cn/api/paas/v4/embeddings';
+      const testInput = "这是一个测试智谱清言嵌入功能的文本。";
+      
+      const requestBody = {
+        model: 'embedding-3',
+        input: testInput
+      };
+      
+      const response = await fetch(testUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${zhipuApiKey}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
+        throw new Error(`智谱清言API错误: ${response.status} ${JSON.stringify(errorData)}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.data && data.data[0]?.embedding) {
+        const embeddingLength = data.data[0].embedding.length;
+        Alert.alert('嵌入测试成功', `成功获取嵌入向量，维度: ${embeddingLength}`);
+      } else {
+        Alert.alert('嵌入测试失败', '未能获得有效的嵌入向量');
+      }
+    } catch (error) {
+      console.error('智谱嵌入测试失败:', error);
+      Alert.alert('嵌入测试失败', error instanceof Error ? error.message : '未知错误');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   // Save settings
   const saveSettings = async () => {
     try {
@@ -124,6 +182,9 @@ const ApiSettings = () => {
           temperature: user?.settings?.chat?.temperature || 0.7,
           maxtokens: user?.settings?.chat?.maxtokens || 2000,
           maxTokens: user?.settings?.chat?.maxTokens || 2000,
+          // Add Zhipu embedding settings
+          useZhipuEmbedding: useZhipuEmbedding,
+          zhipuApiKey: zhipuApiKey,
           openrouter: {
             enabled: openRouterEnabled,
             apiKey: openRouterKey,
@@ -142,10 +203,101 @@ const ApiSettings = () => {
           ...user?.settings,
           ...apiSettings
         };
-        localStorage.setItem('user_settings', JSON.stringify(fullSettings));
-        console.log('API settings saved to localStorage');
+        
+        // 保存到localStorage
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('user_settings', JSON.stringify(fullSettings));
+          console.log('API settings saved to localStorage');
+        }
+        
+        // 保存到AsyncStorage
+        if (typeof require !== 'undefined') {
+          try {
+            const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+            await AsyncStorage.setItem('user_settings', JSON.stringify(fullSettings));
+            console.log('API settings saved to AsyncStorage');
+          } catch (e) {
+            console.log('Failed to save settings to AsyncStorage:', e);
+          }
+        }
       } catch (error) {
-        console.warn('Could not save settings to localStorage', error);
+        console.warn('Could not save settings to storage:', error);
+      }
+      
+      // 特别地，确保智谱API密钥被正确保存
+      try {
+        // 这是一个冗余的保存操作，确保即使其他方式失败，至少智谱API密钥被保存
+        if (useZhipuEmbedding && zhipuApiKey) {
+          // Web环境
+          if (typeof localStorage !== 'undefined') {
+            const existingSettingsStr = localStorage.getItem('user_settings');
+            const existingSettings = existingSettingsStr ? JSON.parse(existingSettingsStr) : {};
+            
+            const updatedSettings = {
+              ...existingSettings,
+              chat: {
+                ...(existingSettings.chat || {}),
+                zhipuApiKey: zhipuApiKey,
+                useZhipuEmbedding: true
+              }
+            };
+            
+            localStorage.setItem('user_settings', JSON.stringify(updatedSettings));
+            console.log('Zhipu API key explicitly saved to localStorage');
+          }
+          
+          // React Native环境
+          if (typeof require !== 'undefined') {
+            try {
+              const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+              const existingSettingsStr = await AsyncStorage.getItem('user_settings');
+              const existingSettings = existingSettingsStr ? JSON.parse(existingSettingsStr) : {};
+              
+              const updatedSettings = {
+                ...existingSettings,
+                chat: {
+                  ...(existingSettings.chat || {}),
+                  zhipuApiKey: zhipuApiKey,
+                  useZhipuEmbedding: true
+                }
+              };
+              
+              await AsyncStorage.setItem('user_settings', JSON.stringify(updatedSettings));
+              console.log('Zhipu API key explicitly saved to AsyncStorage');
+            } catch (e) {
+              console.log('Failed to save Zhipu API key to AsyncStorage:', e);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to explicitly save Zhipu API key:', error);
+      }
+      
+      // Also update Mem0Service with new API settings
+      try {
+        const mem0Service = Mem0Service.getInstance();
+        // 确定当前的API提供商和密钥
+        const currentApiProvider = openRouterEnabled ? 'openrouter' : 'gemini';
+        const currentApiKey = openRouterEnabled ? openRouterKey : geminiKey;
+        const currentModel = openRouterEnabled ? selectedModel : 'gemini-2.0-flash-exp';
+        
+        // 更新记忆服务的LLM配置
+        mem0Service.updateLLMConfig({
+          apiKey: currentApiKey,
+          model: currentModel,
+          apiProvider: currentApiProvider,
+          openrouter: openRouterEnabled ? {
+            enabled: true,
+            apiKey: openRouterKey,
+            model: selectedModel,
+            useBackupModels: useBackupModels
+          } : undefined
+        });
+        
+        console.log('Memory LLM configuration updated');
+      } catch (memError) {
+        console.warn('Failed to update memory LLM configuration:', memError);
+        // Non-blocking error - don't prevent settings from being saved
       }
       
       // Update NodeSTManager with new settings
@@ -297,6 +449,48 @@ const ApiSettings = () => {
             )}
           </View>
 
+          {/* Zhipu API Settings - New section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>智谱清言嵌入</Text>
+              <Switch
+                value={useZhipuEmbedding}
+                onValueChange={setUseZhipuEmbedding}
+                trackColor={{ false: '#767577', true: 'rgba(255, 158, 205, 0.4)' }}
+                thumbColor={useZhipuEmbedding ? theme.colors.primary : '#f4f3f4'}
+              />
+            </View>
+
+            {useZhipuEmbedding && (
+              <View style={styles.contentSection}>
+                <Text style={styles.inputLabel}>智谱清言 API Key</Text>
+                <TextInput
+                  style={styles.input}
+                  value={zhipuApiKey}
+                  onChangeText={setZhipuApiKey}
+                  placeholder="输入智谱清言 API Key"
+                  placeholderTextColor="#999"
+                  secureTextEntry={true}
+                />
+                <Text style={styles.helperText}>
+                  可从 <Text style={styles.link}>智谱清言开放平台</Text> 获取 API Key
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.testButton, styles.zhipuTestButton, { marginTop: 16 }]}
+                  onPress={testZhipuEmbedding}
+                  disabled={isTesting || !zhipuApiKey}
+                >
+                  {isTesting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.buttonText}>测试智谱嵌入</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
           {/* Action Buttons */}
           <View style={styles.buttonGroup}>
             <TouchableOpacity
@@ -336,11 +530,11 @@ const ApiSettings = () => {
             </View>
             <View style={styles.noteItem}>
               <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
-              <Text style={styles.noteText}>OpenRouter 按使用量收费，请注意控制使用频率</Text>
+              <Text style={styles.noteText}>智谱清言嵌入支持高精度的中文向量化，提升记忆检索准确度</Text>
             </View>
             <View style={styles.noteItem}>
               <Ionicons name="warning-outline" size={16} color="#f0ad4e" style={styles.noteIcon} />
-              <Text style={styles.noteText}>切换 API 提供商后，需要保存设置并重启应用</Text>
+              <Text style={styles.noteText}>智谱清言嵌入需要单独的API密钥，与LLM的密钥不通用</Text>
             </View>
           </View>
         </ScrollView>
@@ -575,6 +769,13 @@ const styles = StyleSheet.create({
   },
   modalCloseButton: {
     padding: 4,
+  },
+  // Add new styles for Zhipu section
+  zhipuTestButton: {
+    backgroundColor: '#8e44ad', // Purple color for Zhipu
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    borderRadius: 8,
   },
 });
 

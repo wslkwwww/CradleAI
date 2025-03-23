@@ -110,11 +110,8 @@ export class MobileMemory {
       
       console.log('[MobileMemory] LLM配置已更新成功，当前API密钥长度:', llmConfig.apiKey?.length || 0);
       
-      // 同时更新embedder的API密钥
-      if (this.embedder && typeof this.embedder.updateApiKey === 'function') {
-        this.embedder.updateApiKey(llmConfig.apiKey);
-        console.log('[MobileMemory] Embedder API密钥已更新');
-      }
+      // 注意：智谱嵌入器不会基于LLM API密钥更新
+      // 它需要单独的智谱API密钥，通过MemoryProvider配置提供
     } catch (error) {
       console.error('[MobileMemory] 更新LLM配置时出错:', error);
     }
@@ -179,14 +176,46 @@ export class MobileMemory {
     metadata: Record<string, any>,
     filters: SearchFilters,
   ): Promise<MemoryItem[]> {
+    // 检查消息的发送者，只处理用户消息
+    if (metadata.role !== 'user') {
+      console.log('[MobileMemory] 跳过处理非用户消息，不提取事实');
+      return [];
+    }
+
+    console.log('[MobileMemory] 开始从用户消息中提取事实');
+    
+    // 获取消息内容
     const parsedMessages = messages.map((m) => 
       typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
     ).join('\n');
+    
+    // 尝试获取最近的聊天上下文
+    let recentMessages: string[] = [];
+    try {
+      // 搜索最近的消息以提供上下文
+      const searchResults = await this.vectorStore.search(
+        await this.embedder.embed(parsedMessages),
+        5, // 获取最近的5条消息
+        filters,
+      );
+      
+      if (searchResults && searchResults.length > 0) {
+        recentMessages = searchResults.map((result: VectorStoreResult) => result.payload.data);
+        console.log(`[MobileMemory] 获取到 ${recentMessages.length} 条最近消息作为上下文`);
+      }
+    } catch (error) {
+      console.warn('[MobileMemory] 获取聊天上下文失败，将使用单条消息进行事实提取:', error);
+    }
+
+    // 构建上下文字符串
+    const contextString = recentMessages.length > 0 
+      ? `最近的对话上下文:\n${recentMessages.join('\n')}\n\n当前用户消息:\n${parsedMessages}`
+      : parsedMessages;
 
     // 获取提示词
     const [systemPrompt, userPrompt] = this.customPrompt
-      ? [this.customPrompt, `输入:\n${parsedMessages}`]
-      : getFactRetrievalMessages(parsedMessages);
+      ? [this.customPrompt, `输入:\n${contextString}`]
+      : getFactRetrievalMessages(contextString);
 
     // 使用 LLM 提取事实
     const response = await this.llm.generateResponse(
@@ -202,8 +231,19 @@ export class MobileMemory {
     try {
       const parsed = JSON.parse(cleanResponse);
       facts = parsed.facts || [];
+      // 记录提取的事实
+      console.log(`[MobileMemory] 从用户消息中提取到 ${facts.length} 条事实:`);
+      facts.forEach((fact: string, index: number) => {
+        console.log(`  事实 #${index + 1}: ${fact}`);
+      });
     } catch (e) {
-      console.error("解析 LLM 响应失败:", e);
+      console.error("[MobileMemory] 解析 LLM 响应失败:", e);
+      return [];
+    }
+
+    // 如果没有提取到事实，提前返回
+    if (facts.length === 0) {
+      console.log("[MobileMemory] 未从用户消息中提取到任何事实，跳过后续处理");
       return [];
     }
 
@@ -221,8 +261,14 @@ export class MobileMemory {
         5,
         filters,
       );
+      
+      // 记录查找到的现有记忆
+      console.log(`[MobileMemory] 为事实"${fact.substring(0, 30)}..."查找到 ${existingMemories.length} 条相关记忆`);
+      
       for (const mem of existingMemories) {
         retrievedOldMemory.push({ id: mem.id, text: mem.payload.data });
+        // 完整打印检索到的记忆内容
+        console.log(`  记忆ID: ${mem.id}, 内容: ${mem.payload.data}, 相似度: ${mem.score}`);
       }
     }
 
@@ -238,6 +284,8 @@ export class MobileMemory {
       tempUuidMapping[String(idx)] = item.id;
       uniqueOldMemories[idx].id = String(idx);
     });
+    
+    console.log(`[MobileMemory] 共有 ${uniqueOldMemories.length} 条唯一记忆需要处理`);
 
     // 获取记忆更新决策
     const updatePrompt = getUpdateMemoryMessages(uniqueOldMemories, facts);
@@ -251,8 +299,11 @@ export class MobileMemory {
     try {
       const parsed = JSON.parse(cleanUpdateResponse);
       memoryActions = parsed.memory || [];
+      
+      // 记录内存操作决策
+      console.log(`[MobileMemory] LLM决定执行 ${memoryActions.length} 个记忆操作:`);
     } catch (e) {
-      console.error("解析 LLM 更新响应失败:", e);
+      console.error("[MobileMemory] 解析 LLM 更新响应失败:", e);
       return [];
     }
 
@@ -260,6 +311,8 @@ export class MobileMemory {
     const results: MemoryItem[] = [];
     for (const action of memoryActions) {
       try {
+        console.log(`[MobileMemory] 执行操作: ${action.event}, 内容: ${action.text?.substring(0, 30)}...`);
+        
         switch (action.event) {
           case "ADD": {
             const memoryId = await this.createMemory(
@@ -272,6 +325,7 @@ export class MobileMemory {
               memory: action.text,
               metadata: { event: action.event },
             });
+            console.log(`[MobileMemory] 添加新记忆成功, ID: ${memoryId}`);
             break;
           }
           case "UPDATE": {
@@ -290,6 +344,7 @@ export class MobileMemory {
                 previousMemory: action.old_memory,
               },
             });
+            console.log(`[MobileMemory] 更新记忆成功, ID: ${realMemoryId}, 旧内容: ${action.old_memory?.substring(0, 30)}...`);
             break;
           }
           case "DELETE": {
@@ -300,14 +355,34 @@ export class MobileMemory {
               memory: action.text,
               metadata: { event: action.event },
             });
+            console.log(`[MobileMemory] 删除记忆成功, ID: ${realMemoryId}`);
+            break;
+          }
+          case "NONE": {
+            // 添加对NONE操作的处理
+            const realMemoryId = tempUuidMapping[action.id];
+            console.log(`[MobileMemory] 无需更改记忆, ID: ${realMemoryId}, 内容: ${action.text?.substring(0, 30)}...`);
+            results.push({
+              id: realMemoryId,
+              memory: action.text,
+              metadata: { event: action.event },
+            });
             break;
           }
         }
       } catch (error) {
-        console.error(`处理记忆操作错误: ${error}`);
+        console.error(`[MobileMemory] 处理记忆操作错误:`, error);
       }
     }
 
+    // 结果摘要
+    const addCount = results.filter(r => r.metadata?.event === 'ADD').length;
+    const updateCount = results.filter(r => r.metadata?.event === 'UPDATE').length;
+    const deleteCount = results.filter(r => r.metadata?.event === 'DELETE').length;
+    const noneCount = results.filter(r => r.metadata?.event === 'NONE').length;
+    
+    console.log(`[MobileMemory] 记忆处理完成: 添加=${addCount}, 更新=${updateCount}, 删除=${deleteCount}, 无变更=${noneCount}`);
+    
     return results;
   }
 

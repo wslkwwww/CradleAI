@@ -1,22 +1,4 @@
 /**
- * 移除代码块
- * @param text 包含代码块的文本
- * @returns 移除代码块后的文本
- */
-export function removeCodeBlocks(text: string): string {
-  if (typeof text !== 'string') return text;
-  // 移除 markdown 代码块
-  return text
-    .replace(/```json\s*\n([\s\S]*?)\n```/g, '$1')
-    .replace(/```\w*\s*\n([\s\S]*?)\n```/g, '$1');
-}
-
-/**
- * 获取事实提取消息
- * @param input 输入文本
- * @returns 系统提示和用户提示
- */
-/**
  * 获取事实提取提示词
  * @param content 要分析的内容
  * @returns [系统提示词, 用户提示词]
@@ -250,7 +232,37 @@ export function parseMessages(messages: string[]): string {
 }
 
 /**
- * 移除代码块
- * @param text 包含代码块的文本
- * @returns 清理后的文本
+ * 从LLM响应中删除代码块标记，提取JSON内容
+ * @param text LLM响应文本
+ * @returns 清理后的JSON文本
  */
+export function removeCodeBlocks(text: string): string {
+  if (!text) return '';
+  
+  // First, try to extract content from markdown code blocks
+  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/;
+  const match = text.match(codeBlockRegex);
+  
+  if (match && match[1]) {
+    console.log(`[removeCodeBlocks] 从Markdown代码块中提取JSON: ${match[1].substring(0, 50)}...`);
+    return match[1].trim();
+  }
+  
+  // If no code blocks found, remove any non-JSON parts at the start and end
+  let cleaned = text;
+  
+  // Remove anything before the first {
+  const firstBrace = cleaned.indexOf('{');
+  if (firstBrace > 0) {
+    cleaned = cleaned.substring(firstBrace);
+  }
+  
+  // Remove anything after the last }
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (lastBrace >= 0 && lastBrace < cleaned.length - 1) {
+    cleaned = cleaned.substring(0, lastBrace + 1);
+  }
+  
+  console.log(`[removeCodeBlocks] 清理后的JSON: ${cleaned.substring(0, 50)}...`);
+  return cleaned;
+}
