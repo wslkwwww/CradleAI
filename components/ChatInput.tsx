@@ -128,10 +128,57 @@ const ChatInput: React.FC<ChatInputProps> = ({
       // 应用正则工具处理用户消息
       const processedMessage = applyRegexTools(messageToSend, 'user');
       
+      // 在发送用户消息前，先尝试搜索相关记忆（不影响主流程）
+      if (selectedCharacter?.id) {
+        try {
+          console.log('[ChatInput] 尝试检索与用户消息相关的记忆');
+          const mem0Service = Mem0Service.getInstance();
+          const memoryResults = await mem0Service.searchMemories(
+            processedMessage,
+            selectedCharacter.id,
+            selectedConversationId,
+            5 // 检索最相关的5条记忆
+          );
+          
+          // 记录检索到的记忆
+          const resultCount = memoryResults?.results?.length || 0;
+          if (resultCount > 0) {
+            console.log(`[ChatInput] 为用户消息找到 ${resultCount} 条相关记忆:`);
+            
+            interface MemoryResult {
+              memory: string;
+              score: number;
+              metadata?: {
+                aiResponse?: string;
+              };
+            }
+
+            interface MemorySearchResults {
+              results: MemoryResult[];
+            }
+
+                        (memoryResults as MemorySearchResults).results.forEach((item: MemoryResult, index: number) => {
+                          console.log(`[ChatInput] 记忆 #${index + 1}:`);
+                          console.log(`  内容: ${item.memory}`);
+                          console.log(`  相似度: ${item.score}`);
+                          if (item.metadata?.aiResponse) {
+                            console.log(`  AI响应: ${item.metadata.aiResponse.substring(0, 100)}${item.metadata.aiResponse.length > 100 ? '...' : ''}`);
+                          }
+                        });
+          } else {
+            console.log('[ChatInput] 未找到相关记忆');
+          }
+        } catch (searchError) {
+          console.warn('[ChatInput] 搜索相关记忆失败:', searchError);
+          // 不阻断主流程
+        }
+      }
+      
       // Send user message
       onSendMessage(processedMessage, 'user');
       
       // 添加到 Mem0 记忆系统
+      let userMemoryAdded = false;
       if (selectedCharacter?.id) {
         try {
           const mem0Service = Mem0Service.getInstance();
@@ -141,6 +188,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
             selectedCharacter.id,
             selectedConversationId
           );
+          userMemoryAdded = true;
+          console.log('[ChatInput] 用户消息已成功添加到记忆系统');
         } catch (memoryError) {
           console.error('[ChatInput] 添加用户消息到记忆系统失败:', memoryError);
           // 继续处理消息，不阻断主流程
@@ -148,17 +197,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
       }
       
       // Create temp loading message for bot
-      const tempId = `temp-${Date.now()}`;
       onSendMessage('', 'bot', true);
       
-      // Log API settings before sending
-      console.log('[ChatInput] Sending message with API settings:', {
-        provider: user?.settings?.chat.apiProvider,
-        openRouterEnabled: user?.settings?.chat.apiProvider === 'openrouter' && user?.settings?.chat.openrouter?.enabled,
-        model: user?.settings?.chat.openrouter?.model || 'default'
-      });
-      
-      // Use NodeST for actual processing with proper API settings
+      // 使用 NodeST 处理消息
       const result = await NodeSTManager.processChatMessage({
         userMessage: messageToSend,
         status: '同一角色继续对话',
@@ -168,35 +209,38 @@ const ChatInput: React.FC<ChatInputProps> = ({
           apiProvider: user?.settings?.chat.apiProvider || 'gemini',
           openrouter: user?.settings?.chat.openrouter
         },
-        character: selectedCharacter // Pass full character to access character ID for memory service
+        character: selectedCharacter
       });
       
-      // Remove the temp loading message and add the real response
+      // 处理 AI 响应
       if (result.success) {
-        // 在发送AI回复前也应用正则工具
+        // 应用正则工具处理响应
         const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
         onSendMessage(processedResponse, 'bot');
         
-        // 添加到 Mem0 记忆系统
-        if (selectedCharacter?.id) {
+        // 只有在成功添加了用户记忆的情况下，才尝试更新AI响应
+        if (userMemoryAdded && selectedCharacter?.id) {
           try {
             const mem0Service = Mem0Service.getInstance();
-            await mem0Service.addChatMemory(
-              processedResponse,
-              'bot',
-              selectedCharacter.id,
-              selectedConversationId
-            );
             
-            // 演示搜索功能
-            await mem0Service.searchMemories(
-              messageToSend,
-              selectedCharacter.id,
-              selectedConversationId
-            );
+            // 确保响应不为空
+            if (processedResponse && processedResponse.trim() !== '') {
+              // 通过传递bot角色触发updateAIResponseForMemories
+              await mem0Service.addChatMemory(
+                processedResponse,
+                'bot',
+                selectedCharacter.id,
+                selectedConversationId
+              );
+              console.log('[ChatInput] 成功将AI回复添加到记忆系统');
+            } else {
+              console.warn('[ChatInput] AI回复为空，跳过添加到记忆系统');
+            }
           } catch (memoryError) {
             console.error('[ChatInput] 添加AI回复到记忆系统失败:', memoryError);
           }
+        } else if (!userMemoryAdded) {
+          console.log('[ChatInput] 由于用户消息未成功添加到记忆，跳过添加AI回复');
         }
       } else {
         onSendMessage('抱歉，处理消息时出现了错误，请重试。', 'bot');

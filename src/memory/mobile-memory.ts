@@ -191,25 +191,128 @@ export class MobileMemory {
     
     // 尝试获取最近的聊天上下文
     let recentMessages: string[] = [];
+    let recentConversation: string = '';
     try {
+      // 从index页面获取最近的5条消息作为上下文
       // 搜索最近的消息以提供上下文
+      console.log('[MobileMemory] 搜索最近的消息作为上下文...');
+      console.log('[MobileMemory] 使用过滤条件:', JSON.stringify(filters));
+      
+      const searchStartTime = Date.now();
       const searchResults = await this.vectorStore.search(
         await this.embedder.embed(parsedMessages),
-        5, // 获取最近的5条消息
+        10, // 增加搜索数量以确保能获取到足够的用户-AI对话对
         filters,
       );
+      const searchEndTime = Date.now();
+      
+      console.log(`[MobileMemory] 上下文搜索完成，耗时: ${searchEndTime - searchStartTime}ms`);
+      console.log(`[MobileMemory] 上下文搜索结果数量: ${searchResults?.length || 0}`);
       
       if (searchResults && searchResults.length > 0) {
-        recentMessages = searchResults.map((result: VectorStoreResult) => result.payload.data);
-        console.log(`[MobileMemory] 获取到 ${recentMessages.length} 条最近消息作为上下文`);
+        // 记录一些详细的搜索结果信息
+        console.log('[MobileMemory] 上下文搜索结果详情:');
+        interface SearchResultPayload {
+          id: string;
+          data?: string;
+          aiResponse?: string;
+          score?: number;
+        }
+
+        interface SearchResult {
+          id: string;
+          payload: SearchResultPayload;
+          score?: number;
+        }
+
+                searchResults.slice(0, 3).forEach((result: SearchResult, idx: number) => {
+                  console.log(`  结果 #${idx + 1} - ID: ${result.id}, 相似度: ${result.score?.toFixed(4) || 'N/A'}`);
+                  console.log(`    内容: ${result.payload.data?.substring(0, 50)}${(result.payload.data?.length ?? 0) > 50 ? '...' : ''}`);
+                  if (result.payload.aiResponse) {
+                    console.log(`    AI响应: ${result.payload.aiResponse?.substring(0, 50)}${result.payload.aiResponse?.length > 50 ? '...' : ''}`);
+                  }
+                });
+        
+        // 按时间戳排序，确保我们获取最新的消息
+        interface SearchResultPayload {
+          timestamp: string;
+          [key: string]: any;
+        }
+
+        interface SearchResultItem {
+          payload: SearchResultPayload;
+          [key: string]: any;
+        }
+
+        const sortedResults = searchResults
+          .filter((result: SearchResultItem) => result.payload && result.payload.timestamp)
+          .sort((a: SearchResultItem, b: SearchResultItem) => {
+            const dateA = new Date(a.payload.timestamp).getTime();
+            const dateB = new Date(b.payload.timestamp).getTime(); 
+            return dateB - dateA; // 降序排列，最新的在前
+          });
+        
+        // 从排序后的结果中取前5条消息
+        const latestResults = sortedResults.slice(0, 5);
+        
+        if (latestResults.length > 0) {
+          console.log(`[MobileMemory] 获取到 ${latestResults.length} 条最近消息作为上下文`);
+          
+          // 将消息按时间升序重新排序，形成自然对话流
+          // Define interfaces for the payload and message
+          interface MessagePayload {
+            timestamp: string;
+            role?: string;
+            data?: string;
+            aiResponse?: string;
+            [key: string]: any;
+          }
+
+          interface ConversationMessage {
+            payload: MessagePayload;
+            [key: string]: any;
+          }
+
+          const conversationMessages: ConversationMessage[] = latestResults.sort((a: ConversationMessage, b: ConversationMessage) => {
+            const dateA: number = new Date(a.payload.timestamp).getTime();
+            const dateB: number = new Date(b.payload.timestamp).getTime();
+            return dateA - dateB; // 升序排列，按时间顺序排列对话
+          });
+          
+          // 构建对话历史格式
+          const conversationPieces = [];
+          
+          for (const result of conversationMessages) {
+            const role = result.payload.role || 'unknown';
+            const content = result.payload.data;
+            const aiResponse = result.payload.aiResponse || '';
+            
+            if (role === 'user') {
+              conversationPieces.push(`用户: ${content}`);
+              // 如果这条记录有关联的AI响应，立即添加
+              if (aiResponse) {
+                conversationPieces.push(`AI: ${aiResponse}`);
+              }
+            }
+          }
+          
+          if (conversationPieces.length > 0) {
+            recentConversation = `最近的对话历史:\n${conversationPieces.join('\n')}\n\n`;
+            console.log(`[MobileMemory] 构建了对话历史上下文，包含 ${conversationPieces.length} 条消息记录`);
+            console.log('[MobileMemory] 对话历史内容预览:');
+            console.log(recentConversation.substring(0, 200) + (recentConversation.length > 200 ? '...' : ''));
+          }
+        }
+      } else {
+        console.log('[MobileMemory] 未找到任何相关的历史记忆用于上下文');
       }
     } catch (error) {
       console.warn('[MobileMemory] 获取聊天上下文失败，将使用单条消息进行事实提取:', error);
     }
 
-    // 构建上下文字符串
-    const contextString = recentMessages.length > 0 
-      ? `最近的对话上下文:\n${recentMessages.join('\n')}\n\n当前用户消息:\n${parsedMessages}`
+    // 构建上下文字符串，包含对话历史
+    const contextString = recentConversation 
+      ? `${recentConversation}当前用户消息:\n${parsedMessages}`
       : parsedMessages;
 
     // 获取提示词
@@ -313,17 +416,23 @@ export class MobileMemory {
       try {
         console.log(`[MobileMemory] 执行操作: ${action.event}, 内容: ${action.text?.substring(0, 30)}...`);
         
+        // 添加空的AI响应字段到每条记忆中
+        const memoryMetadata = { ...metadata, aiResponse: '' };
+        
         switch (action.event) {
           case "ADD": {
             const memoryId = await this.createMemory(
               action.text,
               newMessageEmbeddings,
-              metadata,
+              memoryMetadata,
             );
             results.push({
               id: memoryId,
               memory: action.text,
-              metadata: { event: action.event },
+              metadata: { 
+                event: action.event,
+                aiResponse: '', // 初始为空，稍后可能会被更新
+              },
             });
             console.log(`[MobileMemory] 添加新记忆成功, ID: ${memoryId}`);
             break;
@@ -334,7 +443,7 @@ export class MobileMemory {
               realMemoryId,
               action.text,
               newMessageEmbeddings,
-              metadata,
+              memoryMetadata,
             );
             results.push({
               id: realMemoryId,
@@ -342,6 +451,7 @@ export class MobileMemory {
               metadata: {
                 event: action.event,
                 previousMemory: action.old_memory,
+                aiResponse: '', // 初始为空，稍后可能会被更新
               },
             });
             console.log(`[MobileMemory] 更新记忆成功, ID: ${realMemoryId}, 旧内容: ${action.old_memory?.substring(0, 30)}...`);
@@ -451,6 +561,11 @@ export class MobileMemory {
       );
     }
 
+    console.log(`[MobileMemory] 开始搜索记忆: "${query.substring(0, 50)}${query.length > 50 ? '...' : ''}"`);
+    console.log(`[MobileMemory] 搜索过滤条件: ${JSON.stringify(filters)}, 限制: ${limit}条`);
+    
+    const searchStartTime = Date.now();
+    
     // 搜索向量存储
     const queryEmbedding = await this.embedder.embed(query);
     const memories = await this.vectorStore.search(
@@ -458,6 +573,10 @@ export class MobileMemory {
       limit,
       filters,
     );
+    
+    const searchEndTime = Date.now();
+    console.log(`[MobileMemory] 搜索完成，耗时: ${searchEndTime - searchStartTime}ms`);
+    console.log(`[MobileMemory] 搜索结果数量: ${memories?.length || 0}`);
 
     const excludedKeys = new Set([
       "userId",
@@ -498,20 +617,45 @@ export class MobileMemory {
       runId?: string;
     }
 
-        const results: MemorySearchResult[] = memories.map((mem: VectorStoreResult) => ({
-          id: mem.id,
-          memory: mem.payload.data,
-          hash: mem.payload.hash,
-          createdAt: mem.payload.createdAt,
-          updatedAt: mem.payload.updatedAt,
-          score: mem.score,
-          metadata: Object.entries(mem.payload)
-            .filter(([key]) => !excludedKeys.has(key))
-            .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {}),
-          ...(mem.payload.userId && { userId: mem.payload.userId }),
-          ...(mem.payload.agentId && { agentId: mem.payload.agentId }),
-          ...(mem.payload.runId && { runId: mem.payload.runId }),
-        }));
+    const results: MemorySearchResult[] = memories.map((mem: VectorStoreResult) => ({
+      id: mem.id,
+      memory: mem.payload.data,
+      hash: mem.payload.hash,
+      createdAt: mem.payload.createdAt,
+      updatedAt: mem.payload.updatedAt,
+      score: mem.score,
+      metadata: Object.entries(mem.payload)
+        .filter(([key]) => !excludedKeys.has(key))
+        .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {}),
+      ...(mem.payload.userId && { userId: mem.payload.userId }),
+      ...(mem.payload.agentId && { agentId: mem.payload.agentId }),
+      ...(mem.payload.runId && { runId: mem.payload.runId }),
+    }));
+
+    // 详细记录搜索结果
+    if (memories && memories.length > 0) {
+      console.log('[MobileMemory] 搜索结果详情:');
+      interface MemorySearchPayload {
+        id: string;
+        data?: string;
+        aiResponse?: string;
+        timestamp?: string;
+        createdAt?: string;
+      }
+
+      interface MemorySearchResult {
+        id: string;
+        score?: number;
+        payload: MemorySearchPayload;
+      }
+
+      
+      if (memories.length > 5) {
+        console.log(`  ...以及另外 ${memories.length - 5} 条结果`);
+      }
+    } else {
+      console.log('[MobileMemory] 没有找到符合条件的记忆');
+    }
 
     return { results };
   }
@@ -651,6 +795,7 @@ export class MobileMemory {
       data,
       hash: md5(data),
       createdAt: new Date().toISOString(),
+      aiResponse: metadata.aiResponse || '', // 确保包含aiResponse字段
     };
 
     await this.vectorStore.insert([embedding], [memoryId], [memoryMetadata]);
@@ -694,6 +839,7 @@ export class MobileMemory {
       hash: md5(data),
       createdAt: existingMemory.payload.createdAt,
       updatedAt: new Date().toISOString(),
+      aiResponse: metadata.aiResponse || existingMemory.payload.aiResponse || '', // 保留或设置aiResponse
       ...(existingMemory.payload.userId && {
         userId: existingMemory.payload.userId,
       }),
@@ -742,5 +888,73 @@ export class MobileMemory {
     );
 
     return memoryId;
+  }
+
+  /**
+   * 更新向量存储中的AI响应
+   * @param memoryIds 需要更新的记忆ID数组
+   * @param aiResponse AI响应文本
+   */
+  public async updateAIResponse(memoryIds: string[], aiResponse: string): Promise<void> {
+    if (!memoryIds || memoryIds.length === 0 || !aiResponse) {
+      console.log('[MobileMemory] 无需更新AI响应，跳过');
+      return;
+    }
+
+    console.log(`[MobileMemory] 正在为 ${memoryIds.length} 条记忆更新AI响应`);
+    
+    for (const memoryId of memoryIds) {
+      try {
+        const existingMemory = await this.vectorStore.get(memoryId);
+        if (!existingMemory) {
+          console.warn(`[MobileMemory] 记忆ID ${memoryId} 不存在，跳过更新AI响应`);
+          continue;
+        }
+
+        // 创建新的元数据，保留原有内容，更新aiResponse字段
+        const newMetadata = {
+          ...existingMemory.payload,
+          aiResponse: aiResponse,
+          updatedAt: new Date().toISOString(),
+        };
+
+        try {
+          // 使用null作为embedding参数，让向量存储器保持原有向量
+          await this.vectorStore.update(memoryId, null, newMetadata);
+          console.log(`[MobileMemory] 成功更新记忆ID ${memoryId} 的AI响应`);
+        } catch (error: unknown) {
+          // 如果使用null向量更新失败，尝试使用原向量或空数组
+          const updateError = error instanceof Error ? error.message : String(error);
+          console.warn(`[MobileMemory] 使用null向量更新失败，尝试保持原向量: ${updateError}`);
+          
+          // 尝试重新获取原向量（如果存储引擎支持）
+          let originalVector = null;
+          if (existingMemory.vector) {
+            originalVector = existingMemory.vector;
+            console.log('[MobileMemory] 找到原始向量，使用原始向量更新');
+          } else {
+            // 如果找不到原始向量，尝试重新嵌入记忆内容
+            try {
+              if (existingMemory.payload && existingMemory.payload.data) {
+                console.log(`[MobileMemory] 原始向量不可用，为记忆ID ${memoryId} 重新生成向量`);
+                originalVector = await this.embedder.embed(existingMemory.payload.data);
+              }
+            } catch (embedError) {
+              console.error(`[MobileMemory] 无法为记忆ID ${memoryId} 重新生成向量:`, embedError);
+            }
+          }
+
+          // 使用原向量或空数组更新
+          await this.vectorStore.update(
+            memoryId, 
+            originalVector || [], 
+            newMetadata
+          );
+          console.log(`[MobileMemory] 成功使用${originalVector ? '原始' : '空'}向量更新记忆ID ${memoryId} 的AI响应`);
+        }
+      } catch (error) {
+        console.error(`[MobileMemory] 更新记忆ID ${memoryId} 的AI响应失败:`, error);
+      }
+    }
   }
 }

@@ -35,12 +35,12 @@ export interface VectorStore {
   /**
    * 更新向量
    * @param vectorId 向量ID
-   * @param vector 新向量
+   * @param vector 新向量（如果为null则保持原向量不变）
    * @param payload 新附加信息
    */
   update(
     vectorId: string,
-    vector: number[],
+    vector: number[] | null,
     payload: Record<string, any>,
   ): Promise<void>;
 
