@@ -509,6 +509,8 @@ export interface GeminiMessage {
     is_d_entry?: boolean;
     is_author_note?: boolean;
     injection_depth?: number;
+    conversationId?: string;
+    characterId?: string;
 }
 
 export interface RegexTool {

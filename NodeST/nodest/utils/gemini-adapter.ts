@@ -46,6 +46,8 @@ export class GeminiAdapter {
     private readonly headers = {
         "Content-Type": "application/json"
     };
+
+
     private conversationHistory: ChatMessage[] = [];
 
     constructor(apiKey: string) {
@@ -560,9 +562,10 @@ export class GeminiAdapter {
     /**
      * 生成支持工具调用的内容
      * @param contents 消息内容
+     * @param memoryResults 记忆搜索结果 (可选)
      * @returns 生成的内容
      */
-    async generateContentWithTools(contents: ChatMessage[]): Promise<string> {
+    async generateContentWithTools(contents: ChatMessage[], memoryResults?: any): Promise<string> {
         // 检查最后一条消息中是否需要搜索功能
         const lastMessage = contents[contents.length - 1];
         const messageText = lastMessage.parts?.[0]?.text || "";
@@ -572,7 +575,7 @@ export class GeminiAdapter {
             // 如果判断需要搜索，先尝试搜索
             if (needsSearching) {
                 console.log(`[Gemini适配器] 检测到搜索意图，尝试使用工具调用`);
-                return await this.handleSearchIntent(contents);
+                return await this.handleSearchIntent(contents, memoryResults);
             }
             
             // 否则使用普通对话方式
@@ -584,7 +587,7 @@ export class GeminiAdapter {
             return await this.generateContent(contents);
         }
     }
-    
+
     /**
      * 判断消息是否需要搜索
      * @param messageText 消息文本
@@ -621,13 +624,20 @@ export class GeminiAdapter {
         // 2. 消息长度不超过200个字符 (太长的消息可能不是搜索意图)
         return (hasSearchKeyword || isQuestion) && messageText.length < 200;
     }
+
+    /**
+     * 判断消息是否需要搜索
+     * @param messageText 消息文本
+     * @returns 是否需要搜索
+     */
     
     /**
      * 处理搜索意图
      * @param contents 消息内容
+     * @param memoryResults 记忆搜索结果 (可选)
      * @returns 搜索结果和回复
      */
-    private async handleSearchIntent(contents: ChatMessage[]): Promise<string> {
+    private async handleSearchIntent(contents: ChatMessage[], memoryResults?: any): Promise<string> {
         // 获取最后一条消息的内容
         const lastMessage = contents[contents.length - 1];
         const searchQuery = lastMessage.parts?.[0]?.text || "";
@@ -666,18 +676,43 @@ export class GeminiAdapter {
             
             console.log(`[Gemini适配器] 获取到搜索结果，正在生成回复`);
             
-            // 使用搜索结果和原始问题，生成最终回复
+            // 构建包含记忆和网络搜索结果的修改版提示
+            let combinedPrompt = `${searchQuery}\n\n`;
+            
+            // 添加记忆搜索结果（如果有）
+            if (memoryResults && memoryResults.results && memoryResults.results.length > 0) {
+                console.log(`[Gemini适配器] 添加记忆搜索结果，包含 ${memoryResults.results.length} 条记忆`);
+                combinedPrompt += `<mem>\n系统检索到的记忆内容：\n`;
+                
+                // 格式化记忆结果
+                memoryResults.results.forEach((item: any, index: number) => {
+                    combinedPrompt += `${index + 1}. ${item.memory}\n`;
+                });
+                combinedPrompt += `</mem>\n\n`;
+            }
+            
+            // 添加网络搜索结果
+            combinedPrompt += `<websearch>\n搜索引擎返回的联网检索结果：\n${formattedResults}\n</websearch>\n\n`;
+            
+            // 添加响应指南
+            combinedPrompt += `<response_guidelines>
+  - 除了对用户消息的回应之外，**务必** 结合记忆内容和联网搜索内容进行回复。
+  - **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
+    - 示例: <mem>我想起起您上次提到过类似的问题，当时...</mem>
+  - **根据角色设定，聊天上下文和记忆内容**，输出你对联网检索结果的解释，并用<websearch></websearch>包裹。
+    - 示例: <websearch>根据网络信息，[相关领域的专家]认为... 这可能对您有帮助。</websearch>
+</response_guidelines>`;
+            
+            // 使用标准的生成内容方法生成最终回复
+            // 保持原始请求结构，只修改用户消息内容
             const finalPrompt: ChatMessage[] = [
                 ...contents.slice(0, -1), // 保留之前的对话历史，除了最后一条
                 {
                     role: "user",
-                    parts: [{ 
-                        text: `${searchQuery}\n\n这是搜索引擎找到的相关信息：\n\n${formattedResults}\n\n请根据以上搜索结果回答我的问题，如果搜索结果不够充分，请清楚说明，并根据你现有的知识提供一个初步回答。请使用中文回复，并确保回复有条理、易于理解。` 
-                    }]
+                    parts: [{ text: combinedPrompt }]
                 }
             ];
             
-            // 使用标准的生成内容方法生成最终回复
             return await this.generateContent(finalPrompt);
         } catch (error) {
             console.error(`[Gemini适配器] 搜索处理失败:`, error);

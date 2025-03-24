@@ -14,8 +14,7 @@ import {
     GlobalSettings
 } from '../../../shared/types';
 import { MessagePart } from '@/shared/types';
-import { memoryService } from '@/services/AIbbs/memory-service';
-
+import { memoryService } from '@/services/memory-service';
 export class NodeSTCore {
     private geminiAdapter: GeminiAdapter | null = null;
     private openRouterAdapter: OpenRouterAdapter | null = null;
@@ -555,8 +554,7 @@ export class NodeSTCore {
                 messageLength: userMessage.length,
                 apiProvider: this.apiSettings?.apiProvider,
                 hasCustomUserName: !!customUserName,
-                useToolCalls: useToolCalls // Log useToolCalls parameter
-            });
+                useToolCalls: useToolCalls            });
 
             // 确保Adapter已初始化
             if ((!this.geminiAdapter || !this.openRouterAdapter) && apiKey) {
@@ -626,6 +624,55 @@ export class NodeSTCore {
                 }
             });
 
+            // 记忆搜索功能，在消息发送前尝试检索相关记忆
+            let memorySearchResults = null;
+            if (characterId) {
+                try {
+                    console.log('[NodeSTCore] 开始搜索角色相关记忆:', {
+                        characterId,
+                        conversationId,
+                        queryLength: userMessage.length
+                    });
+                    
+                    // 尝试导入并使用Mem0Service
+                    let Mem0Service = null;
+                    try {
+                        // 动态导入以避免循环依赖
+                        Mem0Service = (await import('@/src/memory/services/Mem0Service')).default.getInstance();
+                    } catch (importError) {
+                        console.log('[NodeSTCore] 无法导入Mem0Service:', importError);
+                    }
+                    
+                    if (Mem0Service) {
+                        // 使用记忆服务搜索相关记忆
+                        memorySearchResults = await Mem0Service.searchMemories(
+                            userMessage,
+                            characterId,
+                            conversationId,
+                            5 // 限制返回最相关的5条记忆
+                        );
+                        
+                        console.log('[NodeSTCore] 记忆搜索完成:', {
+                            resultsCount: memorySearchResults?.results?.length || 0,
+                            success: !!memorySearchResults
+                        });
+                        
+                        // 记录找到的记忆内容
+                        if (memorySearchResults?.results?.length > 0) {
+                            memorySearchResults.results.forEach((item: any, idx: number) => {
+                                const memory = item.memory.substring(0, 100) + (item.memory.length > 100 ? '...' : '');
+                                console.log(`[NodeSTCore] 记忆 #${idx+1}: ${memory} (相似度: ${item.score?.toFixed(4) || 'N/A'})`);
+                            });
+                        }
+                    } else {
+                        console.log('[NodeSTCore] 记忆服务不可用，跳过记忆搜索');
+                    }
+                } catch (memoryError) {
+                    console.warn('[NodeSTCore] 记忆搜索失败，但不影响主要会话流程:', memoryError);
+                    // 记忆搜索失败不应阻止对话继续
+                }
+            }
+
             // 修改：只在这里添加用户消息
             const updatedChatHistory: ChatHistoryEntity = {
                 ...chatHistory,
@@ -640,7 +687,7 @@ export class NodeSTCore {
                     } as ChatMessage
                 ]
             };
-            
+
             // NEW: Check if we need to summarize the chat history
             if (characterId) {
                 try {
@@ -673,8 +720,9 @@ export class NodeSTCore {
                     dEntries,
                     conversationId,
                     roleCard,
-                    adapter, // 传递正确的适配器
-                    customUserName // Pass the customUserName
+                    adapter,
+                    customUserName,
+                    memorySearchResults // 传递记忆搜索结果
                 )
                 : await this.processChat(
                     userMessage,
@@ -682,8 +730,9 @@ export class NodeSTCore {
                     dEntries,
                     conversationId,
                     roleCard,
-                    adapter, // 传递正确的适配器
-                    customUserName // Pass the customUserName
+                    adapter,
+                    customUserName,
+                    memorySearchResults // 传递记忆搜索结果
                 );
 
             // 如果收到响应，将AI回复也添加到历史记录
@@ -958,7 +1007,8 @@ export class NodeSTCore {
         sessionId: string,
         roleCard: RoleCardJson,
         adapter?: GeminiAdapter | OpenRouterAdapter,
-        customUserName?: string // Add optional customUserName parameter
+        customUserName?: string, // Add optional customUserName parameter
+        memorySearchResults?: any // 添加记忆搜索结果参数
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChat with:', {
@@ -1109,8 +1159,9 @@ export class NodeSTCore {
                 apiProvider: this.apiSettings?.apiProvider
             });
 
-            // 发送到API
+            // 发送到API，传递记忆搜索结果
             console.log('[NodeSTCore] Sending to API...');
+            // 普通对话不使用工具调用，所以不传递记忆搜索结果
             const response = await activeAdapter.generateContent(cleanedContents);
             console.log('[NodeSTCore] API response received:', {
                 hasResponse: !!response,
@@ -1139,7 +1190,8 @@ export class NodeSTCore {
         sessionId: string,
         roleCard: RoleCardJson,
         adapter?: GeminiAdapter | OpenRouterAdapter,
-        customUserName?: string // Add optional customUserName parameter
+        customUserName?: string, // Add optional customUserName parameter
+        memorySearchResults?: any // 添加记忆搜索结果参数
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChatWithTools with:', {
@@ -1147,7 +1199,8 @@ export class NodeSTCore {
                 chatHistoryMessagesCount: chatHistory?.parts?.length,
                 dEntriesCount: dEntries.length,
                 apiProvider: this.apiSettings?.apiProvider,
-                hasCustomUserName: !!customUserName
+                hasCustomUserName: !!customUserName,
+                hasMemoryResults: memorySearchResults?.results?.length > 0
             });
 
             // 1. 加载框架内容
@@ -1290,9 +1343,10 @@ export class NodeSTCore {
                 apiProvider: this.apiSettings?.apiProvider
             });
 
-            // 发送到API
-            console.log('[NodeSTCore] Sending to API...');
-            const response = await activeAdapter.generateContentWithTools(cleanedContents);
+            // 发送到API，传递记忆搜索结果
+            console.log('[NodeSTCore] Sending to API with tool calls...');
+            // 如果使用工具调用，则传递记忆搜索结果
+            const response = await activeAdapter.generateContentWithTools(cleanedContents, memorySearchResults);
             console.log('[NodeSTCore] API response received:', {
                 hasResponse: !!response,
                 responseLength: response?.length || 0

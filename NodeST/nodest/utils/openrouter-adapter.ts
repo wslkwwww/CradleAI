@@ -172,9 +172,10 @@ export class OpenRouterAdapter {
   /**
    * 生成支持工具调用的内容
    * @param contents 消息内容
+   * @param memoryResults 记忆搜索结果 (可选)
    * @returns 生成的内容
    */
-  async generateContentWithTools(contents: ChatMessage[]): Promise<string> {
+  async generateContentWithTools(contents: ChatMessage[], memoryResults?: any): Promise<string> {
     // 检查最后一条消息中是否需要搜索功能
     const lastMessage = contents[contents.length - 1];
     const messageText = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
@@ -184,7 +185,7 @@ export class OpenRouterAdapter {
       // 如果判断需要搜索，先尝试搜索
       if (needsSearching) {
         console.log(`【OpenRouterAdapter】 检测到搜索意图，尝试使用工具调用`);
-        return await this.handleSearchIntent(contents);
+        return await this.handleSearchIntent(contents, memoryResults);
       }
       
       // 否则使用普通对话方式
@@ -237,9 +238,10 @@ export class OpenRouterAdapter {
   /**
    * 处理搜索意图
    * @param contents 消息内容
+   * @param memoryResults 记忆搜索结果 (可选)
    * @returns 搜索结果和回复
    */
-  private async handleSearchIntent(contents: ChatMessage[]): Promise<string> {
+  private async handleSearchIntent(contents: ChatMessage[], memoryResults?: any): Promise<string> {
     // 获取最后一条消息的内容
     const lastMessage = contents[contents.length - 1];
     const searchQuery = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
@@ -277,6 +279,33 @@ export class OpenRouterAdapter {
       
       console.log(`【OpenRouterAdapter】获取到搜索结果，正在生成回复`);
       
+      // 构建包含记忆和网络搜索结果的修改版提示
+      let combinedPrompt = `${searchQuery}\n\n`;
+      
+      // 添加记忆搜索结果（如果有）
+      if (memoryResults && memoryResults.results && memoryResults.results.length > 0) {
+        console.log(`【OpenRouterAdapter】添加记忆搜索结果，包含 ${memoryResults.results.length} 条记忆`);
+        combinedPrompt += `<mem>\n系统检索到的记忆内容：\n`;
+        
+        // 格式化记忆结果
+        memoryResults.results.forEach((item: any, index: number) => {
+          combinedPrompt += `${index + 1}. ${item.memory}\n`;
+        });
+        combinedPrompt += `</mem>\n\n`;
+      }
+      
+      // 添加网络搜索结果
+      combinedPrompt += `<websearch>\n搜索引擎返回的联网检索结果：\n${formattedResults}\n</websearch>\n\n`;
+      
+      // 添加响应指南
+      combinedPrompt += `<response_guidelines>
+  - 除了对用户消息的回应之外，**务必** 结合记忆内容和联网搜索内容进行回复。
+  - **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
+    - 示例: <mem>我想起起您上次提到过类似的问题，当时...</mem>
+  - **根据角色设定，聊天上下文和记忆内容**，输出你对联网检索结果的解释，并用<websearch></websearch>包裹。
+    - 示例: <websearch>根据网络信息，[相关领域的专家]认为... 这可能对您有帮助。</websearch>
+</response_guidelines>`;
+      
       // 将搜索结果转换为适当的格式
       let formattedContents = [];
       
@@ -294,7 +323,7 @@ export class OpenRouterAdapter {
       // 添加最后的用户查询和搜索结果
       formattedContents.push({
         role: "user",
-        content: `${searchQuery}\n\n这是搜索引擎通过搜索引擎找到的相关信息：\n\n${formattedResults}\n\n请根据以上搜索结果回答我的问题，如果搜索结果不够充分，请清楚说明，并根据你现有的知识提供一个初步回答。请使用中文回复，并确保回复有条理、易于理解。`
+        content: combinedPrompt
       });
       
       // 使用工具调用结果生成最终回复

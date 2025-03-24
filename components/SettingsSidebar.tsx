@@ -19,7 +19,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { theme } from '@/constants/theme';
 import { Picker } from '@react-native-picker/picker';
-import { memoryService } from '@/services/AIbbs/memory-service';
+import { memoryService } from '@/services/memory-service';
 import Slider from '@react-native-community/slider';
 import { EventRegister } from 'react-native-event-listeners';
 import AsyncStorage from '@react-native-async-storage/async-storage';
