@@ -25,9 +25,9 @@ export interface ProcessChatRequest {
     isCradleGeneration?: boolean; 
     characterId?: string; // Add characterId parameter
     customUserName?: string; // Add customUserName parameter
-}
+    useToolCalls?: boolean; // Add useToolCalls parameter
 
-export { CirclePostOptions, CircleResponse };
+}
 
 export class NodeST {
     private nodeSTCore: NodeSTCore | null = null;
@@ -132,6 +132,7 @@ export class NodeST {
                 conversationId: params.conversationId,
                 apiProvider: params.apiSettings?.apiProvider || 'gemini',
                 hasJsonString: !!params.jsonString,
+                useToolCalls: params.useToolCalls || false // Log the tool calls parameter
             });
 
             if (!params.apiKey) {
@@ -226,7 +227,8 @@ export class NodeST {
                     params.userMessage,
                     params.apiKey,
                     params.characterId,  // Pass the characterId
-                    params.customUserName
+                    params.customUserName,
+                    params.useToolCalls // Pass the useToolCalls parameter to continueChat
                 );
 
                 if (response) {

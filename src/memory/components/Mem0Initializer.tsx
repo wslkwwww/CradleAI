@@ -7,6 +7,7 @@ import { useUser } from '@/constants/UserContext';
 let isServiceInitialized = false;
 
 const Mem0Initializer: React.FC = React.memo(() => {
+  const context = useMemoryContext();
   const { 
     loading, 
     error, 
@@ -17,7 +18,7 @@ const Mem0Initializer: React.FC = React.memo(() => {
     deleteMemory,
     resetMemory,
     memory 
-  } = useMemoryContext();
+  } = context;
   
   const { user } = useUser();
   

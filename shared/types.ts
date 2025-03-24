@@ -5,7 +5,7 @@ import { CradleAnimation } from '@/constants/types';
 import { OpenRouterSettings } from '@/shared/types/api-types';
 import { MessageBoxItem } from '@/shared/types/relationship-types';
 import { VNDBCharacter } from '@/src/services/vndb/types';
-
+import { ViewStyle } from 'react-native';
 // ============= 基础类型 =============
 
 export interface User {
@@ -524,10 +524,11 @@ export interface RegexTool {
 
 export interface ChatDialogProps {
   messages: Message[];
-  style?: any;
+  style?: ViewStyle;
   selectedCharacter?: Character | null;
   onRateMessage?: (messageId: string, isUpvote: boolean) => void;
   onRegenerateMessage?: (messageId: string, messageIndex: number) => void;
   savedScrollPosition?: number;
   onScrollPositionChange?: (characterId: string, position: number) => void;
+  messageMemoryState?: Record<string, string>; // Add this new prop
 }

@@ -13,7 +13,11 @@ class NodeSTManagerClass {
   private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = { // Add missing property
     apiProvider: 'gemini'
   };
-  
+  private searchEnabled: boolean = false;
+    async setSearchEnabled(enabled: boolean): Promise<void> {
+      this.searchEnabled = enabled;
+    }
+    
   // Add static properties to fix the TypeScript errors
   private static instance: NodeSTManagerClass | null = null;
   private static apiKey: string = '';
@@ -129,7 +133,8 @@ class NodeSTManagerClass {
         hasCharacter: !!params.character,
         hasJsonData: !!jsonString,
         customUserName: params.character?.customUserName || 'User',
-        action: params.status === "更新人设" ? "更新人设" : (params.status === "新建角色" ? "新建角色" : "继续对话")
+        action: params.status === "更新人设" ? "更新人设" : (params.status === "新建角色" ? "新建角色" : "继续对话"),
+        useToolCalls: this.searchEnabled // Add the search preference as useToolCalls parameter
       });
 
       // Add detailed logging of character data when creating a new character
@@ -178,7 +183,7 @@ class NodeSTManagerClass {
         }
       }
       
-      // Call NodeST with all params including apiSettings and characterId
+      // Call NodeST with all params including apiSettings, characterId, and useToolCalls
       const response = await this.nodeST.processChatMessage({
         userMessage: params.userMessage,
         conversationId: params.conversationId,
@@ -187,7 +192,8 @@ class NodeSTManagerClass {
         apiSettings: params.apiSettings,
         jsonString: jsonString,
         characterId: characterId,  // Pass characterId for memory service
-        customUserName: params.character?.customUserName // Pass the customUserName to NodeST
+        customUserName: params.character?.customUserName, // Pass the customUserName to NodeST
+        useToolCalls: this.searchEnabled // Pass the search preference flag
       });
 
       if (response.success) {
@@ -444,7 +450,8 @@ class NodeSTManagerClass {
             apiSettings: options.apiSettings,
             jsonString: options.character?.jsonData,
             characterId: options.character?.id,  // Pass character ID for memory service
-            customUserName: options.character?.customUserName  // Pass the customUserName to NodeST
+            customUserName: options.character?.customUserName,  // Pass the customUserName to NodeST
+            useToolCalls: NodeSTManagerClass.instance?.searchEnabled || false // Pass search flag
         });
         
         if (response.success) {
@@ -787,6 +794,14 @@ class NodeSTManagerClass {
   static async resetChatHistory(conversationId: string): Promise<boolean> {
     const instance = new NodeSTManagerClass();
     return await instance.resetChatHistory(conversationId);
+  }
+
+  // Add static method for setting search enabled
+  static async setSearchEnabled(enabled: boolean): Promise<void> {
+    if (NodeSTManagerClass.instance) {
+      await NodeSTManagerClass.instance.setSearchEnabled(enabled);
+    }
+    return Promise.resolve();
   }
 }
 

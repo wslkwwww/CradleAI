@@ -16,7 +16,7 @@ Mem0 记忆系统主要由以下三个核心组件组成：
 
 - **前端框架**：React Native/Expo
 - **数据库**：SQLite (通过 expo-sqlite)
-- **向量嵌入**：OpenAI 嵌入模型 (text-embedding-ada-002)
+- **向量嵌入**：OpenAI 嵌入模型 (text-embedding-ada-002)、智谱嵌入模型 (embedding-3)
 - **LLM 服务**：OpenAI GPT、Gemini 或 OpenRouter (多提供商支持)
 - **状态管理**：React Hooks 和 Context API
 - **调试工具**：内置诊断功能和日志系统
@@ -29,7 +29,7 @@ f:\my-app\src\memory\
 │   └── manager.ts             # 配置管理器
 ├── embeddings/
 │   ├── base.ts                # 嵌入器接口
-│   └── mobile-openai.ts       # OpenAI嵌入器移动实现
+│   └── zhipu-embedder.ts      # 智谱嵌入器实现
 ├── llms/
 │   ├── base.ts                # LLM接口
 │   └── mobile-llm.ts          # 移动LLM实现(连接现有适配器)
@@ -50,13 +50,16 @@ f:\my-app\src\memory\
 │   ├── base.ts                # 向量存储接口
 │   └── mobile-sqlite.ts       # SQLite向量存储实现
 ├── components/
-│   └── Mem0Initializer.tsx    # 初始化组件
+│   ├── Mem0Initializer.tsx    # 初始化组件
+│   └── MemoryOverviewPanel.tsx # 记忆概览面板组件
 ├── hooks/
 │   └── useMemory.ts           # 记忆系统Hook
 ├── memory.types.ts            # 记忆操作类型定义
 ├── mobile-memory.ts           # 主记忆类
-└── types.ts                   # 通用类型定义
+├── types.ts                   # 通用类型定义
+└── mem0mobile.MD              # 文档
 ```
+
 
 ## 4. 核心组件详解
 
@@ -79,6 +82,13 @@ f:\my-app\src\memory\
 - **支持批量处理**：`embedBatch()` 方法可以一次性处理多个文本
 - **错误重试**：实现了指数退避重试机制
 - **API兼容性**：通过反向代理与 OpenAI API 通信
+- **动态参数传递**：支持根据应用设置动态切换API密钥
+
+`ZhipuEmbedder` 负责将文本转换为向量表示：
+
+- **支持批量处理**：`embedBatch()` 方法可以一次性处理多个文本
+- **错误重试**：实现了指数退避重试机制
+- **API兼容性**：通过API调用智谱向量嵌入服务
 - **动态参数传递**：支持根据应用设置动态切换API密钥
 
 ### 4.3 LLM 服务 (MobileLLM)
@@ -116,6 +126,23 @@ f:\my-app\src\memory\
 - **Mem0Service**：提供全局访问的单例服务
 - **Mem0Initializer**：自动初始化组件，监听配置变更
 
+#### 4.7.1 记忆可视化反馈系统
+
+新增的记忆可视化反馈系统包括以下组件:
+
+- **记忆状态指示器**：显示在消息气泡上的图标，指示消息的记忆处理状态
+  - 处理中 (processing): 显示时钟图标
+  - 已保存 (saved): 显示完成图标
+  - 已更新 (updated): 显示刷新图标
+  - 失败 (failed): 显示警告图标
+
+- **记忆工具提示**：点击记忆状态图标时显示的详细状态提示
+
+- **记忆概览面板**：可折叠式面板，展示与当前对话相关的记忆事实
+  - 记忆项列表：显示匹配的记忆条目
+  - 详细信息：点击记忆项时展开显示元数据
+
+  - 相关性指标：显示记忆与当前上下文的相关性分数
 ## 5. 业务逻辑和数据流
 
 ### 5.1 记忆添加流程
@@ -461,3 +488,49 @@ Mem0 系统成功移植到 React Native/Expo 环境，实现了高效的记忆�
 5. **配置同步**：与应用全局设置系统的紧密集成，确保 API 配置一致性
 
 通过模块化设计和清晰的接口定义，系统具有良好的可扩展性和可维护性，能够适应未来功能的扩展和优化。同时，针对移动设备的特性进行了多方面的优化，确保了在资源受限环境下的高效运行。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+I'll update the mem0mobile.MD file with information about the new visual feedback system we've implemented for the memory management in the chat interface.
+
+```markdown
+# Mem0 记忆系统 - React Native/Expo 移植技术文档
+
+## 1. 概述
+
+Mem0 是一个高效的记忆管理系统，旨在为聊天应用提供长期记忆存储和检索功能。本文档详细介绍了将 Mem0 系统移植到 React Native/Expo 应用中的实现细节，包括文件结构、核心组件、业务逻辑和关键数据流。
+
+## 2. 系统架构
+
+Mem0 记忆系统主要由以下三个核心组件组成：
+
+1. **嵌入服务(Embedding Service)**：将文本转换为向量表示
+2. **向量存储(Vector Storage)**：存储和检索向量嵌入
+3. **LLM 集成**：用于事实提取和记忆管理
+
+### 2.1 技术栈
+
+- **前端框架**：React Native/Expo
+- **数据库**：SQLite (通过 expo-sqlite)
+- **向量嵌入**：OpenAI 嵌入模型 (text-embedding-ada-002)、智谱嵌入模型 (embedding-3)
+- **LLM 服务**：OpenAI GPT、Gemini 或 OpenRouter (多提供商支持)
+- **状态管理**：React Hooks 和 Context API
+- **调试工具**：内置诊断功能和日志系统
+
+## 3. 文件结构
+

@@ -546,14 +546,16 @@ export class NodeSTCore {
         userMessage: string,
         apiKey: string,
         characterId?: string, // Add characterId as optional parameter
-        customUserName?: string // Add customUserName as optional parameter
+        customUserName?: string, // Add customUserName as optional parameter
+        useToolCalls: boolean = false // Add useToolCalls parameter
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting continueChat:', {
                 conversationId,
                 messageLength: userMessage.length,
                 apiProvider: this.apiSettings?.apiProvider,
-                hasCustomUserName: !!customUserName
+                hasCustomUserName: !!customUserName,
+                useToolCalls: useToolCalls // Log useToolCalls parameter
             });
 
             // 确保Adapter已初始化
@@ -664,15 +666,25 @@ export class NodeSTCore {
 
             // 处理对话
             console.log('[NodeSTCore] Processing chat...');
-            const response = await this.processChat(
-                userMessage,
-                updatedChatHistory,  
-                dEntries,
-                conversationId,
-                roleCard,
-                adapter, // 传递正确的适配器
-                customUserName // Pass the customUserName
-            );
+            const response = useToolCalls 
+                ? await this.processChatWithTools(
+                    userMessage,
+                    updatedChatHistory,
+                    dEntries,
+                    conversationId,
+                    roleCard,
+                    adapter, // 传递正确的适配器
+                    customUserName // Pass the customUserName
+                )
+                : await this.processChat(
+                    userMessage,
+                    updatedChatHistory,
+                    dEntries,
+                    conversationId,
+                    roleCard,
+                    adapter, // 传递正确的适配器
+                    customUserName // Pass the customUserName
+                );
 
             // 如果收到响应，将AI回复也添加到历史记录
             if (response) {
@@ -1116,6 +1128,187 @@ export class NodeSTCore {
             return response;
         } catch (error) {
             console.error('[NodeSTCore] Error in processChat:', error);
+            return null;
+        }
+    }
+
+    async processChatWithTools(
+        userMessage: string,
+        chatHistory: ChatHistoryEntity,
+        dEntries: ChatMessage[],
+        sessionId: string,
+        roleCard: RoleCardJson,
+        adapter?: GeminiAdapter | OpenRouterAdapter,
+        customUserName?: string // Add optional customUserName parameter
+    ): Promise<string | null> {
+        try {
+            console.log('[NodeSTCore] Starting processChatWithTools with:', {
+                userMessage: userMessage.substring(0, 30) + (userMessage.length > 30 ? '...' : ''),
+                chatHistoryMessagesCount: chatHistory?.parts?.length,
+                dEntriesCount: dEntries.length,
+                apiProvider: this.apiSettings?.apiProvider,
+                hasCustomUserName: !!customUserName
+            });
+
+            // 1. 加载框架内容
+            const preset = await this.loadJson<PresetJson>(`nodest_${sessionId}_preset`);
+            const worldBook = await this.loadJson<WorldBookJson>(`nodest_${sessionId}_world`);
+            if (!preset || !worldBook) {
+                throw new Error('Required data not found');
+            }
+
+            // 2. Check if we need to rebuild the framework or reuse existing framework
+            let contents: ChatMessage[] = [];
+            
+            // First try loading existing framework/contents
+            const existingContents = await this.loadJson<ChatMessage[]>(
+                this.getStorageKey(sessionId, '_contents')
+            );
+            
+            // Only rebuild framework if absolutely necessary - if it doesn't exist
+            if (!existingContents || existingContents.length === 0) {
+                console.log('[NodeSTCore] No existing framework found, rebuilding...');
+                // Rebuild framework
+                const [rFramework, _] = CharacterUtils.buildRFramework(
+                    preset,
+                    roleCard,
+                    worldBook
+                );
+                contents = [...rFramework];
+            } else {
+                console.log('[NodeSTCore] Using existing framework with length:', existingContents.length);
+                contents = [...existingContents];
+            }
+
+            // 3. 查找聊天历史占位符的位置 
+            const chatHistoryPlaceholderIndex = contents.findIndex(
+                item => item.is_chat_history_placeholder || 
+                       (item.identifier === chatHistory.identifier)
+            );
+
+            console.log('[NodeSTCore] Found chat history placeholder at index:', chatHistoryPlaceholderIndex);
+
+            // 确保已经清除旧的D类条目并基于最新消息插入新的D类条目
+            const historyWithDEntries = this.insertDEntriesToHistory(
+                // 确保传入的历史不包含旧的D类条目
+                {
+                    ...chatHistory,
+                    parts: chatHistory.parts.filter(msg => !msg.is_d_entry)
+                },
+                dEntries,
+                userMessage
+            );
+
+            // 确保正确插入聊天历史
+            if (chatHistoryPlaceholderIndex !== -1) {
+                // 将处理后的历史插入到框架中，替换占位符
+                const historyMessage: ChatMessage = {
+                    name: "Chat History",
+                    role: "system",
+                    parts: historyWithDEntries.parts,
+                    identifier: chatHistory.identifier
+                };
+
+                console.log(`[NodeSTCore] Replacing chat history placeholder at index ${chatHistoryPlaceholderIndex} with chat history containing ${historyWithDEntries.parts.length} messages`);
+                contents[chatHistoryPlaceholderIndex] = historyMessage;
+            } else {
+                // 如果找不到占位符，追加到末尾（应该不会发生，但作为安全措施）
+                console.warn("[NodeSTCore] Chat history placeholder not found, appending to end");
+                contents.push({
+                    name: "Chat History",
+                    role: "system",
+                    parts: historyWithDEntries.parts,
+                    identifier: chatHistory.identifier
+                });
+            }
+            
+            // Make sure there's only one chat history entry in the contents
+            // This fixes potential duplication issues after loading saved histories
+            const chatHistoryEntries = contents.filter(
+                item => item.name === "Chat History" || 
+                       (item.identifier && item.identifier.toLowerCase().includes('chathistory'))
+            );
+            
+            if (chatHistoryEntries.length > 1) {
+                console.warn(`[NodeSTCore] Multiple chat history entries detected (${chatHistoryEntries.length}), removing duplicates`);
+                // Remove duplicates by keeping only the entry at chatHistoryPlaceholderIndex
+                contents = contents.filter((item, index) => {
+                    // Skip entries that look like chat history but aren't at the correct index
+                    if ((item.name === "Chat History" || 
+                         (item.identifier && item.identifier.toLowerCase().includes('chathistory'))) && 
+                        index !== chatHistoryPlaceholderIndex) {
+                        return false;
+                    }
+                    return true;
+                });
+                console.log(`[NodeSTCore] Framework size after removing duplicates: ${contents.length}`);
+            }
+
+            // 清理内容用于Gemini
+            const cleanedContents = this.cleanContentsForGemini(
+                contents,
+                userMessage,
+                roleCard.name,
+                customUserName || "", // Use customUserName if provided, otherwise empty string
+                roleCard
+            );
+
+            // 添加最终请求内容的完整日志
+            console.log('[NodeSTCore] Final Gemini request structure:', {
+                totalMessages: cleanedContents.length,
+                messageSequence: cleanedContents.map(msg => ({
+                    role: msg.role,
+                    type: msg.is_d_entry ? 'D-entry' : 'chat',
+                    depth: msg.injection_depth,
+                    preview: msg.parts[0]?.text?.substring(0, 30)
+                }))
+            });
+            
+            // 打印完整的请求内容以便检查
+            console.log('[NodeSTCore] COMPLETE API REQUEST CONTENT:');
+            cleanedContents.forEach((msg, i) => {
+                console.log(`[Message ${i+1}] Role: ${msg.role}`);
+                msg.parts.forEach((part, j) => {
+                    console.log(`[Message ${i+1}][Part ${j+1}] Content length: ${part.text?.length || 0} chars`);
+                });
+            });
+
+            // 验证是否还有消息要发送
+            if (cleanedContents.length === 0) {
+                throw new Error('No valid messages to send to Gemini API');
+            }
+
+            // 使用传入的适配器或获取活跃适配器
+            const activeAdapter = adapter || this.getActiveAdapter();
+            if (!activeAdapter) {
+                throw new Error("API adapter not initialized");
+            }
+
+            // 添加适配器类型日志
+            console.log('[NodeSTCore] Using adapter:', {
+                type: activeAdapter instanceof OpenRouterAdapter ? 'OpenRouter' : 'Gemini',
+                apiProvider: this.apiSettings?.apiProvider
+            });
+
+            // 发送到API
+            console.log('[NodeSTCore] Sending to API...');
+            const response = await activeAdapter.generateContentWithTools(cleanedContents);
+            console.log('[NodeSTCore] API response received:', {
+                hasResponse: !!response,
+                responseLength: response?.length || 0
+            });
+
+            // 保存更新后的历史和框架
+            if (response) {
+                console.log('[NodeSTCore] Saving updated history and framework...');
+                // 保存更新后的框架内容
+                await this.saveContents(contents, sessionId);
+                console.log('[NodeSTCore] Content framework and history saved successfully');
+            }
+
+            return response;
+        } catch (error) {
+            console.error('[NodeSTCore] Error in processChatWithTools:', error);
             return null;
         }
     }

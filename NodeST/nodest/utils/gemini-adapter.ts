@@ -1,4 +1,5 @@
 import { ChatMessage } from '@/shared/types';
+import { mcpAdapter } from './mcp-adapter';
 
 // Define interfaces for image handling
 interface ImagePart {
@@ -110,7 +111,7 @@ export class GeminiAdapter {
                     }
                     
                     if (previewText.includes("性别")) {
-                        const genderMatch = previewText.match(/[角色|用户]性别[：:]\s*([\s\S]*?)(?=\n\n|$)/);
+                        const genderMatch = previewText.match(/[角色|用户]性别[：:]\s*([\\s\S]*?)(?=\n\n|$)/);
                         if (genderMatch && genderMatch[1]) {
                             console.log(`[Gemini适配器] 性别信息: ${genderMatch[1].trim()}`);
                         }
@@ -553,6 +554,146 @@ export class GeminiAdapter {
         } catch (error) {
             console.error("[Gemini适配器] 编辑图片失败:", error);
             throw error;
+        }
+    }
+
+    /**
+     * 生成支持工具调用的内容
+     * @param contents 消息内容
+     * @returns 生成的内容
+     */
+    async generateContentWithTools(contents: ChatMessage[]): Promise<string> {
+        // 检查最后一条消息中是否需要搜索功能
+        const lastMessage = contents[contents.length - 1];
+        const messageText = lastMessage.parts?.[0]?.text || "";
+        const needsSearching = this.messageNeedsSearching(messageText);
+        
+        try {
+            // 如果判断需要搜索，先尝试搜索
+            if (needsSearching) {
+                console.log(`[Gemini适配器] 检测到搜索意图，尝试使用工具调用`);
+                return await this.handleSearchIntent(contents);
+            }
+            
+            // 否则使用普通对话方式
+            console.log(`[Gemini适配器] 使用标准对话方式生成回复`);
+            return await this.generateContent(contents);
+        } catch (error) {
+            console.error(`[Gemini适配器] 工具调用失败，回退到标准对话:`, error);
+            // 如果工具调用失败，回退到标准对话
+            return await this.generateContent(contents);
+        }
+    }
+    
+    /**
+     * 判断消息是否需要搜索
+     * @param messageText 消息文本
+     * @returns 是否需要搜索
+     */
+    private messageNeedsSearching(messageText: string): boolean {
+        // 检查消息是否包含搜索意图的关键词
+        const searchKeywords = [
+            '搜索', '查询', '查找', '寻找', '检索', '了解', '信息', 
+            '最新', '新闻', '什么是', '谁是', '哪里',
+            'search', 'find', 'lookup', 'query', 'information about',
+            'latest', 'news', 'what is', 'who is', 'where'
+        ];
+        
+        // 提问型关键词
+        const questionPatterns = [
+            /是什么/, /有哪些/, /如何/, /怎么/, /怎样/, 
+            /什么时候/, /为什么/, /哪些/, /多少/,
+            /what is/i, /how to/i, /when is/i, /why is/i, /where is/i
+        ];
+        
+        // 检查关键词
+        const hasSearchKeyword = searchKeywords.some(keyword => 
+            messageText.toLowerCase().includes(keyword.toLowerCase())
+        );
+        
+        // 检查提问模式
+        const isQuestion = questionPatterns.some(pattern => 
+            pattern.test(messageText)
+        ) || messageText.includes('?') || messageText.includes('？');
+        
+        // 如果同时满足以下条件，则判断需要搜索:
+        // 1. 消息包含搜索关键词或者是一个问题
+        // 2. 消息长度不超过200个字符 (太长的消息可能不是搜索意图)
+        return (hasSearchKeyword || isQuestion) && messageText.length < 200;
+    }
+    
+    /**
+     * 处理搜索意图
+     * @param contents 消息内容
+     * @returns 搜索结果和回复
+     */
+    private async handleSearchIntent(contents: ChatMessage[]): Promise<string> {
+        // 获取最后一条消息的内容
+        const lastMessage = contents[contents.length - 1];
+        const searchQuery = lastMessage.parts?.[0]?.text || "";
+        
+        try {
+            // 确保MCP适配器已连接
+            if (!mcpAdapter.isReady()) {
+                await mcpAdapter.connect();
+            }
+            
+            // 先使用Gemini分析消息，提取搜索关键词
+            const extractionPrompt: ChatMessage[] = [
+                {
+                    role: "model",
+                    parts: [{ text: "我将帮助你提取搜索关键词。请给我一个问题或搜索请求，我会提取出最适合用于搜索引擎的关键词。我只会返回关键词，不会有任何额外的解释。" }]
+                },
+                {
+                    role: "user",
+                    parts: [{ text: searchQuery }]
+                }
+            ];
+            
+            const refinedQuery = await this.generateContent(extractionPrompt);
+            const finalQuery = refinedQuery.trim() || searchQuery;
+            
+            console.log(`[Gemini适配器] 提取的搜索关键词: ${finalQuery}`);
+            
+            // 使用MCP适配器执行搜索
+            const searchResults = await mcpAdapter.search({
+                query: finalQuery,
+                count: 5
+            });
+            
+            // 格式化搜索结果为可读文本
+            const formattedResults = mcpAdapter.formatSearchResults(searchResults);
+            
+            console.log(`[Gemini适配器] 获取到搜索结果，正在生成回复`);
+            
+            // 使用搜索结果和原始问题，生成最终回复
+            const finalPrompt: ChatMessage[] = [
+                ...contents.slice(0, -1), // 保留之前的对话历史，除了最后一条
+                {
+                    role: "user",
+                    parts: [{ 
+                        text: `${searchQuery}\n\n这是搜索引擎找到的相关信息：\n\n${formattedResults}\n\n请根据以上搜索结果回答我的问题，如果搜索结果不够充分，请清楚说明，并根据你现有的知识提供一个初步回答。请使用中文回复，并确保回复有条理、易于理解。` 
+                    }]
+                }
+            ];
+            
+            // 使用标准的生成内容方法生成最终回复
+            return await this.generateContent(finalPrompt);
+        } catch (error) {
+            console.error(`[Gemini适配器] 搜索处理失败:`, error);
+            
+            // 如果搜索失败，通知用户并使用标准方式回答
+            const fallbackPrompt: ChatMessage[] = [
+                ...contents.slice(0, -1), // 保留之前的对话历史，除了最后一条
+                {
+                    role: "user",
+                    parts: [{ 
+                        text: `${searchQuery}\n\n(注意：搜索引擎尝试搜索相关信息，但搜索功能暂时不可用。请根据你已有的知识回答我的问题。)` 
+                    }]
+                }
+            ];
+            
+            return await this.generateContent(fallbackPrompt);
         }
     }
 }

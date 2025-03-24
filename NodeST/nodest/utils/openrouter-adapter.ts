@@ -1,3 +1,5 @@
+import { mcpAdapter } from './mcp-adapter';
+
 /**
  * OpenRouter Adapter
  * 提供与OpenRouter API通信的功能
@@ -163,6 +165,207 @@ export class OpenRouterAdapter {
 
     } catch (error) {
       console.error(`【OpenRouterAdapter】生成内容失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 生成支持工具调用的内容
+   * @param contents 消息内容
+   * @returns 生成的内容
+   */
+  async generateContentWithTools(contents: ChatMessage[]): Promise<string> {
+    // 检查最后一条消息中是否需要搜索功能
+    const lastMessage = contents[contents.length - 1];
+    const messageText = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
+    const needsSearching = this.messageNeedsSearching(messageText);
+    
+    try {
+      // 如果判断需要搜索，先尝试搜索
+      if (needsSearching) {
+        console.log(`【OpenRouterAdapter】 检测到搜索意图，尝试使用工具调用`);
+        return await this.handleSearchIntent(contents);
+      }
+      
+      // 否则使用普通对话方式
+      console.log(`【OpenRouterAdapter】 使用标准对话方式生成回复`);
+      return await this.generateContent(contents);
+    } catch (error) {
+      console.error(`【OpenRouterAdapter】 工具调用失败，回退到标准对话:`, error);
+      // 如果工具调用失败，回退到标准对话
+      return await this.generateContent(contents);
+    }
+  }
+  
+  /**
+   * 判断消息是否需要搜索
+   * @param messageText 消息文本
+   * @returns 是否需要搜索
+   */
+  private messageNeedsSearching(messageText: string): boolean {
+    // 检查消息是否包含搜索意图的关键词
+    const searchKeywords = [
+      '搜索', '查询', '查找', '寻找', '检索', '了解', '信息', 
+      '最新', '新闻', '什么是', '谁是', '哪里',
+      'search', 'find', 'lookup', 'query', 'information about',
+      'latest', 'news', 'what is', 'who is', 'where'
+    ];
+    
+    // 提问型关键词
+    const questionPatterns = [
+      /是什么/, /有哪些/, /如何/, /怎么/, /怎样/, 
+      /什么时候/, /为什么/, /哪些/, /多少/,
+      /what is/i, /how to/i, /when is/i, /why is/i, /where is/i
+    ];
+    
+    // 检查关键词
+    const hasSearchKeyword = searchKeywords.some(keyword => 
+      messageText.toLowerCase().includes(keyword.toLowerCase())
+    );
+    
+    // 检查提问模式
+    const isQuestion = questionPatterns.some(pattern => 
+      pattern.test(messageText)
+    ) || messageText.includes('?') || messageText.includes('？');
+    
+    // 如果同时满足以下条件，则判断需要搜索:
+    // 1. 消息包含搜索关键词或者是一个问题
+    // 2. 消息长度不超过200个字符 (太长的消息可能不是搜索意图)
+    return (hasSearchKeyword || isQuestion) && messageText.length < 200;
+  }
+  
+  /**
+   * 处理搜索意图
+   * @param contents 消息内容
+   * @returns 搜索结果和回复
+   */
+  private async handleSearchIntent(contents: ChatMessage[]): Promise<string> {
+    // 获取最后一条消息的内容
+    const lastMessage = contents[contents.length - 1];
+    const searchQuery = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
+    
+    try {
+      // 确保MCP适配器已连接
+      if (!mcpAdapter.isReady()) {
+        await mcpAdapter.connect();
+      }
+      
+      // 构建工具调用消息
+      const toolCallMessages = [
+        {
+          role: "user",
+          content: `请帮我提取以下问题的搜索关键词，只返回核心关键词，不要有其他解释：\n\n${searchQuery}`
+        }
+      ];
+
+      // 提取搜索关键词
+      console.log(`【OpenRouterAdapter】正在提取搜索关键词...`);
+      
+      const extractionResult = await this.askLLM(toolCallMessages);
+      const refinedQuery = extractionResult.trim() || searchQuery;
+
+      console.log(`【OpenRouterAdapter】提取的搜索关键词: ${refinedQuery}`);
+      
+      // 使用MCP适配器执行搜索
+      const searchResults = await mcpAdapter.search({
+        query: refinedQuery,
+        count: 5
+      });
+      
+      // 格式化搜索结果为可读文本
+      const formattedResults = mcpAdapter.formatSearchResults(searchResults);
+      
+      console.log(`【OpenRouterAdapter】获取到搜索结果，正在生成回复`);
+      
+      // 将搜索结果转换为适当的格式
+      let formattedContents = [];
+      
+      // 转换历史消息
+      for (let i = 0; i < contents.length - 1; i++) {
+        const msg = contents[i];
+        if (msg.content || (msg.parts && msg.parts[0]?.text)) {
+          formattedContents.push({
+            role: msg.role,
+            content: msg.content || (msg.parts && msg.parts[0]?.text) || ""
+          });
+        }
+      }
+      
+      // 添加最后的用户查询和搜索结果
+      formattedContents.push({
+        role: "user",
+        content: `${searchQuery}\n\n这是搜索引擎通过搜索引擎找到的相关信息：\n\n${formattedResults}\n\n请根据以上搜索结果回答我的问题，如果搜索结果不够充分，请清楚说明，并根据你现有的知识提供一个初步回答。请使用中文回复，并确保回复有条理、易于理解。`
+      });
+      
+      // 使用工具调用结果生成最终回复
+      return await this.askLLM(formattedContents);
+    } catch (error) {
+      console.error(`【OpenRouterAdapter】搜索处理失败:`, error);
+      
+      // 如果搜索失败，通知用户并使用标准方式回答
+      let formattedContents = [];
+      
+      // 转换历史消息
+      for (let i = 0; i < contents.length - 1; i++) {
+        const msg = contents[i];
+        if (msg.content || (msg.parts && msg.parts[0]?.text)) {
+          formattedContents.push({
+            role: msg.role,
+            content: msg.content || (msg.parts && msg.parts[0]?.text) || ""
+          });
+        }
+      }
+      
+      // 添加带有错误通知的最后查询
+      formattedContents.push({
+        role: "user",
+        content: `${searchQuery}\n\n(注意：我尝试搜索相关信息，但搜索功能暂时不可用。请根据你已有的知识回答我的问题。)`
+      });
+      
+      return await this.askLLM(formattedContents);
+    }
+  }
+  
+  /**
+   * 辅助方法：用于发送简单的LLM请求并获取回答
+   * @param messages 消息
+   * @returns LLM的回答
+   */
+  private async askLLM(messages: any[]): Promise<string> {
+    try {
+      // 准备OpenRouter格式的消息
+      const requestBody = {
+        model: this.model,
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 1024
+      };
+
+      // 发送API请求
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+          'HTTP-Referer': 'https://github.com',
+          'X-Title': 'AI Chat App'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`OpenRouter API 错误(${response.status}): ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('收到无效的响应格式');
+      }
+
+      return data.choices[0].message.content;
+    } catch (error) {
+      console.error(`【OpenRouterAdapter】LLM请求失败:`, error);
       throw error;
     }
   }

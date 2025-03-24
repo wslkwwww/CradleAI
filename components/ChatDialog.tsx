@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
-import { Message, Character,ChatDialogProps } from '@/shared/types';
+import { Message, Character, ChatDialogProps } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,19 +21,25 @@ import { parseHtmlText, containsComplexHtml, extractCodeBlocks, reinsertCodeBloc
 import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from '@/components/RichTextRenderer';
 
+// Update ChatDialogProps interface in the file or in shared/types.ts to include messageMemoryState
+interface ExtendedChatDialogProps extends ChatDialogProps {
+  messageMemoryState?: Record<string, string>;
+}
+
 const { width } = Dimensions.get('window');
 // Adjust the maximum width to ensure proper margins
 const MAX_WIDTH = width * 0.88; // Decreased from 0.9 to 0.88 to add more margin
 const MAX_IMAGE_HEIGHT = 300; // Maximum height for images in chat
 
-const ChatDialog: React.FC<ChatDialogProps> = ({
+const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   messages,
   style,
   selectedCharacter,
   onRateMessage,
   onRegenerateMessage,
   savedScrollPosition,
-  onScrollPositionChange
+  onScrollPositionChange,
+  messageMemoryState = {} // Default to empty object
 }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -491,6 +497,62 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
     );
   };
 
+  // Add state for memory tooltips
+  const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
+
+  // Render memory status indicator
+  const renderMemoryStatusIndicator = (messageId: string) => {
+    const memoryState = messageMemoryState[messageId];
+    
+    if (!memoryState) return null;
+    
+    let iconName: typeof Ionicons.prototype.props.name = 'cellular-outline';
+    let iconColor = '#aaa';
+    let tooltipText = 'Not processed by memory system';
+    
+    switch (memoryState) {
+      case 'processing':
+        iconName = 'time-outline';
+        iconColor = '#f39c12';
+        tooltipText = 'Processing message for memories...';
+        break;
+      case 'saved':
+        iconName = 'cloud-done'; // Changed from 'brain'
+        iconColor = '#2ecc71';
+        tooltipText = 'Message saved to memory system';
+        break;
+      case 'updated':
+        iconName = 'refresh-circle';
+        iconColor = '#3498db';
+        tooltipText = 'Existing memory was updated';
+        break;
+      case 'failed':
+        iconName = 'alert-circle-outline';
+        iconColor = '#e74c3c';
+        tooltipText = 'Failed to process memory';
+        break;
+      default:
+        break;
+    }
+    
+    return (
+      <View style={styles.memoryIndicatorContainer}>
+        <TouchableOpacity
+          onPress={() => setActiveTooltipId(activeTooltipId === messageId ? null : messageId)}
+          style={styles.memoryIndicator}
+        >
+          <Ionicons name={iconName} size={16} color={iconColor} />
+        </TouchableOpacity>
+        
+        {activeTooltipId === messageId && (
+          <View style={styles.memoryTooltip}>
+            <Text style={styles.memoryTooltipText}>{tooltipText}</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   // Update renderMessageContent to include avatar at the top of bot messages
   const renderMessageContent = (message: Message, isUser: boolean, index: number) => {
     return (
@@ -515,6 +577,8 @@ const ChatDialog: React.FC<ChatDialogProps> = ({
             style={styles.userGradient}
           >
             {processMessageContent(message.text, true)}
+            {/* Add memory status indicator for user messages */}
+            {renderMemoryStatusIndicator(message.id)}
           </LinearGradient>
         ) : (
           <View style={styles.botMessageTextContainer}>
@@ -854,6 +918,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#444',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.2)',
+  },
+  // Add new styles for memory indicators
+  memoryIndicatorContainer: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    zIndex: 10,
+  },
+  memoryIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memoryTooltip: {
+    position: 'absolute',
+    top: 25,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    padding: 8,
+    borderRadius: 4,
+    width: 150,
+    zIndex: 100,
+  },
+  memoryTooltipText: {
+    color: 'white',
+    fontSize: 12,
   },
 });
 

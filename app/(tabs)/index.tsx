@@ -38,6 +38,10 @@ import Mem0Initializer from '@/src/memory/components/Mem0Initializer';
 // 确保导入 polyfills
 import '@/src/memory/utils/polyfills';
 
+// Import the new Memory components
+import MemoryOverviewPanel from '@/components/MemoryOverviewPanel';
+import Mem0Service from '@/src/memory/services/Mem0Service';
+
 // Create a stable memory configuration outside the component
 type MemoryConfig = {
   embedder: {
@@ -168,6 +172,48 @@ const App = () => {
 
   // Add state to preserve chat scroll positions
   const [chatScrollPositions, setChatScrollPositions] = useState<Record<string, number>>({});
+
+  // Add new state for memory management
+  const [memoryFacts, setMemoryFacts] = useState<any[]>([]);
+  const [isMemoryPanelVisible, setIsMemoryPanelVisible] = useState(false);
+  const [messageMemoryState, setMessageMemoryState] = useState<Record<string, string>>({});
+
+  // Add state to toggle search functionality
+  const [braveSearchEnabled, setBraveSearchEnabled] = useState<boolean>(false);
+  
+  // Toggle brave search function
+  const toggleBraveSearch = () => {
+    const newState = !braveSearchEnabled;
+    setBraveSearchEnabled(newState);
+    // Store preference
+    AsyncStorage.setItem('braveSearchEnabled', JSON.stringify(newState))
+      .catch(err => console.error('[App] Failed to save search preference:', err));
+    
+    // Show feedback toast
+    Alert.alert(
+      newState ? '已启用搜索' : '已禁用搜索',
+      newState 
+        ? '现在AI可以使用Brave搜索来回答需要最新信息的问题' 
+        : '已关闭网络搜索功能，AI将只使用已有知识回答问题',
+      [{ text: '确定', style: 'default' }]
+    );
+  };
+  
+  // Load saved search preference
+  useEffect(() => {
+    const loadSearchPreference = async () => {
+      try {
+        const savedPref = await AsyncStorage.getItem('braveSearchEnabled');
+        if (savedPref !== null) {
+          setBraveSearchEnabled(JSON.parse(savedPref));
+        }
+      } catch (error) {
+        console.error('[App] Failed to load search preference:', error);
+      }
+    };
+    
+    loadSearchPreference();
+  }, []);
 
   const toggleSettingsSidebar = () => {
     setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
@@ -313,7 +359,20 @@ const App = () => {
         ]
       );
     } else {
-      await sendMessageInternal(newMessage, sender, isLoading);
+      const messageId = await sendMessageInternal(newMessage, sender, isLoading);
+      
+      // If it's a user message, update memory state to "processing"
+      if (sender === 'user' && !isLoading && messageId) {
+        setMessageMemoryState(prev => ({
+          ...prev,
+          [messageId]: 'processing'
+        }));
+        
+        // Process memory after a short delay to allow UI to update
+        setTimeout(() => {
+          processMessageMemory(messageId, newMessage, selectedConversationId);
+        }, 500);
+      }
     }
 
     // If user is sending a message, clear the "waiting for reply" flag
@@ -330,13 +389,24 @@ const App = () => {
       lastMessageTimeRef.current = Date.now();
       setupAutoMessageTimer();
     }
+
+    // Pass search preference to NodeST manager when applicable
+    if (sender === 'user' && !isLoading) {
+      // Inform NodeST about search preference
+      try {
+        await NodeSTManager.setSearchEnabled(braveSearchEnabled);
+        console.log(`[App] Search functionality ${braveSearchEnabled ? 'enabled' : 'disabled'}`);
+      } catch (error) {
+        console.error('[App] Failed to set search preference:', error);
+      }
+    }
   };
 
   // Internal helper function to actually send the message
   const sendMessageInternal = async (newMessage: string, sender: 'user' | 'bot', isLoading = false) => {
     if (!selectedConversationId) {
       console.warn('No conversation selected.');
-      return;
+      return null;
     }
 
     const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
@@ -350,6 +420,7 @@ const App = () => {
 
     // 只在Context中更新消息，本地状态通过useEffect自动更新
     await addMessage(selectedConversationId, newMessageObj);
+    return messageId;
   };
 
   const handleRegenerateMessage = async (messageId: string, messageIndex: number) => {
@@ -1022,10 +1093,79 @@ const App = () => {
     }));
   };
 
+  // Add function to toggle memory panel visibility
+  const toggleMemoryPanel = () => {
+    setIsMemoryPanelVisible(!isMemoryPanelVisible);
+    if (!isMemoryPanelVisible) {
+      // Fetch memory facts when opening the panel
+      fetchMemoryFacts();
+    }
+  };
+
+  // Add function to fetch memory facts
+  const fetchMemoryFacts = async () => {
+    if (!selectedConversationId) return;
+    
+    try {
+      const userMessage = messages.length > 0 ? messages[messages.length - 1].text : "";
+      
+      // Use Mem0Service to search for relevant memories
+      const mem0Service = Mem0Service.getInstance();
+      const searchResults = await mem0Service.searchMemories(
+        userMessage,
+        selectedCharacter?.id || "",
+        selectedConversationId,
+        10
+      );
+      
+      if (searchResults && searchResults.results) {
+        setMemoryFacts(searchResults.results);
+      }
+    } catch (error) {
+      console.error('Error fetching memory facts:', error);
+    }
+  };
+
+  // Add function to process message memory
+  const processMessageMemory = async (messageId: string, text: string, conversationId: string | null) => {
+    if (!conversationId || !selectedCharacter?.id) return;
+    
+    try {
+      const mem0Service = Mem0Service.getInstance();
+      
+      // Process memory through the Mem0Service
+      await mem0Service.addChatMemory(
+        text,
+        'user',
+        selectedCharacter.id,
+        conversationId
+      );
+      
+      // Update memory state to "saved"
+      setMessageMemoryState(prev => ({
+        ...prev,
+        [messageId]: 'saved'
+      }));
+      
+      // Refresh memory facts if panel is open
+      if (isMemoryPanelVisible) {
+        fetchMemoryFacts();
+      }
+    } catch (error) {
+      console.error('Error processing message memory:', error);
+      
+      // Update memory state to "failed"
+      setMessageMemoryState(prev => ({
+        ...prev,
+        [messageId]: 'failed'
+      }));
+    }
+  };
+
   return (
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
-      {/* 添加 MemoryProvider 包裹整个应用 */}
+
       <MemoryProvider config={memoryConfig}>
         <Mem0Initializer />
         <ImageBackground
@@ -1091,7 +1231,26 @@ const App = () => {
                     onRegenerateMessage={handleRegenerateMessage}
                     savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
                     onScrollPositionChange={handleScrollPositionChange}
+                    messageMemoryState={messageMemoryState} // Pass memory state to ChatDialog
                   />
+                  
+                  {/* Memory Toggle Button */}
+                  <TouchableOpacity 
+                    style={styles.memoryToggleButton}
+                    onPress={toggleMemoryPanel}
+                  >
+                    <Text style={styles.memoryToggleText}>
+                      {isMemoryPanelVisible ? "Hide Memory Facts" : "Show Memory Facts"}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  {/* Memory Overview Panel */}
+                  {isMemoryPanelVisible && (
+                    <MemoryOverviewPanel 
+                      facts={memoryFacts}
+                      onClose={toggleMemoryPanel}
+                    />
+                  )}
                   
                   {/* 测试按钮容器 */}
                   <View style={styles.testButtonContainer}>
@@ -1118,13 +1277,29 @@ const App = () => {
                   selectedCharacter && styles.transparentBackground
                 ]}>
                   {selectedCharacter && (
-                    <ChatInput
-                      onSendMessage={handleSendMessage}
-                      selectedConversationId={selectedConversationId}
-                      conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
-                      onResetConversation={handleResetConversation}
-                      selectedCharacter={selectedCharacter}
-                    />
+                    <>
+                      <View style={styles.inputBarContainer}>
+                        <TouchableOpacity
+                          style={[
+                            styles.searchToggleButton,
+                            braveSearchEnabled && styles.searchToggleButtonActive
+                          ]}
+                          onPress={toggleBraveSearch}
+                        >
+                          <Text style={styles.searchToggleButtonText}>
+                            {braveSearchEnabled ? '🔍 搜索: 开' : '🔍 搜索: 关'}
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <ChatInput
+                          onSendMessage={handleSendMessage}
+                          selectedConversationId={selectedConversationId}
+                          conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
+                          onResetConversation={handleResetConversation}
+                          selectedCharacter={selectedCharacter}
+                        />
+                      </View>
+                    </>
                   )}
                 </View>
 
@@ -1299,6 +1474,50 @@ const styles = StyleSheet.create({
   },
   keyboardAvoidView: {
     flex: 1,
+  },
+  // Add new styles for memory features
+  memoryToggleButton: {
+    position: 'absolute',
+    bottom: 70,
+    left: 20,
+    backgroundColor: 'rgba(26, 115, 232, 0.8)',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 100,
+  },
+  memoryToggleText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  inputBarContainer: {
+    flexDirection: 'column',
+    width: '100%',
+  },
+  searchToggleButton: {
+    backgroundColor: 'rgba(50, 50, 50, 0.6)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    alignSelf: 'center',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  searchToggleButtonActive: {
+    backgroundColor: 'rgba(25, 118, 210, 0.8)',
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  searchToggleButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
 
