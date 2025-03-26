@@ -12,6 +12,7 @@ import {
   Platform,
   ActivityIndicator,
   Modal,
+  Alert,
 } from 'react-native';
 import { Message, Character, ChatDialogProps } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +21,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { parseHtmlText, containsComplexHtml, extractCodeBlocks, reinsertCodeBlocks, optimizeHtmlForRendering } from '@/utils/textParser';
 import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from '@/components/RichTextRenderer';
+import ImageManager, { ImageInfo } from '@/utils/ImageManager';
+import * as Sharing from 'expo-sharing';
 
 // Update ChatDialogProps interface in the file or in shared/types.ts to include messageMemoryState
 interface ExtendedChatDialogProps extends ChatDialogProps {
@@ -45,6 +48,8 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateAnim = useRef(new Animated.Value(20)).current;
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [fullscreenImageId, setFullscreenImageId] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState<boolean>(false);
   const [ratedMessages, setRatedMessages] = useState<Record<string, boolean>>({});
   
   // Add state to track scroll position for different conversations
@@ -229,7 +234,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
 
     // More comprehensive check for custom tags with various formats and spaces
     const hasCustomTags = (
-      /<\s*(thinking|think|status)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status)\s*>/i.test(text) || 
+      /<\s*(thinking|think|status|mem|websearch)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status|mem|websearch)\s*>/i.test(text) || 
       /<\s*char\s+think\s*>([\s\S]*?)<\/\s*char\s+think\s*>/i.test(text)
     );
     
@@ -288,6 +293,18 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
           /<\s*status[^>]*>([\s\S]*?)<\/\s*status\s*>/gi, 
           '<div class="character-status">$1</div>'
         );
+        
+        // Convert <mem> tags with flexible spacing
+        processedText = processedText.replace(
+          /<\s*mem[^>]*>([\s\S]*?)<\/\s*mem\s*>/gi, 
+          '<div class="character-memory">$1</div>'
+        );
+        
+        // Convert <websearch> tags with flexible spacing
+        processedText = processedText.replace(
+          /<\s*websearch[^>]*>([\s\S]*?)<\/\s*websearch\s*>/gi, 
+          '<div class="websearch-result">$1</div>'
+        );
 
         // Remove excessive logging
         // console.log("After custom tag processing:", processedText.substring(0, 100));
@@ -311,23 +328,68 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       );
     }
 
-    // Handle simple image markdown and links as before
-    const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)|!\[(.*?)\]\((data:image\/[^\s)]+)\)/g;
+    // First, check for image markdown with our special format
+    const imageIdRegex = /!\[(.*?)\]\(image:([^\s)]+)\)/g;
     let match: RegExpExecArray | null;
-    let matches: { alt: string, url: string }[] = [];
+    const matches: { alt: string, id: string }[] = [];
     
-    while ((match = imageMarkdownRegex.exec(text)) !== null) {
+    while ((match = imageIdRegex.exec(text)) !== null) {
       matches.push({
-        alt: match[1] || match[3] || "图片",
-        url: match[2] || match[4]
+        alt: match[1] || "图片",
+        id: match[2]
       });
     }
     
-    // 如果找到图片链接
+    // If we found image:id format, render them directly
     if (matches.length > 0) {
       return (
         <View>
           {matches.map((img, idx) => {
+            const imageInfo = ImageManager.getImageInfo(img.id);
+            if (imageInfo) {
+              return (
+                <TouchableOpacity 
+                  key={idx}
+                  style={styles.imageWrapper}
+                  onPress={() => handleOpenFullscreenImage(img.id)}
+                >
+                  <Image
+                    source={{ uri: imageInfo.thumbnailPath }}
+                    style={styles.messageImage}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.imageCaption}>{img.alt}</Text>
+                </TouchableOpacity>
+              );
+            } else {
+              return (
+                <View key={idx} style={styles.imageError}>
+                  <Ionicons name="alert-circle" size={36} color="#e74c3c" />
+                  <Text style={styles.imageErrorText}>图片无法加载 (ID: {img.id.substring(0, 8)}...)</Text>
+                </View>
+              );
+            }
+          })}
+        </View>
+      );
+    }
+
+    // Handle image markdown with our custom image:id syntax
+    const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
+    let urlMatches: { alt: string, url: string }[] = [];
+    
+    while ((match = imageMarkdownRegex.exec(text)) !== null) {
+      urlMatches.push({
+        alt: match[1] || "图片",
+        url: match[2]
+      });
+    }
+    
+    // 如果找到图片链接
+    if (urlMatches.length > 0) {
+      return (
+        <View>
+          {urlMatches.map((img, idx) => {
             // 检查是否为数据 URL 或 HTTP URL
             const isDataUrl = img.url.startsWith('data:');
             const isLargeDataUrl = isDataUrl && img.url.length > 100000;
@@ -599,6 +661,69 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     );
   };
 
+  // New function to handle opening a fullscreen image by ID
+  const handleOpenFullscreenImage = (imageId: string | null) => {
+    if (imageId) {
+      setFullscreenImageId(imageId);
+      const imageInfo = ImageManager.getImageInfo(imageId);
+      
+      if (imageInfo) {
+        // First set the thumbnail to show immediately while the full one loads
+        setFullscreenImage(imageInfo.thumbnailPath);
+        setImageLoading(true);
+        
+        // Then after a short delay, load the high-res original image
+        setTimeout(() => {
+          setFullscreenImage(imageInfo.originalPath);
+          setImageLoading(false);
+        }, 100);
+      } else {
+        setFullscreenImage(null);
+        Alert.alert('错误', '无法加载图片');
+      }
+    }
+  };
+
+  // Function to save image to gallery
+  const handleSaveImage = async () => {
+    try {
+      if (fullscreenImageId) {
+        // Save using the image ID
+        const result = await ImageManager.saveToGallery(fullscreenImageId);
+        Alert.alert(result.success ? '成功' : '错误', result.message);
+      } else if (fullscreenImage) {
+        // Save using the direct image URI
+        const result = await ImageManager.saveToGallery(fullscreenImage);
+        Alert.alert(result.success ? '成功' : '错误', result.message);
+      }
+    } catch (error) {
+      console.error('Error saving image:', error);
+      Alert.alert('错误', '保存图片失败');
+    }
+  };
+
+  // Function to share image
+  const handleShareImage = async () => {
+    try {
+      let success = false;
+      
+      if (fullscreenImageId) {
+        // Share using image ID
+        success = await ImageManager.shareImage(fullscreenImageId);
+      } else if (fullscreenImage) {
+        // Share using direct URI
+        success = await ImageManager.shareImage(fullscreenImage);
+      }
+      
+      if (!success) {
+        Alert.alert('错误', '分享功能不可用');
+      }
+    } catch (error) {
+      console.error('Error sharing image:', error);
+      Alert.alert('错误', '分享图片失败');
+    }
+  };
+
   return (
     <>
       <ScrollView
@@ -655,15 +780,28 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         visible={!!fullscreenImage}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setFullscreenImage(null)}
+        onRequestClose={() => {
+          setFullscreenImage(null);
+          setFullscreenImageId(null);
+        }}
       >
         <View style={styles.fullscreenContainer}>
           <TouchableOpacity 
             style={styles.fullscreenCloseButton}
-            onPress={() => setFullscreenImage(null)}
+            onPress={() => {
+              setFullscreenImage(null);
+              setFullscreenImageId(null);
+            }}
           >
             <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
+          
+          {imageLoading && (
+            <View style={styles.imageLoadingOverlay}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={styles.imageLoadingText}>加载原始图片...</Text>
+            </View>
+          )}
           
           {fullscreenImage && (
             <Image
@@ -672,6 +810,24 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
               resizeMode="contain"
             />
           )}
+          
+          <View style={styles.imageActionButtons}>
+            <TouchableOpacity
+              style={styles.imageActionButton}
+              onPress={handleSaveImage}
+            >
+              <Ionicons name="download" size={24} color="#fff" />
+              <Text style={styles.imageActionButtonText}>保存</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.imageActionButton}
+              onPress={handleShareImage}
+            >
+              <Ionicons name="share" size={24} color="#fff" />
+              <Text style={styles.imageActionButtonText}>分享</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </>
@@ -947,6 +1103,55 @@ const styles = StyleSheet.create({
   memoryTooltipText: {
     color: 'white',
     fontSize: 12,
+  },
+  imageError: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    padding: 20,
+    borderRadius: 8,
+    marginVertical: 8,
+  },
+  imageErrorText: {
+    color: '#e74c3c',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  imageLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 10,
+  },
+  imageLoadingText: {
+    color: '#fff',
+    marginTop: 10,
+    fontSize: 16,
+  },
+  imageActionButtons: {
+    position: 'absolute',
+    bottom: 40,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  imageActionButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    padding: 12,
+    borderRadius: 8,
+    marginHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  imageActionButtonText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontSize: 16,
   },
 });
 

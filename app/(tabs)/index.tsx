@@ -1251,25 +1251,6 @@ const App = () => {
                       onClose={toggleMemoryPanel}
                     />
                   )}
-                  
-                  {/* 测试按钮容器 */}
-                  <View style={styles.testButtonContainer}>
-                    {/* NovelAI 测试按钮 */}
-                    <TouchableOpacity 
-                      style={styles.testButton}
-                      onPress={() => setIsNovelAITestVisible(true)}
-                    >
-                      <Text style={styles.testButtonText}>NovelAI 图像测试</Text>
-                    </TouchableOpacity>
-                    
-                    {/* VNDB 测试按钮 */}
-                    <TouchableOpacity 
-                      style={[styles.testButton, styles.vndbButton]}
-                      onPress={() => setIsVNDBTestVisible(true)}
-                    >
-                      <Text style={styles.testButtonText}>VNDB 角色查询</Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
 
                 <View style={[
@@ -1279,17 +1260,34 @@ const App = () => {
                   {selectedCharacter && (
                     <>
                       <View style={styles.inputBarContainer}>
-                        <TouchableOpacity
-                          style={[
-                            styles.searchToggleButton,
-                            braveSearchEnabled && styles.searchToggleButtonActive
-                          ]}
-                          onPress={toggleBraveSearch}
-                        >
-                          <Text style={styles.searchToggleButtonText}>
-                            {braveSearchEnabled ? '🔍 搜索: 开' : '🔍 搜索: 关'}
-                          </Text>
-                        </TouchableOpacity>
+                        {/* Buttons container above ChatInput */}
+                        <View style={styles.buttonsContainer}>
+                          <TouchableOpacity
+                            style={[
+                              styles.actionButton,
+                              braveSearchEnabled && styles.actionButtonActive
+                            ]}
+                            onPress={toggleBraveSearch}
+                          >
+                            <Text style={styles.actionButtonText}>
+                              {braveSearchEnabled ? '🔍 搜索: 开' : '🔍 搜索: 关'}
+                            </Text>
+                          </TouchableOpacity>
+                          
+                          <TouchableOpacity 
+                            style={styles.actionButton}
+                            onPress={() => setIsNovelAITestVisible(true)}
+                          >
+                            <Text style={styles.actionButtonText}>🖼️ 图像测试</Text>
+                          </TouchableOpacity>
+                          
+                          <TouchableOpacity 
+                            style={styles.actionButton}
+                            onPress={() => setIsVNDBTestVisible(true)}
+                          >
+                            <Text style={styles.actionButtonText}>🎮 角色查询</Text>
+                          </TouchableOpacity>
+                        </View>
                         
                         <ChatInput
                           onSendMessage={handleSendMessage}
@@ -1401,35 +1399,6 @@ const styles = StyleSheet.create({
   transparentBackground: {
     backgroundColor: 'transparent',
   },
-  // 更新测试按钮容器样式
-  testButtonContainer: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    zIndex: 100,
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: 10,
-  },
-  testButton: {
-    backgroundColor: 'rgba(52, 152, 219, 0.9)', // 半透明蓝色
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  testButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  vndbButton: {
-    backgroundColor: 'rgba(155, 89, 182, 0.9)', // 半透明紫色，区分不同按钮
-  },
   previewBanner: {
     backgroundColor: 'rgba(52, 152, 219, 0.8)',
     paddingVertical: 10,
@@ -1500,21 +1469,26 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     width: '100%',
   },
-  searchToggleButton: {
+  buttonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 8,
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  actionButton: {
     backgroundColor: 'rgba(50, 50, 50, 0.6)',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
-    alignSelf: 'center',
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  searchToggleButtonActive: {
+  actionButtonActive: {
     backgroundColor: 'rgba(25, 118, 210, 0.8)',
     borderColor: 'rgba(255, 255, 255, 0.5)',
   },
-  searchToggleButtonText: {
+  actionButtonText: {
     color: 'white',
     fontWeight: 'bold',
     fontSize: 14,

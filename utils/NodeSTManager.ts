@@ -782,6 +782,15 @@ class NodeSTManagerClass {
     try {
         console.log('[NodeSTManager] Resetting chat history for conversation:', conversationId);
         
+        // Ensure we have an API key
+        if (!this.apiKey) {
+          console.error('[NodeSTManager] Cannot reset chat history - No API key available');
+          return false;
+        }
+        
+        // Make sure the NodeST instance has the latest API key
+        this.nodeST.setApiKey(this.apiKey);
+        
         // Call NodeST's reset method
         return await this.nodeST.resetChatHistory(conversationId);
     } catch (error) {
@@ -790,9 +799,15 @@ class NodeSTManagerClass {
     }
   }
 
-  // Add static method
+  // Update static method to ensure API key is passed
   static async resetChatHistory(conversationId: string): Promise<boolean> {
     const instance = new NodeSTManagerClass();
+    
+    // Ensure the static API key is used if available
+    if (NodeSTManagerClass.apiKey) {
+      instance.updateApiSettings(NodeSTManagerClass.apiKey, NodeSTManagerClass.apiSettings);
+    }
+    
     return await instance.resetChatHistory(conversationId);
   }
 

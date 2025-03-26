@@ -288,7 +288,7 @@ const TagSelector: React.FC<TagSelectorProps> = ({
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.subCategorySelector}>
         {subCategories.map((subCategory, index) => (
           <TouchableOpacity
-            key={`subcategory-${index}`} // Fixed: Corrected key attribute syntax
+            key={`subcategory-${index}`}
             style={[
               styles.subCategoryButton,
               selectedSubCategory === subCategory && styles.selectedSubCategoryButton
@@ -723,6 +723,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   subCategorySelector: {
+    marginBottom: 4, // Reduce this from default to minimize the gap
+    maxHeight: 40, // Add a max height to make the subcategory bar more compact
   },
   subCategoryButton: {
     paddingHorizontal: 12, 
@@ -730,9 +732,9 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderRadius: 16,
     backgroundColor: '#333',
-    height: 20, // Allow the button to adapt to content height
-    minHeight: 28, // Set a minimum height to ensure it's touchable
+    height: 32, // Set a fixed height to make all buttons the same size
     justifyContent: 'center', // Center vertically
+    alignItems: 'center', // Center horizontally
   },
   selectedSubCategoryButton: {
     backgroundColor: 'rgba(255, 224, 195, 0.3)',
@@ -749,6 +751,7 @@ const styles = StyleSheet.create({
   },
   tagBrowser: {
     flex: 1,
+    marginTop: 4, // Add a small margin to create space after subcategory
   },
   tagsContainer: {
     flex: 1,
@@ -757,7 +760,7 @@ const styles = StyleSheet.create({
   tagItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: 10, // Reduced from 12 to make items more compact
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },

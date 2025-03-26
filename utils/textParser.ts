@@ -78,13 +78,14 @@ export const containsComplexHtml = (text: string): boolean => {
     /style\s*=\s*["'][^"']*["']/i, // Style attributes
     /class\s*=\s*["'][^"']*["']/i, // Class attributes
     // More flexible patterns for custom tags
-    /<\s*(thinking|think|status)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status)\s*>/i,
+    /<\s*(thinking|think|status|mem|websearch)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status|mem|websearch)\s*>/i,
     /<\s*char\s+think[^>]*>([\s\S]*?)<\/\s*char\s+think\s*>/i,
     /```[\w]*\n[\s\S]*?```/,  // Markdown code blocks
     /\*\*([\s\S]*?)\*\*/,  // Bold markdown
     /\*[\s\S]*?\*/,      // Italic markdown
     /\[[\s\S]*?\]\([\s\S]*?\)/,  // Markdown links
-    /!\[[\s\S]*?\]\([\s\S]*?\)/,  // Markdown images
+    /!\[[\s\S]*?\]\((https?:\/\/[\s\S]*?|data:image\/[\s\S]*?)\)/,  // Regular Markdown images with http or data URLs
+    /!\[[\s\S]*?\]\(image:[\s\S]*?\)/,  // Custom image:id format
   ];
   
   return complexPatterns.some(pattern => pattern.test(text));
@@ -102,6 +103,8 @@ export const containsCustomTags = (text: string): boolean => {
     /<aside/i,
     /<figure/i,
     /<figcaption/i,
+    /<mem/i,            // Add new custom tags
+    /<websearch/i,      // Add new custom tags
   ];
   
   return customTags.some(pattern => pattern.test(text));
@@ -165,4 +168,63 @@ export const optimizeHtmlForRendering = (html: string): string => {
   optimized = reinsertCodeBlocks(optimized, codeBlocks);
   
   return optimized;
+};
+
+// Process custom tags before HTML parsing - with more flexible regex patterns
+const preprocessCustomTags = (html: string): string => {
+  if (!html) return '';
+  
+  let processed = html;
+  
+  // Remove excessive logging
+  // console.log("htmlParser preprocessing HTML:", html.substring(0, 100));
+  
+  // More flexible regex patterns for custom tags
+  // Convert <thinking> tags with various spacing/formatting
+  processed = processed.replace(
+    /<\s*thinking[^>]*>([\s\S]*?)<\/\s*thinking\s*>/gi, 
+    '<div class="character-thinking">$1</div>'
+  );
+  
+  // Convert <think> tags with various spacing/formatting
+  processed = processed.replace(
+    /<\s*think[^>]*>([\s\S]*?)<\/\s*think\s*>/gi, 
+    '<div class="character-thinking">$1</div>'
+  );
+  
+  // Convert <char think> tags with various spacing/formatting
+  processed = processed.replace(
+    /<\s*char\s+think[^>]*>([\s\S]*?)<\/\s*char\s+think\s*>/gi, 
+    '<div class="character-thinking">$1</div>'
+  );
+  
+  // Convert <status> tags with various spacing/formatting
+  processed = processed.replace(
+    /<\s*status[^>]*>([\s\S]*?)<\/\s*status\s*>/gi, 
+    '<div class="character-status">$1</div>'
+  );
+  
+  // Add new custom tags for memory and websearch
+  // Convert <mem> tags with various spacing/formatting
+  processed = processed.replace(
+    /<\s*mem[^>]*>([\s\S]*?)<\/\s*mem\s*>/gi, 
+    '<div class="character-memory">$1</div>'
+  );
+  
+  // Convert <websearch> tags with various spacing/formatting
+  processed = processed.replace(
+    /<\s*websearch[^>]*>([\s\S]*?)<\/\s*websearch\s*>/gi, 
+    '<div class="websearch-result">$1</div>'
+  );
+    
+  // Convert markdown bold to HTML
+  processed = processed.replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>');
+  
+  // Convert markdown italic to HTML
+  processed = processed.replace(/\*([\s\S]*?)\*/g, '<i>$1</i>');
+  
+  // Remove excessive logging
+  // console.log("After preprocessing:", processed.substring(0, 100));
+  
+  return processed;
 };

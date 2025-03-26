@@ -4,6 +4,7 @@
 2025-0306: 增强了角色创建流程，优化了D类条目插入规则，实现了摇篮角色生成系统。
 2025-0307: 实现了记忆总结功能，在长对话中自动总结历史记录，减轻LLM记忆衰退问题。
 2025-0308: 修复了对话历史恢复功能，解决了读取保存点后重复框架问题。
+2025-0324: 实现了记忆检索和联网搜索结果集成，优化了知识增强功能。
 
 # NodeST 架构文档
 
@@ -47,7 +48,6 @@ NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功�
 - 在长对话中保持上下文连贯性
 - 防止LLM记忆衰退问题
 
-
 ## 数据流
 
 ### 聊天流程
@@ -59,17 +59,20 @@ NodeSTCore 整合了之前分散在 SessionManager 和 ChatManager 之间的功�
    - API密钥
    - 角色JSON数据（用于新建/更新操作）
    - 摇篮角色标志（用于指示是否是摇篮生成的角色）
-   - 角色ID（用于记忆总结功能）
+   - 角色ID（用于记忆总结和记忆检索功能）
 
 2. NodeST处理请求：
    - 验证并解析输入数据
    - 根据状态调用适当的NodeSTCore方法
+   - 如提供角色ID，则执行记忆检索
    - 返回响应给应用程序
 
 3. NodeSTCore处理核心逻辑：
    - 管理角色数据和历史
    - 处理D类条目和rframework
    - 检查是否需要进行记忆总结
+   - 执行记忆检索和搜索意图检测
+   - 整合记忆和联网搜索结果到用户消息中
    - 发送请求到Gemini/OpenRouter API
    - 更新和保存对话状态
 
@@ -189,32 +192,11 @@ interface ChatSave {
 
 ## 角色创建系统
 
-### 1. 常规角色创建
-
-常规角色创建通过 `NodeSTCore.createNewCharacter()` 方法直接完成：
+角色创建通过 `NodeSTCore.createNewCharacter()` 方法直接完成：
 - 角色数据从前端界面收集
 - 使用预设模板
 - 系统自动构建rframework和D类条目
 - 聊天历史在框架中按预设顺序放置
-
-### 2. 摇篮角色生成系统
-
-摇篮角色生成是一个特殊的角色创建流程，使角色通过数据培育成长：
-- 角色先创建一个初步框架
-- 用户向角色"投喂"各种类型数据（关于我、材料、知识）
-- 系统处理投喂数据并更新角色设定
-- 经过指定时长培育（默认7天），生成成熟角色
-- 摇篮标志 `isCradleGeneration` 用于区分此类角色
-- 摇篮生成的角色有特殊的chatHistory顺序规则
-
-摇篮生成的流程：
-1. CradleService 管理投喂数据
-2. CharacterGeneratorService 负责生成角色
-3. 生成后通过 NodeST 系统初始化框架
-
-
-
-
 
 ## rFramework 构建
 
@@ -336,18 +318,114 @@ rFramework是与LLM交互的结构化提示框架，通过 `CharacterUtils.build
    - 遵循与普通 D 类条目相同的深度计算规则
    - 不需要 key 匹配，因为 constant=true
 
-## 存储模型
+## 记忆检索与联网搜索集成系统
 
-系统使用 AsyncStorage 进行结构化数据存储：
-- `nodest_[conversationId]_role`: 角色卡数据
-- `nodest_[conversationId]_world`: 世界书数据
-- `nodest_[conversationId]_preset`: 预设提示数据
-- `nodest_[conversationId]_note`: 作者注释
-- `nodest_[conversationId]_history`: 对话历史
-- `nodest_[conversationId]_contents`: rframework内容
-- `nodest_[conversationId]_circle_framework`: 社交圈交互rframework
-- `nodest_[conversationId]_circle_memory`: 社交圈记忆数据
-- `memory_settings_[characterId]`: 角色记忆总结设置
+### 1. 概述
+
+记忆检索与联网搜索集成系统将两种不同类型的知识源 - 历史记忆和实时网络信息 - 有机地结合到角色对话流程中。此系统使角色能够同时访问关于过去交互的记忆和最新网络信息，以提供更全面、更连贯的回复。
+
+### 2. 工作原理
+
+- **双重检索流程**：
+  - **记忆检索**：利用向量数据库进行语义相似度检索，找出与当前用户消息相关的历史记忆
+  - **联网搜索**：当用户询问事实性问题时，系统自动检测搜索意图并执行联网搜索
+  - **并行处理**：两种检索可以同时进行，互不阻塞，任一方失败不影响对话继续
+
+- **搜索意图识别机制**：
+  - 自动检测用户消息中的问题模式和搜索关键词
+  - 通过正则表达式和关键词匹配判断消息是否需要联网搜索
+  - 考虑消息长度与复杂度，避免将复杂指令误判为搜索意图
+
+- **搜索关键词提取**：
+  - 使用模型分析用户消息，提取最适合搜索的关键词
+  - 自动去除噪音词和非核心内容，提高搜索效率和质量
+
+### 3. 记忆检索流程
+
+- **Mem0Service搜索流程**：
+  1. 在`continueChat`中传入角色ID、对话ID和查询文本
+  2. `Mem0Service.searchMemories`进行记忆检索
+  3. 将查询向量化并在MobileMemory中搜索相似记忆
+  4. 返回按相似度排序的记忆结果
+
+- **记忆格式化**：
+  ```
+  <mem>
+  系统检索到的记忆内容：
+  1. [记忆内容1]
+  2. [记忆内容2]
+  ...
+  </mem>
+  ```
+
+### 4. 联网搜索流程
+
+- **搜索引擎集成**：
+  1. 通过`mcpAdapter`连接搜索接口
+  2. `messageNeedsSearching`方法判断是否需要搜索
+  3. `handleSearchIntent`提取关键词和执行搜索
+  4. 格式化搜索结果并整合到请求中
+
+- **搜索结果格式化**：
+  ```
+  <websearch>
+  搜索引擎返回的联网检索结果：
+  [格式化的搜索结果]
+  </websearch>
+  ```
+
+### 5. 请求体整合机制
+
+- **GeminiAdapter 整合流程**：
+  1. 记忆搜索结果和原用户消息作为参数传递给`generateContentWithTools`
+  2. 如果检测到搜索意图，则调用`handleSearchIntent`方法
+  3. 构建包含记忆和网络搜索结果的组合提示词
+  4. 添加响应指南，指导模型如何处理记忆和搜索结果
+  5. 保持原始请求结构，仅修改用户消息内容
+
+- **OpenRouterAdapter 整合流程**：
+  - 与GeminiAdapter类似，但将parts转换为content格式
+  - 确保请求体结构符合OpenRouter API的要求
+  - 使用相同的格式标记记忆和搜索结果，保持一致性
+
+- **最终请求体示例**：
+  ```
+  用户原始消息
+
+  <mem>
+  系统检索到的记忆内容：
+  1. 记忆条目1
+  2. 记忆条目2
+  </mem>
+
+  <websearch>
+  搜索引擎返回的联网检索结果：
+  搜索结果内容...
+  </websearch>
+
+  <response_guidelines>
+    - 除了对用户消息的回应之外，**务必** 结合记忆内容和联网搜索内容进行回复。
+    - **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
+    - **根据角色设定，聊天上下文和记忆内容**，输出你对联网检索结果的解释，并用<websearch></websearch>包裹。
+  </response_guidelines>
+  ```
+
+### 6. 容错机制设计
+
+- **记忆检索失败处理**：
+  - 使用try-catch包装记忆检索逻辑
+  - 记录警告但允许对话继续，不添加记忆部分
+  - 确保服务可用性即使在记忆系统不可用时
+
+- **联网搜索失败处理**：
+  - 检测搜索服务连接状态和响应有效性
+  - 搜索失败时自动回退到仅使用模型知识回答
+  - 向用户提供适当的故障通知
+
+- **代码结构优势**：
+  - 模块化设计使各组件可独立运行和故障隔离
+  - 异步处理确保任一系统故障不会阻塞整体对话流程
+  - 适当的日志记录便于故障排查和优化
 
 ## 集成指南
 
@@ -404,36 +482,6 @@ if (result.success) {
 }
 ```
 
-### 摇篮角色创建和投喂
-
-```typescript
-import { CharactersContext } from '@/constants/CharactersContext';
-import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
-
-// 创建摇篮角色
-const cradleCharacter = {
-  id: generateUniqueId(),
-  name: "新角色",
-  description: "这是一个摇篮系统中的角色",
-  inCradleSystem: true,
-  feedHistory: []
-};
-
-// 添加到摇篮系统
-await addCradleCharacter(cradleCharacter);
-
-// 向角色投喂内容
-await addFeed(
-  cradleCharacter.id,
-  "这个角色喜欢读书和旅行",
-  FeedType.ABOUT_ME
-);
-
-// 处理投喂数据
-await processFeedsNow();
-
-// 生成正式角色
-const generatedCharacter = await generateCharacterFromCradle(cradleCharacter.id);
 ```
 
 ### 社交圈集成
@@ -460,6 +508,33 @@ const result = await nodest.processCircleInteraction(options);
 
 if (result.success) {
   console.log(result.action);  // 点赞/评论操作
+} else {
+  console.error(result.error);
+}
+```
+
+### 记忆检索和联网搜索集成
+
+```typescript
+import { NodeST } from '@/NodeST/nodest';
+
+// 确保已初始化Mem0Service和记忆系统
+
+// 1. 配置联网搜索功能
+const nodest = new NodeST();
+
+// 2. 在聊天流程中传递角色ID以启用记忆检索
+const result = await nodest.processChatMessage({
+  userMessage: "谁是现任美国总统？",
+  conversationId: "conversation123",
+  status: "同一角色继续对话",
+  apiKey: "your-api-key",
+  characterId: "character123",  // 关键参数：提供角色ID以启用记忆检索
+  useToolCalls: true           // 启用工具调用（包括联网搜索）
+});
+
+if (result.success) {
+  console.log(result.response);
 } else {
   console.error(result.error);
 }
@@ -495,6 +570,9 @@ NodeST现在支持多种LLM API：
 
 - 大型对话历史会影响性能和LLM记忆能力
 - 记忆总结功能可有效缓解长对话中的上下文限制问题
+- 记忆检索和联网搜索可能增加API请求的令牌数量和成本
+- 联网搜索可能引入外部服务依赖，需考虑连接超时处理
+- 权衡检索结果数量与API令牌限制的平衡
+- 并行记忆和联网检索可能增加响应时间，但提高信息完整性
 - 合理设置总结阈值可平衡API调用频率和记忆效果
-- 对总结长度的配置影响上下文质量和API费用
 - 监控API使用情况以保持在Gemini/OpenRouter的速率限制内

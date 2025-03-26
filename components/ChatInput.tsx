@@ -23,6 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
 import Mem0Service from '@/src/memory/services/Mem0Service';
+import ImageManager from '@/utils/ImageManager';
 
 interface ChatInputProps {
   onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean) => void;
@@ -128,8 +129,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
       // 应用正则工具处理用户消息
       const processedMessage = applyRegexTools(messageToSend, 'user');
       
+      // Skip memory-related processing if message is image-related
+      const isImageRelated = processedMessage.includes('![') && processedMessage.includes(')');
+      
       // 在发送用户消息前，先尝试搜索相关记忆（不影响主流程）
-      if (selectedCharacter?.id) {
+      if (selectedCharacter?.id && !isImageRelated) {
         try {
           console.log('[ChatInput] 尝试检索与用户消息相关的记忆');
           const mem0Service = Mem0Service.getInstance();
@@ -177,9 +181,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
       // Send user message
       onSendMessage(processedMessage, 'user');
       
-      // 添加到 Mem0 记忆系统
+      // 添加到 Mem0 记忆系统，但仅当不是图片相关消息时
       let userMemoryAdded = false;
-      if (selectedCharacter?.id) {
+      if (selectedCharacter?.id && !isImageRelated) {
         try {
           const mem0Service = Mem0Service.getInstance();
           await mem0Service.addChatMemory(
@@ -218,8 +222,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
         onSendMessage(processedResponse, 'bot');
         
-        // 只有在成功添加了用户记忆的情况下，才尝试更新AI响应
-        if (userMemoryAdded && selectedCharacter?.id) {
+        // 只有在成功添加了用户记忆的情况下，才尝试更新AI响应，且不处理图片相关消息
+        if (userMemoryAdded && selectedCharacter?.id && !isImageRelated) {
           try {
             const mem0Service = Mem0Service.getInstance();
             
@@ -264,8 +268,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
       setIsLoading(true);
       setShowImagePreviewModal(false);
       
-      // Send a message to show we're sending an image
-      onSendMessage("正在发送图片...", "user");
+      // Don't send base64 data directly to conversation
+      // Instead, use a placeholder text
+      onSendMessage("发送了一张图片", "user");
       
       // Create temp loading message for bot
       onSendMessage('', 'bot', true);
@@ -280,6 +285,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       const geminiAdapter = new GeminiAdapter(apiKey);
       
       let response: string;
+      let imageCacheId: string;
       
       // Prepare the image based on its type
       if (selectedImageType === 'url') {
@@ -288,19 +294,45 @@ const ChatInput: React.FC<ChatInputProps> = ({
           { url: selectedImage },
           `这是用户发送的一张图片。请分析这张图片并作出回应。注意保持${selectedCharacter.name}的人设口吻。`
         );
+        
+        // For URL images, we need to download and cache them
+        try {
+          const imageData = await geminiAdapter.fetchImageAsBase64(selectedImage);
+          const cacheResult = await ImageManager.cacheImage(imageData.data, imageData.mimeType);
+          imageCacheId = cacheResult.id;
+        } catch (error) {
+          console.error('[ChatInput] Error caching URL image:', error);
+          // If caching fails, use URL directly
+          imageCacheId = selectedImage;
+        }
       } else {
-        // For local images (base64)
+        // For local/base64 images - process and cache them
+        // Extract the actual base64 data without the prefix
+        let base64Data = selectedImage;
+        let mimeType = selectedImageType || 'image/jpeg';
+        
+        if (selectedImage.includes('base64,')) {
+          base64Data = selectedImage.split('base64,')[1];
+          mimeType = selectedImage.split(';')[0].replace('data:', '');
+        }
+        
+        // Cache the image to file system and get the cache ID
+        const cacheResult = await ImageManager.cacheImage(base64Data, mimeType);
+        imageCacheId = cacheResult.id;
+        
+        // Send to Gemini for analysis
         response = await geminiAdapter.analyzeImage(
           { 
-            data: selectedImage.split(',')[1], // Remove the "data:image/jpeg;base64," prefix
-            mimeType: selectedImageType || 'image/jpeg' 
+            data: base64Data,
+            mimeType: mimeType
           },
           `这是用户发送的一张图片。请分析这张图片并作出回应。注意保持${selectedCharacter.name}的人设口吻。`
         );
       }
       
-      // Update user message to show the image
-      onSendMessage(`![用户图片](${selectedImage})`, "user");
+      // Update user message to show the image using local URI or URL
+      // Make sure we're sending just the ID now, not the full path
+      onSendMessage(`![用户图片](image:${imageCacheId})`, "user");
       
       // Send the AI's response
       if (response) {
@@ -342,42 +374,67 @@ const ChatInput: React.FC<ChatInputProps> = ({
       const geminiAdapter = new GeminiAdapter(apiKey);
       
       // First send a message showing what we're generating
-      onSendMessage(`正在生成图片: "${imagePrompt}"`, "user");
+      onSendMessage(`请为我生成图片: "${imagePrompt}"`, "user");
       
       // Create temp loading message for bot
       onSendMessage('', 'bot', true);
       
       // Generate the image
       const images = await geminiAdapter.generateImage(imagePrompt, {
-        temperature: 0.8 // Slightly higher temperature for more creative images
+        temperature: 0.8
       });
       
       if (images && images.length > 0) {
-        // Store the generated image
-        setGeneratedImage(images[0]);
-        
-        // Update user message to show the image request was successful
-        onSendMessage(`请为我生成一张图片: "${imagePrompt}"`, "user");
-        
-        // 检查图片数据是否已经包含数据URL前缀
-        let imageData = images[0];
-        if (!imageData.startsWith('data:')) {
-          // 如果没有前缀，添加适当的前缀
-          imageData = `data:image/jpeg;base64,${imageData}`;
+        try {
+          // Store the generated image (use only first 100 characters for logging)
+          const previewLogData = images[0].substring(0, 100) + '...';
+          console.log(`[ChatInput] Image generated, data length: ${images[0].length}, preview: ${previewLogData}`);
+          
+          // Cache the image to file system (both original and WebP versions)
+          const cacheResult = await ImageManager.cacheImage(
+            images[0], // base64 data without prefix
+            'image/png' // Gemini generates images that can be treated as PNG
+          );
+          
+          // Create markdown format for display using image ID for lookup
+          // Make sure we're using just the ID, not the full URI or path
+          const imageMessage = `![Gemini生成的图像](image:${cacheResult.id})`;
+          
+          // Send the AI's response with the image
+          onSendMessage(imageMessage, 'bot');
+          
+          // Alert user they can save the image
+          setTimeout(() => {
+            Alert.alert(
+              '图片已生成',
+              '是否保存图片到相册？',
+              [
+                { text: '取消', style: 'cancel' },
+                { 
+                  text: '保存', 
+                  onPress: async () => {
+                    const result = await ImageManager.saveToGallery(cacheResult.id);
+                    Alert.alert(result.success ? '成功' : '错误', result.message);
+                  }
+                },
+                {
+                  text: '分享',
+                  onPress: async () => {
+                    const shared = await ImageManager.shareImage(cacheResult.id);
+                    if (!shared) {
+                      Alert.alert('错误', '分享功能不可用');
+                    }
+                  }
+                }
+              ]
+            );
+          }, 500);
+        } catch (cacheError) {
+          console.error('[ChatInput] Error caching generated image:', cacheError);
+          onSendMessage('图像已生成，但保存过程中出现错误。', 'bot');
         }
-        
-        // 创建图像的markdown格式，用于显示
-        const imageMessage = `![Gemini生成的图像](${imageData})`;
-        
-        // Send the AI's response with the image
-        onSendMessage(imageMessage, 'bot');
-        
-        // Reset the modal
-        setShowImageGenModal(false);
-        setImagePrompt('');
       } else {
         // If no image was generated, show an error message
-        onSendMessage(`我尝试生成"${imagePrompt}"的图片，但未成功。`, "user");
         onSendMessage('抱歉，我现在无法生成这个图片。可能是描述需要更具体，或者该内容不适合生成。', 'bot');
       }
     } catch (error) {
@@ -386,87 +443,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     } finally {
       setIsGeneratingImage(false);
       setShowImageGenModal(false);
-    }
-  };
-
-  // Handle image generation with reference image
-  const handleImageEditGeneration = async () => {
-    if (!imagePrompt.trim() || !selectedConversationId || !referenceImage) {
-      Alert.alert('错误', '请输入有效的图片描述和提供参考图片');
-      return;
-    }
-
-    try {
-      setIsGeneratingImage(true);
-      
-      // Get API key for Gemini
-      const apiKey = user?.settings?.chat.characterApiKey || '';
-      if (!apiKey) {
-        throw new Error("API密钥未设置");
-      }
-      
-      // Create a Gemini adapter instance
-      const geminiAdapter = new GeminiAdapter(apiKey);
-      
-      // First send a message showing what we're generating
-      onSendMessage(`正在基于参考图片生成: "${imagePrompt}"`, "user");
-      
-      // Create temp loading message for bot
-      onSendMessage('', 'bot', true);
-      
-      // Prepare the reference image
-      let referenceImageData;
-      if (referenceImageType === 'url') {
-        referenceImageData = { url: referenceImage };
-      } else {
-        referenceImageData = {
-          data: referenceImage!.split(',')[1],
-          mimeType: referenceImageType || 'image/jpeg'
-        };
-      }
-      
-      // Generate the image
-      const images = await geminiAdapter.generateImage(imagePrompt, {
-        temperature: 0.9, // Higher temperature for more creative edits
-        referenceImages: [referenceImageData]
-      });
-      
-      if (images && images.length > 0) {
-        // Store the generated image
-        setGeneratedImage(images[0]);
-        
-        // Update user message to show the image request was successful
-        onSendMessage(`请基于我的参考图片，${imagePrompt}`, "user");
-        
-        // 检查图片数据是否已经包含数据URL前缀
-        let imageData = images[0];
-        if (!imageData.startsWith('data:')) {
-          // 如果没有前缀，添加适当的前缀
-          imageData = `data:image/jpeg;base64,${imageData}`;
-        }
-        
-        // 创建图像的markdown格式，用于显示
-        const imageMessage = `![Gemini生成的修改图像](${imageData})`;
-        
-        // Send the AI's response with the image
-        onSendMessage(imageMessage, 'bot');
-        
-        // Reset the modal
-        setShowImageEditGenModal(false);
-        setImagePrompt('');
-        setReferenceImage(null);
-        setReferenceImageType(null);
-      } else {
-        // If no image was generated, show an error message
-        onSendMessage(`我尝试基于参考图片生成"${imagePrompt}"，但未成功。`, "user");
-        onSendMessage('抱歉，我无法修改这张图片。可能是描述需要更具体，或者无法适用于这种修改。', 'bot');
-      }
-    } catch (error) {
-      console.error('Error generating edited image:', error);
-      onSendMessage('抱歉，生成修改图片时出现了错误，请重试。', 'bot');
-    } finally {
-      setIsGeneratingImage(false);
-      setShowImageEditGenModal(false);
+      setImagePrompt('');
     }
   };
 
@@ -490,7 +467,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       const geminiAdapter = new GeminiAdapter(apiKey);
       
       // First send a message showing what we're editing
-      onSendMessage(`正在编辑图片: "${imagePrompt}"`, "user");
+      onSendMessage(`请将这张图片${imagePrompt}`, "user");
       
       // Create temp loading message for bot
       onSendMessage('', 'bot', true);
@@ -517,32 +494,52 @@ const ChatInput: React.FC<ChatInputProps> = ({
       });
       
       if (editedImage) {
-        // Store the edited image
-        setGeneratedImage(editedImage);
-        
-        // Update user message to show the edit request
-        onSendMessage(`请将这张图片${imagePrompt}`, "user");
-        
-        // Ensure we have correct data URL format
-        let imageData = editedImage;
-        if (!imageData.startsWith('data:')) {
-          imageData = `data:image/jpeg;base64,${imageData}`;
+        try {
+          // Cache the edited image to file system (both original and WebP versions)
+          const cacheResult = await ImageManager.cacheImage(
+            editedImage, // base64 data without prefix
+            'image/png' // Edited images are treated as PNG
+          );
+          
+          // Create markdown format for display using image ID
+          // Make sure we're using just the ID, not the full URI or path
+          const imageMessage = `![编辑后的图片](image:${cacheResult.id})`;
+          
+          // Send the AI's response with the edited image
+          onSendMessage(imageMessage, 'bot');
+          
+          // Alert user they can save the image
+          setTimeout(() => {
+            Alert.alert(
+              '图片已编辑完成',
+              '是否保存编辑后的图片到相册？',
+              [
+                { text: '取消', style: 'cancel' },
+                { 
+                  text: '保存', 
+                  onPress: async () => {
+                    const result = await ImageManager.saveToGallery(cacheResult.id);
+                    Alert.alert(result.success ? '成功' : '错误', result.message);
+                  }
+                },
+                {
+                  text: '分享',
+                  onPress: async () => {
+                    const shared = await ImageManager.shareImage(cacheResult.id);
+                    if (!shared) {
+                      Alert.alert('错误', '分享功能不可用');
+                    }
+                  }
+                }
+              ]
+            );
+          }, 500);
+        } catch (cacheError) {
+          console.error('[ChatInput] Error caching edited image:', cacheError);
+          onSendMessage('图像已编辑，但保存过程中出现错误。', 'bot');
         }
-        
-        // Create markdown format for display
-        const imageMessage = `![编辑后的图片](${imageData})`;
-        
-        // Send the AI's response with the edited image
-        onSendMessage(imageMessage, 'bot');
-        
-        // Reset the modal
-        setShowImageEditGenModal(false);
-        setImagePrompt('');
-        setReferenceImage(null);
-        setReferenceImageType(null);
       } else {
         // If no image was edited, show an error message
-        onSendMessage(`我尝试编辑图片："${imagePrompt}"，但未成功。`, "user");
         onSendMessage('抱歉，我无法编辑这张图片。可能是因为编辑指令不够明确，或者模型暂不支持这种编辑操作。', 'bot');
       }
     } catch (error) {
@@ -551,6 +548,42 @@ const ChatInput: React.FC<ChatInputProps> = ({
     } finally {
       setIsGeneratingImage(false);
       setShowImageEditGenModal(false);
+      setImagePrompt('');
+      setReferenceImage(null);
+      setReferenceImageType(null);
+    }
+  };
+
+  // Add cache management function
+  const handleManageImageCache = async () => {
+    try {
+      // Get cache info
+      const cacheInfo = await ImageManager.getCacheInfo();
+      
+      // Format size from bytes to MB
+      const sizeMB = (cacheInfo.totalSize / (1024 * 1024)).toFixed(2);
+      
+      // Show alert with cache info and options
+      Alert.alert(
+        '图片缓存管理',
+        `当前缓存了 ${cacheInfo.count} 张图片，占用 ${sizeMB} MB 存储空间。${
+          cacheInfo.oldestImage ? `\n最早的图片缓存于 ${cacheInfo.oldestImage.toLocaleDateString()}` : ''
+        }`,
+        [
+          { text: '取消', style: 'cancel' },
+          { 
+            text: '清空缓存', 
+            style: 'destructive',
+            onPress: async () => {
+              const result = await ImageManager.clearCache();
+              Alert.alert(result.success ? '成功' : '错误', result.message);
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('[ChatInput] Error managing cache:', error);
+      Alert.alert('错误', '获取缓存信息失败');
     }
   };
 
@@ -578,7 +611,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 return;
               }
               
+              // Ensure we have an API key
+              const apiKey = user?.settings?.chat.characterApiKey || '';
+              if (!apiKey) {
+                Alert.alert('错误', '未设置API密钥，无法重置对话');
+                setIsLoading(false);
+                return;
+              }
+              
               console.log('[ChatInput] Resetting conversation:', selectedConversationId);
+              
+              // Update API settings before resetting
+              NodeSTManager.updateApiSettings(apiKey, {
+                apiProvider: user?.settings?.chat.apiProvider || 'gemini',
+                openrouter: user?.settings?.chat.openrouter
+              });
               
               // Call NodeSTManager to reset the chat history
               const success = await NodeSTManager.resetChatHistory(conversationId);
@@ -818,6 +865,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </View>
               <Animated.Text style={styles.actionText}>
                 图片修改
+              </Animated.Text>
+            </TouchableOpacity>
+            
+            {/* New Image Cache Management Button */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleManageImageCache}
+            >
+              <View style={[styles.actionIcon, styles.cacheIcon]}>
+                <Ionicons name="trash-bin" size={24} color="#fff" />
+              </View>
+              <Animated.Text style={styles.actionText}>
+                图片缓存
               </Animated.Text>
             </TouchableOpacity>
           </View>
@@ -1276,6 +1336,9 @@ const styles = StyleSheet.create({
   },
   editImageIcon: {
     backgroundColor: '#8e44ad', // Different purple for edit image
+  },
+  cacheIcon: {
+    backgroundColor: '#e74c3c', // Red for cache management
   },
 });
 

@@ -399,7 +399,15 @@ export class GeminiAdapter {
             
             if (result.images && result.images.length > 0) {
                 console.log(`[Gemini适配器] 成功生成 ${result.images.length} 张图片`);
-                return result.images;
+                
+                // Convert the images to consistent PNG format
+                const processedImages = result.images.map(img => {
+                    // We return the raw base64 data without data URL prefix
+                    // The caller will handle the proper formatting
+                    return img;
+                });
+                
+                return processedImages;
             } else {
                 console.log(`[Gemini适配器] 未能生成图片，尝试使用更明确的提示`);
                 
@@ -412,7 +420,20 @@ export class GeminiAdapter {
                     temperature: options.temperature || 0.9, // 略微提高创造性
                 });
                 
-                return result2.images || [];
+                if (result2.images && result2.images.length > 0) {
+                    console.log(`[Gemini适配器] 第二次尝试成功生成 ${result2.images.length} 张图片`);
+                    
+                    // Convert the images to consistent PNG format
+                    const processedImages = result2.images.map(img => {
+                        // We return the raw base64 data without data URL prefix
+                        return img;
+                    });
+                    
+                    return processedImages;
+                }
+                
+                console.log(`[Gemini适配器] 两次尝试都未能生成图片`);
+                return [];
             }
         } catch (error) {
             console.error("[Gemini适配器] 图像生成失败:", error);
@@ -513,6 +534,9 @@ export class GeminiAdapter {
                 throw new Error("编辑图片需要有效的图像数据");
             }
             
+            // 记录图像大小，但不打印完整的base64数据
+            console.log(`[Gemini适配器] 处理的图像大小: ${processedImage.data.length} 字节, 类型: ${processedImage.mimeType}`);
+            
             // 构建强调编辑操作的提示词
             const editPrompt = `请将这张图片${prompt}。输出编辑后的图片，保持原图的基本元素和构成。`;
             
@@ -528,7 +552,8 @@ export class GeminiAdapter {
             
             // 检查是否有图像输出
             if (result.images && result.images.length > 0) {
-                console.log(`[Gemini适配器] 图像编辑成功`);
+                console.log(`[Gemini适配器] 图像编辑成功，输出图像大小: ${result.images[0].length} 字节`);
+                // Return raw base64 data
                 return result.images[0];
             }
             
@@ -547,7 +572,8 @@ export class GeminiAdapter {
             });
             
             if (secondAttempt.images && secondAttempt.images.length > 0) {
-                console.log(`[Gemini适配器] 第二次尝试图像编辑成功`);
+                console.log(`[Gemini适配器] 第二次尝试图像编辑成功，输出图像大小: ${secondAttempt.images[0].length} 字节`);
+                // Return raw base64 data
                 return secondAttempt.images[0];
             }
             

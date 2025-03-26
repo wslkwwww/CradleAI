@@ -14,12 +14,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as htmlParser from 'react-native-html-parser';
 import CodeBlockRenderer from '@/components/CodeBlockRenderer';
+import ImageManager from '@/utils/ImageManager';
 
 // Define the supported HTML tags and CSS properties as per requirements
 const SUPPORTED_TAGS = [
   'div', 'p', 'br', 'b', 'i', 'span', 'ul', 'ol', 'li', 'img', 'a', 'details', 'summary',
   // Add custom tags
-  'thinking', 'think', 'status', 'char',
+  'thinking', 'think', 'status', 'char', 'mem', 'websearch',
   // Add more HTML5 tags
   'section', 'article', 'header', 'footer', 'nav', 'aside', 'figure', 'figcaption',
   'code', 'pre', 'blockquote', 'em', 'strong', 'mark', 'small', 'del', 'ins', 'sub', 'sup',
@@ -360,6 +361,10 @@ const sanitizeHtml = (html: string): string => {
   // Process <status> tags
   sanitized = sanitized.replace(/<status>([\s\S]*?)<\/status>/gi, '<div class="character-status">$1</div>');
   
+  // Process new custom tags
+  sanitized = sanitized.replace(/<mem>([\s\S]*?)<\/mem>/gi, '<div class="character-memory">$1</div>');
+  sanitized = sanitized.replace(/<websearch>([\s\S]*?)<\/websearch>/gi, '<div class="websearch-result">$1</div>');
+  
   return sanitized;
 };
 
@@ -481,6 +486,66 @@ const ThinkingSection = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+// Add component to render character memory sections
+const MemorySection = ({ children }: { children: React.ReactNode }) => {
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  
+  return (
+    <View style={styles.memoryContainer}>
+      <TouchableOpacity 
+        style={styles.memoryHeader}
+        onPress={() => setIsExpanded(!isExpanded)}
+      >
+        <Ionicons 
+          name={isExpanded ? "chevron-down" : "chevron-forward"} 
+          size={16} 
+          color="#5e8ec6" 
+          style={styles.memoryIcon}
+        />
+        <Text style={styles.memoryTitle}>
+          记忆内容
+        </Text>
+      </TouchableOpacity>
+      
+      {isExpanded && (
+        <View style={styles.memoryContent}>
+          <Text style={styles.memoryText}>{React.isValidElement(children) ? children : String(children)}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+// Add component to render websearch results
+const WebsearchSection = ({ children }: { children: React.ReactNode }) => {
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  
+  return (
+    <View style={styles.websearchContainer}>
+      <TouchableOpacity 
+        style={styles.websearchHeader}
+        onPress={() => setIsExpanded(!isExpanded)}
+      >
+        <Ionicons 
+          name={isExpanded ? "chevron-down" : "chevron-forward"} 
+          size={16} 
+          color="#4caf50" 
+          style={styles.websearchIcon}
+        />
+        <Text style={styles.websearchTitle}>
+          搜索结果
+        </Text>
+      </TouchableOpacity>
+      
+      {isExpanded && (
+        <View style={styles.websearchContent}>
+          <Text style={styles.websearchText}>{React.isValidElement(children) ? children : String(children)}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
 // Component to render character status sections
 const StatusSection = ({ children }: { children: React.ReactNode }) => {
   return (
@@ -489,6 +554,110 @@ const StatusSection = ({ children }: { children: React.ReactNode }) => {
       {children}
     </View>
   );
+};
+
+// Helper function to extract and process image IDs from markdown syntax
+const processImageMarkdown = (
+  text: string,
+  handleImagePress: (url: string) => void,
+  maxImageHeight: number
+): React.ReactNode[] => {
+  const components: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let currentIndex = 0;
+
+  // First, handle our custom image:id format
+  const imageIdRegex = /!\[(.*?)\]\(image:([^\s)]+)\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = imageIdRegex.exec(text)) !== null) {
+    // Add text before the image
+    if (match.index > lastIndex) {
+      components.push(
+        <Text key={`text-${currentIndex}`} style={styles.text}>
+          {text.substring(lastIndex, match.index)}
+        </Text>
+      );
+      currentIndex++;
+    }
+
+    const alt = match[1] || 'Image';
+    const imageId = match[2];
+    const imageInfo = ImageManager.getImageInfo(imageId);
+
+    if (imageInfo) {
+      components.push(
+        <View key={`image-${currentIndex}`} style={styles.imageWrapper}>
+          <TouchableOpacity onPress={() => handleImagePress(imageInfo.originalPath)}>
+            <Image
+              source={{ uri: imageInfo.thumbnailPath }}
+              style={[styles.image, { height: Math.min(300, maxImageHeight) }]}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+          <Text style={styles.imageCaption}>{alt}</Text>
+        </View>
+      );
+    } else {
+      components.push(
+        <View key={`image-error-${currentIndex}`} style={styles.imageErrorContainer}>
+          <Ionicons name="alert-circle" size={24} color="#e74c3c" />
+          <Text style={styles.imageErrorText}>图片无法加载 (ID: {imageId.substring(0, 8)}...)</Text>
+        </View>
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
+    currentIndex++;
+  }
+
+  // Then handle regular image URLs
+  const regularImageRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
+
+  while ((match = regularImageRegex.exec(text)) !== null) {
+    // Skip if this match starts before the last processed position
+    if (match.index < lastIndex) continue;
+    
+    // Add text before the image
+    if (match.index > lastIndex) {
+      components.push(
+        <Text key={`text-${currentIndex}`} style={styles.text}>
+          {text.substring(lastIndex, match.index)}
+        </Text>
+      );
+      currentIndex++;
+    }
+
+    const alt = match[1] || 'Image';
+    const url = match[2];
+
+    components.push(
+      <View key={`image-${currentIndex}`} style={styles.imageWrapper}>
+        <TouchableOpacity onPress={() => handleImagePress(url)}>
+          <Image
+            source={{ uri: url }}
+            style={[styles.image, { height: Math.min(300, maxImageHeight) }]}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+        <Text style={styles.imageCaption}>{alt}</Text>
+      </View>
+    );
+
+    lastIndex = match.index + match[0].length;
+    currentIndex++;
+  }
+
+  // Add any remaining text
+  if (lastIndex < text.length) {
+    components.push(
+      <Text key={`text-${currentIndex}`} style={styles.text}>
+        {text.substring(lastIndex)}
+      </Text>
+    );
+  }
+
+  return components;
 };
 
 // Function to convert the JSON structure to React Native components
@@ -515,6 +684,12 @@ const jsonToReactNative = (
   return jsonNodes.map((node, index) => {
     // Handle text nodes
     if (node.type === 'text') {
+      const content = node.content || '';
+      // Check for markdown image patterns (both our custom format and standard URLs)
+      if (content.includes('![') && (content.includes('](image:') || content.includes('](http'))) {
+        return processImageMarkdown(content, handleImagePress || (() => {}), maxImageHeight);
+      }
+      
       return (
         <Text key={`text-${index}`} style={[styles.text, baseStyle]}>
           {node.content}
@@ -570,6 +745,48 @@ const jsonToReactNative = (
               <ThinkingSection key={`thinking-${index}`}>
                 {thinkingText || children}
               </ThinkingSection>
+            );
+          } else if (node.attributes && node.attributes.class === 'character-memory') {
+            // Extract the text content from children for memory sections
+            let memoryText = '';
+            const extractText = (nodes: any[]): string => {
+              if (!nodes) return '';
+              return nodes.map(n => {
+                if (n.type === 'text') return n.content;
+                if (n.type === 'tag' && n.children) return extractText(n.children);
+                return '';
+              }).join(' ');
+            };
+            
+            if (node.children) {
+              memoryText = extractText(node.children);
+            }
+            
+            return (
+              <MemorySection key={`memory-${index}`}>
+                {memoryText || children}
+              </MemorySection>
+            );
+          } else if (node.attributes && node.attributes.class === 'websearch-result') {
+            // Extract the text content from children for websearch sections
+            let websearchText = '';
+            const extractText = (nodes: any[]): string => {
+              if (!nodes) return '';
+              return nodes.map(n => {
+                if (n.type === 'text') return n.content;
+                if (n.type === 'tag' && n.children) return extractText(n.children);
+                return '';
+              }).join(' ');
+            };
+            
+            if (node.children) {
+              websearchText = extractText(node.children);
+            }
+            
+            return (
+              <WebsearchSection key={`websearch-${index}`}>
+                {websearchText || children}
+              </WebsearchSection>
             );
           } else if (node.attributes && node.attributes.class === 'character-status') {
             return (
@@ -877,6 +1094,21 @@ export const parseHtmlToReactNative = (
     // First process any markdown-style formatting
     let processedHtml = html;
     
+    // Quick check for image Markdown patterns
+    const hasCustomImages = /!\[.*?\]\(image:.*?\)/i.test(processedHtml);
+    const hasRegularImages = /!\[.*?\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/i.test(processedHtml);
+    
+    // If we have image patterns but no other complex HTML, handle them directly
+    if ((hasCustomImages || hasRegularImages) && 
+        !/<\/?[a-z][^>]*>/i.test(processedHtml.replace(/<br\s*\/?>/gi, ''))) {
+      return processImageMarkdown(
+        processedHtml,
+        options.handleImagePress || (() => {}),
+        options.maxImageHeight || 300
+      );
+    }
+    
+    // Otherwise, continue with normal HTML processing
     // Use our more comprehensive preprocessing for all content
     processedHtml = preprocessCustomTags(processedHtml);
     
@@ -1114,5 +1346,79 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 0, 0, 0.1)',
     borderRadius: 4,
     marginVertical: 4,
+  },
+  // Add new styles for memory and websearch sections
+  memoryContainer: {
+    marginVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(73, 125, 189, 0.15)', // Blue-tinted background for memory
+    overflow: 'hidden',
+  },
+  memoryHeader: {
+    flexDirection: 'row',
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: 'rgba(73, 125, 189, 0.25)', // Slightly darker blue header
+  },
+  memoryIcon: {
+    marginRight: 8,
+  },
+  memoryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#5e8ec6', // Blue text for memory
+  },
+  memoryContent: {
+    padding: 12,
+  },
+  memoryText: {
+    fontStyle: 'italic',
+    color: '#7fa6d6', // Lighter blue for memory text
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  
+  websearchContainer: {
+    marginVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)', // Green-tinted background for websearch
+    overflow: 'hidden',
+  },
+  websearchHeader: {
+    flexDirection: 'row',
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.2)', // Slightly darker green header
+  },
+  websearchIcon: {
+    marginRight: 8,
+  },
+  websearchTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4caf50', // Green text for websearch
+  },
+  websearchContent: {
+    padding: 12,
+  },
+  websearchText: {
+    color: '#86c288', // Lighter green for websearch text
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  
+  imageWrapper: {
+    marginVertical: 8,
+    alignItems: 'center',
+  },
+  imageErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  imageErrorText: {
+    marginLeft: 8,
+    color: '#e74c3c',
+    fontSize: 14,
   },
 });

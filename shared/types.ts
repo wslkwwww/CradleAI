@@ -45,6 +45,13 @@ export interface GlobalSettings {
           enabled?: boolean;
         };
     }
+    license: {
+      enabled: boolean;
+      licenseKey?:string,
+      deviceId?:  string,
+      planId?:  string,
+      expiryDate?: string,
+    }
 }
 
 // ============= NodeST 核心类型 =============
