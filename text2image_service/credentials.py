@@ -13,7 +13,7 @@ from datetime import datetime
 # 配置日志
 logger = logging.getLogger('text2image.credentials')
 
-# 默认证书文件路径
+# 默认证书文件路径（将作为备用方式保留）
 CREDENTIALS_FILE = os.environ.get(
     'NOVELAI_CREDENTIALS_FILE', 
     os.path.join(os.path.dirname(__file__), 'secure', 'credentials.json')
@@ -26,6 +26,46 @@ _failed_credential_indices = []
 # 失败账号的冷却期(秒)
 FAILED_CREDENTIAL_COOLDOWN = 1800  # 30分钟
 
+# 存储从环境变量加载的凭据
+_env_credentials = None
+
+def _load_env_credentials():
+    """从环境变量加载NovelAI凭据"""
+    global _env_credentials
+    
+    # 如果已加载且不是空列表，则直接返回
+    if _env_credentials is not None:
+        return _env_credentials
+        
+    _env_credentials = []
+    
+    # 检查是否有环境变量凭据配置
+    email_1 = os.environ.get('NOVELAI_EMAIL_1')
+    password_1 = os.environ.get('NOVELAI_PASSWORD_1')
+    
+    # 查找所有环境变量中的凭据
+    for i in range(1, 11):  # 支持最多10个账号
+        email_key = f'NOVELAI_EMAIL_{i}'
+        password_key = f'NOVELAI_PASSWORD_{i}'
+        
+        email = os.environ.get(email_key)
+        password = os.environ.get(password_key)
+        
+        if email and password:
+            logger.info(f"从环境变量加载账号 {i}: {email}")
+            _env_credentials.append({
+                'email': email,
+                'password': password,
+                'updated_at': datetime.now().isoformat()
+            })
+    
+    if _env_credentials:
+        logger.info(f"从环境变量成功加载 {len(_env_credentials)} 个账号")
+    else:
+        logger.warning("环境变量中未找到有效凭据配置")
+        
+    return _env_credentials
+
 def get_credentials():
     """获取存储的NovelAI凭据
     
@@ -35,8 +75,55 @@ def get_credentials():
     global _current_credential_index, _failed_credential_indices
     
     try:
+        # 首先尝试从环境变量加载凭据
+        env_credentials = _load_env_credentials()
+        
+        if env_credentials:
+            # 使用环境变量中的凭据
+            credentials_list = env_credentials
+            
+            # 清理超过冷却期的失败账号
+            now = datetime.now().timestamp()
+            _failed_credential_indices = [
+                (idx, timestamp) for idx, timestamp in _failed_credential_indices
+                if now - timestamp < FAILED_CREDENTIAL_COOLDOWN
+            ]
+            failed_indices = [idx for idx, _ in _failed_credential_indices]
+            
+            # 尝试使用可用账号
+            available_indices = [i for i in range(len(credentials_list)) if i not in failed_indices]
+            
+            if not available_indices:
+                # 所有账号都在冷却期，从失败列表中选取冷却时间最长的账号
+                if _failed_credential_indices:
+                    _failed_credential_indices.sort(key=lambda x: x[1])  # 按时间戳排序
+                    _current_credential_index = _failed_credential_indices[0][0]
+                else:
+                    _current_credential_index = 0
+                logger.warning(f"所有账号都在冷却期，使用冷却时间最长的账号 (索引: {_current_credential_index})")
+            else:
+                # 有可用账号，选择一个随机账号
+                _current_credential_index = random.choice(available_indices)
+                logger.info(f"使用可用账号 (索引: {_current_credential_index})")
+                
+            credentials = credentials_list[_current_credential_index]
+            
+            # 添加索引信息，便于追踪
+            credentials['index'] = _current_credential_index
+            credentials['total'] = len(credentials_list)
+            credentials['source'] = 'environment'
+            
+            # 验证凭据格式
+            if not credentials.get('email') or not credentials.get('password'):
+                logger.error(f"环境变量账号 {_current_credential_index} 格式无效，缺少email或password字段")
+                mark_credential_failed(_current_credential_index)
+                return get_credentials()  # 递归调用，尝试下一个账号
+                
+            return credentials
+        
+        # 如果环境变量中没有凭据，回退到文件存储
         if not os.path.exists(CREDENTIALS_FILE):
-            logger.warning(f"凭据文件不存在: {CREDENTIALS_FILE}")
+            logger.warning(f"凭据文件不存在: {CREDENTIALS_FILE}，且环境变量中无凭据")
             return None
             
         with open(CREDENTIALS_FILE, 'r') as f:
@@ -63,8 +150,11 @@ def get_credentials():
             
             if not available_indices:
                 # 所有账号都在冷却期，从失败列表中选取冷却时间最长的账号
-                _failed_credential_indices.sort(key=lambda x: x[1])  # 按时间戳排序
-                _current_credential_index = _failed_credential_indices[0][0]
+                if _failed_credential_indices:
+                    _failed_credential_indices.sort(key=lambda x: x[1])  # 按时间戳排序
+                    _current_credential_index = _failed_credential_indices[0][0]
+                else:
+                    _current_credential_index = 0
                 logger.warning(f"所有账号都在冷却期，使用冷却时间最长的账号 (索引: {_current_credential_index})")
             else:
                 # 有可用账号，选择一个随机账号
@@ -76,6 +166,7 @@ def get_credentials():
             # 添加索引信息，便于追踪
             credentials['index'] = _current_credential_index
             credentials['total'] = len(credentials_list)
+            credentials['source'] = 'file'
             
             # 验证凭据格式
             if not credentials.get('email') or not credentials.get('password'):
@@ -94,10 +185,11 @@ def get_credentials():
             # 添加索引信息
             credentials_data['index'] = 0
             credentials_data['total'] = 1
+            credentials_data['source'] = 'file'
             
             return credentials_data
     except Exception as e:
-        logger.error(f"读取凭据文件失败: {e}")
+        logger.error(f"读取凭据失败: {e}")
         return None
 
 def mark_credential_failed(index=None):
@@ -236,6 +328,12 @@ def get_all_credentials():
         list: 所有凭据的列表
     """
     try:
+        # 首先尝试从环境变量加载凭据
+        env_credentials = _load_env_credentials()
+        
+        if env_credentials:
+            return env_credentials
+        
         if not os.path.exists(CREDENTIALS_FILE):
             return []
             

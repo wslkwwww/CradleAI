@@ -198,8 +198,13 @@ const ApiSettings = () => {
     try {
       setIsActivating(true);
       
-      const licenseInfo = await licenseService.verifyLicense(activationCode.trim());
+      // Add logging to debug the request
+      console.log('Activating license with code:', activationCode.trim());
       
+      const licenseInfo = await licenseService.verifyLicense(activationCode.trim());
+      console.log('License verification response:', licenseInfo);
+      
+      // Update state with the license info
       setLicenseInfo(licenseInfo);
       
       Alert.alert(
@@ -209,11 +214,23 @@ const ApiSettings = () => {
       );
     } catch (error) {
       console.error('License activation error:', error);
+      // More detailed error handling
+      let errorMessage = '未知错误，请检查激活码是否正确';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        errorMessage = String(error.message);
+      }
+      
       Alert.alert(
         '激活失败', 
-        error instanceof Error ? error.message : '未知错误，请检查激活码是否正确'
+        errorMessage
       );
     } finally {
+      // Ensure loading state is cleared whether successful or not
       setIsActivating(false);
     }
   };

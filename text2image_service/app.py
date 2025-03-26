@@ -19,6 +19,7 @@ import uuid
 from utils import save_binary_image
 from minio_client import MinioStorage
 from rate_limiter import rate_limiter
+from license_validator import require_license, license_validator
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -159,6 +160,7 @@ queue_updater_thread = threading.Thread(target=queue_status_updater, daemon=True
 queue_updater_thread.start()
 
 @app.route('/generate', methods=['POST'])
+@require_license  # 添加许可证验证
 def api_generate():
     """接收图像生成请求并将任务放入 Celery 队列"""
     try:
@@ -268,6 +270,7 @@ def api_generate():
         }), 500
 
 @app.route('/task_status/<task_id>', methods=['GET'])
+@require_license  # 添加许可证验证
 def api_task_status(task_id):
     """查询任务状态"""
     try:
@@ -402,6 +405,7 @@ def api_task_status(task_id):
 
 # 添加新的端点来获取队列状态
 @app.route('/queue_status', methods=['GET'])
+@require_license  # 添加许可证验证
 def api_queue_status():
     """获取当前队列状态"""
     return jsonify({
@@ -412,6 +416,7 @@ def api_queue_status():
 
 # 添加取消任务的端点
 @app.route('/cancel_task/<task_id>', methods=['POST'])
+@require_license  # 添加许可证验证
 def api_cancel_task(task_id):
     """取消指定的任务"""
     try:
@@ -439,6 +444,7 @@ def api_cancel_task(task_id):
 
 # 添加速率限制状态的端点
 @app.route('/rate_limit_status', methods=['GET'])
+@require_license  # 添加许可证验证
 def api_rate_limit_status():
     """获取当前速率限制状态"""
     try:
@@ -480,6 +486,7 @@ def api_rate_limit_status():
 
 # 修复token_status端点中的拼写错误（trip -> strip）
 @app.route('/token_status', methods=['GET'])
+@require_license  # 添加许可证验证
 def api_token_status():
     """获取令牌缓存状态"""
     try:
@@ -539,6 +546,94 @@ def api_token_status():
             'success': False,
             'error': f'查询令牌状态时出错: {str(e)}'
         }), 500
+
+# 添加许可证验证端点
+@app.route('/verify_license', methods=['POST'])
+def api_verify_license():
+    """验证许可证"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': '未提供有效的请求数据'
+            }), 400
+            
+        license_key = data.get('license_key')
+        device_id = data.get('device_id')
+        
+        if not license_key or not device_id:
+            return jsonify({
+                'success': False,
+                'error': '许可证密钥和设备ID是必需的'
+            }), 400
+            
+        # 验证许可证
+        license_info = license_validator.verify_license(license_key, device_id)
+        
+        if not license_info:
+            return jsonify({
+                'success': False,
+                'error': '无效的许可证或许可证已过期'
+            }), 403
+            
+        # 返回许可证信息
+        return jsonify({
+            'success': True,
+            'license_info': license_info
+        })
+        
+    except Exception as e:
+        logger.error(f"验证许可证时出错: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'验证许可证时出错: {str(e)}'
+        }), 500
+
+# 添加许可证状态端点
+@app.route('/license_status', methods=['GET'])
+def api_license_status():
+    """获取许可证状态"""
+    try:
+        # 从请求头中获取许可证信息
+        license_key = request.headers.get('X-License-Key')
+        device_id = request.headers.get('X-Device-ID')
+        
+        if not license_key or not device_id:
+            return jsonify({
+                'success': False,
+                'has_license': False,
+                'error': '未提供许可证信息'
+            })
+            
+        # 验证许可证
+        license_info = license_validator.verify_license(license_key, device_id)
+        
+        if not license_info:
+            return jsonify({
+                'success': False,
+                'has_license': False,
+                'error': '无效的许可证'
+            })
+            
+        # 返回许可证状态
+        return jsonify({
+            'success': True,
+            'has_license': True,
+            'license_info': {
+                'plan_id': license_info.get('plan_id'),
+                'expiry_date': license_info.get('expiry_date'),
+                'customer_email': license_info.get('customer_email')
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"获取许可证状态时出错: {e}")
+        return jsonify({
+            'success': True,
+            'has_license': False,
+            'error': f'获取许可证状态时出错: {str(e)}'
+        })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

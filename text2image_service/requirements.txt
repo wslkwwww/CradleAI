@@ -10,3 +10,6 @@ Pillow==9.4.0
 minio==7.1.15  # 添加 MinIO 客户端库
 python-magic==0.4.27  # 用于文件类型检测
 pytz==2023.3  # 用于时区处理
+
+# 添加许可证验证所需的依赖
+cryptography==39.0.0

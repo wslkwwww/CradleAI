@@ -1,6 +1,7 @@
-# WSGI entry point for the Flask application
-
-from app import app
+"""
+WSGI入口点
+"""
+from app import app as application
 
 if __name__ == "__main__":
-    app.run()
+    application.run(host='0.0.0.0', port=5005)

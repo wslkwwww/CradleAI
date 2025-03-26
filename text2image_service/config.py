@@ -4,11 +4,29 @@ import os
 REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
 REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
 REDIS_DB = int(os.environ.get('REDIS_DB', 0))
-REDIS_URL = os.environ.get('REDIS_URL', f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}')
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', '')  # 读取Redis密码
 
-# Celery 配置
+# 构建Redis URL，使用有效的Redis Auth语法
+if REDIS_PASSWORD:
+    # 注意这里的格式：redis://[:password@]host[:port][/db]
+    REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}'
+else:
+    REDIS_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}'
+
+# 打印Redis URL（生产环境中移除此行以防泄露密码）
+print(f"使用Redis连接URL：{'redis://:*****@' + REDIS_HOST if REDIS_PASSWORD else REDIS_URL}")
+
+# Celery 配置 - 明确设置带有密码的broker和backend
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', REDIS_URL)
+
+# 添加Celery Broker连接池设置
+BROKER_POOL_LIMIT = 10
+BROKER_CONNECTION_TIMEOUT = 30
+
+# 添加失败任务重试设置
+BROKER_CONNECTION_RETRY = True
+BROKER_CONNECTION_MAX_RETRIES = 5
 
 # Flask 配置
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'

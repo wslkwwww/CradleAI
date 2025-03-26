@@ -5,6 +5,7 @@
 ## 功能特点
 
 - 支持 NovelAI 令牌和用户名/密码认证
+- **许可证验证集成**，确保只有授权用户可以访问服务
 - 服务器端存储凭据，无需每次从前端传递敏感信息
 - **多账号轮询机制**，支持当一个账号失效时自动切换到下一个有效账号
 - **账号失效智能处理**，自动冷却失效账号并在适当时机重试
@@ -50,6 +51,28 @@ pip install -r requirements.txt
 
 ### 管理 NovelAI 账号凭据
 
+有两种方式配置NovelAI账号信息：
+
+#### 1. 环境变量方式（推荐，更安全）
+
+在环境变量或 `.env` 文件中设置以下变量：
+
+```bash
+# 第一个账号
+NOVELAI_EMAIL_1=your-email-1@example.com
+NOVELAI_PASSWORD_1=your-password-1
+
+# 第二个账号（可选）
+NOVELAI_EMAIL_2=your-email-2@example.com
+NOVELAI_PASSWORD_2=your-password-2
+
+# 最多可设置10个账号（NOVELAI_EMAIL_1 到 NOVELAI_EMAIL_10）
+```
+
+服务会优先使用环境变量中的凭据，只有在环境变量未设置时才会使用文件存储的凭据。
+
+#### 2. 文件存储方式（兼容旧版本）
+
 使用提供的脚本安全地存储您的 NovelAI 账号信息:
 
 ```bash
@@ -94,10 +117,85 @@ python manage_credentials.py failures
 可以通过修改 `.env` 文件或设置环境变量来配置服务:
 
 - `SECRET_KEY`: Flask 应用密钥
-- `PORT`: 服务运行端口
+- `PORT`: 服务运行端口（默认 5005）
 - `RATE_LIMIT_DAILY`: 每日请求限制 (默认 800)
 - `RATE_LIMIT_MIN_INTERVAL`: 请求间最小间隔秒数 (默认 8)
 - `RATE_LIMIT_MAX_INTERVAL`: 请求间最大间隔秒数 (默认 15)
+- `LICENSE_API_URL`: 许可证验证API的URL (默认 'https://cradleintro.top/api/v1/license/verify')
+- `NOVELAI_EMAIL_1`, `NOVELAI_PASSWORD_1`: NovelAI 账号凭据
+
+## 许可证集成
+
+服务已集成许可证验证系统，确保只有授权用户可以访问图像生成服务。
+
+### 客户端集成
+
+客户端应用需要在API请求中包含许可证信息:
+
+```javascript
+// 获取许可证头
+const licenseHeaders = {
+  'X-License-Key': 'your-license-key',
+  'X-Device-ID': 'your-device-id'
+};
+
+// 添加到API请求
+fetch('https://your-api.com/generate', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    ...licenseHeaders
+  },
+  body: JSON.stringify({
+    prompt: '一只可爱的猫咪',
+    model: 'nai-v3'
+  })
+});
+```
+
+### 许可证验证端点
+
+系统提供以下与许可证相关的端点:
+
+#### 验证许可证 (POST /verify_license)
+
+```json
+{
+  "license_key": "your-license-key",
+  "device_id": "your-device-id"
+}
+```
+
+响应示例:
+
+```json
+{
+  "success": true,
+  "license_info": {
+    "plan_id": "premium_monthly",
+    "expiry_date": "2023-12-31",
+    "customer_email": "user@example.com"
+  }
+}
+```
+
+#### 检查许可证状态 (GET /license_status)
+
+需要在请求头中包含 `X-License-Key` 和 `X-Device-ID`。
+
+响应示例:
+
+```json
+{
+  "success": true,
+  "has_license": true,
+  "license_info": {
+    "plan_id": "premium_monthly",
+    "expiry_date": "2023-12-31",
+    "customer_email": "user@example.com"
+  }
+}
+```
 
 ## 运行服务
 
@@ -115,6 +213,30 @@ chmod +x run_celery.sh run_flask.sh run_gunicorn.sh
 
 # 或使用 Gunicorn (生产环境)
 ./run_gunicorn.sh
+```
+
+### 使用 Nginx 部署（生产环境）
+
+在生产环境中，推荐使用 Nginx 作为反向代理：
+
+1. 将 `nginx/text2image.conf` 配置文件复制到 Nginx 配置目录：
+
+```bash
+sudo cp nginx/text2image.conf /etc/nginx/sites-available/
+sudo ln -s /etc/nginx/sites-available/text2image.conf /etc/nginx/sites-enabled/
+```
+
+2. 修改配置文件中的域名和SSL证书路径：
+
+```bash
+sudo nano /etc/nginx/sites-available/text2image.conf
+```
+
+3. 检查配置并重启 Nginx：
+
+```bash
+sudo nginx -t
+sudo systemctl restart nginx
 ```
 
 ### 手动启动服务
@@ -354,7 +476,8 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 常见错误代码和原因:
 
 - 400: 缺少必要参数或参数格式错误
-- 401: 认证失败
+- 401: 认证失败或未提供许可证
+- 403: 许可证无效或功能不在当前许可计划内
 - 429: 请求过于频繁，超过 API 限制
 - 500: 服务器内部错误
 
@@ -363,6 +486,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 - 推荐使用服务器端凭据存储
 - 确保服务器与客户端之间使用 HTTPS 通信
 - 设置适当的 API 限制，防止滥用
+- 保护许可证密钥和设备ID不被盗用
 
 ## 常见问题排查
 
@@ -383,6 +507,22 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 3. **网络问题:**
    - 确认服务器可以访问 NovelAI API (api.novelai.net)
    - 检查是否被 IP 封锁 (过多请求后可能发生)
+
+### 许可证问题
+
+当遇到 "需要有效的许可证" 或 "无效的许可证" 错误时:
+
+1. **检查许可证信息**:
+   - 确认许可证密钥输入正确
+   - 确认使用的设备ID与激活时的一致
+   - 检查许可证是否已过期
+
+2. **重新激活许可证**:
+   - 尝试通过 `/verify_license` 端点重新验证许可证
+   - 检查设备是否超过许可证允许的激活数量
+
+3. **联系管理员**:
+   - 如果确认许可证有效但仍无法使用，请联系系统管理员
 
 ### 账号轮询问题
 

@@ -9,7 +9,8 @@ from config import (
     CELERY_BROKER_URL, 
     CELERY_RESULT_BACKEND, 
     MAX_RETRIES,
-    RETRY_DELAY
+    RETRY_DELAY,
+    REDIS_PASSWORD
 )
 from novelai import NovelAIClient
 import credentials
@@ -18,11 +19,20 @@ from rate_limiter import rate_limiter
 # 配置日志
 logger = logging.getLogger('text2image.worker')
 
-# 创建 Celery 应用
+# 验证Redis配置
+logger.info(f"Redis配置: URL={CELERY_BROKER_URL[:15]}*** (密码已隐藏)")
+if REDIS_PASSWORD:
+    logger.info("Redis密码已设置")
+else:
+    logger.warning("Redis密码未设置，这可能导致认证错误")
+
+# 创建 Celery 应用 - 添加额外的连接选项
 celery_app = Celery(
     'text2image_tasks',
     broker=CELERY_BROKER_URL,
-    backend=CELERY_RESULT_BACKEND
+    backend=CELERY_RESULT_BACKEND,
+    broker_connection_retry=True,
+    broker_connection_max_retries=5
 )
 
 # 配置 Celery
@@ -35,7 +45,15 @@ celery_app.conf.update(
     # 添加任务优先级配置
     task_queue_max_priority=10,
     task_default_priority=5,
-    broker_transport_options={'priority_steps': list(range(11))},  # 0-10的优先级
+    broker_transport_options={
+        'priority_steps': list(range(11)),  # 0-10的优先级
+        'visibility_timeout': 3600,  # 设置更长的可见性超时避免任务丢失
+        'socket_timeout': 30,  # 增加套接字超时以避免连接问题
+        'socket_connect_timeout': 30,  # 连接超时设置
+    },
+    # Redis连接选项
+    broker_pool_limit=10,  # Redis连接池数量限制
+    broker_connection_timeout=30,  # Redis连接超时设置
 )
 
 @celery_app.task(bind=True, max_retries=MAX_RETRIES)
@@ -174,7 +192,7 @@ def generate_image(self, request_params):
         images = client.generate_image(generation_params)
         
         # 检查是否成功获取图像
-        if not images or len(images) == 0:
+        if not images或len(images) == 0:
             return {
                 'success': False,
                 'error': '未能生成图像',
