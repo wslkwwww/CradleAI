@@ -30,7 +30,7 @@ LICENSE_DEFAULT_VALIDITY_DAYS = 365  # 默认许可证有效期（天）
 # API配置
 API_HOST = os.environ.get("API_HOST", "127.0.0.1")
 API_PORT = int(os.environ.get("API_PORT", 5000))
-API_URL_PREFIX = os.environ.get("API_URL_PREFIX", "/api/v1")
+API_URL_PREFIX = os.environ.get("API_URL_PREFIX", "/api/v1", "/v1")
 API_ADMIN_TOKEN = os.environ.get("API_ADMIN_TOKEN", "")
 if not API_ADMIN_TOKEN and ENV != "test":
     print("警告: 未设置API_ADMIN_TOKEN环境变量，将使用随机生成的令牌（重启后将失效）")
@@ -70,4 +70,4 @@ LOG_FORMAT = os.environ.get("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)
 
 # CloudFlare配置
 CF_DOMAIN = os.environ.get("CF_DOMAIN", "cradleintro.top")
-CF_API_URL = f"https://{CF_DOMAIN}/api"
+CF_API_URL = f"https://{CF_DOMAIN}/v1"

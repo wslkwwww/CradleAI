@@ -25,7 +25,8 @@ import { GlobalSettings } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import Mem0Service from '@/src/memory/services/Mem0Service';
 import { licenseService, LicenseInfo } from '@/services/license-service';
-
+import { DeviceUtils } from '@/utils/device-utils';
+import { API_CONFIG } from '@/constants/api-config';
 const ApiSettings = () => {
   const router = useRouter();
   const { user, updateSettings } = useUser();
@@ -198,11 +199,79 @@ const ApiSettings = () => {
     try {
       setIsActivating(true);
       
-      // Add logging to debug the request
-      console.log('Activating license with code:', activationCode.trim());
+      // Add detailed logging to debug the request
+      console.log('开始激活许可证，激活码:', activationCode.trim());
+      console.log('许可证服务器域名:', API_CONFIG.LICENSE_SERVER_DOMAIN);
+      console.log('许可证API端点:', API_CONFIG.LICENSE_API_URL);
       
+      // Get device ID for logging
+      const deviceId = await DeviceUtils.getDeviceId();
+      console.log('当前设备ID:', deviceId);
+      
+      // 测试许可证服务器连接性
+      console.log('测试授权服务器连接...');
+      
+      try {
+        // 测试备用URL是否能直接访问（模拟curl命令）
+        for (const url of [API_CONFIG.LICENSE_API_URL, ...API_CONFIG.LICENSE_API_FALLBACKS]) {
+          try {
+            console.log(`直接测试URL: ${url}`);
+            const testResponse = await fetch(url.replace('/license/verify', '/health'), {
+              method: 'GET',
+              cache: 'no-store',
+              headers: {
+                'User-Agent': 'CradleIntro-App/1.0',
+              },
+            });
+            
+            console.log(`URL ${url} 测试结果: ${testResponse.status} ${testResponse.ok ? '成功' : '失败'}`);
+            
+            if (testResponse.ok) {
+              // 尝试模拟curl命令的成功调用
+              console.log(`尝试使用 ${url} 以curl方式验证...`);
+              const directResponse = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+                  'User-Agent': 'curl/8.12.1',  // 模拟curl
+                },
+                body: JSON.stringify({
+                  license_key: activationCode.trim(),
+                  device_id: deviceId
+                }),
+                cache: 'no-store',
+              });
+              
+              const directText = await directResponse.text();
+              console.log(`直接请求结果: ${directResponse.status} - ${directText}`);
+              
+              if (directResponse.ok) {
+                console.log('直接调用成功，尝试解析响应');
+                try {
+                  const directData = JSON.parse(directText);
+                  if (directData.success) {
+                    Alert.alert('直接验证成功', 
+                      `许可证直接验证成功\n计划: ${directData.license_info?.plan_id || '未知'}\n` +
+                      `有效期至: ${directData.license_info?.expiry_date || '未知'}`
+                    );
+                  }
+                } catch (e) {
+                  console.log('解析响应失败:', e);
+                }
+              }
+            }
+          } catch (urlError) {
+            console.error(`URL ${url} 测试失败:`, urlError);
+          }
+        }
+      } catch (testError) {
+        console.error('连接测试中发生错误:', testError);
+      }
+      
+      console.log('开始许可证验证流程...');
       const licenseInfo = await licenseService.verifyLicense(activationCode.trim());
-      console.log('License verification response:', licenseInfo);
+      console.log('许可证验证响应:', licenseInfo);
       
       // Update state with the license info
       setLicenseInfo(licenseInfo);
@@ -213,7 +282,7 @@ const ApiSettings = () => {
         [{ text: '确定' }]
       );
     } catch (error) {
-      console.error('License activation error:', error);
+      console.error('许可证激活错误:', error);
       // More detailed error handling
       let errorMessage = '未知错误，请检查激活码是否正确';
       

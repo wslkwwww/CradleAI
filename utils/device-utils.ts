@@ -1,6 +1,5 @@
-import { Platform } from 'react-native';
+import { Platform, Dimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import DeviceInfo from 'react-native-device-info';
 
 /**
  * Utility functions for device identification
@@ -25,7 +24,7 @@ export class DeviceUtils {
         // For web, create a fingerprint based on browser information
         deviceId = await this.generateWebDeviceId();
       } else {
-        // For React Native, use DeviceInfo
+        // For React Native, use native methods
         deviceId = await this.generateNativeDeviceId();
       }
     } catch (error) {
@@ -92,17 +91,49 @@ export class DeviceUtils {
    */
   private static async generateNativeDeviceId(): Promise<string> {
     try {
+      // Get screen dimensions and other available info
+      const { width, height, scale, fontScale } = Dimensions.get('window');
+      
       // Collect various device identifiers
       const components = [
-        await DeviceInfo.getUniqueId(),
-        DeviceInfo.getBrand(),
-        DeviceInfo.getModel(),
-        await DeviceInfo.getDeviceId(),
-        DeviceInfo.getSystemVersion()
+        Platform.OS,
+        Platform.Version,
+        String(width),
+        String(height),
+        String(scale),
+        String(fontScale),
+
+        new Date().getTimezoneOffset().toString()
       ];
       
+      // Try to get additional identifiers if available based on platform
+      if (Platform.OS === 'ios') {
+        try {
+          // iOS-specific identifiers if needed
+          // This uses what's available in React Native core
+          if (Platform.constants?.systemName) components.push(Platform.constants.systemName);
+          if (Platform.constants?.osVersion) components.push(Platform.constants.osVersion);
+        } catch (e) {
+          console.warn('Error getting iOS device info:', e);
+        }
+      } else if (Platform.OS === 'android') {
+        try {
+          // Android-specific identifiers if needed
+          if (Platform.constants?.Release) components.push(Platform.constants.Release);
+          if (Platform.constants?.Serial) components.push(Platform.constants.Serial);
+        } catch (e) {
+          console.warn('Error getting Android device info:', e);
+        }
+      }
+
+      // Check for any previously stored legacy device ID (from when DeviceInfo was used)
+      const legacyDeviceId = await AsyncStorage.getItem('legacy_device_id');
+      if (legacyDeviceId) {
+        components.push(legacyDeviceId);
+      }
+      
       // Create a device ID from the components
-      return components[0] || `native-${this.hashString(components.join('###'))}`;
+      return `native-${this.hashString(components.join('###'))}`;
     } catch (error) {
       console.error("Error generating native device ID:", error);
       throw error;

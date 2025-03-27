@@ -23,7 +23,7 @@ class LicenseValidator:
             cache_ttl: 许可证验证结果缓存时间（秒）
         """
         self.license_api_url = license_api_url or os.environ.get(
-            'LICENSE_API_URL', 'https://cradleintro.top/api/v1/license/verify'
+            'LICENSE_API_URL', 'https://cradleintro.top/api/license/verify'
         )
         self.cache_ttl = cache_ttl
         self.license_cache = {}  # 简单的内存缓存
@@ -248,7 +248,7 @@ def enterprise_feature():
 
 if __name__ == '__main__':
     # 设置环境变量
-    os.environ['LICENSE_API_URL'] = 'https://cradleintro.top/api/v1/license/verify'
+    os.environ['LICENSE_API_URL'] = 'https://cradleintro.top/api/v1/verify'
     
     # 启动应用
     app.run(host='0.0.0.0', port=5050, debug=True)

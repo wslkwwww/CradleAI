@@ -8,10 +8,10 @@
 // 配置项
 const config = {
   // API路径前缀
-  apiPathPrefix: '/api/v1',
+  apiPathPrefix: 'api/v1',
   
   // 许可证验证接口路径
-  licenseVerifyPath: '/api/v1/license/verify',
+  licenseVerifyPath: 'api/v1/license/verify',
   
   // 源服务器
   origin: {

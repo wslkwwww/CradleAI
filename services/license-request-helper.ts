@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // API base URL
-const API_BASE_URL = 'https://cradleintro.top/v1/license';
+const API_BASE_URL = 'https://cradleintro.top/api/license';
 
 // License verification response interface
 export interface LicenseVerifyResponse {

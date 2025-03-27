@@ -121,7 +121,7 @@ python manage_credentials.py failures
 - `RATE_LIMIT_DAILY`: 每日请求限制 (默认 800)
 - `RATE_LIMIT_MIN_INTERVAL`: 请求间最小间隔秒数 (默认 8)
 - `RATE_LIMIT_MAX_INTERVAL`: 请求间最大间隔秒数 (默认 15)
-- `LICENSE_API_URL`: 许可证验证API的URL (默认 'https://cradleintro.top/api/v1/license/verify')
+- `LICENSE_API_URL`: 许可证验证API的URL (默认 'https://cradleintro.top/v1/license/verify')
 - `NOVELAI_EMAIL_1`, `NOVELAI_PASSWORD_1`: NovelAI 账号凭据
 
 ## 许可证集成

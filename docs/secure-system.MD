@@ -234,7 +234,7 @@ python test_payment_callback.py --email customer@example.com --secret your-custo
 #### 参数说明
 
 - `--email`: （必填）客户邮箱，用于发送许可证
-- `--url`: （可选）回调API地址，默认为 http://localhost:5000/v1/license/payment_callback
+- `--url`: （可选）回调API地址，默认为 http://localhost:5000/api/v1/license/payment_callback
 - `--secret`: （可选）签名密钥，默认使用配置中的PAYMENT_WEBHOOK_SECRET
 - `--amount`: （可选）支付金额，默认为29.99
 - `--currency`: （可选）货币类型，默认为USD
