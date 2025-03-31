@@ -187,7 +187,7 @@ export interface Character {
   description: string;
   personality: string;
   interests: string[];
-  voiceType?: string;
+  voiceType?: string; // Template ID for TTS
   createdAt: number;
   updatedAt: number;
   isSystem?: boolean;
@@ -402,6 +402,7 @@ export interface CharacterImage {
   data?: string; // Base64 encoded image data
   generationStatus?: 'idle' | 'pending' | 'success' | 'error';
   generationTaskId?: string;
+  generationMessage?: string;
   setAsAvatar?: boolean;
   setAsBackground?: boolean;
   generationError?: string;

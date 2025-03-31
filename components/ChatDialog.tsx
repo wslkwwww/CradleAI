@@ -14,7 +14,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { Message, Character, ChatDialogProps } from '@/shared/types';
+import { Message,  ChatDialogProps } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,7 +22,7 @@ import { parseHtmlText, containsComplexHtml, extractCodeBlocks, reinsertCodeBloc
 import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageManager, { ImageInfo } from '@/utils/ImageManager';
-import * as Sharing from 'expo-sharing';
+import { ttsService, AudioState } from '@/services/ttsService'; // Import the TTS service
 
 // Update ChatDialogProps interface in the file or in shared/types.ts to include messageMemoryState
 interface ExtendedChatDialogProps extends ChatDialogProps {
@@ -56,6 +56,9 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   const [scrollPositions, setScrollPositions] = useState<Record<string, number>>({});
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const isInitialScrollRestored = useRef(false);
+  
+  // Add state for TTS functionality
+  const [audioStates, setAudioStates] = useState<Record<string, AudioState>>({});
   
   // Update current conversation ID when it changes
   useEffect(() => {
@@ -180,6 +183,90 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       onRateMessage(messageId, isUpvote);
     }
   };
+
+  // Update audio states when they change in the service
+  const updateAudioState = (messageId: string) => {
+    const state = ttsService.getAudioState(messageId);
+    setAudioStates(prev => ({
+      ...prev,
+      [messageId]: state
+    }));
+  };
+  
+  // Handle TTS button press
+  const handleTTSButtonPress = async (messageId: string, text: string) => {
+    try {
+      // Get the template ID from the selected character, falling back to a default if not set
+      const templateId = selectedCharacter?.voiceType || 'template1';
+      
+      console.log(`[ChatDialog] Using voice template: ${templateId} for character: ${selectedCharacter?.name}`);
+      
+      // Update UI immediately to show loading state
+      setAudioStates(prev => ({
+        ...prev,
+        [messageId]: {
+          ...prev[messageId],
+          isLoading: true,
+          error: null
+        }
+      }));
+      
+      // Generate TTS for this message with the character's voice template
+      const result = await ttsService.generateTTS(messageId, text, templateId);
+      
+      // Update the audio state based on the result
+      updateAudioState(messageId);
+      
+      // Auto-play the audio if generation was successful
+      if (result.hasAudio && !result.error) {
+        await handlePlayAudio(messageId);
+      } else if (result.error) {
+        // Only show an error alert if there was a definite error (not just still processing)
+        if (result.error !== 'Audio generation timed out after 30 seconds') {
+          Alert.alert('语音生成失败', '无法生成语音，请稍后再试。');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to generate TTS:', error);
+      // Update local state to show error
+      setAudioStates(prev => ({
+        ...prev,
+        [messageId]: {
+          ...prev[messageId],
+          isLoading: false,
+          error: error instanceof Error ? error.message : '未知错误'
+        }
+      }));
+    }
+  };
+  
+  // Handle play audio button press
+  const handlePlayAudio = async (messageId: string) => {
+    try {
+      const state = ttsService.getAudioState(messageId);
+      
+      if (state.isPlaying) {
+        // If already playing, stop it
+        await ttsService.stopAudio(messageId);
+      } else {
+        // Otherwise start playback
+        await ttsService.playAudio(messageId);
+      }
+      
+      // Update state after action
+      updateAudioState(messageId);
+    } catch (error) {
+      console.error('Failed to play audio:', error);
+      Alert.alert('播放失败', '无法播放语音，请稍后再试。');
+    }
+  };
+  
+  // Clean up audio resources when component unmounts
+  useEffect(() => {
+    return () => {
+      ttsService.cleanup();
+    };
+  }, []);
 
   const renderEmptyState = () => {
     return (
@@ -502,6 +589,64 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     return null; // Not rated
   };
 
+  // Render TTS buttons for a message
+  const renderTTSButtons = (message: Message) => {
+    // Only show TTS buttons for bot messages
+    if (message.sender !== 'bot' || message.isLoading) return null;
+    
+    const audioState = audioStates[message.id] || ttsService.getAudioState(message.id);
+    
+    return (
+      <View style={styles.ttsButtonContainer}>
+        {audioState.isLoading ? (
+          // Loading indicator with text showing it's generating
+          <View style={styles.ttsButtonWithLabel}>
+            <View style={styles.ttsButton}>
+              <ActivityIndicator size="small" color="#fff" />
+            </View>
+            <Text style={styles.ttsLoadingText}>生成中...</Text>
+          </View>
+        ) : audioState.hasAudio ? (
+          // If audio is available, show appropriate button based on playback state
+          <TouchableOpacity
+            style={[styles.ttsButton, audioState.isPlaying && styles.ttsButtonActive]}
+            onPress={() => handlePlayAudio(message.id)}
+          >
+            {audioState.isPlaying ? (
+              // Playing - show pause button
+              <Ionicons name="pause" size={18} color="#fff" />
+            ) : audioState.isComplete ? (
+              // Completed playing - show replay button
+              <Ionicons name="refresh" size={18} color="#fff" />
+            ) : (
+              // Has audio but not playing - show play button
+              <Ionicons name="play" size={18} color="#fff" />
+            )}
+          </TouchableOpacity>
+        ) : (
+          // If no audio yet, show generate button
+          <TouchableOpacity
+            style={styles.ttsButton}
+            onPress={() => handleTTSButtonPress(message.id, message.text)}
+          >
+            <Ionicons name="volume-high" size={18} color="#fff" />
+          </TouchableOpacity>
+        )}
+        
+        {/* Show error message if there was an error */}
+        {audioState.error && !audioState.isLoading && !audioState.hasAudio && (
+          <TouchableOpacity 
+            style={styles.ttsRetryButton}
+            onPress={() => handleTTSButtonPress(message.id, message.text)}
+          >
+            <Ionicons name="refresh" size={16} color="#ff6666" />
+            <Text style={styles.ttsErrorText}>重试</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
   // Render message actions (rating buttons and regenerate button)
   const renderMessageActions = (message: Message, index: number) => {
     if (message.isLoading) return null;
@@ -513,6 +658,9 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     
     return (
       <View style={styles.messageActions}>
+        {/* Add TTS buttons */}
+        {message.sender === 'bot' && renderTTSButtons(message)}
+        
         {onRegenerateMessage && (
           <TouchableOpacity
             style={styles.actionButton}
@@ -1152,6 +1300,47 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginLeft: 8,
     fontSize: 16,
+  },
+  // Add styles for TTS buttons
+  ttsButtonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  ttsButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(52, 152, 219, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  ttsButtonActive: {
+    backgroundColor: 'rgba(46, 204, 113, 0.7)',
+  },
+  ttsButtonWithLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ttsLoadingText: {
+    color: '#ddd',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  ttsRetryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255, 102, 102, 0.1)',
+    borderRadius: 12,
+    marginLeft: 4,
+  },
+  ttsErrorText: {
+    color: '#ff6666',
+    fontSize: 12,
+    marginLeft: 4,
   },
 });
 

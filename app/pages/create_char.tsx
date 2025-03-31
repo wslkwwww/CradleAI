@@ -41,7 +41,9 @@ import CharacterAttributeEditor from '@/components/character/CharacterAttributeE
 import { Ionicons } from '@expo/vector-icons';
 import TagSelector from '@/components/TagSelector';
 import ArtistReferenceSelector from '@/components/ArtistReferenceSelector';
+import VoiceSelector from '@/components/VoiceSelector';
 import { theme } from '@/constants/theme';
+
 // Default preset entries
 export const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
@@ -105,7 +107,7 @@ const INSERT_TYPE_OPTIONS = {
 } as const;
 
 interface CreateCharProps {
-  activeTab?: 'basic' | 'advanced';
+  activeTab?: 'basic' | 'advanced' | 'voice';
   creationMode?: 'manual' | 'auto';
   allowTagImageGeneration?: boolean;
 }
@@ -133,7 +135,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     cradleStatus: 'growing',
     feedHistory: [],
     cradleCreatedAt: Date.now(),
-    cradleUpdatedAt: Date.now()
+    cradleUpdatedAt: Date.now(),
+    voiceType: undefined // Initialize voiceType as undefined
   });
   
   const [roleCard, setRoleCard] = useState<Partial<RoleCardJson>>({
@@ -201,7 +204,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
   });
 
   // UI state variables - match character-detail page
-  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>(initialActiveTab);
+  const [activeTab, setActiveTab] = useState<'basic' | 'advanced' | 'voice'>(initialActiveTab);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -503,6 +506,10 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
 
+  // Add state for voice related properties
+  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male');
+  const [voiceTemplateId, setVoiceTemplateId] = useState<string | undefined>(undefined); // Changed from null to undefined
+
   // Saving character - update to include cradle fields
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
@@ -597,7 +604,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
               artistPrompt: selectedArtistPrompt || undefined
             }
           }
-        } : {})
+        } : {}),
+        voiceType: voiceTemplateId // Save the selected voice template IDof null
       };
   
       // 创建新角色对象 - include cradle fields
@@ -899,7 +907,25 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     </View>
   );
 
-  // Update the renderContent function to use the improved styling matching CradleCreateForm
+  // Add a new rendering function for the voice tab
+  const renderVoiceSection = () => (
+    <View style={styles.tabContent}>
+      <VoiceSelector
+        selectedGender={voiceGender}
+        selectedTemplate={voiceTemplateId}
+        onSelectGender={(gender) => {
+          setVoiceGender(gender);
+          setHasUnsavedChanges(true);
+        }}
+        onSelectTemplate={(templateId) => {
+          setVoiceTemplateId(templateId);
+          setHasUnsavedChanges(true);
+        }}
+      />
+    </View>
+  );
+
+  // Update the renderContent function to include the voice tab
   const renderContent = () => {
     if (activeTab === 'basic') {
       return (
@@ -1036,6 +1062,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
           </Modal>
         </View>
       );
+    } else if (activeTab === 'voice') {
+      return renderVoiceSection();
     } else {
       return (
         <View style={styles.tabContent}>
@@ -1503,6 +1531,21 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
               name="settings-outline"
               size={24} 
               color={activeTab === 'advanced' ? theme.colors.primary : theme.colors.textSecondary} 
+            />
+          </TouchableOpacity>
+          
+          {/* Add new Voice tab */}
+          <TouchableOpacity 
+            style={[
+              styles.sidebarItem,
+              activeTab === 'voice' && styles.activeSidebarItem
+            ]}
+            onPress={() => setActiveTab('voice')}
+          >
+            <Ionicons 
+              name="mic-outline"
+              size={24} 
+              color={activeTab === 'voice' ? theme.colors.primary : theme.colors.textSecondary} 
             />
           </TouchableOpacity>
         </View>

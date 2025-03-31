@@ -4,6 +4,7 @@ import { API_CONFIG } from '@/constants/api-config';
 
 // 存储键名
 const LICENSE_KEY_STORAGE_KEY = 'license_key';
+const LICENSE_INFO_STORAGE_KEY = 'license_info';  // 新增：存储完整的许可证信息
 const IS_INITIALIZING_KEY = 'license_service_initializing';
 
 export interface LicenseInfo {
@@ -14,6 +15,7 @@ export interface LicenseInfo {
   customerEmail?: string;
   deviceCount?: number;
   isValid: boolean;
+  validationDate?: string; // 新增：上次验证日期，用于判断是否需要重新验证
 }
 
 class LicenseService {
@@ -57,27 +59,60 @@ class LicenseService {
       
       console.log('[LicenseService] 初始化许可证服务...');
       
-      // 加载许可证密钥
-      this.licenseKey = await AsyncStorage.getItem(LICENSE_KEY_STORAGE_KEY);
-      console.log('[LicenseService] 从存储加载许可证密钥:', this.licenseKey ? '成功' : '未找到');
-      
       // 获取设备ID
       this.deviceId = await DeviceUtils.getDeviceId();
       console.log('[LicenseService] 设备ID:', this.deviceId ? this.deviceId.substring(0, 4) + '****' : '未获取');
       
-      // 如果有许可证密钥，验证其有效性
-      if (this.licenseKey) {
+      // 尝试从存储加载完整的许可证信息
+      const storedInfoString = await AsyncStorage.getItem(LICENSE_INFO_STORAGE_KEY);
+      if (storedInfoString) {
         try {
-          console.log('[LicenseService] 尝试验证已存储的许可证...');
+          const storedInfo = JSON.parse(storedInfoString) as LicenseInfo;
+          this.licenseInfo = storedInfo;
+          this.licenseKey = storedInfo.licenseKey;
+          console.log('[LicenseService] 从存储加载许可证信息成功');
+          
+          // 如果存储的设备ID与当前设备ID不匹配，可能是许可证被移动到新设备
+          if (storedInfo.deviceId !== this.deviceId) {
+            console.warn('[LicenseService] 存储的设备ID与当前设备ID不匹配，可能需要重新验证');
+            // 不立即清除，但在下次验证时将会更新设备ID
+          }
+          
+          // 只有在找不到完整信息时才尝试加载单独的licenseKey
+        } catch (error) {
+          console.error('[LicenseService] 解析存储的许可证信息失败:', error);
+        }
+      } else {
+        // 如果没有找到完整的许可证信息，尝试加载许可证密钥
+        this.licenseKey = await AsyncStorage.getItem(LICENSE_KEY_STORAGE_KEY);
+        console.log('[LicenseService] 从存储加载许可证密钥:', this.licenseKey ? '成功' : '未找到');
+      }
+      
+      // 检查存储的许可证信息是否需要重新验证
+      const shouldRevalidate = this.shouldRevalidateLicense();
+      
+      // 如果有许可证密钥且需要重新验证，验证其有效性
+      if (this.licenseKey && shouldRevalidate) {
+        try {
+          console.log('[LicenseService] 重新验证已存储的许可证...');
           const info = await this._verifyLicenseInternal(this.licenseKey);
           this.licenseInfo = info;
-          console.log('[LicenseService] 许可证加载并验证成功');
+          
+          // 更新验证日期
+          this.licenseInfo.validationDate = new Date().toISOString();
+          
+          // 保存更新后的许可证信息
+          await this.saveLicenseInfoToStorage();
+          
+          console.log('[LicenseService] 许可证重新验证成功');
         } catch (error) {
-          console.warn('[LicenseService] 存储的许可证验证失败:', error);
-          // 许可证验证失败，但不清除存储的许可证密钥
+          console.warn('[LicenseService] 存储的许可证重新验证失败:', error);
+          // 许可证验证失败，但不清除存储的许可证信息
           // 这里我们仍然保留许可证信息，但标记为无效
           if (this.licenseInfo) {
             this.licenseInfo.isValid = false;
+            // 保存更新后的许可证信息
+            await this.saveLicenseInfoToStorage();
           }
         }
       }
@@ -95,6 +130,39 @@ class LicenseService {
   }
 
   /**
+   * 判断是否需要重新验证许可证
+   * 如果许可证信息不完整，或上次验证时间超过7天，则需要重新验证
+   */
+  private shouldRevalidateLicense(): boolean {
+    if (!this.licenseInfo) return true;
+    if (!this.licenseInfo.validationDate) return true;
+    
+    // 检查上次验证时间是否在7天内
+    const lastValidation = new Date(this.licenseInfo.validationDate);
+    const now = new Date();
+    const diffDays = (now.getTime() - lastValidation.getTime()) / (1000 * 60 * 60 * 24);
+    
+    // 如果超过7天，或者验证日期无效，需要重新验证
+    return isNaN(diffDays) || diffDays > 7;
+  }
+
+  /**
+   * 将许可证信息保存到存储
+   */
+  private async saveLicenseInfoToStorage(): Promise<void> {
+    if (!this.licenseInfo) return;
+    
+    try {
+      const infoString = JSON.stringify(this.licenseInfo);
+      await AsyncStorage.setItem(LICENSE_INFO_STORAGE_KEY, infoString);
+      await AsyncStorage.setItem(LICENSE_KEY_STORAGE_KEY, this.licenseInfo.licenseKey);
+      console.log('[LicenseService] 许可证信息已保存到存储');
+    } catch (error) {
+      console.error('[LicenseService] 保存许可证信息失败:', error);
+    }
+  }
+
+  /**
    * 验证许可证密钥 - 公开接口
    */
   public async verifyLicense(licenseKey: string): Promise<LicenseInfo> {
@@ -107,7 +175,19 @@ class LicenseService {
     }
     
     // 实际验证过程
-    return this._verifyLicenseInternal(licenseKey);
+    const licenseInfo = await this._verifyLicenseInternal(licenseKey);
+    
+    // 更新验证日期
+    licenseInfo.validationDate = new Date().toISOString();
+    
+    // 保存许可证信息
+    this.licenseKey = licenseKey;
+    this.licenseInfo = licenseInfo;
+    
+    // 保存到存储
+    await this.saveLicenseInfoToStorage();
+    
+    return licenseInfo;
   }
 
   /**
@@ -130,7 +210,7 @@ class LicenseService {
       throw new Error('无法连接到授权服务器，请检查网络连接后重试');
     }
     
-    // 请求数据 - 确保与curl命令使用相同的键名格式
+    // 请求数据 - 确保与后端文档中的格式一致
     const requestData = {
       license_key: licenseKey,
       device_id: this.deviceId
@@ -217,14 +297,6 @@ class LicenseService {
           customerEmail: data.license_info.customer_email,
           deviceCount: data.license_info.device_count || 1
         };
-        
-        // 保存许可证信息
-        this.licenseKey = licenseKey;
-        this.licenseInfo = licenseInfo;
-        
-        // 保存许可证密钥到存储
-        await AsyncStorage.setItem(LICENSE_KEY_STORAGE_KEY, licenseKey);
-        console.log('[LicenseService] 许可证已保存到存储');
         
         return licenseInfo;
         
@@ -416,6 +488,7 @@ class LicenseService {
     this.licenseKey = null;
     this.licenseInfo = null;
     await AsyncStorage.removeItem(LICENSE_KEY_STORAGE_KEY);
+    await AsyncStorage.removeItem(LICENSE_INFO_STORAGE_KEY); // 同时清除许可证信息
     console.log('[LicenseService] License cleared');
   }
   

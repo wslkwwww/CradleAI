@@ -37,6 +37,8 @@ import ArtistReferenceSelector from './ArtistReferenceSelector';
 import { DEFAULT_NEGATIVE_PROMPTS } from '@/constants/defaultPrompts';
 // Import theme
 import { theme } from '@/constants/theme';
+// Add VoiceSelector import at the top with other imports
+import VoiceSelector from './VoiceSelector';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -233,10 +235,11 @@ const AGE_RANGES = [
   { id: 'elderly', name: '老年 (60岁以上)' }
 ];
 
-// Modified sidebar sections - only two tabs now
+// Modified sidebar sections - now has three tabs
 const SIDEBAR_SECTIONS = [
-  { id: 'appearance', icon: 'image-outline',  },
-  { id: 'character', icon: 'person-outline',  },
+  { id: 'appearance', icon: 'image-outline' },
+  { id: 'character', icon: 'person-outline' },
+  { id: 'voice', icon: 'mic-outline' }, // Add voice tab
 ];
 
 const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
@@ -307,6 +310,10 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
 
   // Add new state for artist reference selection
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
+
+  // Add state for voice related properties
+  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male');
+  const [voiceTemplateId, setVoiceTemplateId] = useState<string | null>(null);
 
   // Reset state when form closes
   useEffect(() => {
@@ -632,7 +639,8 @@ const handleCreateCharacter = async () => {
         vndbResults: formattedVndbResults,
         description: description || '',
         userGender: userGender
-      }
+      },
+      voiceType: voiceTemplateId || undefined, // Convert null to undefined for voiceType
     };
     
     console.log(`[摇篮角色创建] 图像创建模式: ${uploadMode}`);
@@ -1409,6 +1417,18 @@ const handleCreateCharacter = async () => {
     </View>
   );
 
+  // Add a new render function for voice section
+  const renderVoiceSection = () => (
+    <View style={styles.sectionContent}>
+      <VoiceSelector
+        selectedGender={voiceGender}
+        selectedTemplate={voiceTemplateId || undefined}
+        onSelectGender={setVoiceGender}
+        onSelectTemplate={setVoiceTemplateId}
+      />
+    </View>
+  );
+
   // Render based on whether we're embedded or in a modal
   if (embedded) {
     return (
@@ -1462,6 +1482,7 @@ const handleCreateCharacter = async () => {
           <ScrollView style={styles.contentContainer}>
             {activeSection === 'appearance' && renderAppearanceSection()}
             {activeSection === 'character' && renderCharacterSettingsSection()}
+            {activeSection === 'voice' && renderVoiceSection()}
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
@@ -1519,6 +1540,7 @@ const handleCreateCharacter = async () => {
           <View style={styles.modalContent}>
             {activeSection === 'appearance' && renderAppearanceSection()}
             {activeSection === 'character' && renderCharacterSettingsSection()}
+            {activeSection === 'voice' && renderVoiceSection()}
           </View>
           
           {/* 模态框底部按钮 */}
@@ -1548,7 +1570,7 @@ const handleCreateCharacter = async () => {
   );
 };
 
-// Add new styles for the revised form with two tabs
+// Add new styles for the revised form with three tabs
 const styles = StyleSheet.create({
   sectionContent: {
     flex: 1,

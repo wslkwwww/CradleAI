@@ -82,15 +82,21 @@ const ApiSettings = () => {
           setLicenseInfo(info);
           setUseActivationCode(true);
           setActivationCode(info.licenseKey || ''); // Ensure we don't set undefined
-          console.log('Loaded existing license info:', info.licenseKey ? info.licenseKey.substring(0, 4) + '****' : 'No key');
+          console.log('已加载现有许可证信息:', {
+            key: info.licenseKey ? info.licenseKey.substring(0, 4) + '****' : 'No key',
+            planId: info.planId,
+            expiryDate: info.expiryDate,
+            deviceId: info.deviceId ? info.deviceId.substring(0, 4) + '****' : 'Unknown',
+            isValid: info.isValid
+          });
 
-          // Initialize cloud service state based on saved settings
+          // 根据已存储的设置初始化云服务状态
           if (user?.settings?.chat?.useCloudService) {
             setUseCloudService(true);
           }
         }
       } catch (error) {
-        console.error('Failed to load license info:', error);
+        console.error('加载许可证信息失败:', error);
       }
     };
 
@@ -246,7 +252,7 @@ const ApiSettings = () => {
 
       Alert.alert(
         '激活成功',
-        `许可证已成功激活\n有效期至: ${licenseInfo.expiryDate}`,
+        `许可证已成功激活\n计划: ${licenseInfo.planId}\n有效期至: ${licenseInfo.expiryDate}`,
         [{ text: '确定' }]
       );
     } catch (error) {

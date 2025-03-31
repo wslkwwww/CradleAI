@@ -26,17 +26,16 @@ export const API_CONFIG = {
   // 图像生成服务
   IMAGE_GENERATION_URL: getEnvVar('IMAGE_GENERATION_URL', 'https://image.cradleintro.top/'),
   // License API endpoints - primary and fallbacks
-  LICENSE_API_URL: getEnvVar('LICENSE_API_URL', 'https://cradleintro.top/api/v1/license/verify'),
+  LICENSE_API_URL: getEnvVar('LICENSE_API_URL', 'https://license.cradleintro.top/api/v1/license/verify'),
   LICENSE_API_FALLBACKS: [
-    'http://cradleintro.top/api/v1/license/verify',       // HTTP fallback
-    'https://cradleintro.top:443/api/v1/license/verify',  // Explicit HTTPS port (matching curl)
-    'https://cradleintro.top:5000/api/v1/license/verify', // Direct HTTPS port
-    'http://cradleintro.top:5000/api/v1/license/verify',  // Direct HTTP port
-    'https://172.67.219.110/api/v1/license/verify',       // Direct IP from curl
-    'https://104.21.70.37/api/v1/license/verify',         // Alternate IP from curl
+    'http://license.cradleintro.top/api/v1/license/verify',       // HTTP fallback
+    'https://license.cradleintro.top:443/api/v1/license/verify',  // Explicit HTTPS port (matching curl)
+    'https://license.cradleintro.top:5000/api/v1/license/verify', // Direct HTTPS port
+    'http://license.cradleintro.top:5000/api/v1/license/verify',  // Direct HTTP port
+    'https://cradleintro.top/api/v1/license/verify',              // Original domain as fallback
   ],
   // Base domain for connectivity testing
-  LICENSE_SERVER_DOMAIN: 'cradleintro.top',
+  LICENSE_SERVER_DOMAIN: 'license.cradleintro.top',
 
   CLOUD_API_URL: process.env.NEXT_PUBLIC_CLOUD_API || 'https://chat.cradleintro.top',
   CLOUD_API_FALLBACKS: [
