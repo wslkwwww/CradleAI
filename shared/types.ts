@@ -29,7 +29,7 @@ export interface GlobalSettings {
         xApiKey: string;
         
         // New API settings
-        apiProvider: 'gemini' | 'openrouter' ;
+        apiProvider: 'gemini' | 'openrouter';
         openrouter?: OpenRouterSettings;
         typingDelay: number;
         maxtokens: number;
@@ -37,6 +37,9 @@ export interface GlobalSettings {
         maxTokens: number;
         useZhipuEmbedding: boolean;
         zhipuApiKey: string;
+        
+        // Cloud service setting
+        useCloudService?: boolean;
     };
     app?: {
         darkMode?: boolean;
@@ -47,11 +50,25 @@ export interface GlobalSettings {
     }
     license: {
       enabled: boolean;
-      licenseKey?:string,
-      deviceId?:  string,
-      planId?:  string,
+      licenseKey?: string,
+      deviceId?: string,
+      planId?: string,
       expiryDate?: string,
     }
+}
+
+// Add new types for API forwarding functionality
+export interface CloudServiceConfig {
+    enabled: boolean;
+    licenseKey?: string;
+    deviceId?: string;
+}
+
+export interface ApiForwardingOptions {
+    useCloud: boolean;
+    provider: 'gemini' | 'openrouter';
+    endpoint: string;
+    headers: Record<string, string>;
 }
 
 // ============= NodeST 核心类型 =============
@@ -408,6 +425,7 @@ export interface CradleCharacter extends Character {
   cradleAnimation?: CradleAnimation;
   apiSettings?: {
     apiProvider: 'gemini' | 'openrouter';
+    useCloudService?: boolean;
     openrouter?: {
       enabled: boolean;
       apiKey: string;

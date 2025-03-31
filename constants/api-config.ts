@@ -5,16 +5,21 @@
 
 // 获取环境变量或使用默认值
 const getEnvVar = (key: string, defaultValue: string): string => {
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key] as string;
-  }
+  const result = (() => {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key] as string;
+    }
+    
+    // React Native 环境
+    if (typeof global !== 'undefined' && (global as any).__ENV && (global as any).__ENV[key]) {
+      return (global as any).__ENV[key];
+    }
+    
+    return defaultValue;
+  })();
   
-  // React Native 环境
-  if (typeof global !== 'undefined' && (global as any).__ENV && (global as any).__ENV[key]) {
-    return (global as any).__ENV[key];
-  }
-  
-  return defaultValue;
+  console.log(`API配置: ${key} = ${result}`);
+  return result;
 };
 
 export const API_CONFIG = {
@@ -32,4 +37,31 @@ export const API_CONFIG = {
   ],
   // Base domain for connectivity testing
   LICENSE_SERVER_DOMAIN: 'cradleintro.top',
+
+  CLOUD_API_URL: process.env.NEXT_PUBLIC_CLOUD_API || 'https://chat.cradleintro.top',
+  CLOUD_API_FALLBACKS: [
+    'https://chat-api.cradleintro.top',
+    'https://chat-backup.cradleintro.top'
+  ],
+  
+  // Add API URLs for various services
+  API_URLS: {
+    GEMINI: 'https://generativelanguage.googleapis.com/v1beta',
+    OPENROUTER: 'https://openrouter.ai/api/v1',
+    ZHIPU: 'https://open.bigmodel.cn/api/paas/v4'
+  },
+  
+  // Default timeout for API requests (in milliseconds)
+  DEFAULT_TIMEOUT: 30000,
+
+  // Add API configuration logging
+  logConfig: () => {
+    console.log('========== API 配置 ==========');
+    console.log('LICENSE_API_URL:', API_CONFIG.LICENSE_API_URL);
+    console.log('LICENSE_API_FALLBACKS:', API_CONFIG.LICENSE_API_FALLBACKS);
+    console.log('LICENSE_SERVER_DOMAIN:', API_CONFIG.LICENSE_SERVER_DOMAIN);
+    console.log('IMAGE_GENERATION_URL:', API_CONFIG.IMAGE_GENERATION_URL);
+    console.log('CLOUD_API_URL:', API_CONFIG.CLOUD_API_URL);
+    console.log('==============================');
+  }
 };

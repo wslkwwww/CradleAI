@@ -30,7 +30,7 @@ LICENSE_DEFAULT_VALIDITY_DAYS = 365  # 默认许可证有效期（天）
 # API配置
 API_HOST = os.environ.get("API_HOST", "127.0.0.1")
 API_PORT = int(os.environ.get("API_PORT", 5000))
-API_URL_PREFIX = os.environ.get("API_URL_PREFIX", "/api/v1", "/v1")
+API_URL_PREFIX = os.environ.get("API_URL_PREFIX", "/api/v1")
 API_ADMIN_TOKEN = os.environ.get("API_ADMIN_TOKEN", "")
 if not API_ADMIN_TOKEN and ENV != "test":
     print("警告: 未设置API_ADMIN_TOKEN环境变量，将使用随机生成的令牌（重启后将失效）")
@@ -41,6 +41,16 @@ PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "")
 if not PAYMENT_WEBHOOK_SECRET and ENV != "test":
     print("警告: 未设置PAYMENT_WEBHOOK_SECRET环境变量，将使用随机生成的密钥（重启后将失效）")
     PAYMENT_WEBHOOK_SECRET = secrets.token_hex(32)
+
+# ZPay配置
+ZPAY_URL = os.environ.get("ZPAY_URL", "https://zpayz.cn/submit.php")
+ZPAY_API_URL = os.environ.get("ZPAY_API_URL", "https://zpayz.cn/mapi.php")
+ZPAY_PID = os.environ.get("ZPAY_PID", "2025032112555648")
+ZPAY_PKEY = os.environ.get("ZPAY_PKEY", "6J3xhFQ2MzVuQI7KuWPiid2ZE5PSjYdq")
+
+# 如果未设置ZPay密钥且不是测试环境，生成警告
+if not ZPAY_PKEY and ENV != "test":
+    print("警告: 未设置ZPAY_PKEY环境变量，将使用默认配置（不安全）")
 
 # 速率限制配置
 RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "1") == "1"

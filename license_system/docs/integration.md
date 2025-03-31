@@ -89,7 +89,7 @@ class LicenseValidator:
             cache_ttl: 许可证验证结果缓存时间（秒）
         """
         self.license_api_url = license_api_url or os.environ.get(
-            'LICENSE_API_URL', 'https://cradleintro.top/api/license/verify'
+            'LICENSE_API_URL', 'https://cradleintro.top/api/v1/license/verify'
         )
         self.cache_ttl = cache_ttl
         self.license_cache = {}
@@ -279,7 +279,7 @@ class LicenseService {
     const deviceId = await this.getDeviceId();
     
     // 验证许可证
-    const response = await fetch('https://cradleintro.top/api/license/verify', {
+    const response = await fetch('https://cradleintro.top/api/v1/license/verify', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -470,7 +470,7 @@ class LicenseClient:
         if not self.device_id:
             self.device_id = self.generate_device_id()
         
-        api_url = api_url or 'https://cradleintro.top/verify'
+        api_url = api_url or 'https://cradleintro.top/api/v1/verify'
         
         try:
             response = requests.post(

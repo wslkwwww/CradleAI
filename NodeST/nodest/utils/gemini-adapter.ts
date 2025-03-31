@@ -1,18 +1,8 @@
 import { ChatMessage } from '@/shared/types';
 import { mcpAdapter } from './mcp-adapter';
+import { CloudServiceProvider } from '@/services/cloud-service-provider';
 
 // Define interfaces for image handling
-interface ImagePart {
-    inlineData?: {
-        data: string;
-        mimeType: string;
-    };
-    fileData?: {
-        mimeType: string;
-        fileUri: string;
-    };
-}
-
 interface ContentPart {
     text?: string;
     inlineData?: {
@@ -34,7 +24,7 @@ interface ImageInput {
     // Base64 encoded image data
     data?: string;
     // MIME type of the image (e.g., "image/jpeg", "image/png")
-mimeType?: string;
+    mimeType?: string;
     // URL to fetch the image from
     url?: string;
 }
@@ -47,7 +37,6 @@ export class GeminiAdapter {
         "Content-Type": "application/json"
     };
 
-
     private conversationHistory: ChatMessage[] = [];
 
     constructor(apiKey: string) {
@@ -59,6 +48,9 @@ export class GeminiAdapter {
 
     async generateContent(contents: ChatMessage[]): Promise<string> {
         const url = `${this.BASE_URL}/models/${this.model}:generateContent?key=${this.apiKey}`;
+        
+        // Mask API key in URL for logging
+        const maskedUrl = url.replace(/(\bkey=)([^&]{4})[^&]*/gi, '$1$2****');
         
         const data = {
             contents,
@@ -125,11 +117,73 @@ export class GeminiAdapter {
             console.log('[GeminiAdapter] Sending request to Gemini API:');
             console.log(JSON.stringify(contents, null, 2));
             
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: this.headers,
-                body: JSON.stringify(data)
-            });
+            // Check if cloud service is enabled and use it if available
+            let response;
+            if (CloudServiceProvider.isEnabled()) {
+                console.log('[Gemini适配器] 检测到云服务已启用，使用云服务转发请求');
+                console.log(`[Gemini适配器] 原始请求URL: ${maskedUrl}`);
+                console.log(`[Gemini适配器] 请求体大小: ${JSON.stringify(data).length} 字节`);
+                console.log(`[Gemini适配器] 开始时间: ${new Date().toISOString()}`);
+                
+                // Forward the request through the cloud service
+                try {
+                    console.log('[Gemini适配器] 调用CloudServiceProvider.forwardRequest...');
+                    const startTime = Date.now();
+                    
+                    response = await CloudServiceProvider.forwardRequest(
+                        url,
+                        {
+                            method: 'POST',
+                            headers: this.headers,
+                            body: JSON.stringify(data)
+                        },
+                        'gemini'
+                    );
+                    
+                    const endTime = Date.now();
+                    console.log(`[Gemini适配器] 云服务请求完成，耗时: ${endTime - startTime}ms`);
+                    console.log(`[Gemini适配器] 云服务响应状态: ${response.status} ${response.statusText}`);
+                    
+                    // 记录响应头部信息
+                    console.log('[Gemini适配器] 云服务响应头部:');
+                    interface Headers {
+                        forEach(callbackfn: (value: string, name: string) => void): void;
+                    }
+
+                    interface Response {
+                        headers: Headers;
+                    }
+
+                    // Rest of the code stays the same
+                    response.headers.forEach((value: string, name: string) => {
+                        if (name.toLowerCase() === 'content-type' || 
+                            name.toLowerCase() === 'content-length' ||
+                            name.toLowerCase().startsWith('x-')) {
+                            console.log(`[Gemini适配器] - ${name}: ${value}`);
+                        }
+                    });
+                } catch (cloudError) {
+                    console.error('[Gemini适配器] 云服务转发请求失败:', cloudError);
+                    console.error('[Gemini适配器] 尝试回退到直接API调用...');
+                    throw cloudError; // 重新抛出以便后续处理
+                }
+            } else {
+                // Use direct API call if cloud service is not enabled
+                console.log('[Gemini适配器] 云服务未启用，使用直接API调用');
+                console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
+                console.log(`[Gemini适配器] 开始时间: ${new Date().toISOString()}`);
+                
+                const startTime = Date.now();
+                response = await fetch(url, {
+                    method: 'POST',
+                    headers: this.headers,
+                    body: JSON.stringify(data)
+                });
+                const endTime = Date.now();
+                
+                console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
+                console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
+            }
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -137,6 +191,7 @@ export class GeminiAdapter {
                 throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
             }
 
+            console.log(`[Gemini适配器] 成功接收到API响应，开始解析JSON`);
             const result = await response.json();
             
             if (result.candidates?.[0]?.content) {
@@ -183,6 +238,9 @@ export class GeminiAdapter {
         const modelToUse = "gemini-2.0-flash-exp";
         
         const url = `${this.BASE_URL}/models/${modelToUse}:generateContent?key=${this.apiKey}`;
+        
+        // Mask API key in URL for logging
+        const maskedUrl = url.replace(/(\bkey=)([^&]{4})[^&]*/gi, '$1$2****');
         
         // 准备请求内容
         const contents: { role: string; parts: ContentPart[] }[] = [{
@@ -255,11 +313,30 @@ export class GeminiAdapter {
             console.log(`[Gemini适配器] 请求是否包含图片输出: ${options.includeImageOutput ? '是' : '否'}`);
             console.log(`[Gemini适配器] 请求数据:`, JSON.stringify(data, null, 2));
             
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: this.headers,
-                body: JSON.stringify(data)
-            });
+            // Check if cloud service is enabled and use it if available
+            let response;
+            if (CloudServiceProvider.isEnabled()) {
+                console.log('[GeminiAdapter] Using cloud service for multimodal request');
+                
+                // Forward the request through the cloud service
+                response = await CloudServiceProvider.forwardRequest(
+                    url,
+                    {
+                        method: 'POST',
+                        headers: this.headers,
+                        body: JSON.stringify(data)
+                    },
+                    'gemini'
+                );
+            } else {
+                // Use direct API call if cloud service is not enabled
+                console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
+                response = await fetch(url, {
+                    method: 'POST',
+                    headers: this.headers,
+                    body: JSON.stringify(data)
+                });
+            }
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -315,7 +392,6 @@ export class GeminiAdapter {
      * @param imageUrl 图像URL
      * @returns 图像的Base64编码和MIME类型
      */
-    // 修改：公开此方法以便其他类可以使用
     async fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
         try {
             console.log(`[Gemini适配器] 正在从URL获取图片: ${imageUrl}`);
@@ -494,14 +570,6 @@ export class GeminiAdapter {
     }
 
     /**
-     * 编辑图片
-     * @param image 原始图片（URL或Base64数据）
-     * @param editPrompt 编辑指令
-     * @returns 编辑后的图片（Base64编码）
-     */
-
-
-    /**
      * 图片编辑 - 为了正确执行图像编辑操作，我们需要专门的方法
      * @param image 原始图片
      * @param prompt 编辑指令
@@ -651,12 +719,6 @@ export class GeminiAdapter {
         return (hasSearchKeyword || isQuestion) && messageText.length < 200;
     }
 
-    /**
-     * 判断消息是否需要搜索
-     * @param messageText 消息文本
-     * @returns 是否需要搜索
-     */
-    
     /**
      * 处理搜索意图
      * @param contents 消息内容

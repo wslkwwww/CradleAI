@@ -21,23 +21,25 @@ import { useUser } from '@/constants/UserContext';
 import { ApiServiceProvider } from '@/services/api-service-provider';
 import ModelSelector from '@/components/settings/ModelSelector';
 import { NodeSTManager } from '@/utils/NodeSTManager';
-import { GlobalSettings } from '@/shared/types';
+import { GlobalSettings, CloudServiceConfig } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import Mem0Service from '@/src/memory/services/Mem0Service';
 import { licenseService, LicenseInfo } from '@/services/license-service';
 import { DeviceUtils } from '@/utils/device-utils';
 import { API_CONFIG } from '@/constants/api-config';
+import { CloudServiceProvider } from '@/services/cloud-service-provider';
+
 const ApiSettings = () => {
   const router = useRouter();
   const { user, updateSettings } = useUser();
   const [isTesting, setIsTesting] = useState(false);
-  
+
   // Gemini settings
   const [geminiKey, setGeminiKey] = useState(user?.settings?.chat?.characterApiKey || '');
-  
+
   // OpenRouter settings
   const [openRouterEnabled, setOpenRouterEnabled] = useState(
-    user?.settings?.chat?.apiProvider === 'openrouter' && 
+    user?.settings?.chat?.apiProvider === 'openrouter' &&
     user?.settings?.chat?.openrouter?.enabled || false
   );
   const [openRouterKey, setOpenRouterKey] = useState(
@@ -59,13 +61,18 @@ const ApiSettings = () => {
   );
 
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
-  
+
   // Activation code settings with enhanced state
   const [useActivationCode, setUseActivationCode] = useState(false);
   const [activationCode, setActivationCode] = useState('');
   const [isActivating, setIsActivating] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null);
-  
+
+  // Cloud service state
+  const [useCloudService, setUseCloudService] = useState(
+    user?.settings?.chat?.useCloudService || false
+  );
+
   // Load existing license information on component mount
   useEffect(() => {
     const loadLicenseInfo = async () => {
@@ -74,16 +81,36 @@ const ApiSettings = () => {
         if (info) {
           setLicenseInfo(info);
           setUseActivationCode(true);
-          setActivationCode(info.licenseKey);
+          setActivationCode(info.licenseKey || ''); // Ensure we don't set undefined
+          console.log('Loaded existing license info:', info.licenseKey ? info.licenseKey.substring(0, 4) + '****' : 'No key');
+
+          // Initialize cloud service state based on saved settings
+          if (user?.settings?.chat?.useCloudService) {
+            setUseCloudService(true);
+          }
         }
       } catch (error) {
         console.error('Failed to load license info:', error);
       }
     };
-    
+
     loadLicenseInfo();
   }, []);
-  
+
+  // 在组件加载时，添加日志显示设备ID
+  useEffect(() => {
+    const logDeviceId = async () => {
+      try {
+        const deviceId = await DeviceUtils.getDeviceId();
+        console.log('当前设备ID (用于测试):', deviceId);
+      } catch (error) {
+        console.error('获取设备ID失败:', error);
+      }
+    };
+    
+    logDeviceId();
+  }, []);
+
   // Handle API provider toggle
   const handleProviderToggle = (value: boolean) => {
     setOpenRouterEnabled(value);
@@ -93,24 +120,24 @@ const ApiSettings = () => {
   const testConnection = async () => {
     try {
       setIsTesting(true);
-      
+
       const apiKey = openRouterEnabled ? openRouterKey : geminiKey;
       const apiProvider = openRouterEnabled ? 'openrouter' : 'gemini';
-      
+
       if (!apiKey) {
         Alert.alert('错误', '请输入API密钥');
         return;
       }
-      
+
       // Test connection using ApiServiceProvider
       const testMessage = "This is a test message. Please respond with 'OK' if you receive this.";
       const messages = [{ role: 'user', parts: [{ text: testMessage }] }];
-      
+
       let response;
       if (apiProvider === 'openrouter') {
         response = await ApiServiceProvider.generateContent(
-          messages, 
-          apiKey, 
+          messages,
+          apiKey,
           {
             apiProvider: 'openrouter',
             openrouter: {
@@ -126,7 +153,7 @@ const ApiSettings = () => {
       } else {
         response = await ApiServiceProvider.generateContent(messages, apiKey);
       }
-      
+
       if (response) {
         Alert.alert('连接成功', '成功连接到API服务');
       } else {
@@ -144,21 +171,21 @@ const ApiSettings = () => {
   const testZhipuEmbedding = async () => {
     try {
       setIsTesting(true);
-      
+
       if (!zhipuApiKey) {
         Alert.alert('错误', '请输入智谱清言API密钥');
         return;
       }
-      
+
       // 构建请求体，测试嵌入功能
       const testUrl = 'https://open.bigmodel.cn/api/paas/v4/embeddings';
       const testInput = "这是一个测试智谱清言嵌入功能的文本。";
-      
+
       const requestBody = {
         model: 'embedding-3',
         input: testInput
       };
-      
+
       const response = await fetch(testUrl, {
         method: 'POST',
         headers: {
@@ -167,14 +194,14 @@ const ApiSettings = () => {
         },
         body: JSON.stringify(requestBody)
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
         throw new Error(`智谱清言API错误: ${response.status} ${JSON.stringify(errorData)}`);
       }
-      
+
       const data = await response.json();
-      
+
       if (data.data && data.data[0]?.embedding) {
         const embeddingLength = data.data[0].embedding.length;
         Alert.alert('嵌入测试成功', `成功获取嵌入向量，维度: ${embeddingLength}`);
@@ -195,97 +222,37 @@ const ApiSettings = () => {
       Alert.alert('错误', '请输入激活码');
       return;
     }
-    
+
     try {
       setIsActivating(true);
-      
-      // Add detailed logging to debug the request
-      console.log('开始激活许可证，激活码:', activationCode.trim());
+
+      console.log('开始激活许可证，激活码:', activationCode.trim().substring(0, 4) + '****');
       console.log('许可证服务器域名:', API_CONFIG.LICENSE_SERVER_DOMAIN);
       console.log('许可证API端点:', API_CONFIG.LICENSE_API_URL);
-      
-      // Get device ID for logging
+      console.log('备用API端点:', API_CONFIG.LICENSE_API_FALLBACKS ? API_CONFIG.LICENSE_API_FALLBACKS[0] : 'None');
+
       const deviceId = await DeviceUtils.getDeviceId();
-      console.log('当前设备ID:', deviceId);
-      
-      // 测试许可证服务器连接性
-      console.log('测试授权服务器连接...');
-      
-      try {
-        // 测试备用URL是否能直接访问（模拟curl命令）
-        for (const url of [API_CONFIG.LICENSE_API_URL, ...API_CONFIG.LICENSE_API_FALLBACKS]) {
-          try {
-            console.log(`直接测试URL: ${url}`);
-            const testResponse = await fetch(url.replace('/license/verify', '/health'), {
-              method: 'GET',
-              cache: 'no-store',
-              headers: {
-                'User-Agent': 'CradleIntro-App/1.0',
-              },
-            });
-            
-            console.log(`URL ${url} 测试结果: ${testResponse.status} ${testResponse.ok ? '成功' : '失败'}`);
-            
-            if (testResponse.ok) {
-              // 尝试模拟curl命令的成功调用
-              console.log(`尝试使用 ${url} 以curl方式验证...`);
-              const directResponse = await fetch(url, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Accept': 'application/json',
-                  'User-Agent': 'curl/8.12.1',  // 模拟curl
-                },
-                body: JSON.stringify({
-                  license_key: activationCode.trim(),
-                  device_id: deviceId
-                }),
-                cache: 'no-store',
-              });
-              
-              const directText = await directResponse.text();
-              console.log(`直接请求结果: ${directResponse.status} - ${directText}`);
-              
-              if (directResponse.ok) {
-                console.log('直接调用成功，尝试解析响应');
-                try {
-                  const directData = JSON.parse(directText);
-                  if (directData.success) {
-                    Alert.alert('直接验证成功', 
-                      `许可证直接验证成功\n计划: ${directData.license_info?.plan_id || '未知'}\n` +
-                      `有效期至: ${directData.license_info?.expiry_date || '未知'}`
-                    );
-                  }
-                } catch (e) {
-                  console.log('解析响应失败:', e);
-                }
-              }
-            }
-          } catch (urlError) {
-            console.error(`URL ${url} 测试失败:`, urlError);
-          }
-        }
-      } catch (testError) {
-        console.error('连接测试中发生错误:', testError);
-      }
-      
-      console.log('开始许可证验证流程...');
+      console.log('当前设备ID:', deviceId.substring(0, 4) + '****');
+
+      // 确保验证过程中记录请求信息
       const licenseInfo = await licenseService.verifyLicense(activationCode.trim());
-      console.log('许可证验证响应:', licenseInfo);
-      
-      // Update state with the license info
+      console.log('许可证验证响应:', JSON.stringify(licenseInfo));
+
       setLicenseInfo(licenseInfo);
-      
+
+      if (licenseInfo) {
+        console.log('许可证激活成功，现在可以启用云服务功能');
+      }
+
       Alert.alert(
-        '激活成功', 
+        '激活成功',
         `许可证已成功激活\n有效期至: ${licenseInfo.expiryDate}`,
         [{ text: '确定' }]
       );
     } catch (error) {
       console.error('许可证激活错误:', error);
-      // More detailed error handling
       let errorMessage = '未知错误，请检查激活码是否正确';
-      
+
       if (error instanceof Error) {
         errorMessage = error.message;
       } else if (typeof error === 'string') {
@@ -293,13 +260,12 @@ const ApiSettings = () => {
       } else if (error && typeof error === 'object' && 'message' in error) {
         errorMessage = String(error.message);
       }
-      
+
       Alert.alert(
-        '激活失败', 
+        '激活失败',
         errorMessage
       );
     } finally {
-      // Ensure loading state is cleared whether successful or not
       setIsActivating(false);
     }
   };
@@ -307,12 +273,7 @@ const ApiSettings = () => {
   // Save settings
   const saveSettings = async () => {
     try {
-      // Include license info in settings if using activation code
       if (useActivationCode && licenseInfo) {
-        // Store license headers for future API requests
-        const licenseHeaders = await licenseService.getLicenseHeaders();
-        
-        // Prepare API settings object with license info
         const apiSettings: Partial<GlobalSettings> = {
           chat: {
             ...user?.settings?.chat,
@@ -324,9 +285,9 @@ const ApiSettings = () => {
             temperature: user?.settings?.chat?.temperature || 0.7,
             maxtokens: user?.settings?.chat?.maxtokens || 2000,
             maxTokens: user?.settings?.chat?.maxTokens || 2000,
-            // Add Zhipu embedding settings
             useZhipuEmbedding: useZhipuEmbedding,
             zhipuApiKey: zhipuApiKey,
+            useCloudService: useCloudService,
             openrouter: {
               enabled: openRouterEnabled,
               apiKey: openRouterKey,
@@ -335,7 +296,6 @@ const ApiSettings = () => {
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
             }
           },
-          // Add license information to settings
           license: {
             enabled: true,
             licenseKey: licenseInfo.licenseKey,
@@ -344,149 +304,35 @@ const ApiSettings = () => {
             expiryDate: licenseInfo.expiryDate
           }
         };
-        
+
         await updateSettings(apiSettings);
-        
-        // Also save to localStorage for services that need synchronous access
+
         try {
-          const fullSettings = {
-            ...user?.settings,
-            ...apiSettings
-          };
-          
-          // 保存到localStorage
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('user_settings', JSON.stringify(fullSettings));
-            console.log('API settings saved to localStorage');
-          }
-          
-          // 保存到AsyncStorage
-          if (typeof require !== 'undefined') {
-            try {
-              const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-              await AsyncStorage.setItem('user_settings', JSON.stringify(fullSettings));
-              console.log('API settings saved to AsyncStorage');
-            } catch (e) {
-              console.log('Failed to save settings to AsyncStorage:', e);
-            }
-          }
-        } catch (error) {
-          console.warn('Could not save settings to storage:', error);
-        }
-        
-        // 特别地，确保智谱API密钥被正确保存
-        try {
-          // 这是一个冗余的保存操作，确保即使其他方式失败，至少智谱API密钥被保存
-          if (useZhipuEmbedding && zhipuApiKey) {
-            // 同时，直接更新Memory服务中的嵌入器API密钥
-            try {
-              const mem0Service = Mem0Service.getInstance();
-              if (mem0Service && mem0Service.memoryRef) {
-                // 如果内存服务已初始化，直接更新嵌入器
-                if (typeof mem0Service.memoryRef.updateEmbedderApiKey === 'function') {
-                  mem0Service.memoryRef.updateEmbedderApiKey(zhipuApiKey);
-                  console.log('直接更新了Memory嵌入器的API密钥');
-                }
-              }
-            } catch (memError) {
-              console.warn('直接更新Memory嵌入器API密钥失败:', memError);
-            }
-            
-            // Web环境
-            if (typeof localStorage !== 'undefined') {
-              const existingSettingsStr = localStorage.getItem('user_settings');
-              const existingSettings = existingSettingsStr ? JSON.parse(existingSettingsStr) : {};
-              
-              const updatedSettings = {
-                ...existingSettings,
-                chat: {
-                  ...(existingSettings.chat || {}),
-                  zhipuApiKey: zhipuApiKey,
-                  useZhipuEmbedding: true
-                }
-              };
-              
-              localStorage.setItem('user_settings', JSON.stringify(updatedSettings));
-              console.log('Zhipu API key explicitly saved to localStorage');
-            }
-            
-            // React Native环境
-            if (typeof require !== 'undefined') {
-              try {
-                const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-                const existingSettingsStr = await AsyncStorage.getItem('user_settings');
-                const existingSettings = existingSettingsStr ? JSON.parse(existingSettingsStr) : {};
-                
-                const updatedSettings = {
-                  ...existingSettings,
-                  chat: {
-                    ...(existingSettings.chat || {}),
-                    zhipuApiKey: zhipuApiKey,
-                    useZhipuEmbedding: true
-                  }
-                };
-                
-                await AsyncStorage.setItem('user_settings', JSON.stringify(updatedSettings));
-                console.log('Zhipu API key explicitly saved to AsyncStorage');
-              } catch (e) {
-                console.log('Failed to save Zhipu API key to AsyncStorage:', e);
-              }
-            }
-          }
-        } catch (error) {
-          console.warn('Failed to explicitly save Zhipu API key:', error);
-        }
-        
-        // Also update Mem0Service with new API settings
-        try {
-          const mem0Service = Mem0Service.getInstance();
-          // 确定当前的API提供商和密钥
-          const currentApiProvider = openRouterEnabled ? 'openrouter' : 'gemini';
-          const currentApiKey = openRouterEnabled ? openRouterKey : geminiKey;
-          const currentModel = openRouterEnabled ? selectedModel : 'gemini-2.0-flash-exp';
-          
-          // 更新记忆服务的LLM配置
-          mem0Service.updateLLMConfig({
-            apiKey: currentApiKey,
-            model: currentModel,
-            apiProvider: currentApiProvider,
-            openrouter: openRouterEnabled ? {
+          if (useCloudService) {
+            const cloudConfig: CloudServiceConfig = {
               enabled: true,
-              apiKey: openRouterKey,
-              model: selectedModel,
-              useBackupModels: useBackupModels
-            } : undefined
-          });
-          
-          console.log('Memory LLM configuration updated');
-        } catch (memError) {
-          console.warn('Failed to update memory LLM configuration:', memError);
-          // Non-blocking error - don't prevent settings from being saved
-        }
-        
-        // Update NodeSTManager with new settings
-        NodeSTManager.updateApiSettings(
-          openRouterEnabled ? openRouterKey : geminiKey,
-          {
-            apiProvider: openRouterEnabled ? 'openrouter' : 'gemini',
-            openrouter: openRouterEnabled ? {
-              enabled: true,
-              apiKey: openRouterKey,
-              model: selectedModel,
-              useBackupModels: useBackupModels
-            } : undefined
+              licenseKey: licenseInfo.licenseKey,
+              deviceId: licenseInfo.deviceId
+            };
+
+            CloudServiceProvider.initialize(cloudConfig);
+            console.log('Cloud service provider initialized with license information');
+          } else {
+            CloudServiceProvider.disable();
+            console.log('Cloud service provider disabled');
           }
-        );
-        
+        } catch (cloudError) {
+          console.warn('Failed to initialize cloud service:', cloudError);
+        }
+
         Alert.alert('成功', '设置已保存', [
           { text: '确定', onPress: () => router.back() }
         ]);
-        
       } else if (!useActivationCode) {
-        // If activation code is disabled, clear the license
         await licenseService.clearLicense();
-        
-        // Prepare API settings object without license
+        CloudServiceProvider.disable();
+        setUseCloudService(false);
+
         const apiSettings: Partial<GlobalSettings> = {
           chat: {
             ...user?.settings?.chat,
@@ -498,9 +344,9 @@ const ApiSettings = () => {
             temperature: user?.settings?.chat?.temperature || 0.7,
             maxtokens: user?.settings?.chat?.maxtokens || 2000,
             maxTokens: user?.settings?.chat?.maxTokens || 2000,
-            // Add Zhipu embedding settings
             useZhipuEmbedding: useZhipuEmbedding,
             zhipuApiKey: zhipuApiKey,
+            useCloudService: false,
             openrouter: {
               enabled: openRouterEnabled,
               apiKey: openRouterKey,
@@ -509,145 +355,13 @@ const ApiSettings = () => {
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
             }
           },
-          // Remove license information
           license: {
             enabled: false
           }
         };
-        
+
         await updateSettings(apiSettings);
-        
-        // Also save to localStorage for services that need synchronous access
-        try {
-          const fullSettings = {
-            ...user?.settings,
-            ...apiSettings
-          };
-          
-          // 保存到localStorage
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('user_settings', JSON.stringify(fullSettings));
-            console.log('API settings saved to localStorage');
-          }
-          
-          // 保存到AsyncStorage
-          if (typeof require !== 'undefined') {
-            try {
-              const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-              await AsyncStorage.setItem('user_settings', JSON.stringify(fullSettings));
-              console.log('API settings saved to AsyncStorage');
-            } catch (e) {
-              console.log('Failed to save settings to AsyncStorage:', e);
-            }
-          }
-        } catch (error) {
-          console.warn('Could not save settings to storage:', error);
-        }
-        
-        // 特别地，确保智谱API密钥被正确保存
-        try {
-          // 这是一个冗余的保存操作，确保即使其他方式失败，至少智谱API密钥被保存
-          if (useZhipuEmbedding && zhipuApiKey) {
-            // 同时，直接更新Memory服务中的嵌入器API密钥
-            try {
-              const mem0Service = Mem0Service.getInstance();
-              if (mem0Service && mem0Service.memoryRef) {
-                // 如果内存服务已初始化，直接更新嵌入器
-                if (typeof mem0Service.memoryRef.updateEmbedderApiKey === 'function') {
-                  mem0Service.memoryRef.updateEmbedderApiKey(zhipuApiKey);
-                  console.log('直接更新了Memory嵌入器的API密钥');
-                }
-              }
-            } catch (memError) {
-              console.warn('直接更新Memory嵌入器API密钥失败:', memError);
-            }
-            
-            // Web环境
-            if (typeof localStorage !== 'undefined') {
-              const existingSettingsStr = localStorage.getItem('user_settings');
-              const existingSettings = existingSettingsStr ? JSON.parse(existingSettingsStr) : {};
-              
-              const updatedSettings = {
-                ...existingSettings,
-                chat: {
-                  ...(existingSettings.chat || {}),
-                  zhipuApiKey: zhipuApiKey,
-                  useZhipuEmbedding: true
-                }
-              };
-              
-              localStorage.setItem('user_settings', JSON.stringify(updatedSettings));
-              console.log('Zhipu API key explicitly saved to localStorage');
-            }
-            
-            // React Native环境
-            if (typeof require !== 'undefined') {
-              try {
-                const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-                const existingSettingsStr = await AsyncStorage.getItem('user_settings');
-                const existingSettings = existingSettingsStr ? JSON.parse(existingSettingsStr) : {};
-                
-                const updatedSettings = {
-                  ...existingSettings,
-                  chat: {
-                    ...(existingSettings.chat || {}),
-                    zhipuApiKey: zhipuApiKey,
-                    useZhipuEmbedding: true
-                  }
-                };
-                
-                await AsyncStorage.setItem('user_settings', JSON.stringify(updatedSettings));
-                console.log('Zhipu API key explicitly saved to AsyncStorage');
-              } catch (e) {
-                console.log('Failed to save Zhipu API key to AsyncStorage:', e);
-              }
-            }
-          }
-        } catch (error) {
-          console.warn('Failed to explicitly save Zhipu API key:', error);
-        }
-        
-        // Also update Mem0Service with new API settings
-        try {
-          const mem0Service = Mem0Service.getInstance();
-          // 确定当前的API提供商和密钥
-          const currentApiProvider = openRouterEnabled ? 'openrouter' : 'gemini';
-          const currentApiKey = openRouterEnabled ? openRouterKey : geminiKey;
-          const currentModel = openRouterEnabled ? selectedModel : 'gemini-2.0-flash-exp';
-          
-          // 更新记忆服务的LLM配置
-          mem0Service.updateLLMConfig({
-            apiKey: currentApiKey,
-            model: currentModel,
-            apiProvider: currentApiProvider,
-            openrouter: openRouterEnabled ? {
-              enabled: true,
-              apiKey: openRouterKey,
-              model: selectedModel,
-              useBackupModels: useBackupModels
-            } : undefined
-          });
-          
-          console.log('Memory LLM configuration updated');
-        } catch (memError) {
-          console.warn('Failed to update memory LLM configuration:', memError);
-          // Non-blocking error - don't prevent settings from being saved
-        }
-        
-        // Update NodeSTManager with new settings
-        NodeSTManager.updateApiSettings(
-          openRouterEnabled ? openRouterKey : geminiKey,
-          {
-            apiProvider: openRouterEnabled ? 'openrouter' : 'gemini',
-            openrouter: openRouterEnabled ? {
-              enabled: true,
-              apiKey: openRouterKey,
-              model: selectedModel,
-              useBackupModels: useBackupModels
-            } : undefined
-          }
-        );
-        
+
         Alert.alert('成功', '设置已保存', [
           { text: '确定', onPress: () => router.back() }
         ]);
@@ -661,7 +375,6 @@ const ApiSettings = () => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={theme.colors.background} />
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -675,7 +388,6 @@ const ApiSettings = () => {
         style={styles.container}
       >
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          {/* Activation Code Section */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>激活码</Text>
@@ -693,19 +405,26 @@ const ApiSettings = () => {
                 <TextInput
                   style={styles.input}
                   value={activationCode}
-                  onChangeText={setActivationCode}
+                  onChangeText={(text) => {
+                    // 当用户修改激活码时，清除以前的license信息
+                    if (licenseInfo && text !== licenseInfo.licenseKey) {
+                      console.log('激活码已修改，清除现有许可证信息');
+                      setLicenseInfo(null);
+                    }
+                    setActivationCode(text);
+                  }}
                   placeholder="输入激活码"
                   placeholderTextColor="#999"
                   secureTextEntry={false}
                 />
-                
+
                 {licenseInfo ? (
                   <View style={styles.licenseInfoContainer}>
                     <Text style={styles.licenseStatusText}>
-                      <Ionicons 
-                        name="checkmark-circle" 
-                        size={16} 
-                        color="#4CAF50" 
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={16}
+                        color="#4CAF50"
                       /> 已激活
                     </Text>
                     <Text style={styles.licenseInfoText}>
@@ -717,6 +436,26 @@ const ApiSettings = () => {
                     <Text style={styles.licenseInfoText}>
                       已绑定设备数: {licenseInfo.deviceCount || 1}/3
                     </Text>
+                    {/* 添加设备ID显示，方便测试 */}
+                    <Text style={styles.licenseInfoText}>
+                      设备ID: {licenseInfo.deviceId ? `${licenseInfo.deviceId.substring(0, 8)}...` : '未知'}
+                    </Text>
+
+                    <View style={styles.cloudServiceContainer}>
+                      <Text style={styles.cloudServiceLabel}>启用云服务</Text>
+                      <Switch
+                        value={useCloudService}
+                        onValueChange={setUseCloudService}
+                        trackColor={{ false: '#767577', true: 'rgba(100, 210, 255, 0.4)' }}
+                        thumbColor={useCloudService ? '#2196F3' : '#f4f3f4'}
+                        disabled={!licenseInfo}
+                      />
+                    </View>
+                    {useCloudService && (
+                      <Text style={styles.cloudServiceInfo}>
+                        云服务已启用，API请求将通过Cradle云服务转发，无需额外配置API密钥
+                      </Text>
+                    )}
                   </View>
                 ) : (
                   <TouchableOpacity
@@ -735,7 +474,6 @@ const ApiSettings = () => {
             )}
           </View>
 
-          {/* Gemini API Settings */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Gemini API</Text>
@@ -765,7 +503,6 @@ const ApiSettings = () => {
             )}
           </View>
 
-          {/* OpenRouter API Settings */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>OpenRouter API</Text>
@@ -792,7 +529,6 @@ const ApiSettings = () => {
                   可从 <Text style={styles.link}>OpenRouter</Text> 获取 API Key
                 </Text>
 
-                {/* Model Selector Button */}
                 <View style={styles.modelSection}>
                   <Text style={styles.inputLabel}>当前选定模型</Text>
                   <TouchableOpacity
@@ -817,7 +553,6 @@ const ApiSettings = () => {
             )}
           </View>
 
-          {/* Zhipu API Settings - New section */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>智谱清言嵌入</Text>
@@ -859,7 +594,6 @@ const ApiSettings = () => {
             )}
           </View>
 
-          {/* Action Buttons */}
           <View style={styles.buttonGroup}>
             <TouchableOpacity
               style={styles.testButton}
@@ -875,7 +609,7 @@ const ApiSettings = () => {
                 </>
               )}
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               style={styles.saveButton}
               onPress={saveSettings}
@@ -885,7 +619,6 @@ const ApiSettings = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Notes */}
           <View style={styles.notesContainer}>
             <Text style={styles.noteTitle}>使用说明:</Text>
             <View style={styles.noteItem}>
@@ -904,7 +637,6 @@ const ApiSettings = () => {
               <Ionicons name="warning-outline" size={16} color="#f0ad4e" style={styles.noteIcon} />
               <Text style={styles.noteText}>智谱清言嵌入需要单独的API密钥，与LLM的密钥不通用</Text>
             </View>
-            {/* Add license-related notes */}
             <View style={styles.noteItem}>
               <Ionicons name="key-outline" size={16} color="#aaa" style={styles.noteIcon} />
               <Text style={styles.noteText}>激活码可以在最多3台设备上使用，首次使用将自动绑定设备</Text>
@@ -913,11 +645,18 @@ const ApiSettings = () => {
               <Ionicons name="shield-outline" size={16} color="#aaa" style={styles.noteIcon} />
               <Text style={styles.noteText}>激活后可使用所有高级API功能，无需再配置其他API密钥</Text>
             </View>
+            <View style={styles.noteItem}>
+              <Ionicons name="cloud-outline" size={16} color="#2196F3" style={styles.noteIcon} />
+              <Text style={styles.noteText}>云服务允许无需API密钥即可使用高级模型，仅限许可证用户</Text>
+            </View>
+            <View style={styles.noteItem}>
+              <Ionicons name="shield-checkmark-outline" size={16} color="#2196F3" style={styles.noteIcon} />
+              <Text style={styles.noteText}>云服务提供稳定的全球访问，绕过地区限制，保护您的隐私</Text>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Model Selector Modal */}
       <Modal
         visible={isModelSelectorVisible}
         transparent={true}
@@ -1116,7 +855,6 @@ const styles = StyleSheet.create({
     color: '#ddd',
     flex: 1,
   },
-  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -1126,7 +864,7 @@ const styles = StyleSheet.create({
   modalContent: {
     backgroundColor: '#333',
     width: '90%',
-    height: '70%', // Change maxHeight to fixed height
+    height: '70%',
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -1147,14 +885,12 @@ const styles = StyleSheet.create({
   modalCloseButton: {
     padding: 4,
   },
-  // Add new styles for Zhipu section
   zhipuTestButton: {
-    backgroundColor: '#8e44ad', // Purple color for Zhipu
+    backgroundColor: '#8e44ad',
     alignSelf: 'flex-start',
     paddingHorizontal: 16,
     borderRadius: 8,
   },
-  // Add new styles for license activation
   licenseInfoContainer: {
     marginTop: 16,
     padding: 12,
@@ -1184,6 +920,26 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.6,
+  },
+  cloudServiceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  cloudServiceLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cloudServiceInfo: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#aaa',
+    fontStyle: 'italic',
   },
 });
 

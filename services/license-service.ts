@@ -4,6 +4,7 @@ import { API_CONFIG } from '@/constants/api-config';
 
 // 存储键名
 const LICENSE_KEY_STORAGE_KEY = 'license_key';
+const IS_INITIALIZING_KEY = 'license_service_initializing';
 
 export interface LicenseInfo {
   licenseKey: string;
@@ -20,60 +21,112 @@ class LicenseService {
   private licenseInfo: LicenseInfo | null = null;
   private deviceId: string | null = null;
   private initialized = false;
+  private initializationPromise: Promise<void> | null = null;
 
   /**
    * 初始化服务，从存储中加载许可证
    */
   public async initialize(): Promise<void> {
+    // 防止重复初始化
     if (this.initialized) return;
+    
+    // 如果已经在初始化中，等待现有的初始化完成
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
 
+    // 创建初始化promise并存储它
+    this.initializationPromise = this._initialize();
+    return this.initializationPromise;
+  }
+
+  private async _initialize(): Promise<void> {
     try {
+      // 检查是否有其他初始化过程在进行中
+      const isInitializing = await AsyncStorage.getItem(IS_INITIALIZING_KEY);
+      if (isInitializing === 'true') {
+        console.log('[LicenseService] 另一个初始化过程正在进行，等待...');
+        // 等待一小段时间，让其他初始化完成
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        this.initialized = true;
+        return;
+      }
+
+      // 标记初始化开始
+      await AsyncStorage.setItem(IS_INITIALIZING_KEY, 'true');
+      
+      console.log('[LicenseService] 初始化许可证服务...');
+      
       // 加载许可证密钥
       this.licenseKey = await AsyncStorage.getItem(LICENSE_KEY_STORAGE_KEY);
+      console.log('[LicenseService] 从存储加载许可证密钥:', this.licenseKey ? '成功' : '未找到');
       
       // 获取设备ID
       this.deviceId = await DeviceUtils.getDeviceId();
+      console.log('[LicenseService] 设备ID:', this.deviceId ? this.deviceId.substring(0, 4) + '****' : '未获取');
       
       // 如果有许可证密钥，验证其有效性
       if (this.licenseKey) {
         try {
-          const info = await this.verifyLicense(this.licenseKey);
+          console.log('[LicenseService] 尝试验证已存储的许可证...');
+          const info = await this._verifyLicenseInternal(this.licenseKey);
           this.licenseInfo = info;
-          console.log('License loaded and verified');
+          console.log('[LicenseService] 许可证加载并验证成功');
         } catch (error) {
-          console.warn('Stored license failed verification:', error);
-          this.licenseKey = null;
-          this.licenseInfo = null;
-          // 不删除存储的许可证密钥，让用户手动处理无效的许可证
+          console.warn('[LicenseService] 存储的许可证验证失败:', error);
+          // 许可证验证失败，但不清除存储的许可证密钥
+          // 这里我们仍然保留许可证信息，但标记为无效
+          if (this.licenseInfo) {
+            this.licenseInfo.isValid = false;
+          }
         }
       }
       
       this.initialized = true;
+      console.log('[LicenseService] 许可证服务初始化完成');
     } catch (error) {
-      console.error('Failed to initialize license service:', error);
-      throw error;
+      console.error('[LicenseService] 初始化许可证服务失败:', error);
+      this.initialized = true; // 即使失败也标记为已初始化，避免反复初始化
+    } finally {
+      // 清除初始化标记
+      await AsyncStorage.removeItem(IS_INITIALIZING_KEY);
+      this.initializationPromise = null;
     }
   }
 
   /**
-   * 验证许可证密钥
+   * 验证许可证密钥 - 公开接口
    */
   public async verifyLicense(licenseKey: string): Promise<LicenseInfo> {
+    console.log('[LicenseService] 开始验证新许可证:', licenseKey.substring(0, 4) + '****');
+    
     // 确保已初始化
     if (!this.initialized) {
+      console.log('[LicenseService] 验证前初始化服务');
       await this.initialize();
     }
     
+    // 实际验证过程
+    return this._verifyLicenseInternal(licenseKey);
+  }
+
+  /**
+   * 验证许可证密钥 - 内部实现
+   */
+  private async _verifyLicenseInternal(licenseKey: string): Promise<LicenseInfo> {
     // 获取设备ID
     if (!this.deviceId) {
       this.deviceId = await DeviceUtils.getDeviceId();
+      console.log('[LicenseService] 获取设备ID:', this.deviceId.substring(0, 4) + '****');
     }
     
     // 首先测试与服务器的连接
+    console.log('[LicenseService] 测试与授权服务器的连接');
     const connectivityResult = await this.testServerConnectivity();
-    console.log('服务器连接测试结果:', connectivityResult);
+    console.log('[LicenseService] 服务器连接测试结果:', connectivityResult);
     
     if (!connectivityResult.anySuccess) {
+      console.error('[LicenseService] 连接测试失败:', connectivityResult.details);
       throw new Error('无法连接到授权服务器，请检查网络连接后重试');
     }
     
@@ -82,6 +135,8 @@ class LicenseService {
       license_key: licenseKey,
       device_id: this.deviceId
     };
+    
+    console.log('[LicenseService] 将使用设备ID:', this.deviceId);
     
     // 定义所有要尝试的URL (主要 + 备用)
     const urlsToTry = [
@@ -95,13 +150,13 @@ class LicenseService {
     // 依次尝试每个URL
     for (const apiUrl of urlsToTry) {
       try {
-        console.log(`尝试验证授权：${apiUrl}`);
+        console.log(`[LicenseService] 尝试验证授权：${apiUrl}`);
         
         // 增强的fetch请求，包含超时
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时
         
-        console.log('Request payload:', JSON.stringify(requestData));
+        console.log('[LicenseService] 请求数据:', JSON.stringify(requestData));
         
         const response = await fetch(apiUrl, {
           method: 'POST',
@@ -114,20 +169,23 @@ class LicenseService {
           signal: controller.signal,
           // 禁用缓存，确保总是发送新请求
           cache: 'no-store',
+        }).catch(err => {
+          console.error(`[LicenseService] Fetch异常: ${err.message}`);
+          throw err;
         });
         
         clearTimeout(timeoutId);
         
-        console.log(`${apiUrl} 响应状态码:`, response.status);
+        console.log(`[LicenseService] ${apiUrl} 响应状态码:`, response.status);
         
         // 获取响应文本
         const responseText = await response.text();
-        console.log(`${apiUrl} 响应内容:`, responseText);
+        console.log(`[LicenseService] ${apiUrl} 响应内容:`, responseText);
         
         if (!response.ok) {
           const errorMsg = `验证失败(${response.status}): ${responseText}`;
           errors.push(errorMsg);
-          console.error(errorMsg);
+          console.error(`[LicenseService] ${errorMsg}`);
           continue; // 尝试下一个URL
         }
         
@@ -138,14 +196,14 @@ class LicenseService {
         } catch (e) {
           const errorMsg = `响应不是有效的JSON: ${responseText}`;
           errors.push(errorMsg);
-          console.error(errorMsg);
+          console.error(`[LicenseService] ${errorMsg}`);
           continue; // 尝试下一个URL
         }
         
         if (!data.success) {
           const errorMsg = data.error || '许可证验证失败';
           errors.push(errorMsg);
-          console.error(errorMsg);
+          console.error(`[LicenseService] ${errorMsg}`);
           continue; // 尝试下一个URL
         }
         
@@ -166,6 +224,7 @@ class LicenseService {
         
         // 保存许可证密钥到存储
         await AsyncStorage.setItem(LICENSE_KEY_STORAGE_KEY, licenseKey);
+        console.log('[LicenseService] 许可证已保存到存储');
         
         return licenseInfo;
         
@@ -173,12 +232,14 @@ class LicenseService {
         // 记录错误并继续尝试下一个URL
         const errorMsg = error instanceof Error ? error.message : String(error);
         errors.push(`${apiUrl}: ${errorMsg}`);
-        console.error(`${apiUrl} 请求失败:`, errorMsg);
+        console.error(`[LicenseService] ${apiUrl} 请求失败:`, errorMsg);
       }
     }
     
     // 所有URL都失败了，抛出综合错误
-    throw new Error(`所有许可证验证尝试均失败: ${errors.join('; ')}`);
+    const finalError = `所有许可证验证尝试均失败: ${errors.join('; ')}`;
+    console.error(`[LicenseService] ${finalError}`);
+    throw new Error(finalError);
   }
 
   /**
@@ -323,17 +384,29 @@ class LicenseService {
   public async getLicenseHeaders(): Promise<Record<string, string>> {
     // 确保已初始化
     if (!this.initialized) {
+      console.log('[LicenseService] 获取许可证头前初始化服务');
       await this.initialize();
     }
     
+    // 检查许可证和设备ID
     if (!this.licenseKey || !this.deviceId) {
+      console.log('[LicenseService] 无法创建许可证头: 许可证密钥或设备ID缺失');
       return {};
     }
     
-    return {
+    // 检查许可证有效性（如果有许可证信息）
+    if (this.licenseInfo && !this.licenseInfo.isValid) {
+      console.log('[LicenseService] 许可证无效，无法创建有效的许可证头');
+      return {};
+    }
+    
+    const headers = {
       'X-License-Key': this.licenseKey,
       'X-Device-ID': this.deviceId
     };
+    
+    console.log('[LicenseService] 创建许可证头成功');
+    return headers;
   }
 
   /**
@@ -343,7 +416,7 @@ class LicenseService {
     this.licenseKey = null;
     this.licenseInfo = null;
     await AsyncStorage.removeItem(LICENSE_KEY_STORAGE_KEY);
-    console.log('License cleared');
+    console.log('[LicenseService] License cleared');
   }
   
   /**
@@ -370,6 +443,14 @@ class LicenseService {
       console.error('Failed to refresh license status:', error);
       return null;
     }
+  }
+
+  /**
+   * 检查服务是否已初始化
+   * 公开方法，供外部组件检查初始化状态
+   */
+  public isInitialized(): boolean {
+    return this.initialized;
   }
 }
 

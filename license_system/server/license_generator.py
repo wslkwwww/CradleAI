@@ -65,13 +65,16 @@ class LicenseGenerator:
         
         # 计算过期时间
         created_at = int(time.time())
-        expires_at = created_at + (validity_days * 86400)
+        expires_at = created_at + (int(validity_days) * 86400)
         expiry_date = datetime.fromtimestamp(expires_at).strftime('%Y-%m-%d')
         
         try:
-            # 派生密钥并生成哈希
+            # 派生密钥并生成哈希 - 确保使用正确的格式
             key_material = f"{license_key}:{self.master_key}"
             hash_value = self.ph.hash(key_material)
+            
+            logger.debug(f"生成许可证哈希值: (密钥前缀) {license_key[:4]}****:{self.master_key[:4]}****")
+            logger.debug(f"哈希值前缀: {hash_value[:30]}...")
             
             # 将许可证信息存储到数据库
             license_id = db_utils.create_license(
@@ -81,6 +84,12 @@ class LicenseGenerator:
             if not license_id:
                 logger.error(f"创建许可证失败: {license_key}")
                 raise Exception("创建许可证失败")
+                
+            # 验证许可证哈希是否被正确存储
+            license_info = db_utils.get_license_by_code(license_key)
+            if not license_info or not license_info.get('hash'):
+                logger.warning(f"许可证哈希值未被正确存储, 尝试再次更新")
+                db_utils.update_license(license_id, hash=hash_value)
                 
             # 记录审计日志
             db_utils.log_action(
@@ -106,6 +115,9 @@ class LicenseGenerator:
             
         except Exception as e:
             logger.error(f"生成许可证时出错: {str(e)}")
+            # 添加更详细的错误日志
+            import traceback
+            logger.error(traceback.format_exc())
             raise
             
     def revoke_license(self, license_key, client_ip=None, reason=None):

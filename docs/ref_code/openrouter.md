@@ -1,5 +1,3 @@
-好的，这是一份基于 OpenRouter 文档，并结合你的 AI 聊天 App 现有功能和需求的详细需求文档：
-
 **项目名称：** 为nodest集成 OpenRouter API
 
 **1. 项目目标：**

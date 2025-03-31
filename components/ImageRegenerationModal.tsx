@@ -24,6 +24,10 @@ import TagSelector from './TagSelector';
 import { downloadAndSaveImage } from '@/utils/imageUtils';
 import ArtistReferenceSelector from './ArtistReferenceSelector';
 import { DEFAULT_NEGATIVE_PROMPTS } from '@/constants/defaultPrompts';
+import { licenseService } from '@/services/license-service'; // 导入许可证服务
+
+// 更新图片生成服务的基础URL常量
+const IMAGE_SERVICE_BASE_URL = 'https://image.cradleintro.top:443';
 
 // Get screen dimensions for modal sizing
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -164,6 +168,34 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   // Add state for tag reordering
   const [reorderingPositive, setReorderingPositive] = useState(false);
   const [reorderingNegative, setReorderingNegative] = useState(false);
+  
+  // 添加许可证信息状态
+  const [licenseInfo, setLicenseInfo] = useState<any>(null);
+  const [licenseLoaded, setLicenseLoaded] = useState(false);
+  
+  // 组件挂载时加载许可证信息
+  useEffect(() => {
+    const loadLicense = async () => {
+      try {
+        // 先初始化许可证服务，使用公开方法检查初始化状态
+        if (!licenseService.isInitialized()) {
+          await licenseService.initialize();
+        }
+        
+        // 获取许可证信息
+        const info = await licenseService.getLicenseInfo();
+        setLicenseInfo(info);
+        setLicenseLoaded(true);
+        
+        console.log('[图片重生成] 许可证信息加载完成:', info ? '成功' : '未找到许可证');
+      } catch (error) {
+        console.error('[图片重生成] 加载许可证信息失败:', error);
+        setLicenseLoaded(true);
+      }
+    };
+    
+    loadLicense();
+  }, []);
   
   // Reset state when modal opens
   useEffect(() => {
@@ -309,24 +341,89 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         resolution: 'portrait',
       };
       
-      // 发送请求到服务器
-      const response = await fetch('http://152.69.219.182:5000/generate', {
+      // 获取许可证头信息 - 使用刷新方式确保最新
+      console.log(`[图片重生成] 正在获取许可证信息...`);
+      
+      // 先强制刷新许可证状态
+      await licenseService.refreshLicenseStatus();
+      
+      // 获取许可证头部
+      const licenseHeaders = await licenseService.getLicenseHeaders();
+      console.log(`[图片重生成] 许可证头信息获取${licenseHeaders ? '成功' : '失败'}`);
+      
+      // 检查许可证头是否完整
+      if (!licenseHeaders || !licenseHeaders['X-License-Key'] || !licenseHeaders['X-Device-ID']) {
+        console.error(`[图片重生成] 许可证头信息不完整`);
+        throw new Error('许可证信息不完整，请在API设置中重新激活');
+      }
+      
+      // 详细调试许可证信息
+      console.log(`[图片重生成] 使用许可证密钥: ${licenseHeaders['X-License-Key'] ? `${licenseHeaders['X-License-Key'].substring(0, 4)}****` : '未设置'}`);
+      console.log(`[图片重生成] 使用设备ID: ${licenseHeaders['X-Device-ID'] ? `${licenseHeaders['X-Device-ID'].substring(0, 4)}****` : '未设置'}`);
+      
+      // 发送请求到新的服务器地址，并携带许可证信息
+      console.log(`[图片重生成] 正在向服务器 ${IMAGE_SERVICE_BASE_URL}/generate 发送请求...`);
+      const response = await fetch(`${IMAGE_SERVICE_BASE_URL}/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...licenseHeaders  // 添加许可证头信息
         },
         body: JSON.stringify(requestData),
       });
       
+      // 更详细的响应日志
+      console.log(`[图片重生成] 服务器响应状态: ${response.status} ${response.statusText || ''}`);
+      
+      if (!response.ok) {
+        console.error(`[图片重生成] 服务器响应错误: HTTP ${response.status}`);
+        
+        // 尝试解析并显示详细错误
+        let errorDetail = '';
+        try {
+          const errorText = await response.text();
+          console.error(`[图片重生成] 错误详情: ${errorText}`);
+          
+          try {
+            const errorObj = JSON.parse(errorText);
+            if (errorObj.error) {
+              if (errorObj.code === 'LICENSE_REQUIRED') {
+                errorDetail = '需要有效的许可证，请重新激活';
+              } else {
+                errorDetail = errorObj.error;
+              }
+            }
+          } catch (e) {
+            errorDetail = errorText;
+          }
+        } catch (e) {
+          errorDetail = '无法获取详细错误信息';
+        }
+        
+        // 构建适合用户查看的错误消息
+        if (response.status === 401) {
+          throw new Error(`授权验证失败: ${errorDetail || '请检查激活码是否有效'}`);
+        } else {
+          throw new Error(`服务器响应错误: ${response.status} - ${errorDetail || '未知错误'}`);
+        }
+      }
+      
       const data = await response.json();
       
       if (!data.success) {
+        console.error(`[图片重生成] 请求失败: ${data.error || '未知错误'}`);
         throw new Error(data.error || '图像生成请求失败');
       }
       
       // 获取任务ID
       const taskId = data.task_id;
       console.log(`[图片重生成] 已提交任务，ID: ${taskId}`);
+      console.log(`[图片重生成] 队列位置: ${data.queue_info?.position || '未知'}, 总待处理任务: ${data.queue_info?.total_pending || '未知'}`);
+      
+      if (data.rate_limit_info) {
+        console.log(`[图片重生成] 速率限制信息: 当日限额=${data.rate_limit_info.daily_limit}, 已使用=${data.rate_limit_info.requests_today}, 剩余=${data.rate_limit_info.remaining}`);
+      }
       
       // Save generation configuration for future regeneration
       const generationConfig = {
@@ -380,7 +477,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
     }
   };
   
-  // 添加图片生成状态检查函数
+  // 修改图片生成状态检查函数确保包含正确的授权头
   const checkImageGenerationStatus = async (characterId: string, taskId: string, imageId: string) => {
     console.log(`[图片重生成] 开始检查任务状态: ${taskId}`);
     
@@ -392,9 +489,29 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       try {
         console.log(`[图片重生成] 检查 #${retries+1}, 任务: ${taskId}`);
         
-        const response = await fetch(`http://152.69.219.182:5000/task_status/${taskId}`);
+        // 获取许可证头信息 - 每次检查都重新获取以确保最新
+        const licenseHeaders = await licenseService.getLicenseHeaders();
+        
+        // 检查许可证头是否完整
+        if (!licenseHeaders || !licenseHeaders['X-License-Key'] || !licenseHeaders['X-Device-ID']) {
+          console.error(`[图片重生成] 检查任务状态时许可证头信息不完整`);
+        }
+        
+        // 构建请求头
+        const headers = {
+          'Accept': 'application/json',
+          ...(licenseHeaders || {})
+        };
+        
+        // 使用新的图片服务地址和许可证头信息
+        const response = await fetch(`${IMAGE_SERVICE_BASE_URL}/task_status/${taskId}`, {
+          headers: headers
+        });
+        
         if (!response.ok) {
           console.warn(`[图片重生成] 获取任务状态失败: HTTP ${response.status}`);
+          const errorText = await response.text();
+          console.warn(`[图片重生成] 错误详情: ${errorText}`);
           return setTimeout(poll, 10000); // 10秒后重试
         }
         
@@ -460,6 +577,14 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             onSuccess(failedImage);
           }
           return; // 结束轮询
+        }
+        
+        // 记录队列位置信息
+        if (data.queue_info) {
+          console.log(`[图片重生成] 任务队列位置: ${data.queue_info.position}, 总待处理任务: ${data.queue_info.total_pending}`);
+          if (data.queue_info.estimated_wait) {
+            console.log(`[图片重生成] 预计等待时间: ${Math.round(data.queue_info.estimated_wait / 60)} 分钟`);
+          }
         }
         
         // 如果任务仍在进行中且未超过最大重试次数

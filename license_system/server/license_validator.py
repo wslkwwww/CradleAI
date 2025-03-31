@@ -90,22 +90,72 @@ class LicenseValidator:
                 
             # 验证密钥
             try:
-                key_material = f"{license_key}:{self.master_key}"
+                # 检查哈希值是否存在
                 stored_hash = license_info['hash']
-                self.ph.verify(stored_hash, key_material)
-            except argon2.exceptions.VerifyMismatchError:
-                logger.warning(f"许可证密钥验证失败: {license_key}")
-                self._log_failed_verification(license_info['id'], device_id, client_ip, "密钥验证失败")
-                db_utils.increment_failed_attempts(license_key)
+                if not stored_hash:
+                    logger.error(f"许可证 {license_key} 缺少哈希值")
+                    
+                    # 尝试修复缺失的哈希值
+                    try:
+                        logger.warning(f"尝试修复缺失的哈希值...")
+                        key_material = f"{license_key}:{self.master_key}"
+                        new_hash = self.ph.hash(key_material)
+                        db_utils.update_license(license_info['id'], hash=new_hash)
+                        stored_hash = new_hash
+                        logger.info(f"已修复许可证 {license_key} 的哈希值")
+                    except Exception as e:
+                        logger.error(f"修复哈希值失败: {str(e)}")
+                        self._log_failed_verification(license_info['id'], device_id, client_ip, "许可证数据不完整")
+                        return None
+                
+                # 显示更多调试信息以帮助诊断问题
+                logger.debug(f"验证许可证哈希值: (密钥前缀) {license_key[:4]}****:{self.master_key[:4]}****")
+                logger.debug(f"存储的哈希值前缀: {stored_hash[:30]}...")
+                
+                key_material = f"{license_key}:{self.master_key}"
+                verification_result = False
+                
+                try:
+                    # 尝试标准验证
+                    self.ph.verify(stored_hash, key_material)
+                    verification_result = True
+                    logger.debug(f"许可证 {license_key} 标准哈希验证成功")
+                except argon2.exceptions.VerifyMismatchError:
+                    logger.warning(f"许可证标准哈希验证失败: {license_key}")
+                    
+                    # 尝试重新计算哈希值并更新
+                    try:
+                        logger.warning(f"尝试重新生成并更新哈希值...")
+                        new_hash = self.ph.hash(key_material)
+                        db_utils.update_license(license_info['id'], hash=new_hash)
+                        
+                        # 再次验证
+                        self.ph.verify(new_hash, key_material)
+                        verification_result = True
+                        logger.info(f"使用重新生成的哈希值验证成功")
+                    except Exception as e:
+                        logger.error(f"重新生成哈希值验证失败: {str(e)}")
+                
+                if not verification_result:
+                    self._log_failed_verification(license_info['id'], device_id, client_ip, "密钥验证失败")
+                    db_utils.increment_failed_attempts(license_key)
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"验证哈希时出错: {str(e)}")
+                self._log_failed_verification(license_info['id'], device_id, client_ip, f"哈希验证错误: {str(e)}")
                 return None
                 
             # 检查设备绑定
             devices = license_info['devices'].split(',') if license_info['devices'] else []
+            # 过滤空字符串
+            devices = [d for d in devices if d]
             
             if device_id not in devices:
                 # 如果设备数量已达上限
-                if len(devices) >= config.MAX_DEVICES_PER_LICENSE:
-                    logger.warning(f"许可证 {license_key} 设备数量已达上限: {len(devices)}/{config.MAX_DEVICES_PER_LICENSE}")
+                max_devices = license_info.get('max_devices', config.MAX_DEVICES_PER_LICENSE)
+                if len(devices) >= max_devices:
+                    logger.warning(f"许可证 {license_key} 设备数量已达上限: {len(devices)}/{max_devices}")
                     self._log_failed_verification(license_info['id'], device_id, client_ip, "设备数量超限")
                     return None
                     
@@ -113,6 +163,8 @@ class LicenseValidator:
                 devices.append(device_id)
                 db_utils.update_license_devices(license_key, devices)
                 logger.info(f"许可证 {license_key} 新增设备绑定: {device_id}")
+            else:
+                logger.debug(f"设备 {device_id} 已绑定到许可证 {license_key}")
                 
             # 更新最后验证时间并重置失败次数
             db_utils.update_license_last_verified(license_key)
@@ -141,11 +193,14 @@ class LicenseValidator:
             
         except Exception as e:
             logger.error(f"验证许可证时出错: {str(e)}")
-            # 记录失败，但不增加失败计数（因为这是服务器错误）
-            if license_info:
-                self._log_failed_verification(
-                    license_info['id'], device_id, client_ip, f"服务器错误: {str(e)}"
-                )
+            # 确保在发生异常时license_info变量已定义
+            license_id = getattr(license_info, 'id', None) if 'license_info' in locals() else None
+            self._log_failed_verification(
+                license_id, device_id, client_ip, f"服务器错误: {str(e)}"
+            )
+            # 添加详细的堆栈跟踪以便调试
+            import traceback
+            logger.error(traceback.format_exc())
             return None
             
     def _log_successful_verification(self, license_id, device_id, client_ip):
