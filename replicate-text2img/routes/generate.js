@@ -1,12 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const replicateService = require('../services/replicateService');
-const minioService = require('../services/minioService');
 const validator = require('../middleware/validator');
 
 /**
  * POST /generate
- * Generate images using Replicate API and store them in MinIO
+ * Generate images using Replicate API and return their URLs directly
  */
 router.post('/', validator.validateGenerateRequest, async (req, res, next) => {
   try {
@@ -53,19 +52,10 @@ router.post('/', validator.validateGenerateRequest, async (req, res, next) => {
       throw new Error('Invalid prediction output');
     }
 
-    // Download and upload each generated image
-    const urls = [];
-    for (const imageUrl of completedPrediction.output) {
-      console.log('Downloading image from:', imageUrl);
-      const imageBuffer = await replicateService.downloadImage(imageUrl);
-      
-      console.log('Uploading image to MinIO...');
-      const minioUrl = await minioService.uploadImage(imageBuffer, 'image/png');
-      
-      urls.push(minioUrl);
-    }
+    // Return the URLs directly from Replicate without uploading to MinIO
+    const urls = completedPrediction.output;
 
-    // Return the URLs of the uploaded images
+    // Return the URLs of the generated images
     res.status(200).json({ urls });
   } catch (error) {
     console.error('Error in generate endpoint:', error);

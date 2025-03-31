@@ -476,13 +476,18 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           generationConfig: generationConfig,
         };
         
-        onSuccess(placeholderImage);
+        // Gracefully close the modal first and then trigger onSuccess
         onClose();
-        
-        console.log(`[图片重生成] 等待3秒后开始检查任务状态...`);
         setTimeout(() => {
-          checkImageGenerationStatus(character.id, taskId, placeholderImage.id);
-        }, 3000);
+          onSuccess(placeholderImage);
+          
+          console.log(`[图片重生成] 等待3秒后开始检查任务状态...`);
+          setTimeout(() => {
+            checkImageGenerationStatus(character.id, taskId, placeholderImage.id);
+          }, 3000);
+        }, 300);
+        
+        return;
       } else {
         throw new Error('未能获取有效的任务ID');
       }
@@ -820,7 +825,11 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             )}
           </View>
           
-          <ScrollView style={styles.modalContent} contentContainerStyle={styles.scrollContentContainer}>
+          <ScrollView 
+            style={styles.modalContent} 
+            contentContainerStyle={styles.scrollContentContainer}
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.characterInfoSection}>
               <Text style={styles.sectionTitle}>
                 为 "{character.name}" 生成新图像
@@ -866,9 +875,6 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               <>
                 <View style={styles.tagSelectionSection}>
                   <Text style={styles.sectionTitle}>图像生成选项</Text>
-                  <Text style={styles.sectionDescription}>
-                    请选择描述角色外观的标签或输入自定义提示词
-                  </Text>
                   
                   <View style={styles.customPromptContainer}>
                     <View style={styles.customPromptHeader}>
@@ -892,16 +898,11 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                           multiline={true}
                           numberOfLines={3}
                         />
-                        <Text style={styles.customPromptNote}>
-                          自定义提示词将替代标签系统，可直接输入复杂提示词
-                        </Text>
                       </View>
                     )}
                   </View>
                   
                   <View style={[styles.artistReferenceContainer, {opacity: useCustomPrompt ? 0.5 : 1}]}>
-                    <Text style={styles.artistReferenceTitle}>画师风格参考</Text>
-                    
                     {selectedArtistPrompt && !useCustomPrompt && (
                       <View style={styles.artistPromptContainer}>
                         <View style={styles.artistPromptHeader}>
@@ -988,53 +989,44 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                         ]}>
                           {renderTagList(negativeTags, false, reorderingNegative)}
                         </View>
-                        
-                        <Text style={styles.defaultTagsInfo}>
-                          系统已添加默认的负面标签，以避免常见生成问题
-                        </Text>
-                        
-                        {(reorderingPositive || reorderingNegative) && (
-                          <View style={styles.reorderingInstructionsContainer}>
-                            <Text style={styles.reorderingInstructions}>
-                              <Ionicons name="information-circle" size={14} color="#70a1ff" /> 拖动标签调整顺序，前面的提示词权重更高
-                            </Text>
-                          </View>
-                        )}
                       </View>
-                      
-                      <TouchableOpacity 
-                        style={[
-                          styles.openTagSelectorButton,
-                          (reorderingPositive || reorderingNegative) && styles.disabledButton
-                        ]}
-                        onPress={() => setTagSelectorVisible(true)}
-                        disabled={reorderingPositive || reorderingNegative}
-                      >
-                        <Ionicons name="pricetag-outline" size={20} color="#fff" />
-                        <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
-                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
                 
-                {!isLoading ? (
+                {/* Button container for horizontally aligned buttons */}
+                <View style={styles.buttonContainer}>
                   <TouchableOpacity 
                     style={[
-                      styles.generateButton,
+                      styles.openTagSelectorButton,
                       (reorderingPositive || reorderingNegative) && styles.disabledButton
                     ]}
-                    onPress={submitImageGeneration}
+                    onPress={() => setTagSelectorVisible(true)}
                     disabled={reorderingPositive || reorderingNegative}
                   >
-                    <Ionicons name="image" size={20} color="#fff" />
-                    <Text style={styles.generateButtonText}>生成图像</Text>
+                    <Ionicons name="pricetag-outline" size={20} color="#fff" />
+                    <Text style={styles.openTagSelectorText}>浏览标签</Text>
                   </TouchableOpacity>
-                ) : (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#4A90E2" />
-                    <Text style={styles.loadingText}>正在生成图像，这可能需要几分钟...</Text>
-                  </View>
-                )}
+
+                  {!isLoading ? (
+                    <TouchableOpacity 
+                      style={[
+                        styles.generateButton,
+                        (reorderingPositive || reorderingNegative) && styles.disabledButton
+                      ]}
+                      onPress={submitImageGeneration}
+                      disabled={reorderingPositive || reorderingNegative}
+                    >
+                      <Ionicons name="image" size={20} color="#fff" />
+                      <Text style={styles.generateButtonText}>生成图像</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.loadingButton}>
+                      <ActivityIndicator size="small" color="#fff" />
+                      <Text style={styles.loadingButtonText}>生成中...</Text>
+                    </View>
+                  )}
+                </View>
                 
                 {error && (
                   <View style={styles.errorContainer}>
@@ -1044,8 +1036,6 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 )}
               </>
             )}
-            
-            <View style={styles.bottomPadding} />
           </ScrollView>
           
           <Modal
@@ -1141,13 +1131,14 @@ const styles = StyleSheet.create({
   },
   scrollContentContainer: {
     padding: 16,
+    paddingBottom: 20,
   },
   bottomPadding: {
     height: 60,
   },
   characterInfoSection: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   characterAvatar: {
     width: 80,
@@ -1159,23 +1150,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 12,
+    marginBottom: 8,
     textAlign: 'center',
   },
   sectionDescription: {
     color: '#aaa',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     lineHeight: 20,
   },
   tagSelectionSection: {
-    marginBottom: 20,
+    marginBottom: 12,
   },
   tagSummaryContainer: {
     backgroundColor: '#333',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   tagSectionTitle: {
     color: '#fff',
@@ -1185,39 +1176,39 @@ const styles = StyleSheet.create({
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    minHeight: 40,
-    marginBottom: 12,
+    minHeight: 30,
+    marginBottom: 8,
     paddingHorizontal: 4,
   },
   tagsContainerReordering: {
-    minHeight: 100,
+    minHeight: 80,
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
     borderRadius: 8,
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   selectedPositiveTag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 224, 195, 0.8)',
     borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginRight: 10,
-    marginBottom: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+    marginBottom: 8,
   },
   selectedNegativeTag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 68, 68, 0.8)',
     borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginRight: 10,
-    marginBottom: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+    marginBottom: 8,
   },
   tagText: {
     color: '#000',
@@ -1248,7 +1239,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#4A90E2',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 20,
+    flex: 1,
+    marginRight: 8,
   },
   openTagSelectorText: {
     color: '#fff',
@@ -1260,11 +1252,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#9C27B0',
-    padding: 16,
+    padding: 12,
     borderRadius: 8,
-    marginBottom: 20,
+    flex: 1.5,
   },
   generateButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 8,
+    fontSize: 16,
+  },
+  loadingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#666',
+    padding: 12,
+    borderRadius: 8,
+    flex: 1.5,
+  },
+  loadingButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     marginLeft: 8,
@@ -1333,7 +1340,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   artistPromptHeader: {
     flexDirection: 'row',
@@ -1389,7 +1396,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   customPromptHeader: {
     flexDirection: 'row',
@@ -1409,25 +1416,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(60, 60, 60, 0.8)',
     color: '#fff',
     borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    minHeight: 100,
+    padding: 10,
+    fontSize: 15,
+    minHeight: 80,
     textAlignVertical: 'top',
   },
-  customPromptNote: {
-    color: '#aaa',
-    fontSize: 12,
-    fontStyle: 'italic',
-    marginTop: 8,
-  },
   artistReferenceContainer: {
-    marginBottom: 16,
-  },
-  artistReferenceTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   tagSection: {
     marginBottom: 16,
@@ -1476,6 +1471,11 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.5,
     backgroundColor: '#666',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
 });
 

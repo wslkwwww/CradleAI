@@ -228,7 +228,190 @@ export default function CradlePage() {
     }
   };
 
-  // New function to check status of image thumbnails in gallery
+  // Enhanced function to handle image regeneration success with immediate local saving
+  const handleImageRegenerationSuccess = async (newImage: CharacterImage) => {
+    if (!selectedCharacter) return;
+    
+    try {
+      console.log('[摇篮页面] 处理新图像:', {
+        id: newImage.id,
+        status: newImage.generationStatus,
+        isTaskPending: !!newImage.generationTaskId,
+      });
+      
+      // If this is a successful image with URL but no local URI, download it first
+      if (newImage.generationStatus === 'success' && newImage.url && 
+          (!newImage.localUri || newImage.localUri.startsWith('http'))) {
+        try {
+          console.log('[摇篮页面] 下载图像到本地存储:', newImage.url);
+          const localUri = await downloadAndSaveImage(
+            newImage.url,
+            selectedCharacter.id,
+            'gallery'
+          );
+          
+          if (localUri) {
+            console.log('[摇篮页面] 图像已保存到本地:', localUri);
+            newImage = {
+              ...newImage,
+              localUri
+            };
+          } else {
+            console.warn('[摇篮页面] 无法下载图像, 将使用远程URL');
+          }
+        } catch (downloadError) {
+          console.error('[摇篮页面] 下载图像失败:', downloadError);
+          // Continue with remote URL if download fails
+        }
+      }
+      
+      // If this was manually uploaded, handle it directly
+      if (newImage.url && !newImage.generationTaskId) {
+        // Add the new image to the character's image history
+        const updatedImageHistory = [
+          ...(selectedCharacter.imageHistory || []),
+          newImage
+        ] as CharacterImage[];
+        
+        // Check if should set as avatar
+        const updatedCharacter: CradleCharacter = {
+          ...selectedCharacter,
+          imageHistory: updatedImageHistory,
+          // If setAsAvatar is true, update the character's avatar
+          ...(newImage.setAsAvatar && {
+            avatar: newImage.localUri || newImage.url
+          }),
+          // If setAsBackground is true, update the background image
+          ...(newImage.setAsBackground && {
+            backgroundImage: newImage.localUri || newImage.url,
+            localBackgroundImage: newImage.localUri
+          })
+        };
+        
+        // Save the updated character
+        await updateCradleCharacter(updatedCharacter);
+        
+        // Update the selected character in state
+        setSelectedCharacter(updatedCharacter);
+        
+        // Update the gallery
+        setCharacterImages(updatedImageHistory);
+        
+        // Show success notification
+        showNotification('图像已添加', '新图像已添加到角色图库');
+      } else {
+        // This is a pending generation image
+        
+        // First, check if this image already exists in the history
+        const imageExists = selectedCharacter.imageHistory?.some(img => img.id === newImage.id);
+        
+        // If it doesn't exist, add it to the history
+        if (!imageExists) {
+          console.log('[摇篮页面] 添加新的待处理图像到历史记录');
+          
+          // Make sure we cast the status as proper enum type
+          const imageWithProperStatus: CharacterImage = {
+            ...newImage,
+            generationStatus: newImage.generationStatus as ImageGenerationStatus 
+          };
+          
+          const updatedImageHistory = [
+            ...(selectedCharacter.imageHistory || []),
+            imageWithProperStatus
+          ] as CharacterImage[];
+          
+          // Update the character with the new image
+          const updatedCharacter: CradleCharacter = {
+            ...selectedCharacter,
+            imageHistory: updatedImageHistory
+          };
+          
+          // Save the updated character
+          await updateCradleCharacter(updatedCharacter);
+          
+          // Update the selected character in state
+          setSelectedCharacter(updatedCharacter);
+          
+          // Update the gallery
+          setCharacterImages(updatedImageHistory);
+          
+          // Show notification that generation has started
+          showNotification('生成开始', '新图像生成任务已添加到队列');
+          
+          // Run the check immediately to start polling
+          checkImageThumbnailGenerationStatus(selectedCharacter.id, imageWithProperStatus);
+        } 
+        // If the image exists but now has a URL (completed), update it
+        else if (imageExists && newImage.url && newImage.generationStatus === 'success') {
+          console.log('[摇篮页面] 更新已完成的图像:', newImage.id);
+          
+          // Download image to local storage if not already local
+          if (newImage.url && (!newImage.localUri || newImage.localUri.startsWith('http'))) {
+            try {
+              console.log('[摇篮页面] 下载已完成图像到本地存储');
+              const localUri = await downloadAndSaveImage(
+                newImage.url,
+                selectedCharacter.id,
+                'gallery'
+              );
+              
+              if (localUri) {
+                console.log('[摇篮页面] 图像已保存到本地:', localUri);
+                newImage = {
+                  ...newImage,
+                  localUri
+                };
+              }
+            } catch (error) {
+              console.error('[摇篮页面] 下载已完成图像失败:', error);
+              // Continue with remote URL if download fails
+            }
+          }
+          
+          // Ensure we have a properly typed CharacterImage object
+          const typedNewImage: CharacterImage = {
+            ...newImage,
+            generationStatus: 'success' as ImageGenerationStatus
+          };
+          
+          const updatedImageHistory = (selectedCharacter.imageHistory || []).map(img => 
+            img.id === newImage.id ? typedNewImage : img
+          ) as CharacterImage[];
+          
+          // Update the character with the new image
+          const updatedCharacter: CradleCharacter = {
+            ...selectedCharacter,
+            imageHistory: updatedImageHistory,
+            // If this is meant to be the background, set it
+            ...(newImage.setAsBackground && {
+              backgroundImage: newImage.localUri || newImage.url,
+              localBackgroundImage: newImage.localUri
+            })
+          };
+          
+          // Save the updated character
+          await updateCradleCharacter(updatedCharacter);
+          
+          // Update the selected character in state
+          setSelectedCharacter(updatedCharacter);
+          
+          // Update the gallery
+          setCharacterImages(updatedImageHistory);
+          
+          // Show success notification
+          showNotification('图像已生成', '新图像已成功添加到角色图库');
+        }
+      }
+      
+      // Trigger a refresh so the gallery updates
+      setLastImageRefresh(Date.now());
+    } catch (error) {
+      console.error('[摇篮页面] 保存新图像失败:', error);
+      showNotification('保存失败', '无法保存新生成的图像');
+    }
+  };
+
+  // Enhanced function to check image thumbnail generation status to download images immediately
   const checkImageThumbnailGenerationStatus = async (characterId: string, image: CharacterImage): Promise<boolean> => {
     if (!image.generationTaskId) return false;
     
@@ -306,32 +489,31 @@ export default function CradlePage() {
             img.id === image.id
               ? { 
                   ...img, 
-                  generationStatus: 'success' as ImageGenerationStatus, 
+                  url: image.url || '',
+                  generationStatus: 'success' as ImageGenerationStatus,
                   generationTaskId: undefined // Clear task ID
                 } 
               : img
           );
           
-          if (JSON.stringify(updatedHistory) !== JSON.stringify(character.imageHistory)) {
-            const updatedCharacter = {
-              ...character,
-              imageHistory: updatedHistory,
-              inCradleSystem: character.inCradleSystem === undefined ? true : character.inCradleSystem
-            };
-            
-            await updateCradleCharacter(updatedCharacter as CradleCharacter);
-            
-            if (selectedCharacter?.id === character.id) {
-              setSelectedCharacter(updatedCharacter as CradleCharacter);
-              setCharacterImages(updatedHistory);
-              setLastImageRefresh(Date.now());
-            }
-            
-            return true;
+          const updatedCharacter = {
+            ...character,
+            imageHistory: updatedHistory,
+            inCradleSystem: character.inCradleSystem === undefined ? true : character.inCradleSystem
+          };
+          
+          await updateCradleCharacter(updatedCharacter as CradleCharacter);
+          
+          if (selectedCharacter?.id === character.id) {
+            setSelectedCharacter(updatedCharacter as CradleCharacter);
+            setCharacterImages(updatedHistory);
+            setLastImageRefresh(Date.now());
           }
+          
+          return true;
         }
       } catch (error) {
-        console.error('[摇篮页面] 更新已完成图像状态失败:', error);
+        console.error('[摇篮页面] 更新现有图像URL失败:', error);
       }
       
       return false;
@@ -413,6 +595,7 @@ export default function CradlePage() {
         // Only download if we don't have a local copy already
         if (!localImageUri) {
           try {
+            console.log(`[摇篮页面] 开始下载并保存图像到本地: ${data.image_url}`);
             localImageUri = (await downloadAndSaveImage(
               data.image_url,
               characterId,
@@ -578,11 +761,18 @@ export default function CradlePage() {
           }
           
           // Download the image to local storage only if needed
+          console.log(`[摇篮页面] 正在下载背景图片到本地: ${data.image_url}`);
           const localImageUri = await downloadAndSaveImage(
             data.image_url,
             character.id,
             'background'
           );
+          
+          if (localImageUri) {
+            console.log(`[摇篮页面] 背景图片已保存到本地: ${localImageUri}`);
+          } else {
+            console.warn(`[摇篮页面] 无法保存背景图片到本地`);
+          }
           
           // Update character with image information
           let updatedCharacter = { ...character };
@@ -869,135 +1059,6 @@ export default function CradlePage() {
       showNotification('加载失败', '无法加载角色图像');
     } finally {
       setIsLoadingImages(false);
-    }
-  };
-
-  // Enhanced function to handle image regeneration success with immediate UI update
-  const handleImageRegenerationSuccess = async (newImage: CharacterImage) => {
-    if (!selectedCharacter) return;
-    
-    try {
-      console.log('[摇篮页面] 处理新图像:', {
-        id: newImage.id,
-        status: newImage.generationStatus,
-        isTaskPending: !!newImage.generationTaskId,
-      });
-      
-      // If this was manually uploaded, handle it directly
-      if (newImage.url && !newImage.generationTaskId) {
-        // Add the new image to the character's image history
-        const updatedImageHistory = [
-          ...(selectedCharacter.imageHistory || []),
-          newImage
-        ] as CharacterImage[];
-        
-        // Check if should set as avatar
-        const updatedCharacter: CradleCharacter = {
-          ...selectedCharacter,
-          imageHistory: updatedImageHistory,
-          // If setAsAvatar is true, update the character's avatar
-          ...(newImage.setAsAvatar && {
-            avatar: newImage.localUri || newImage.url
-          })
-        };
-        
-        // Save the updated character
-        await updateCradleCharacter(updatedCharacter);
-        
-        // Update the selected character in state
-        setSelectedCharacter(updatedCharacter);
-        
-        // Update the gallery
-        setCharacterImages(updatedImageHistory);
-        
-        // Show success notification
-        showNotification('图像已添加', '新图像已添加到角色图库');
-      } else {
-        // This is a pending generation image
-        
-        // First, check if this image already exists in the history
-        const imageExists = selectedCharacter.imageHistory?.some(img => img.id === newImage.id);
-        
-        // If it doesn't exist, add it to the history
-        if (!imageExists) {
-          console.log('[摇篮页面] 添加新的待处理图像到历史记录');
-          
-          // Make sure we cast the status as proper enum type
-          const imageWithProperStatus: CharacterImage = {
-            ...newImage,
-            generationStatus: newImage.generationStatus as ImageGenerationStatus 
-          };
-          
-          const updatedImageHistory = [
-            ...(selectedCharacter.imageHistory || []),
-            imageWithProperStatus
-          ] as CharacterImage[];
-          
-          // Update the character with the new image
-          const updatedCharacter: CradleCharacter = {
-            ...selectedCharacter,
-            imageHistory: updatedImageHistory
-          };
-          
-          // Save the updated character
-          await updateCradleCharacter(updatedCharacter);
-          
-          // Update the selected character in state
-          setSelectedCharacter(updatedCharacter);
-          
-          // Update the gallery
-          setCharacterImages(updatedImageHistory);
-          
-          // Show notification that generation has started
-          showNotification('生成开始', '新图像生成任务已添加到队列');
-          
-          // Run the check immediately to start polling
-          checkImageThumbnailGenerationStatus(selectedCharacter.id, imageWithProperStatus);
-        } 
-        // If the image exists but now has a URL (completed), update it
-        else if (imageExists && newImage.url && newImage.generationStatus === 'success') {
-          console.log('[摇篮页面] 更新已完成的图像:', newImage.id);
-          
-          // Ensure we have a properly typed CharacterImage object
-          const typedNewImage: CharacterImage = {
-            ...newImage,
-            generationStatus: 'success' as ImageGenerationStatus
-          };
-          
-          const updatedImageHistory = (selectedCharacter.imageHistory || []).map(img => 
-            img.id === newImage.id ? typedNewImage : img
-          ) as CharacterImage[];
-          
-          // Update the character with the new image
-          const updatedCharacter: CradleCharacter = {
-            ...selectedCharacter,
-            imageHistory: updatedImageHistory,
-            // If this is meant to be the background, set it
-            ...(newImage.setAsBackground && {
-              backgroundImage: newImage.url,
-              localBackgroundImage: newImage.localUri || newImage.url
-            })
-          };
-          
-          // Save the updated character
-          await updateCradleCharacter(updatedCharacter);
-          
-          // Update the selected character in state
-          setSelectedCharacter(updatedCharacter);
-          
-          // Update the gallery
-          setCharacterImages(updatedImageHistory);
-          
-          // Show success notification
-          showNotification('图像已生成', '新图像已成功添加到角色图库');
-        }
-      }
-      
-      // Trigger a refresh so the gallery updates
-      setLastImageRefresh(Date.now());
-    } catch (error) {
-      console.error('[摇篮页面] 保存新图像失败:', error);
-      showNotification('保存失败', '无法保存新生成的图像');
     }
   };
 

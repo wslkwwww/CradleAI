@@ -80,6 +80,9 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   const [showRegenerationModal, setShowRegenerationModal] = useState(false);
   const [regenerationImageConfig, setRegenerationImageConfig] = useState<any>(null);
 
+  // New state for tracking downloads
+  const [downloadingImages, setDownloadingImages] = useState<Record<string, boolean>>({});
+
   // Get API key for image editing
   const apiKey = user?.settings?.chat?.characterApiKey || '';
   
@@ -182,6 +185,63 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   }, [visible, slideAnim]);
 
+  // Add this function to ensure each image has a local version
+  const ensureLocalImages = async () => {
+    if (!images || images.length === 0) return;
+    
+    // Check for images that have a URL but no local URI
+    const imagesNeedingLocalStorage = images.filter(
+      img => img.url && (!img.localUri || img.localUri.startsWith('http')) && img.generationStatus !== 'pending'
+    );
+    
+    if (imagesNeedingLocalStorage.length === 0) return;
+    
+    console.log(`[图库侧栏] 发现 ${imagesNeedingLocalStorage.length} 个图像需要保存到本地`);
+    
+    // Process each image that needs downloading
+    for (const image of imagesNeedingLocalStorage) {
+      // Skip if already downloading this image
+      if (downloadingImages[image.id]) continue;
+      
+      setDownloadingImages(prev => ({ ...prev, [image.id]: true }));
+      
+      try {
+        console.log(`[图库侧栏] 正在下载图像: ${image.id}`);
+        const localUri = await downloadAndSaveImage(
+          image.url,
+          image.characterId,
+          'gallery'
+        );
+        
+        if (localUri) {
+          console.log(`[图库侧栏] 图像已保存到本地: ${localUri}`);
+          
+          // Update the image with local URI
+          const updatedImage = {
+            ...image,
+            localUri
+          };
+          
+          // Notify parent component of update
+          if (onAddNewImage) {
+            onAddNewImage(updatedImage);
+          }
+        }
+      } catch (error) {
+        console.error(`[图库侧栏] 下载图像失败:`, error);
+      } finally {
+        setDownloadingImages(prev => ({ ...prev, [image.id]: false }));
+      }
+    }
+  };
+
+  // Call the function whenever images change
+  useEffect(() => {
+    if (visible) {
+      ensureLocalImages();
+    }
+  }, [visible, images]);
+
   const handleEdit = (image: CharacterImage) => {
     setSelectedImage(image);
     setShowEditor(true);
@@ -194,9 +254,48 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     setShowEditor(false);
   };
   
-  // Handle viewing full image
-  const handleViewImage = (image: CharacterImage) => {
-    setFullImageUri(image.localUri || image.url);
+  // Modify the handleViewImage function to download if needed
+  const handleViewImage = async (image: CharacterImage) => {
+    // If image has URL but no local URI, download it first
+    if (image.url && (!image.localUri || image.localUri.startsWith('http')) && !downloadingImages[image.id]) {
+      setDownloadingImages(prev => ({ ...prev, [image.id]: true }));
+      
+      try {
+        const localUri = await downloadAndSaveImage(
+          image.url,
+          image.characterId,
+          'gallery'
+        );
+        
+        if (localUri) {
+          // Update the image with local URI
+          const updatedImage = {
+            ...image,
+            localUri
+          };
+          
+          // Notify parent component of update
+          if (onAddNewImage) {
+            onAddNewImage(updatedImage);
+          }
+          
+          // Use the local URI for viewing
+          setFullImageUri(localUri);
+        } else {
+          // If download fails, use the remote URL
+          setFullImageUri(image.url);
+        }
+      } catch (error) {
+        console.error(`[图库侧栏] 下载图像失败:`, error);
+        setFullImageUri(image.localUri || image.url);
+      } finally {
+        setDownloadingImages(prev => ({ ...prev, [image.id]: false }));
+      }
+    } else {
+      // Use existing URI
+      setFullImageUri(image.localUri || image.url);
+    }
+    
     setShowFullImage(true);
   };
 
@@ -402,6 +501,12 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                         <ActivityIndicator size="large" color="#fff" />
                         <Text style={styles.pendingText}>生成中...</Text>
                       </View>
+                    ) : downloadingImages[item.id] ? (
+                      // Add loading indicator for downloading images
+                      <View style={styles.pendingImageContainer}>
+                        <ActivityIndicator size="small" color="#fff" />
+                        <Text style={styles.pendingText}>下载中...</Text>
+                      </View>
                     ) : (
                       <Image 
                         source={{ uri: item.localUri || item.url }}
@@ -441,7 +546,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                   </TouchableOpacity>
                   
                   {/* Only show actions for non-pending images */}
-                  {item.generationStatus !== 'pending' && (
+                  {item.generationStatus !== 'pending' && !downloadingImages[item.id] && (
                     <View style={styles.imageActions}>
                       {/* Restore the edit button */}
                       <TouchableOpacity
