@@ -116,6 +116,43 @@ const Mem0Initializer: React.FC = React.memo(() => {
     user?.settings?.chat?.openrouter?.apiKey,
     user?.settings?.chat?.openrouter?.model
   ]);
+
+  // Update zhipuApiKey specifically when it changes
+  useEffect(() => {
+    if (!isServiceInitialized || !memory || !user?.settings?.chat) return;
+    
+    const currentZhipuApiKey = user.settings.chat.zhipuApiKey;
+    const zhipuEmbeddingEnabled = user.settings.chat.useZhipuEmbedding;
+    
+    // If we have a zhipuApiKey and embedding is enabled, update it in the memory embedder
+    if (zhipuEmbeddingEnabled && currentZhipuApiKey && currentZhipuApiKey !== apiConfigRef.current.zhipuApiKey) {
+      console.log('[Mem0Initializer] Zhipu API key changed, updating embedder');
+      
+      // Call the memory's updateEmbedderApiKey method
+      if (memory.updateEmbedderApiKey) {
+        memory.updateEmbedderApiKey(currentZhipuApiKey);
+        
+        // Also update Mem0Service's embedder API key
+        try {
+          const Mem0Service = require('@/src/memory/services/Mem0Service').default;
+          const mem0Service = Mem0Service.getInstance();
+          if (mem0Service) {
+            mem0Service.updateEmbedderApiKey(currentZhipuApiKey);
+            // Make sure embedding is marked as available
+            mem0Service.isEmbeddingAvailable = true;
+          }
+        } catch (error) {
+          console.error('[Mem0Initializer] Failed to update Mem0Service with zhipuApiKey:', error);
+        }
+      }
+      
+      // Update ref for future comparisons
+      apiConfigRef.current.zhipuApiKey = currentZhipuApiKey;
+    }
+  }, [
+    user?.settings?.chat?.useZhipuEmbedding,
+    user?.settings?.chat?.zhipuApiKey
+  ]);
   
   return null;
 }, () => true); // Never re-render this component

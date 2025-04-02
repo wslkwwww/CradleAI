@@ -48,6 +48,13 @@ export default function PagesLayout() {
           headerShown: false,
         }}
       />
+            <Stack.Screen
+        name="token-planner"
+        options={{
+          presentation: 'modal',
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }

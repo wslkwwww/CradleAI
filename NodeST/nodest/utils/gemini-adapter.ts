@@ -1,6 +1,8 @@
 import { ChatMessage } from '@/shared/types';
 import { mcpAdapter } from './mcp-adapter';
 import { CloudServiceProvider } from '@/services/cloud-service-provider';
+import { addCloudServiceStatusListener } from '@/utils/cloud-service-tracker';
+import { getCloudServiceStatus, } from '@/utils/settings-helper';
 
 // Define interfaces for image handling
 interface ContentPart {
@@ -36,6 +38,8 @@ export class GeminiAdapter {
     private readonly headers = {
         "Content-Type": "application/json"
     };
+    private useCloudService: boolean = false;
+    private cloudStatusUnsubscribe: (() => void) | null = null;
 
     private conversationHistory: ChatMessage[] = [];
 
@@ -44,9 +48,40 @@ export class GeminiAdapter {
             throw new Error("API key cannot be empty");
         }
         this.apiKey = apiKey;
+        
+        // Initialize cloud service status from tracker
+        this.updateCloudServiceStatus();
+        
+        // Subscribe to tracker updates
+        this.cloudStatusUnsubscribe = addCloudServiceStatusListener((enabled) => {
+            console.log(`[Gemini适配器] 云服务状态更新: ${enabled ? '启用' : '禁用'}`);
+            this.useCloudService = enabled;
+        });
+    }
+    
+    /**
+     * Check and update cloud service status from the tracker.
+     */
+    private updateCloudServiceStatus(): void {
+        this.useCloudService = getCloudServiceStatus();
+        console.log(`[Gemini适配器] 初始化云服务状态: ${this.useCloudService ? '启用' : '禁用'}`);
+    }
+    
+    /**
+     * Clean up resources when adapter is no longer needed
+     */
+    public dispose(): void {
+        // Unsubscribe from cloud service status changes
+        if (this.cloudStatusUnsubscribe) {
+            this.cloudStatusUnsubscribe();
+            this.cloudStatusUnsubscribe = null;
+        }
     }
 
     async generateContent(contents: ChatMessage[]): Promise<string> {
+        // Always check cloud service status before making requests
+        this.updateCloudServiceStatus();
+        
         const url = `${this.BASE_URL}/models/${this.model}:generateContent?key=${this.apiKey}`;
         
         // Mask API key in URL for logging
@@ -65,6 +100,7 @@ export class GeminiAdapter {
         try {
             console.log(`[Gemini适配器] 发送请求到API: ${this.model}`);
             console.log(`[Gemini适配器] 请求包含 ${contents.length} 条消息`);
+            console.log(`[Gemini适配器] 当前云服务状态: ${this.useCloudService ? '启用' : '禁用'}`);
             
             // Enhanced logging for each message in the request
             contents.forEach((msg, index) => {
@@ -117,58 +153,80 @@ export class GeminiAdapter {
             console.log('[GeminiAdapter] Sending request to Gemini API:');
             console.log(JSON.stringify(contents, null, 2));
             
-            // Check if cloud service is enabled and use it if available
+            // Check if cloud service should be used
             let response;
-            if (CloudServiceProvider.isEnabled()) {
+            
+            // Double check with CloudServiceProvider directly as well
+            const providerEnabled = CloudServiceProvider.isEnabled();
+            const isCloudEnabled = this.useCloudService && providerEnabled;
+            
+            if (isCloudEnabled) {
                 console.log('[Gemini适配器] 检测到云服务已启用，使用云服务转发请求');
                 console.log(`[Gemini适配器] 原始请求URL: ${maskedUrl}`);
-                console.log(`[Gemini适配器] 请求体大小: ${JSON.stringify(data).length} 字节`);
-                console.log(`[Gemini适配器] 开始时间: ${new Date().toISOString()}`);
                 
-                // Forward the request through the cloud service
                 try {
-                    console.log('[Gemini适配器] 调用CloudServiceProvider.forwardRequest...');
+                    console.log('[Gemini适配器] 调用CloudServiceProvider.generateChatCompletion...');
                     const startTime = Date.now();
                     
-                    response = await CloudServiceProvider.forwardRequest(
-                        url,
+                    // Convert Gemini-style messages to standard format expected by CradleAI
+                    const standardMessages = contents.map(msg => {
+                        // Get text from message parts
+                        let contentText = '';
+                        if (msg.parts && Array.isArray(msg.parts)) {
+                            contentText = msg.parts.map(part => {
+                                if (typeof part === 'object' && part.text) {
+                                    return part.text;
+                                }
+                                return '';
+                            }).join(' ').trim();
+                        }
+                        
+                        // Map Gemini roles to standard roles
+                        let role = msg.role;
+                        if (role === 'model') role = 'assistant';
+                        
+                        return {
+                            role: role,
+                            content: contentText
+                        };
+                    });
+                    
+                    console.log('[Gemini适配器] 转换后的消息格式:', JSON.stringify(standardMessages, null, 2));
+                    
+                    // Use the generateChatCompletion method for cloud service
+                    response = await CloudServiceProvider.generateChatCompletion(
+                        standardMessages,
                         {
-                            method: 'POST',
-                            headers: this.headers,
-                            body: JSON.stringify(data)
-                        },
-                        'gemini'
+                            model: CloudServiceProvider.getPreferredModel(),
+                            temperature: 0.7,
+                            max_tokens: 8192
+                        }
                     );
                     
                     const endTime = Date.now();
                     console.log(`[Gemini适配器] 云服务请求完成，耗时: ${endTime - startTime}ms`);
                     console.log(`[Gemini适配器] 云服务响应状态: ${response.status} ${response.statusText}`);
-                    
-                    // 记录响应头部信息
-                    console.log('[Gemini适配器] 云服务响应头部:');
-                    interface Headers {
-                        forEach(callbackfn: (value: string, name: string) => void): void;
-                    }
-
-                    interface Response {
-                        headers: Headers;
-                    }
-
-                    // Rest of the code stays the same
-                    response.headers.forEach((value: string, name: string) => {
-                        if (name.toLowerCase() === 'content-type' || 
-                            name.toLowerCase() === 'content-length' ||
-                            name.toLowerCase().startsWith('x-')) {
-                            console.log(`[Gemini适配器] - ${name}: ${value}`);
-                        }
-                    });
                 } catch (cloudError) {
-                    console.error('[Gemini适配器] 云服务转发请求失败:', cloudError);
+                    console.error('[Gemini适配器] 云服务请求失败:', cloudError);
                     console.error('[Gemini适配器] 尝试回退到直接API调用...');
-                    throw cloudError; // 重新抛出以便后续处理
+                    
+                    // Fall back to direct API call
+                    const startTime = Date.now();
+                    response = await fetch(url, {
+                        method: 'POST',
+                        headers: this.headers,
+                        body: JSON.stringify(data)
+                    });
+                    const endTime = Date.now();
+                    
+                    console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
+                    console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
                 }
             } else {
-                // Use direct API call if cloud service is not enabled
+                if (this.useCloudService) {
+                    console.log('[Gemini适配器] 云服务状态不一致: tracker显示已启用但CloudServiceProvider未启用');
+                }
+                
                 console.log('[Gemini适配器] 云服务未启用，使用直接API调用');
                 console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
                 console.log(`[Gemini适配器] 开始时间: ${new Date().toISOString()}`);
@@ -194,7 +252,23 @@ export class GeminiAdapter {
             console.log(`[Gemini适配器] 成功接收到API响应，开始解析JSON`);
             const result = await response.json();
             
-            if (result.candidates?.[0]?.content) {
+            // Check for the expected format from CradleAI
+            if (result.choices && result.choices.length > 0) {
+                // This is the standard OpenAI/CradleAI format
+                const responseText = result.choices[0].message?.content || "";
+                
+                if (responseText) {
+                    console.log(`[Gemini适配器] 成功接收CradleAI响应，长度: ${responseText.length}`);
+                    console.log(`[Gemini适配器] 响应前100个字符: ${responseText.substring(0, 100)}...`);
+                    
+                    this.conversationHistory.push({
+                        role: "assistant",
+                        parts: [{ text: responseText }]
+                    });
+                    return responseText;
+                }
+            } else if (result.candidates?.[0]?.content) {
+                // This is the Gemini format
                 const responseText = result.candidates[0].content.parts?.[0]?.text || "";
                 if (responseText) {
                     console.log(`[Gemini适配器] 成功接收响应，长度: ${responseText.length}`);
@@ -214,6 +288,7 @@ export class GeminiAdapter {
                 }
                 return responseText;
             }
+            
             console.error(`[Gemini适配器] 无效的响应格式: ${JSON.stringify(result)}`);
             return "";
 
@@ -222,6 +297,8 @@ export class GeminiAdapter {
             throw error;
         }
     }
+
+
 
     /**
      * 生成包含文本和/或图片的内容
@@ -234,6 +311,9 @@ export class GeminiAdapter {
         temperature?: number;
         images?: ImageInput[]; // Support both base64 encoded images and URLs
     } = {}): Promise<GeneratedContent> {
+        // Always check cloud service status before making requests
+        this.updateCloudServiceStatus();
+        
         // 始终使用gemini-2.0-flash-exp，因为它是唯一支持图像生成的模型
         const modelToUse = "gemini-2.0-flash-exp";
         
@@ -311,11 +391,17 @@ export class GeminiAdapter {
         try {
             console.log(`[Gemini适配器] 发送多模态请求到API: ${modelToUse}`);
             console.log(`[Gemini适配器] 请求是否包含图片输出: ${options.includeImageOutput ? '是' : '否'}`);
+            console.log(`[Gemini适配器] 当前云服务状态: ${this.useCloudService ? '启用' : '禁用'}`);
             console.log(`[Gemini适配器] 请求数据:`, JSON.stringify(data, null, 2));
             
-            // Check if cloud service is enabled and use it if available
+            // Check if cloud service should be used
             let response;
-            if (CloudServiceProvider.isEnabled()) {
+            
+            // Double check with CloudServiceProvider directly as well
+            const providerEnabled = CloudServiceProvider.isEnabled();
+            const isCloudEnabled = this.useCloudService && providerEnabled;
+            
+            if (isCloudEnabled) {
                 console.log('[GeminiAdapter] Using cloud service for multimodal request');
                 
                 // Forward the request through the cloud service
@@ -331,11 +417,17 @@ export class GeminiAdapter {
             } else {
                 // Use direct API call if cloud service is not enabled
                 console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
+                
+                const startTime = Date.now();
                 response = await fetch(url, {
                     method: 'POST',
                     headers: this.headers,
                     body: JSON.stringify(data)
                 });
+                const endTime = Date.now();
+                
+                console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
+                console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
             }
 
             if (!response.ok) {
@@ -666,13 +758,29 @@ export class GeminiAdapter {
         const needsSearching = this.messageNeedsSearching(messageText);
         
         try {
-            // 如果判断需要搜索，先尝试搜索
+            // 解耦逻辑：根据情况处理不同类型的增强内容
             if (needsSearching) {
-                console.log(`[Gemini适配器] 检测到搜索意图，尝试使用工具调用`);
-                return await this.handleSearchIntent(contents, memoryResults);
+                console.log(`[Gemini适配器] 检测到搜索意图`);
+
+                // 检查是否提供了记忆搜索结果
+                const hasMemoryResults = memoryResults && memoryResults.results && memoryResults.results.length > 0;
+                
+                // Log more detailed information about memory results
+                if (hasMemoryResults) {
+                    console.log(`[Gemini适配器] 收到记忆搜索结果: ${memoryResults.results.length} 条记忆`);
+                    // Log a preview of the first few memories for debugging
+                    memoryResults.results.slice(0, 3).forEach((item: any, idx: number) => {
+                        console.log(`[Gemini适配器] 记忆 #${idx+1}: ${item.memory.substring(0, 100)}${item.memory.length > 100 ? '...' : ''}`);
+                    });
+                    
+                    return await this.handleWithMemoryResults(contents, memoryResults);
+                } else {
+                    console.log(`[Gemini适配器] 未提供记忆结果，尝试使用网络搜索`);
+                    return await this.handleSearchIntent(contents);
+                }
             }
             
-            // 否则使用普通对话方式
+            // 如果没有搜索意图，使用普通对话方式
             console.log(`[Gemini适配器] 使用标准对话方式生成回复`);
             return await this.generateContent(contents);
         } catch (error) {
@@ -683,49 +791,76 @@ export class GeminiAdapter {
     }
 
     /**
-     * 判断消息是否需要搜索
-     * @param messageText 消息文本
-     * @returns 是否需要搜索
+     * 使用记忆搜索结果处理请求
+     * @param contents 消息内容
+     * @param memoryResults 记忆搜索结果
+     * @returns 生成的回复
      */
-    private messageNeedsSearching(messageText: string): boolean {
-        // 检查消息是否包含搜索意图的关键词
-        const searchKeywords = [
-            '搜索', '查询', '查找', '寻找', '检索', '了解', '信息', 
-            '最新', '新闻', '什么是', '谁是', '哪里',
-            'search', 'find', 'lookup', 'query', 'information about',
-            'latest', 'news', 'what is', 'who is', 'where'
-        ];
+    private async handleWithMemoryResults(contents: ChatMessage[], memoryResults: any): Promise<string> {
+        // 获取最后一条消息的内容
+        const lastMessage = contents[contents.length - 1];
+        const userQuery = lastMessage.parts?.[0]?.text || "";
         
-        // 提问型关键词
-        const questionPatterns = [
-            /是什么/, /有哪些/, /如何/, /怎么/, /怎样/, 
-            /什么时候/, /为什么/, /哪些/, /多少/,
-            /what is/i, /how to/i, /when is/i, /why is/i, /where is/i
-        ];
-        
-        // 检查关键词
-        const hasSearchKeyword = searchKeywords.some(keyword => 
-            messageText.toLowerCase().includes(keyword.toLowerCase())
-        );
-        
-        // 检查提问模式
-        const isQuestion = questionPatterns.some(pattern => 
-            pattern.test(messageText)
-        ) || messageText.includes('?') || messageText.includes('？');
-        
-        // 如果同时满足以下条件，则判断需要搜索:
-        // 1. 消息包含搜索关键词或者是一个问题
-        // 2. 消息长度不超过200个字符 (太长的消息可能不是搜索意图)
-        return (hasSearchKeyword || isQuestion) && messageText.length < 200;
+        try {
+            // Add more detailed logging of memory result structure
+            console.log(`[Gemini适配器] 处理记忆增强请求，发现 ${memoryResults.results.length} 条记忆`);
+            console.log('[Gemini适配器] 记忆结果结构:', {
+                hasResults: !!memoryResults.results,
+                resultCount: memoryResults.results?.length || 0,
+                firstMemoryFields: memoryResults.results && memoryResults.results.length > 0 
+                    ? Object.keys(memoryResults.results[0]) 
+                    : 'No memories',
+                firstMemoryScore: memoryResults.results?.[0]?.score,
+                hasMetadata: memoryResults.results?.[0]?.metadata !== undefined
+            });
+            
+            // 构建包含记忆搜索结果的提示
+            let combinedPrompt = `${userQuery}\n\n`;
+            
+            // 添加记忆搜索结果
+            combinedPrompt += `<mem>\n系统检索到的记忆内容：\n`;
+            
+            // 格式化记忆结果
+            memoryResults.results.forEach((item: any, index: number) => {
+                combinedPrompt += `${index + 1}. ${item.memory}\n`;
+            });
+            combinedPrompt += `</mem>\n\n`;
+            
+            // 添加响应指南
+            combinedPrompt += `<response_guidelines>
+- 除了对用户消息的回应之外，**务必** 结合记忆内容进行回复。
+- **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
+  - 示例: <mem>我想起起您上次提到过类似的问题，当时...</mem>
+- 确保回复保持角色人设的一致性。
+</response_guidelines>`;
+            
+            // Log prepared prompt
+            console.log('[Gemini适配器] 准备了带记忆结果的提示:', combinedPrompt.substring(0, 200) + '...');
+            
+            // 使用标准的生成内容方法生成最终回复
+            // 保持原始请求结构，只修改用户消息内容
+            const finalPrompt: ChatMessage[] = [
+                ...contents.slice(0, -1), // 保留之前的对话历史，除了最后一条
+                {
+                    role: "user",
+                    parts: [{ text: combinedPrompt }]
+                }
+            ];
+            
+            return await this.generateContent(finalPrompt);
+        } catch (error) {
+            console.error(`[Gemini适配器] 记忆增强处理失败:`, error);
+            // 如果记忆处理失败，回退到标准方式
+            return await this.generateContent(contents);
+        }
     }
 
     /**
      * 处理搜索意图
      * @param contents 消息内容
-     * @param memoryResults 记忆搜索结果 (可选)
      * @returns 搜索结果和回复
      */
-    private async handleSearchIntent(contents: ChatMessage[], memoryResults?: any): Promise<string> {
+    private async handleSearchIntent(contents: ChatMessage[]): Promise<string> {
         // 获取最后一条消息的内容
         const lastMessage = contents[contents.length - 1];
         const searchQuery = lastMessage.parts?.[0]?.text || "";
@@ -764,31 +899,18 @@ export class GeminiAdapter {
             
             console.log(`[Gemini适配器] 获取到搜索结果，正在生成回复`);
             
-            // 构建包含记忆和网络搜索结果的修改版提示
+            // 构建网络搜索结果的修改版提示
             let combinedPrompt = `${searchQuery}\n\n`;
-            
-            // 添加记忆搜索结果（如果有）
-            if (memoryResults && memoryResults.results && memoryResults.results.length > 0) {
-                console.log(`[Gemini适配器] 添加记忆搜索结果，包含 ${memoryResults.results.length} 条记忆`);
-                combinedPrompt += `<mem>\n系统检索到的记忆内容：\n`;
-                
-                // 格式化记忆结果
-                memoryResults.results.forEach((item: any, index: number) => {
-                    combinedPrompt += `${index + 1}. ${item.memory}\n`;
-                });
-                combinedPrompt += `</mem>\n\n`;
-            }
             
             // 添加网络搜索结果
             combinedPrompt += `<websearch>\n搜索引擎返回的联网检索结果：\n${formattedResults}\n</websearch>\n\n`;
             
             // 添加响应指南
             combinedPrompt += `<response_guidelines>
-  - 除了对用户消息的回应之外，**务必** 结合记忆内容和联网搜索内容进行回复。
-  - **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
-    - 示例: <mem>我想起起您上次提到过类似的问题，当时...</mem>
-  - **根据角色设定，聊天上下文和记忆内容**，输出你对联网检索结果的解释，并用<websearch></websearch>包裹。
-    - 示例: <websearch>根据网络信息，[相关领域的专家]认为... 这可能对您有帮助。</websearch>
+- 除了对用户消息的回应之外，**务必** 结合联网搜索内容进行回复。
+- **根据角色设定和聊天上下文**，输出你对联网检索结果的解释，并用<websearch></websearch>包裹。
+  - 示例: <websearch>根据网络信息，[相关领域的专家]认为... 这可能对您有帮助。</websearch>
+- 确保回复保持角色人设的一致性。
 </response_guidelines>`;
             
             // 使用标准的生成内容方法生成最终回复
@@ -818,5 +940,42 @@ export class GeminiAdapter {
             
             return await this.generateContent(fallbackPrompt);
         }
+    }
+
+    /**
+     * 判断消息是否需要搜索
+     * @param messageText 消息文本
+     * @returns 是否需要搜索
+     */
+    private messageNeedsSearching(messageText: string): boolean {
+        // 检查消息是否包含搜索意图的关键词
+        const searchKeywords = [
+            '搜索', '查询', '查找', '寻找', '检索', '了解', '信息', 
+            '最新', '新闻', '什么是', '谁是', '哪里',
+            'search', 'find', 'lookup', 'query', 'information about',
+            'latest', 'news', 'what is', 'who is', 'where'
+        ];
+        
+        // 提问型关键词
+        const questionPatterns = [
+            /是什么/, /有哪些/, /如何/, /怎么/, /怎样/, 
+            /什么时候/, /为什么/, /哪些/, /多少/,
+            /what is/i, /how to/i, /when is/i, /why is/i, /where is/i
+        ];
+        
+        // 检查关键词
+        const hasSearchKeyword = searchKeywords.some(keyword => 
+            messageText.toLowerCase().includes(keyword.toLowerCase())
+        );
+        
+        // 检查提问模式
+        const isQuestion = questionPatterns.some(pattern => 
+            pattern.test(messageText)
+        ) || messageText.includes('?') || messageText.includes('？');
+        
+        // 如果同时满足以下条件，则判断需要搜索:
+        // 1. 消息包含搜索关键词或者是一个问题
+        // 2. 消息长度不超过200个字符 (太长的消息可能不是搜索意图)
+        return (hasSearchKeyword || isQuestion) && messageText.length < 200;
     }
 }

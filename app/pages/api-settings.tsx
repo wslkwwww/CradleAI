@@ -20,7 +20,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUser } from '@/constants/UserContext';
 import { ApiServiceProvider } from '@/services/api-service-provider';
 import ModelSelector from '@/components/settings/ModelSelector';
-import { NodeSTManager } from '@/utils/NodeSTManager';
 import { GlobalSettings, CloudServiceConfig } from '@/shared/types';
 import { theme } from '@/constants/theme';
 import Mem0Service from '@/src/memory/services/Mem0Service';
@@ -28,6 +27,7 @@ import { licenseService, LicenseInfo } from '@/services/license-service';
 import { DeviceUtils } from '@/utils/device-utils';
 import { API_CONFIG } from '@/constants/api-config';
 import { CloudServiceProvider } from '@/services/cloud-service-provider';
+import { updateCloudServiceStatus } from '@/utils/settings-helper';
 
 const ApiSettings = () => {
   const router = useRouter();
@@ -72,6 +72,9 @@ const ApiSettings = () => {
   const [useCloudService, setUseCloudService] = useState(
     user?.settings?.chat?.useCloudService || false
   );
+  const [cloudModel, setCloudModel] = useState(
+    user?.settings?.chat?.cloudModel || 'openai/gpt-3.5-turbo'
+  );
 
   // Load existing license information on component mount
   useEffect(() => {
@@ -90,9 +93,40 @@ const ApiSettings = () => {
             isValid: info.isValid
           });
 
-          // 根据已存储的设置初始化云服务状态
-          if (user?.settings?.chat?.useCloudService) {
-            setUseCloudService(true);
+          // 从设置读取云服务状态，确保UI显示正确
+          const cloudServiceEnabled = user?.settings?.chat?.useCloudService || false;
+          setUseCloudService(cloudServiceEnabled);
+          
+          if (cloudServiceEnabled) {
+            // 如果云服务已启用，尝试从CloudServiceProvider获取当前首选模型
+            try {
+              const currentModel = CloudServiceProvider.getPreferredModel();
+              if (currentModel) {
+                setCloudModel(currentModel);
+              } else if (user?.settings?.chat?.cloudModel) {
+                setCloudModel(user.settings.chat.cloudModel);
+              }
+              console.log('从CloudServiceProvider加载云服务模型:', currentModel || cloudModel);
+            } catch (error) {
+              console.error('获取首选模型失败:', error);
+            }
+            
+            // 如果许可证有效但云服务未初始化，尝试初始化
+            if (info.isValid && !CloudServiceProvider.isEnabled()) {
+              try {
+                console.log('检测到有效许可证但云服务未启用，尝试自动初始化');
+                await CloudServiceProvider.initialize({
+                  enabled: true,
+                  licenseKey: info.licenseKey!,
+                  deviceId: info.deviceId!,
+                  preferredModel: user?.settings?.chat?.cloudModel || 'openai/gpt-3.5-turbo'
+                });
+                console.log('云服务自动初始化成功');
+                updateCloudServiceStatus(true);
+              } catch (initError) {
+                console.error('云服务自动初始化失败:', initError);
+              }
+            }
           }
         }
       } catch (error) {
@@ -294,6 +328,7 @@ const ApiSettings = () => {
             useZhipuEmbedding: useZhipuEmbedding,
             zhipuApiKey: zhipuApiKey,
             useCloudService: useCloudService,
+            cloudModel: useCloudService ? cloudModel : undefined,
             openrouter: {
               enabled: openRouterEnabled,
               apiKey: openRouterKey,
@@ -307,28 +342,55 @@ const ApiSettings = () => {
             licenseKey: licenseInfo.licenseKey,
             deviceId: licenseInfo.deviceId,
             planId: licenseInfo.planId,
-            expiryDate: licenseInfo.expiryDate
+            expiryDate: licenseInfo.expiryDate,
+            isValid: licenseInfo.isValid // Explicitly store validity state
           }
         };
 
+        // First update settings
         await updateSettings(apiSettings);
 
+        // Update zhipuApiKey in Mem0Service directly if embedding is enabled
+        if (useZhipuEmbedding && zhipuApiKey) {
+          try {
+            const Mem0Service = require('@/src/memory/services/Mem0Service').default;
+            const mem0Service = Mem0Service.getInstance();
+            mem0Service.updateEmbedderApiKey(zhipuApiKey);
+            console.log('Updated zhipuApiKey in Mem0Service');
+            
+            // Reset embedding availability flag to true since we have a key now
+            mem0Service.isEmbeddingAvailable = true;
+          } catch (memError) {
+            console.error('Failed to update zhipuApiKey in Mem0Service:', memError);
+          }
+        }
+
+        // Then initialize CloudServiceProvider
         try {
           if (useCloudService) {
             const cloudConfig: CloudServiceConfig = {
               enabled: true,
               licenseKey: licenseInfo.licenseKey,
-              deviceId: licenseInfo.deviceId
+              deviceId: licenseInfo.deviceId,
+              preferredModel: cloudModel
             };
 
-            CloudServiceProvider.initialize(cloudConfig);
-            console.log('Cloud service provider initialized with license information');
+            await CloudServiceProvider.initialize(cloudConfig);
+            console.log('Cloud service provider initialized with license information and model', cloudModel);
+            
+            // Update cloud service status in the tracker
+            updateCloudServiceStatus(true);
           } else {
             CloudServiceProvider.disable();
             console.log('Cloud service provider disabled');
+            
+            // Update cloud service status in the tracker
+            updateCloudServiceStatus(false);
           }
         } catch (cloudError) {
           console.warn('Failed to initialize cloud service:', cloudError);
+          // Make sure tracker status matches actual state
+          updateCloudServiceStatus(false);
         }
 
         Alert.alert('成功', '设置已保存', [
@@ -338,6 +400,9 @@ const ApiSettings = () => {
         await licenseService.clearLicense();
         CloudServiceProvider.disable();
         setUseCloudService(false);
+        
+        // Update cloud service status in the tracker
+        updateCloudServiceStatus(false);
 
         const apiSettings: Partial<GlobalSettings> = {
           chat: {
@@ -368,6 +433,21 @@ const ApiSettings = () => {
 
         await updateSettings(apiSettings);
 
+        // Update zhipuApiKey in Mem0Service directly if embedding is enabled
+        if (useZhipuEmbedding && zhipuApiKey) {
+          try {
+            const Mem0Service = require('@/src/memory/services/Mem0Service').default;
+            const mem0Service = Mem0Service.getInstance();
+            mem0Service.updateEmbedderApiKey(zhipuApiKey);
+            console.log('Updated zhipuApiKey in Mem0Service');
+            
+            // Reset embedding availability flag to true since we have a key now
+            mem0Service.isEmbeddingAvailable = true;
+          } catch (memError) {
+            console.error('Failed to update zhipuApiKey in Mem0Service:', memError);
+          }
+        }
+
         Alert.alert('成功', '设置已保存', [
           { text: '确定', onPress: () => router.back() }
         ]);
@@ -376,6 +456,17 @@ const ApiSettings = () => {
       console.error('保存设置失败:', error);
       Alert.alert('错误', '保存设置失败');
     }
+  };
+
+  // Also update tracker when the switch is toggled
+  const handleCloudServiceToggle = (enabled: boolean) => {
+    setUseCloudService(enabled);
+    console.log(`Cloud service switch toggled to: ${enabled ? 'enabled' : 'disabled'}`);
+  };
+
+  // Add a method to test if model selector can be displayed
+  const canShowModelSelector = () => {
+    return true; // Always allow showing model selector
   };
 
   return (
@@ -451,16 +542,29 @@ const ApiSettings = () => {
                       <Text style={styles.cloudServiceLabel}>启用云服务</Text>
                       <Switch
                         value={useCloudService}
-                        onValueChange={setUseCloudService}
+                        onValueChange={handleCloudServiceToggle}
                         trackColor={{ false: '#767577', true: 'rgba(100, 210, 255, 0.4)' }}
                         thumbColor={useCloudService ? '#2196F3' : '#f4f3f4'}
                         disabled={!licenseInfo}
                       />
                     </View>
                     {useCloudService && (
-                      <Text style={styles.cloudServiceInfo}>
-                        云服务已启用，API请求将通过Cradle云服务转发，无需额外配置API密钥
-                      </Text>
+                      <>
+                        <Text style={styles.cloudServiceInfo}>
+                          云服务已启用，API请求将通过Cradle云服务转发，无需额外配置API密钥
+                        </Text>
+                        
+                        <View style={styles.modelSection}>
+                          <Text style={styles.inputLabel}>当前选定模型</Text>
+                          <TouchableOpacity
+                            style={styles.modelButton}
+                            onPress={() => setIsModelSelectorVisible(true)}
+                          >
+                            <Text style={styles.modelButtonText}>{cloudModel}</Text>
+                            <Ionicons name="chevron-down" size={16} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
+                      </>
                     )}
                   </View>
                 ) : (
@@ -681,12 +785,17 @@ const ApiSettings = () => {
               </TouchableOpacity>
             </View>
             <ModelSelector
-              apiKey={openRouterKey}
-              selectedModelId={selectedModel}
+              apiKey={openRouterKey || ''}
+              selectedModelId={useCloudService ? cloudModel : selectedModel}
               onSelectModel={(modelId) => {
-                setSelectedModel(modelId);
+                if (useCloudService) {
+                  setCloudModel(modelId);
+                } else {
+                  setSelectedModel(modelId);
+                }
                 setIsModelSelectorVisible(false);
               }}
+              useCloudService={useCloudService}
             />
           </View>
         </View>

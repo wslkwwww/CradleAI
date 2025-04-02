@@ -1,3 +1,9 @@
+/**
+ * API Types
+ * 
+ * Type definitions for API responses and requests
+ */
+
 export interface OpenRouterSettings {
     enabled: boolean;          // 是否启用 OpenRouter
     apiKey: string;            // OpenRouter API Key
@@ -19,16 +25,34 @@ export interface OpenRouterModel {
     pricing?: {               // 价格信息 (可选)
         prompt?: number;      // 每 1K tokens 的输入价格
         completion?: number;  // 每 1K tokens 的输出价格
+        image?: number;       // 图像生成价格 (可选)
+        request?: number;     // 请求价格 (可选)
+        input_cache_read?: number; // 输入缓存读取价格 (可选)
+        input_cache_write?: number; // 输入缓存写入价格 (可选)
+        web_search?: number;  // 网页搜索价格 (可选)
+        internal_reasoning?: number; // 内部推理价格 (可选)
     };
     provider?: {              // 提供商信息 (可选)
         id?: string;          // 提供商 ID
         name?: string;        // 提供商名称
     };
+    created?: number;         // 模型创建时间戳
+    architecture?: {          // 模型架构信息
+        input_modalities?: string[]; // 输入模态
+        output_modalities?: string[]; // 输出模态
+        tokenizer?: string;   // 分词器
+    };
+    top_provider?: {          // 顶级提供商信息
+        is_moderated?: boolean; // 是否经过内容审核
+    };
+    per_request_limits?: Record<string, any>; // 请求限制参数
 }
 
 export interface ApiSettings {
     apiProvider: 'gemini' | 'openrouter';  // 当前选择的API提供商
     openrouter?: OpenRouterSettings;       // OpenRouter设置
+    useCloudService?: boolean;             // 是否使用云服务
+    cloudModel?: string;                   // 云服务使用的模型
 }
 
 // OpenRouter API 请求
@@ -36,7 +60,11 @@ export interface OpenRouterRequest {
     model: string;           // 模型 ID
     messages: Array<{        // 消息数组
         role: "user" | "assistant" | "system";  // 消息角色
-        content: string;       // 消息内容
+        content: string | Array<{  // 消息内容 (文本或多模态)
+            type?: string;        // 内容类型 (text、image等)
+            text?: string;        // 文本内容
+            image_url?: string;   // 图像URL
+        }>;       
     }>;
     temperature?: number;    // 温度（控制随机性）
     max_tokens?: number;     // 最大生成的标记数
@@ -44,6 +72,8 @@ export interface OpenRouterRequest {
     top_k?: number;          // Top K 采样
     stream?: boolean;        // 是否启用流式响应
     stop?: string[];         // 停止序列
+    frequency_penalty?: number; // 频率惩罚
+    presence_penalty?: number;  // 存在惩罚
 }
 
 // OpenRouter API 响应
@@ -55,6 +85,7 @@ export interface OpenRouterResponse {
             content: string;     // 生成的内容
         };
         finish_reason: string; // 完成原因
+        index: number;        // 索引
     }>;
     usage?: {                // 使用情况
         prompt_tokens: number; // 输入标记数
@@ -62,6 +93,8 @@ export interface OpenRouterResponse {
         total_tokens: number;  // 总标记数
     };
     model: string;           // 实际使用的模型
+    created?: number;        // 创建时间戳
+    object?: string;         // 对象类型
     cached?: boolean;        // 是否使用了缓存
 }
 
@@ -84,4 +117,52 @@ export interface OpenRouterError {
 // OpenRouter 模型列表响应
 export interface OpenRouterModelsResponse {
     data: OpenRouterModel[];
+}
+
+// CloudService 配置
+export interface CloudServiceConfig {
+    enabled: boolean;
+    licenseKey: string;
+    deviceId: string;
+    preferredModel?: string;
+}
+
+// CloudService API 请求
+export interface CloudServiceRequest {
+    model: string;
+    messages: Array<{
+        role: string;
+        content: string | Array<{
+            type?: string;
+            text?: string;
+            image_url?: string;
+        }>;
+    }>;
+    max_tokens?: number;
+    temperature?: number;
+    top_p?: number;
+    frequency_penalty?: number;
+    presence_penalty?: number;
+    [key: string]: any;
+}
+
+// CloudService API 响应
+export interface CloudServiceResponse {
+    id: string;
+    object: string;
+    created: number;
+    model: string;
+    choices: Array<{
+        index: number;
+        message: {
+            role: string;
+            content: string;
+        };
+        finish_reason: string;
+    }>;
+    usage: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+    };
 }

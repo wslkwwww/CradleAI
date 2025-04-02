@@ -92,10 +92,13 @@ export function useMemory(config: Partial<MemoryConfig> = {}) {
 
   /**
    * 添加记忆
+   * @param messages 消息内容
+   * @param options 添加选项
+   * @param isMultiRound 是否为多轮对话
    */
   const addMemory = useCallback(
-    async (messages: string | Message[], options: AddMemoryOptions): Promise<SearchResult> => {
-      console.log(`[Mem0] 添加记忆: ${typeof messages === 'string' ? messages : '消息数组'}`);
+    async (messages: string | Message[], options: AddMemoryOptions, isMultiRound: boolean = false): Promise<SearchResult> => {
+      console.log(`[Mem0] 添加记忆: ${typeof messages === 'string' ? messages.substring(0, 50) + '...' : '消息数组'}, isMultiRound=${isMultiRound}`);
       console.log(`[Mem0] 添加记忆选项:`, JSON.stringify(options));
       
       if (!memory) {
@@ -104,7 +107,7 @@ export function useMemory(config: Partial<MemoryConfig> = {}) {
       }
       
       try {
-        const result = await memory.add(messages, options);
+        const result = await memory.add(messages, options, isMultiRound);
         console.log(`[Mem0] 记忆添加成功，结果条数: ${result.results.length}`);
         if (result.results.length > 0) {
           console.log(`[Mem0] 添加的第一条记忆: ${result.results[0].memory.substring(0, 100)}...`);

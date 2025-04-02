@@ -37,9 +37,9 @@ export interface GlobalSettings {
         maxTokens: number;
         useZhipuEmbedding: boolean;
         zhipuApiKey: string;
-        
         // Cloud service setting
         useCloudService?: boolean;
+        cloudModel?: string; // Add cloud model preference
     };
     app?: {
         darkMode?: boolean;
@@ -54,6 +54,7 @@ export interface GlobalSettings {
       deviceId?: string,
       planId?: string,
       expiryDate?: string,
+      isValid?: boolean,
     }
 }
 
@@ -62,6 +63,7 @@ export interface CloudServiceConfig {
     enabled: boolean;
     licenseKey?: string;
     deviceId?: string;
+    preferredModel?: string; // Add preferred model
 }
 
 export interface ApiForwardingOptions {

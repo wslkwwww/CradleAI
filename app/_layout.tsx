@@ -12,6 +12,7 @@ import { UserProvider } from '@/constants/UserContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Colors from '@/constants/Colors';
 import { RegexProvider } from '@/constants/RegexContext';
+import { initCloudServiceTracker } from '@/utils/cloud-service-tracker';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -21,6 +22,11 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
   const { height: windowHeight } = useWindowDimensions();
+
+  // Initialize cloud service tracker
+  useEffect(() => {
+    initCloudServiceTracker();
+  }, []);
 
   // Use the correct theme structure that ReactNavigation expects
   const theme = colorScheme === 'dark' 

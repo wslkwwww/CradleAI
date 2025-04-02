@@ -1191,7 +1191,7 @@ export class NodeSTCore {
         roleCard: RoleCardJson,
         adapter?: GeminiAdapter | OpenRouterAdapter,
         customUserName?: string, // Add optional customUserName parameter
-        memorySearchResults?: any // 添加记忆搜索结果参数
+        memoryResults?: any // This parameter already correctly receives memory search results
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChatWithTools with:', {
@@ -1200,7 +1200,7 @@ export class NodeSTCore {
                 dEntriesCount: dEntries.length,
                 apiProvider: this.apiSettings?.apiProvider,
                 hasCustomUserName: !!customUserName,
-                hasMemoryResults: memorySearchResults?.results?.length > 0
+                hasMemoryResults: memoryResults?.results?.length > 0
             });
 
             // 1. 加载框架内容
@@ -1346,7 +1346,7 @@ export class NodeSTCore {
             // 发送到API，传递记忆搜索结果
             console.log('[NodeSTCore] Sending to API with tool calls...');
             // 如果使用工具调用，则传递记忆搜索结果
-            const response = await activeAdapter.generateContentWithTools(cleanedContents, memorySearchResults);
+            const response = await activeAdapter.generateContentWithTools(cleanedContents, memoryResults);
             console.log('[NodeSTCore] API response received:', {
                 hasResponse: !!response,
                 responseLength: response?.length || 0

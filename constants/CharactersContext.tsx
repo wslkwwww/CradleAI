@@ -301,12 +301,10 @@ const updateCharacter = async (character: Character) => {
         setCharacters(prevChars => {
           const charIndex = prevChars.findIndex(char => char.id === character.id);
           if (charIndex >= 0) {
-            // Character exists in state, update it
             const updatedChars = [...prevChars];
             updatedChars[charIndex] = character;
             return updatedChars;
           } else {
-            // Character exists in files but not in state, add it
             return [...prevChars, character];
           }
         });

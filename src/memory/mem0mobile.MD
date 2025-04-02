@@ -51,7 +51,6 @@ f:\my-app\src\memory\
 │   └── mobile-sqlite.ts       # SQLite向量存储实现
 ├── components/
 │   ├── Mem0Initializer.tsx    # 初始化组件
-│   └── MemoryOverviewPanel.tsx # 记忆概览面板组件
 ├── hooks/
 │   └── useMemory.ts           # 记忆系统Hook
 ├── memory.types.ts            # 记忆操作类型定义

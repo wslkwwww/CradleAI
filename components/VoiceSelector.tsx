@@ -13,7 +13,7 @@ import { theme } from '@/constants/theme';
 
 interface VoiceSelectorProps {
   selectedGender: 'male' | 'female';
-  selectedTemplate: string | undefined;
+  selectedTemplate: string | null;
   onSelectGender: (gender: 'male' | 'female') => void;
   onSelectTemplate: (templateId: string) => void;
 }
@@ -21,28 +21,9 @@ interface VoiceSelectorProps {
 interface VoiceTemplate {
   id: string;
   gender: 'male' | 'female';
-  transcript: string;
-  audioSource: any; // Use any for require() audio source
   isLoading: boolean;
   error: string | null;
 }
-
-type TemplateId = 'template1' | 'template2' | 'template3';
-type TranscriptType = Record<TemplateId, string>;
-
-// Define sample transcripts since we can't dynamically load text files
-const SAMPLE_TRANSCRIPTS: Record<'male' | 'female', TranscriptType> = {
-  male: {
-    template1: "Hello, I am a male voice assistant. How can I help you today?",
-    template2: "Welcome to our service. I'm here to provide information and assistance.",
-    template3: "Greetings! I'm your AI companion. Feel free to ask me anything."
-  },
-  female: {
-    template1: "Hi there! I'm your female voice assistant. What can I do for you?",
-    template2: "Welcome! I'm happy to assist you with any questions or tasks.",
-    template3: "Hello! I'm here to help make your experience better. What do you need?"
-  }
-};
 
 const VoiceSelector: React.FC<VoiceSelectorProps> = ({ 
   selectedGender, 
@@ -76,51 +57,16 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     try {
       // Define template IDs based on gender
       const templateIds = gender === 'male' 
-        ? ['template1', 'template2', 'template3'] 
-        : ['template1', 'template2', 'template3'];
+        ? ['template1', 'template2', 'template3', 'template4', 'template5', 'template6', 'template7', 'template8', 'template9'] 
+        : ['template1a', 'template2a', 'template3a', 'template4a', 'template5a', 'template6a', 'template7a', 'template8a'];
       
-      // Create templates with static audio sources
+      // Create templates with their IDs
       const loadedTemplates = templateIds.map(id => {
-        // For display ID, add 'a' suffix for female templates
-        const displayId = gender === 'female' ? `${id}a` : id;
-        
-        // Get transcript from predefined samples
-        const transcript = SAMPLE_TRANSCRIPTS[gender][id as TemplateId] || 
-          `Sample voice for ${gender === 'male' ? 'male' : 'female'} template ${id}`;
-        
-        // Set audio source based on gender and template ID
-        let audioSource;
-        try {
-          // This will throw an error if the asset doesn't exist
-          if (gender === 'male') {
-            if (id === 'template1') {
-              audioSource = require('@/assets/tts-audio/templates/male/template1/source_audio.mp3');
-            } else if (id === 'template2') {
-              audioSource = require('@/assets/tts-audio/templates/male/template2/source_audio.mp3');
-            } else if (id === 'template3') {
-              audioSource = require('@/assets/tts-audio/templates/male/template3/source_audio.mp3');
-            }
-          } else {
-            if (id === 'template1') {
-              audioSource = require('@/assets/tts-audio/templates/female/template1/source_audio.mp3');
-            } else if (id === 'template2') {
-              audioSource = require('@/assets/tts-audio/templates/female/template2/source_audio.mp3');
-            } else if (id === 'template3') {
-              audioSource = require('@/assets/tts-audio/templates/female/template3/source_audio.mp3');
-            }
-          }
-        } catch (error) {
-          console.warn(`Audio file not found for ${gender}/${id}:`, error);
-          audioSource = null;
-        }
-        
         return {
-          id: displayId,
+          id: id,
           gender,
-          transcript,
-          audioSource,
           isLoading: false,
-          error: audioSource ? null : 'Audio file not found'
+          error: null
         };
       });
       
@@ -132,7 +78,7 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     }
   };
 
-  const playSound = async (templateId: string, audioSource: any) => {
+  const playSound = async (templateId: string) => {
     // Stop currently playing sound
     if (sound) {
       await sound.stopAsync();
@@ -140,13 +86,47 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({
       setSound(null);
     }
     
-    if (!audioSource) {
-      console.error('No audio source provided');
-      return;
-    }
-    
     try {
       setPlayingTemplateId(templateId);
+      
+      // Determine audio file path based on gender and template ID
+      let audioSource;
+      
+      try {
+        // This will throw an error if the asset doesn't exist
+        if (templateId.endsWith('a')) {
+          // Female templates
+          switch(templateId) {
+            case 'template1a': audioSource = require('@/assets/tts-audio/templates/female/template1a/source_audio.mp3'); break;
+            case 'template2a': audioSource = require('@/assets/tts-audio/templates/female/template2a/source_audio.mp3'); break;
+            case 'template3a': audioSource = require('@/assets/tts-audio/templates/female/template3a/source_audio.mp3'); break;
+            case 'template4a': audioSource = require('@/assets/tts-audio/templates/female/template4a/source_audio.mp3'); break;
+            case 'template5a': audioSource = require('@/assets/tts-audio/templates/female/template5a/source_audio.mp3'); break;
+            case 'template6a': audioSource = require('@/assets/tts-audio/templates/female/template6a/source_audio.mp3'); break;
+            case 'template7a': audioSource = require('@/assets/tts-audio/templates/female/template7a/source_audio.mp3'); break;
+            case 'template8a': audioSource = require('@/assets/tts-audio/templates/female/template8a/source_audio.mp3'); break;
+            default: throw new Error('Audio file not found');
+          }
+        } else {
+          // Male templates
+          switch(templateId) {
+            case 'template1': audioSource = require('@/assets/tts-audio/templates/male/template1/source_audio.mp3'); break;
+            case 'template2': audioSource = require('@/assets/tts-audio/templates/male/template2/source_audio.mp3'); break;
+            case 'template3': audioSource = require('@/assets/tts-audio/templates/male/template3/source_audio.mp3'); break;
+            case 'template4': audioSource = require('@/assets/tts-audio/templates/male/template4/source_audio.mp3'); break;
+            case 'template5': audioSource = require('@/assets/tts-audio/templates/male/template5/source_audio.mp3'); break;
+            case 'template6': audioSource = require('@/assets/tts-audio/templates/male/template6/source_audio.mp3'); break;
+            case 'template7': audioSource = require('@/assets/tts-audio/templates/male/template7/source_audio.mp3'); break;
+            case 'template8': audioSource = require('@/assets/tts-audio/templates/male/template8/source_audio.mp3'); break;
+            case 'template9': audioSource = require('@/assets/tts-audio/templates/male/template9/source_audio.mp3'); break;
+            default: throw new Error('Audio file not found');
+          }
+        }
+      } catch (error) {
+        console.warn(`Audio file not found for ${templateId}:`, error);
+        setPlayingTemplateId(null);
+        return;
+      }
       
       // Load and play sound using the direct asset reference
       const { sound: newSound } = await Audio.Sound.createAsync(
@@ -172,6 +152,9 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     const isSelected = selectedTemplate === item.id;
     const isPlaying = playingTemplateId === item.id;
     
+    // Format the display name
+    const displayNumber = item.id.replace(/template/i, '').replace(/a$/, '');
+    
     return (
       <TouchableOpacity
         style={[
@@ -180,50 +163,39 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         ]}
         onPress={() => onSelectTemplate(item.id)}
       >
-        <View style={styles.templateHeader}>
+        <View style={styles.templateContent}>
           <Text style={[
             styles.templateTitle,
             isSelected && styles.selectedTemplateTitle
           ]}>
-            Voice {item.id.replace(/template/i, '')}
+            声音 {displayNumber}
           </Text>
           
-          {/* Play button */}
-          {item.audioSource ? (
-            <TouchableOpacity
-              style={styles.playButton}
-              onPress={() => playSound(item.id, item.audioSource)}
-              disabled={isPlaying}
-            >
-              {isPlaying ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-                <Ionicons 
-                  name="play-circle" 
-                  size={28} 
-                  color={isSelected ? theme.colors.primary : "#aaa"} 
-                />
-              )}
-            </TouchableOpacity>
-          ) : (
-            <Text style={styles.errorText}>Audio unavailable</Text>
-          )}
+          {/* Play button with headphones icon */}
+          <TouchableOpacity
+            style={[
+              styles.playButton,
+              isPlaying && styles.playingButton
+            ]}
+            onPress={() => playSound(item.id)}
+            disabled={isPlaying}
+          >
+            {isPlaying ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons 
+                name="headset-outline" 
+                size={20} 
+                color={isSelected ? "#fff" : "#aaa"} 
+              />
+            )}
+          </TouchableOpacity>
         </View>
-        
-        {/* Transcript display */}
-        <View style={styles.transcriptContainer}>
-          <Text style={styles.transcriptText}>"{item.transcript}"</Text>
-        </View>
-        
-        {/* Error display */}
-        {item.error && (
-          <Text style={styles.errorText}>{item.error}</Text>
-        )}
         
         {/* Selection indicator */}
         {isSelected && (
           <View style={styles.checkmarkContainer}>
-            <Ionicons name="checkmark-circle" size={24} color={theme.colors.primary} />
+            <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} />
           </View>
         )}
       </TouchableOpacity>
@@ -303,7 +275,7 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         <View style={styles.selectedInfo}>
           <Text style={styles.selectedInfoText}>
             已选择: {selectedGender === 'male' ? '男性' : '女性'}声线 - 
-            Voice {selectedTemplate.replace(/template/i, '')}
+            声音 {selectedTemplate.replace(/template/i, '').replace(/a$/, '')}
           </Text>
         </View>
       )}
@@ -363,8 +335,8 @@ const styles = StyleSheet.create({
   templateItem: {
     backgroundColor: 'rgba(60, 60, 60, 0.8)',
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
+    padding: 10,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     position: 'relative',
@@ -373,11 +345,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 224, 195, 0.1)',
     borderColor: theme.colors.primary,
   },
-  templateHeader: {
+  templateContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
   },
   templateTitle: {
     fontSize: 16,
@@ -392,22 +363,11 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 18,
   },
-  transcriptContainer: {
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    borderRadius: 4,
-    padding: 8,
-    marginTop: 8,
-  },
-  transcriptText: {
-    color: '#ddd',
-    fontStyle: 'italic',
-    fontSize: 14,
-  },
-  errorText: {
-    color: theme.colors.danger,
-    fontSize: 12,
-    marginTop: 8,
+  playingButton: {
+    backgroundColor: theme.colors.primaryDark,
   },
   loadingContainer: {
     flex: 1,
@@ -426,8 +386,8 @@ const styles = StyleSheet.create({
   },
   checkmarkContainer: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: 10,
+    right: 10,
   },
   selectedInfo: {
     backgroundColor: 'rgba(224, 196, 168, 0.1)',

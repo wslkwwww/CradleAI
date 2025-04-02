@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { OpenRouterModel } from '@/shared/types/api-types';
+import { CloudServiceAdapter } from '@/services/cloud-service-adapter';
+import { API_CONFIG } from '@/constants/api-config';
 
 interface ModelSelectorProps {
   models?: OpenRouterModel[];
@@ -17,6 +19,7 @@ interface ModelSelectorProps {
   onSelectModel: (modelId: string) => void;
   isLoading?: boolean;
   apiKey: string;
+  useCloudService?: boolean;
 }
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({
@@ -24,53 +27,192 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   selectedModelId,
   onSelectModel,
   isLoading = false,
-  models = []
+  models = [],
+  useCloudService = false
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetails, setShowDetails] = useState<Record<string, boolean>>({});
   const [internalModels, setInternalModels] = useState<OpenRouterModel[]>([]);
   const [internalLoading, setInternalLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fallbackToDirectFetch, setFallbackToDirectFetch] = useState(false);
 
-  // Fetch models on component mount or when API key changes
-  useEffect(() => {
-    const fetchModels = async () => {
-      if (!apiKey) return;
+  // Fetch models directly from OpenRouter with better error handling
+  const fetchModelsDirectly = async (apiKey?: string): Promise<any> => {
+    try {
+      console.log('【ModelSelector】直接从 OpenRouter 获取模型列表');
       
-      setInternalLoading(true);
+      // If no API key but we're in fallback mode, try to use the demo endpoint
+      const endpoint = apiKey 
+        ? 'https://openrouter.ai/api/v1/models'
+        : 'https://openrouter.ai/api/v1/models?auth=nokey';
+        
+      const headers: Record<string, string> = {
+        'HTTP-Referer': 'https://github.com',
+        'X-Title': 'AI Chat App'
+      };
+      
+      // Only add Authorization header if we have an API key
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      
+      // Use AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       try {
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
+        const response = await fetch(endpoint, {
           method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://github.com',
-            'X-Title': 'AI Chat App'
-          }
+          headers,
+          signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
           throw new Error(`Error ${response.status}: ${response.statusText}`);
         }
         
-        const data = await response.json();
+        const modelData = await response.json();
+        console.log(`【ModelSelector】成功从 OpenRouter 获取 ${modelData.data?.length || 0} 个模型`);
         
-        if (data.data && Array.isArray(data.data)) {
-          setInternalModels(data.data);
-          console.log(`【ModelSelector】成功获取 ${data.data.length} 个模型`);
+        return modelData;
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error('请求超时，请检查网络连接');
+        }
+        throw error;
+      }
+    } catch (error) {
+      console.error('【ModelSelector】直接获取模型失败:', error);
+      throw error;
+    }
+  };
+
+  // Fetch models on component mount or when API key changes
+  useEffect(() => {
+    const fetchModels = async () => {
+      setInternalLoading(true);
+      setFetchError(null);
+      
+      try {
+        let modelData;
+        let fetchSource = '';
+        
+        // First try the preferred method
+        if (useCloudService && !fallbackToDirectFetch) {
+          fetchSource = 'cloud';
+          console.log('【ModelSelector】通过 CradleAI 云服务获取模型列表');
+          
+          try {
+            // Try to get models through cloud service
+            const cloudModels = await CloudServiceAdapter.listAvailableModels().catch(e => {
+              console.log('【ModelSelector】云服务获取模型失败，尝试直接获取:', e);
+              throw e;
+            });
+            
+            if (cloudModels?.data && Array.isArray(cloudModels.data)) {
+              modelData = cloudModels;
+              console.log(`【ModelSelector】成功从 CradleAI 获取 ${cloudModels.data.length} 个模型`);
+            } else {
+              throw new Error('获取模型列表失败：无效的响应格式');
+            }
+          } catch (cloudError) {
+            console.error('【ModelSelector】通过 CradleAI 获取模型失败，将尝试直接获取:', cloudError);
+            setFallbackToDirectFetch(true);
+            fetchSource = 'direct-with-key';
+            // Fall through to direct fetch
+            if (apiKey) {
+              modelData = await fetchModelsDirectly(apiKey);
+            } else {
+              fetchSource = 'direct-no-key';
+              modelData = await fetchModelsDirectly();
+            }
+          }
+        } else if (apiKey) {
+          fetchSource = 'direct-with-key';
+          // Direct fetch from OpenRouter with API key
+          modelData = await fetchModelsDirectly(apiKey);
         } else {
-          console.error('【ModelSelector】无效的响应格式:', data);
-          setInternalModels([]);
+          fetchSource = 'direct-no-key';
+          // Direct fetch from OpenRouter without API key
+          modelData = await fetchModelsDirectly();
+        }
+        
+        // If we still don't have models, try without an API key as last resort
+        if (!modelData || !modelData.data || !modelData.data.length) {
+          console.log('【ModelSelector】尝试无密钥获取公共模型列表');
+          fetchSource = 'direct-no-key-fallback';
+          modelData = await fetchModelsDirectly();
+        }
+        
+        if (modelData?.data && Array.isArray(modelData.data)) {
+          console.log(`【ModelSelector】成功获取模型列表 (来源: ${fetchSource})，${modelData.data.length} 个模型`);
+          setInternalModels(modelData.data);
+        } else {
+          throw new Error('无效的响应格式');
         }
       } catch (error) {
-        console.error('【ModelSelector】获取模型列表失败:', error);
-        setInternalModels([]);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('【ModelSelector】获取模型列表失败:', errorMessage);
+        setFetchError(errorMessage);
+        
+        // Even if we have an error, we might have some models from a previous fetch
+        if (internalModels.length === 0) {
+          // Try to use some default models as a last resort
+          const defaultModels = getDefaultModels();
+          if (defaultModels.length > 0) {
+            console.log('【ModelSelector】使用默认模型列表作为最后的备选');
+            setInternalModels(defaultModels);
+          }
+        }
       } finally {
         setInternalLoading(false);
       }
     };
     
+    // Always attempt to fetch models
     fetchModels();
-  }, [apiKey]);
+  }, [apiKey, useCloudService, fallbackToDirectFetch]);
+
+  // Provide fallback default models as a last resort
+  const getDefaultModels = (): OpenRouterModel[] => {
+    return [
+      {
+        id: "openai/gpt-3.5-turbo",
+        name: "GPT-3.5 Turbo",
+        description: "Most capable GPT-3.5 model for chat and text generation",
+        context_length: 16385,
+        pricing: { prompt: 0.0000015, completion: 0.000002 },
+        provider: { id: "openai", name: "OpenAI" }
+      },
+      {
+        id: "openai/gpt-4",
+        name: "GPT-4",
+        description: "OpenAI's most advanced model for complex tasks",
+        context_length: 8192,
+        pricing: { prompt: 0.00003, completion: 0.00006 },
+        provider: { id: "openai", name: "OpenAI" }
+      },
+      {
+        id: "anthropic/claude-3-opus",
+        name: "Claude 3 Opus",
+        description: "Anthropic's most capable model for complex tasks",
+        context_length: 200000,
+        pricing: { prompt: 0.00005, completion: 0.00015 },
+        provider: { id: "anthropic", name: "Anthropic" }
+      },
+      {
+        id: "google/gemini-pro",
+        name: "Gemini Pro",
+        description: "Google's largest model for sophisticated tasks",
+        context_length: 30720,
+        pricing: { prompt: 0.000005, completion: 0.000005 },
+        provider: { id: "google", name: "Google" }
+      },
+    ];
+  };
 
   // Use either the provided models or internally fetched models
   const displayModels = models.length > 0 ? models : internalModels;
@@ -118,7 +260,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   // Format price to make it more readable
   const formatPrice = (price: number | undefined) => {
     if (price === undefined) return '$0.0000';
-    return `$${price.toFixed(4)}`;
+    return `$${price.toFixed(6)}`;
   };
 
   // Render model item with enhanced safety
@@ -201,6 +343,37 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     </View>
   );
 
+  // Render error message
+  const renderError = () => (
+    <View style={styles.errorContainer}>
+      <MaterialIcons name="error-outline" size={24} color="#f44336" />
+      <Text style={styles.errorText}>{fetchError}</Text>
+      <TouchableOpacity 
+        style={styles.retryButton}
+        onPress={() => {
+          // Re-trigger the useEffect by forcing a re-render
+          setInternalLoading(true);
+          setTimeout(() => {
+            setInternalLoading(false);
+          }, 100);
+        }}
+      >
+        <Text style={styles.retryButtonText}>重试</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Update source indicator to show the actual source
+  const getDataSourceText = () => {
+    if (fallbackToDirectFetch) {
+      return "数据来源: OpenRouter API (云服务回退)";
+    } else if (useCloudService) {
+      return "数据来源: CradleAI 云服务";
+    } else {
+      return "数据来源: OpenRouter API";
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Search Box */}
@@ -210,7 +383,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           style={styles.searchInput}
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholder="Search models..."
+          placeholder="搜索模型..."
           placeholderTextColor="#999"
         />
         {searchQuery ? (
@@ -223,17 +396,19 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       {isLoading || internalLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF9ECD" />
-          <Text style={styles.loadingText}>Loading models...</Text>
+          <Text style={styles.loadingText}>加载模型列表中...</Text>
         </View>
+      ) : fetchError ? (
+        renderError()
       ) : validModels.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MaterialIcons name="info" size={24} color="#999" />
-          <Text style={styles.emptyText}>No models available. Make sure your API key is valid and try refreshing.</Text>
+          <Text style={styles.emptyText}>没有可用的模型。请确保您的API密钥有效或云服务已正确配置。</Text>
         </View>
       ) : filteredModels.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MaterialIcons name="search-off" size={24} color="#999" />
-          <Text style={styles.emptyText}>No models matching your search.</Text>
+          <Text style={styles.emptyText}>没有找到符合搜索条件的模型。</Text>
         </View>
       ) : (
         // Use ScrollView with proper height
@@ -243,6 +418,19 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           </View>
         </ScrollView>
       )}
+
+      {/* Source indicator */}
+      <View style={styles.sourceIndicator}>
+        <Text style={styles.sourceText}>
+          {getDataSourceText()}
+        </Text>
+        {useCloudService && !fallbackToDirectFetch && (
+          <MaterialIcons name="cloud-done" size={16} color="#2196F3" style={{marginLeft: 4}} />
+        )}
+        {fallbackToDirectFetch && (
+          <MaterialIcons name="sync" size={16} color="#FFA726" style={{marginLeft: 4}} />
+        )}
+      </View>
     </View>
   );
 };
@@ -387,6 +575,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#333',
+  },
+  errorContainer: {
+    padding: 20,
+    alignItems: 'center',
+    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+    borderRadius: 8,
+    marginVertical: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(244, 67, 54, 0.3)',
+  },
+  errorText: {
+    marginTop: 10,
+    marginBottom: 16,
+    color: '#f44336',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#f44336',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 4,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  sourceIndicator: {
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    marginTop: 16,
+  },
+  sourceText: {
+    fontSize: 12,
+    color: '#999',
   },
 });
 

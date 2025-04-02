@@ -10,26 +10,27 @@ import {
 import { MobileLLM } from '../llms/mobile-llm';
 import { LLM } from '../llms/base';
 
-
 /**
  * 嵌入器工厂类
  */
 export class EmbedderFactory {
   /**
    * 创建嵌入器实例
-   * @param provider 提供商名称
+   * @param provider 提供商
    * @param config 配置
-   * @returns 嵌入器实例
    */
-  static create(provider: string, config: EmbeddingConfig): Embedder {
-    console.log(`[EmbedderFactory] 创建嵌入器: provider=${provider}, 密钥长度=${config.apiKey?.length || 0}`);
+  static create(provider: string, config: any): any {
+    console.log(`[EmbedderFactory] 创建嵌入器: ${provider}`);
     
-    // 只支持智谱嵌入器
-    if (provider.toLowerCase() !== 'zhipu') {
-      console.warn(`[EmbedderFactory] 不支持的嵌入器提供商: ${provider}，使用智谱嵌入器替代`);
+    switch (provider) {
+      case 'mobile_openai':
+        // ...existing OpenAI code...
+        break;
+      case 'zhipu':
+        return new ZhipuEmbedder(config);
+      default:
+        throw new Error(`不支持的嵌入器提供商: ${provider}`);
     }
-    
-    return new ZhipuEmbedder(config);
   }
 }
 

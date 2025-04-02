@@ -1,9 +1,10 @@
 /**
  * 获取事实提取提示词
  * @param content 要分析的内容
+ * @param isMultiRound 是否为多轮对话（默认为false）
  * @returns [系统提示词, 用户提示词]
  */
-export function getFactRetrievalMessages(content: string): [string, string] {
+export function getFactRetrievalMessages(content: string, isMultiRound: boolean = false): [string, string] {
   const systemPrompt = `你是一位个人信息组织者，专门负责准确地提取和存储用户的事实、记忆和偏好。
 你的任务是从对话中提取相关的个人信息并将其组织成不同的、易于管理的事实。
 这些信息应该准确、简洁地反映用户所说的内容，不要添加推测或想象的细节。
@@ -24,6 +25,11 @@ export function getFactRetrievalMessages(content: string): [string, string] {
 - 避免复制完整的对话或不相关的细节
 - 忽略打招呼、感谢等社交客套语
 - 忽略无信息价值的内容（如"我不知道"）
+${isMultiRound ? `
+- 这是一次多轮对话分析，你将收到多个用户和AI之间的对话轮次
+- 请综合分析所有对话内容，提取关键事实
+- 避免重复提取相同的事实
+- 如果存在矛盾的信息，请以最新的信息为准` : ''}
 
 请以JSON格式返回提取的事实:
 {
@@ -35,9 +41,9 @@ export function getFactRetrievalMessages(content: string): [string, string] {
 
 尽可能使事实与用户的原始表述保持一致，仅在必要时重新措辞以符合第三人称格式。
 
-请注意，你会收到完整的对话上下文，包括用户和AI之间的最近交流。这些上下文可以帮助你更好地理解用户表达的信息，但只提取用户表达的事实，不要从AI回复中提取信息。`;
+请注意，你会收到完整的对话上下文，包括用户和AI之间的${isMultiRound ? '多轮' : '最近'}交流。这些上下文可以帮助你更好地理解用户表达的信息，但只提取用户表达的事实，不要从AI回复中提取信息。`;
 
-  const userPrompt = `以下是用户和助手之间的对话，包括最近的聊天记录和当前用户的消息。请从对话中提取有关用户的相关事实和偏好（如果有），并以JSON格式返回它们，如上所示。
+  const userPrompt = `以下是用户和助手之间的${isMultiRound ? '多轮' : ''}对话，${isMultiRound ? '包含了多次交流' : '包括最近的聊天记录和当前用户的消息'}。请从对话中提取有关用户的相关事实和偏好（如果有），并以JSON格式返回它们，如上所示。
 
 ${content}
 

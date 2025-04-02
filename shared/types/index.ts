@@ -44,6 +44,8 @@ export interface GlobalSettings {
     temperature: number;
     maxTokens: number;
     maxtokens: number;
+    useCloudService?: boolean;
+    cloudModel?: string; // Add cloud model preference
     openrouter?: OpenRouterSettings;
   };
   self: {
@@ -67,6 +69,16 @@ export interface RegexTool {
   replacement: string;
   target: 'ai' | 'user';
   enabled: boolean;
+}
+
+/**
+ * Cloud Service Configuration
+ */
+export interface CloudServiceConfig {
+  enabled: boolean;
+  licenseKey: string;
+  deviceId: string;
+  preferredModel?: string; // Model preference for cloud service
 }
 
 export interface Character {

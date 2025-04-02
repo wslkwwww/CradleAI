@@ -1413,15 +1413,7 @@ const handleSetAsAvatar = async (imageId: string) => {
                     <Ionicons name="refresh-outline" size={18} color="#fff" />
                   </TouchableOpacity>
                   
-                  {/* Generate character button - for characters not yet generated */}
-                  {!character.isCradleGenerated && (
-                    <TouchableOpacity
-                      style={[styles.imageActionButton, styles.generateButton]}
-                      onPress={() => handleGenerateCharacter(character)}
-                    >
-                      <Ionicons name="flash-outline" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  )}
+
                   
                   {/* Delete button */}
                   <TouchableOpacity

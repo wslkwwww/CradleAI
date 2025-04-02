@@ -15,6 +15,7 @@ import { Character } from '@/shared/types';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import RegexToolModal from '@/components/RegexToolModal';
+import MemoryProcessingControl from '@/src/memory/components/MemoryProcessingControl';
 
 interface TopBarWithBackgroundProps {
   selectedCharacter: Character | undefined | null;
@@ -43,6 +44,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
     Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0
   );
   const [isRegexModalVisible, setIsRegexModalVisible] = useState(false);
+  const [isMemoryControlVisible, setIsMemoryControlVisible] = useState(false);
 
   // Calculate header opacity based on scroll position
   const headerOpacity = scrollY.interpolate({
@@ -58,6 +60,12 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
       setNavbarHeight(44);
     }
   }, []);
+
+  // Handle memory control button press
+  const handleMemoryControlPress = () => {
+    setIsMemoryControlVisible(true);
+    console.log('[TopBar] Opening memory control panel');
+  };
 
   return (
     <>
@@ -132,9 +140,19 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
             {selectedCharacter && (
               <TouchableOpacity 
                 style={styles.actionButton} 
-                onPress={() => setIsRegexModalVisible(true)}
+                onPress={handleMemoryControlPress}
+                accessibilityLabel="Memory Control"
               >
-                <MaterialCommunityIcons name="regex" size={24} color="#fff" />
+                <MaterialCommunityIcons 
+                  name="brain" 
+                  size={24} 
+                  color="#fff" 
+                />
+                {selectedCharacter && (
+                  <View style={styles.actionButtonBadge}>
+                    <Text style={styles.actionButtonBadgeText}></Text>
+                  </View>
+                )}
               </TouchableOpacity>
             )}
             
@@ -162,6 +180,15 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
         </View>
       </Animated.View>
       
+      {/* Memory Processing Control Modal */}
+      <MemoryProcessingControl 
+        visible={isMemoryControlVisible}
+        onClose={() => setIsMemoryControlVisible(false)}
+        characterId={selectedCharacter?.id}
+        conversationId={selectedCharacter ? `conversation-${selectedCharacter.id}` : undefined}
+      />
+      
+      {/* Keep the RegexToolModal for use in other screens */}
       <RegexToolModal 
         visible={isRegexModalVisible}
         onClose={() => setIsRegexModalVisible(false)}
@@ -244,6 +271,23 @@ const styles = StyleSheet.create({
   actionButton: {
     padding: 8,
     marginLeft: 4,
+    position: 'relative',
+  },
+  actionButtonBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#4cd964',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  actionButtonBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
 

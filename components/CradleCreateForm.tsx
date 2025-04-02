@@ -1422,7 +1422,7 @@ const handleCreateCharacter = async () => {
     <View style={styles.sectionContent}>
       <VoiceSelector
         selectedGender={voiceGender}
-        selectedTemplate={voiceTemplateId || undefined}
+        selectedTemplate={voiceTemplateId || null}
         onSelectGender={setVoiceGender}
         onSelectTemplate={setVoiceTemplateId}
       />

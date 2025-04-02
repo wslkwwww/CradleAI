@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { licenseService } from './license-service'; // Import license service
 
 // Configuration
 const TTS_API_URL = 'https://tts.cradleintro.top/api/tts';
@@ -143,6 +144,48 @@ class TTSService {
     }
   }
   
+  // Verify license before proceeding with API calls
+  private async verifyLicense(): Promise<boolean> {
+    console.log(`[TTSService] 验证许可证...`);
+
+    // 确保许可证服务已初始化
+    if (!licenseService.isInitialized()) {
+      console.log(`[TTSService] 初始化许可证服务...`);
+      await licenseService.initialize();
+    }
+
+    // 检查许可证是否有效
+    const isLicenseValid = await licenseService.hasValidLicense();
+    if (!isLicenseValid) {
+      console.error(`[TTSService] 许可证验证失败: 无效的许可证`);
+      return false;
+    }
+
+    console.log(`[TTSService] 许可证验证成功`);
+    return true;
+  }
+
+  // Get license headers for API requests
+  private async getLicenseHeaders(): Promise<Record<string, string>> {
+    try {
+      const licenseHeaders = await licenseService.getLicenseHeaders();
+      
+      // 检查许可证头是否完整
+      if (!licenseHeaders || !licenseHeaders['X-License-Key'] || !licenseHeaders['X-Device-ID']) {
+        console.error(`[TTSService] 许可证头信息不完整`);
+        return {};
+      }
+
+      console.log(`[TTSService] 使用许可证密钥: ${licenseHeaders['X-License-Key'].substring(0, 4)}****`);
+      console.log(`[TTSService] 使用设备ID: ${licenseHeaders['X-Device-ID'].substring(0, 4)}****`);
+      
+      return licenseHeaders;
+    } catch (error) {
+      console.error(`[TTSService] 获取许可证头信息失败:`, error);
+      return {};
+    }
+  }
+  
   // Generate TTS for a message
   async generateTTS(messageId: string, text: string, templateId: string): Promise<AudioState> {
     // Check if we already have this audio
@@ -159,8 +202,20 @@ class TTSService {
       isPlaying: false,
       templateId: templateId // Store template ID for potential regeneration
     });
-    
+
     try {
+      // Verify license before making the API call
+      const isLicenseValid = await this.verifyLicense();
+      if (!isLicenseValid) {
+        throw new Error('需要有效的许可证才能生成语音，请先在API设置中激活您的许可证');
+      }
+
+      // Get license headers
+      const licenseHeaders = await this.getLicenseHeaders();
+      if (!licenseHeaders['X-License-Key']) {
+        throw new Error('许可证信息不完整，请在API设置中重新激活您的许可证');
+      }
+
       // Prepare the request using the provided template ID
       const requestData: TTSRequest = {
         templateId,  // Use the character-specific template ID
@@ -169,16 +224,34 @@ class TTSService {
       
       console.log(`[TTSService] Generating TTS for message ${messageId} with template ${templateId}`);
       
-      // Make the API request
+      // Make the API request with license headers
       const response = await fetch(TTS_API_URL, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...licenseHeaders  // Add license headers
         },
         body: JSON.stringify(requestData)
       });
       
-      const responseData: TTSResponse = await response.json();
+      // Get raw response for better error handling
+      const responseText = await response.text();
+      let responseData: TTSResponse;
+      
+      try {
+        // Parse the response
+        responseData = JSON.parse(responseText);
+      } catch (error) {
+        console.error(`[TTSService] Failed to parse response: ${responseText}`);
+        throw new Error(`服务器返回的不是有效的JSON: ${responseText.substring(0, 100)}...`);
+      }
+      
+      if (!response.ok) {
+        console.error(`[TTSService] Server returned error: HTTP ${response.status}`);
+        let errorDetail = responseData.error || responseText;
+        throw new Error(`服务器响应错误: ${response.status} - ${errorDetail}`);
+      }
       
       if (!responseData.success) {
         throw new Error(responseData.error || 'Failed to generate audio');
@@ -250,11 +323,16 @@ class TTSService {
     try {
       console.log(`[TTSService] Polling for audio completion (attempt ${attempts + 1}/${MAX_ATTEMPTS})`);
       
+      // Get license headers for polling request
+      const licenseHeaders = await this.getLicenseHeaders();
+      
       // Make a new request to check if audio is ready
       const response = await fetch(TTS_API_URL, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...licenseHeaders // Include license headers
         },
         body: JSON.stringify({
           templateId,

@@ -12,7 +12,7 @@ import {
   Modal,
   Text,
 } from 'react-native';
-import { MaterialIcons, Ionicons, FontAwesome } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons, } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
@@ -193,7 +193,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             selectedConversationId
           );
           userMemoryAdded = true;
-          console.log('[ChatInput] 用户消息已成功添加到记忆系统');
+          console.log('[ChatInput] 用户消息已成功添加到记忆系统的消息缓存');
         } catch (memoryError) {
           console.error('[ChatInput] 添加用户消息到记忆系统失败:', memoryError);
           // 继续处理消息，不阻断主流程
@@ -229,14 +229,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
             
             // 确保响应不为空
             if (processedResponse && processedResponse.trim() !== '') {
-              // 通过传递bot角色触发updateAIResponseForMemories
+              // 通过传递bot角色触发添加到缓存，最终会触发updateAIResponseForMemories
               await mem0Service.addChatMemory(
                 processedResponse,
                 'bot',
                 selectedCharacter.id,
                 selectedConversationId
               );
-              console.log('[ChatInput] 成功将AI回复添加到记忆系统');
+              console.log('[ChatInput] 成功将AI回复添加到记忆系统缓存');
             } else {
               console.warn('[ChatInput] AI回复为空，跳过添加到记忆系统');
             }
@@ -470,7 +470,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       onSendMessage(`请将这张图片${imagePrompt}`, "user");
       
       // Create temp loading message for bot
-      onSendMessage('', 'bot', true);
+      onSendMessage('', "bot", true);
       
       // Prepare the reference image
       let imageInput;

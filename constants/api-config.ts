@@ -37,12 +37,18 @@ export const API_CONFIG = {
   // Base domain for connectivity testing
   LICENSE_SERVER_DOMAIN: 'license.cradleintro.top',
 
-  CLOUD_API_URL: process.env.NEXT_PUBLIC_CLOUD_API || 'https://chat.cradleintro.top',
+  // CradleAI cloud service endpoints
+  CLOUD_API_URL: getEnvVar('CLOUD_API_URL', 'https://chat.cradleintro.top'),
   CLOUD_API_FALLBACKS: [
     'https://chat-api.cradleintro.top',
-    'https://chat-backup.cradleintro.top'
+    'https://chat-backup.cradleintro.top',
+    'https://api.cradleintro.top/chat', // Additional fallback with different URL structure
   ],
   
+  // CradleAI chat completion endpoint (used by cloud service)
+  CRADLE_CHAT_COMPLETION_ENDPOINT: '/api/chat/completion',
+  CRADLE_MODELS_ENDPOINT: '/api/models',
+    
   // Add API URLs for various services
   API_URLS: {
     GEMINI: 'https://generativelanguage.googleapis.com/v1beta',
@@ -61,6 +67,7 @@ export const API_CONFIG = {
     console.log('LICENSE_SERVER_DOMAIN:', API_CONFIG.LICENSE_SERVER_DOMAIN);
     console.log('IMAGE_GENERATION_URL:', API_CONFIG.IMAGE_GENERATION_URL);
     console.log('CLOUD_API_URL:', API_CONFIG.CLOUD_API_URL);
+    console.log('CLOUD_API_FALLBACKS:', API_CONFIG.CLOUD_API_FALLBACKS);
     console.log('==============================');
   }
 };

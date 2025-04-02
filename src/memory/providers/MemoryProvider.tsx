@@ -15,12 +15,12 @@ import {
 } from '../memory.types';
 import { ConfigManager } from '../config/manager';
 import { useUser } from '@/constants/UserContext';
-
+import Mem0Service from '@/src/memory/services/Mem0Service';
 interface MemoryContextType {
   loading: boolean;
   error: Error | null;
   memory?: MobileMemory; // 暴露 memory 引用以便访问 updateLLMConfig
-  addMemory: (messages: string | any[], options: AddMemoryOptions) => Promise<SearchResult>;
+  addMemory: (messages: string | any[], options: AddMemoryOptions, isMultiRound?: boolean) => Promise<SearchResult>;
   searchMemory: (query: string, options: SearchMemoryOptions) => Promise<SearchResult>;
   getMemory: (memoryId: string) => Promise<MemoryItem | null>;
   updateMemory: (memoryId: string, data: string) => Promise<{ message: string }>;
@@ -28,6 +28,8 @@ interface MemoryContextType {
   deleteAllMemory: (options: DeleteAllMemoryOptions) => Promise<{ message: string }>;
   resetMemory: () => Promise<void>;
   getAllMemory: (options: GetAllMemoryOptions) => Promise<SearchResult>;
+  setMemoryProcessingInterval: (rounds: number) => void;
+  getMemoryProcessingInterval: () => number;
 }
 
 const MemoryContext = createContext<MemoryContextType | undefined>(undefined);
@@ -58,6 +60,9 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
   // Create a stable configuration reference to break update cycles
   const configRef = useRef(config);
   
+  // Add state for memory processing interval
+  const [memoryProcessingInterval, setMemoryProcessingInterval] = useState<number>(10);
+
   // Compare configuration and only update the ref if there are significant changes
   useEffect(() => {
     // Deep comparison of important config fields
@@ -270,6 +275,24 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
     initializeMemory();
   }, [user?.settings?.chat?.zhipuApiKey, fetchStoredZhipuApiKey]); // Only depend on zhipu API key
 
+  // Pass the processing interval to memory service after initialization
+  useEffect(() => {
+    if (isInitializedRef.current && memory) {
+      // Update the processing interval in Mem0Service when it changes
+      const mem0Service = Mem0Service.getInstance();
+      if (mem0Service) {
+        mem0Service.setProcessingInterval(memoryProcessingInterval);
+        console.log(`[MemoryProvider] Updated memory processing interval to ${memoryProcessingInterval} rounds`);
+        
+        // Use type assertion to avoid TypeScript error
+        // This is an alternative solution if you don't want to modify MobileMemory class
+        if ((memory as any).setProcessingInterval) {
+          (memory as any).setProcessingInterval(memoryProcessingInterval);
+        }
+      }
+    }
+  }, [memoryProcessingInterval, memory, isInitializedRef.current]);
+
   // Update LLM config when API settings change
   useEffect(() => {
     if (!memory || !singletonMemoryInstance) return;
@@ -322,9 +345,9 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
   ]);
 
   // Create memory operations with useCallback to maintain stable function references
-  const addMemory = useCallback(async (messages: string | any[], options: AddMemoryOptions) => {
+  const addMemory = useCallback(async (messages: string | any[], options: AddMemoryOptions, isMultiRound: boolean = false) => {
     if (!memory) throw new Error('Memory system not initialized');
-    return await memory.add(messages, options);
+    return await memory.add(messages, options, isMultiRound);
   }, [memory]);
 
   const searchMemory = useCallback(async (query: string, options: SearchMemoryOptions) => {
@@ -362,6 +385,20 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
     return await memory.getAll(options);
   }, [memory]);
 
+  // Add callback to set memory processing interval
+  const handleSetMemoryProcessingInterval = useCallback((rounds: number) => {
+    if (rounds >= 1 && rounds <= 100) {
+      setMemoryProcessingInterval(rounds);
+    } else {
+      console.warn(`[MemoryProvider] Invalid processing interval: ${rounds}. Must be between 1 and 100.`);
+    }
+  }, []);
+
+  // Add callback to get current memory processing interval
+  const handleGetMemoryProcessingInterval = useCallback(() => {
+    return memoryProcessingInterval;
+  }, [memoryProcessingInterval]);
+
   // Create a stable context value with useMemo
   const contextValue = useMemo(() => ({
     loading,
@@ -375,6 +412,8 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
     deleteAllMemory,
     resetMemory,
     getAllMemory,
+    setMemoryProcessingInterval: handleSetMemoryProcessingInterval,
+    getMemoryProcessingInterval: handleGetMemoryProcessingInterval,
   }), [
     loading,
     error,
@@ -387,6 +426,8 @@ export const MemoryProvider: React.FC<MemoryProviderProps> = ({ children, config
     deleteAllMemory,
     resetMemory,
     getAllMemory,
+    handleSetMemoryProcessingInterval,
+    handleGetMemoryProcessingInterval,
   ]);
 
   return (

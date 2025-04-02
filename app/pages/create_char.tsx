@@ -605,7 +605,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             }
           }
         } : {}),
-        voiceType: voiceTemplateId // Save the selected voice template IDof null
+        voiceType: voiceTemplateId // Save the selected voice template ID
       };
   
       // 创建新角色对象 - include cradle fields
@@ -912,7 +912,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     <View style={styles.tabContent}>
       <VoiceSelector
         selectedGender={voiceGender}
-        selectedTemplate={voiceTemplateId}
+        selectedTemplate={voiceTemplateId || null}
         onSelectGender={(gender) => {
           setVoiceGender(gender);
           setHasUnsavedChanges(true);

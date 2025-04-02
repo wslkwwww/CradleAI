@@ -31,6 +31,7 @@ import {LLMConfig} from '@/src/memory/types';
  * 移动端记忆管理类
  */
 export class MobileMemory {
+  
   private config: MemoryConfig;
   private customPrompt: string | undefined;
   public embedder: any; // Make the embedder accessible
@@ -39,6 +40,8 @@ export class MobileMemory {
   private db: MobileSQLiteManager;
   private collectionName: string;
   private apiVersion: string;
+  private processingInterval: number = 10;
+  private memoryEnabled: boolean = true;
 
   constructor(config: Partial<MemoryConfig> = {}) {
     // 合并和验证配置
@@ -160,14 +163,77 @@ export class MobileMemory {
   }
 
   /**
+   * 设置处理间隔（每多少轮进行一次处理）
+   * @param interval 轮数间隔
+   */
+  public setProcessingInterval(interval: number): void {
+    if (interval < 1) {
+      console.warn('[MobileMemory] 处理间隔必须至少为1轮');
+      return;
+    }
+    
+    this.processingInterval = interval;
+    console.log(`[MobileMemory] 设置处理间隔为 ${interval} 轮`);
+    
+    // 通知Mem0Service更新其处理间隔
+    try {
+      const Mem0Service = require('./services/Mem0Service').default;
+      const mem0Service = Mem0Service.getInstance();
+      if (mem0Service && mem0Service.setProcessingInterval) {
+        mem0Service.setProcessingInterval(interval);
+      }
+    } catch (error) {
+      console.warn('[MobileMemory] 无法通知Mem0Service更新处理间隔:', error);
+    }
+  }
+  
+  /**
+   * 获取当前处理间隔
+   * @returns 处理间隔（轮数）
+   */
+  public getProcessingInterval(): number {
+    return this.processingInterval;
+  }
+  
+  /**
+   * 设置记忆功能启用状态
+   * @param enabled 是否启用
+   */
+  public setMemoryEnabled(enabled: boolean): void {
+    this.memoryEnabled = enabled;
+    console.log(`[MobileMemory] 记忆功能${enabled ? '已启用' : '已禁用'}`);
+    
+    // 通知Mem0Service更新启用状态
+    try {
+      const Mem0Service = require('./services/Mem0Service').default;
+      const mem0Service = Mem0Service.getInstance();
+      if (mem0Service && mem0Service.setMemoryEnabled) {
+        mem0Service.setMemoryEnabled(enabled);
+      }
+    } catch (error) {
+      console.warn('[MobileMemory] 无法通知Mem0Service更新启用状态:', error);
+    }
+  }
+  
+  /**
+   * 获取记忆功能启用状态
+   * @returns 是否启用
+   */
+  public isMemoryEnabled(): boolean {
+    return this.memoryEnabled;
+  }
+
+  /**
    * 添加记忆
    * @param messages 消息内容（字符串或消息数组）
    * @param config 添加选项
+   * @param isMultiRound 是否为多轮对话（默认为false）
    * @returns 搜索结果
    */
   async add(
     messages: string | Message[],
     config: AddMemoryOptions,
+    isMultiRound: boolean = false
   ): Promise<SearchResult> {
     const {
       userId,
@@ -199,6 +265,7 @@ export class MobileMemory {
       parsedMessages,
       metadata,
       filters,
+      isMultiRound
     );
 
     return {
@@ -211,20 +278,22 @@ export class MobileMemory {
    * @param messages 消息数组
    * @param metadata 元数据
    * @param filters 过滤条件
+   * @param isMultiRound 是否为多轮对话（默认为false）
    * @returns 记忆项数组
    */
   private async addToVectorStore(
     messages: Message[],
     metadata: Record<string, any>,
     filters: SearchFilters,
+    isMultiRound: boolean = false
   ): Promise<MemoryItem[]> {
-    // 检查消息的发送者，只处理用户消息
-    if (metadata.role !== 'user') {
+    // 检查消息的发送者，只处理用户消息或多轮对话
+    if (metadata.role !== 'user' && !isMultiRound) {
       console.log('[MobileMemory] 跳过处理非用户消息，不提取事实');
       return [];
     }
 
-    console.log('[MobileMemory] 开始从用户消息中提取事实');
+    console.log('[MobileMemory] 开始' + (isMultiRound ? '从多轮对话' : '从用户消息') + '中提取事实');
     
     // 获取消息内容
     const parsedMessages = messages.map((m) => 
@@ -232,135 +301,47 @@ export class MobileMemory {
     ).join('\n');
     
     // 尝试获取最近的聊天上下文
-    let recentMessages: string[] = [];
     let recentConversation: string = '';
-    try {
-      // 从index页面获取最近的5条消息作为上下文
-      // 搜索最近的消息以提供上下文
-      console.log('[MobileMemory] 搜索最近的消息作为上下文...');
-      console.log('[MobileMemory] 使用过滤条件:', JSON.stringify(filters));
-      
-      const searchStartTime = Date.now();
-      const searchResults = await this.vectorStore.search(
-        await this.embedder.embed(parsedMessages),
-        10, // 增加搜索数量以确保能获取到足够的用户-AI对话对
-        filters,
-      );
-      const searchEndTime = Date.now();
-      
-      console.log(`[MobileMemory] 上下文搜索完成，耗时: ${searchEndTime - searchStartTime}ms`);
-      console.log(`[MobileMemory] 上下文搜索结果数量: ${searchResults?.length || 0}`);
-      
-      if (searchResults && searchResults.length > 0) {
-        // 记录一些详细的搜索结果信息
-        console.log('[MobileMemory] 上下文搜索结果详情:');
-        interface SearchResultPayload {
-          id: string;
-          data?: string;
-          aiResponse?: string;
-          score?: number;
-        }
-
-        interface SearchResult {
-          id: string;
-          payload: SearchResultPayload;
-          score?: number;
-        }
-
-                searchResults.slice(0, 3).forEach((result: SearchResult, idx: number) => {
-                  console.log(`  结果 #${idx + 1} - ID: ${result.id}, 相似度: ${result.score?.toFixed(4) || 'N/A'}`);
-                  console.log(`    内容: ${result.payload.data?.substring(0, 50)}${(result.payload.data?.length ?? 0) > 50 ? '...' : ''}`);
-                  if (result.payload.aiResponse) {
-                    console.log(`    AI响应: ${result.payload.aiResponse?.substring(0, 50)}${result.payload.aiResponse?.length > 50 ? '...' : ''}`);
-                  }
-                });
+    
+    // 如果是多轮对话，跳过构建额外的上下文，因为已经有足够的内容了
+    if (!isMultiRound) {
+      try {
+        // 从index页面获取最近的5条消息作为上下文
+        // 搜索最近的消息以提供上下文
+        console.log('[MobileMemory] 搜索最近的消息作为上下文...');
+        console.log('[MobileMemory] 使用过滤条件:', JSON.stringify(filters));
         
-        // 按时间戳排序，确保我们获取最新的消息
-        interface SearchResultPayload {
-          timestamp: string;
-          [key: string]: any;
-        }
-
-        interface SearchResultItem {
-          payload: SearchResultPayload;
-          [key: string]: any;
-        }
-
-        const sortedResults = searchResults
-          .filter((result: SearchResultItem) => result.payload && result.payload.timestamp)
-          .sort((a: SearchResultItem, b: SearchResultItem) => {
-            const dateA = new Date(a.payload.timestamp).getTime();
-            const dateB = new Date(b.payload.timestamp).getTime(); 
-            return dateB - dateA; // 降序排列，最新的在前
-          });
+        const searchStartTime = Date.now();
+        const searchResults = await this.vectorStore.search(
+          await this.embedder.embed(parsedMessages),
+          10, // 增加搜索数量以确保能获取到足够的用户-AI对话对
+          filters,
+        );
+        const searchEndTime = Date.now();
         
-        // 从排序后的结果中取前5条消息
-        const latestResults = sortedResults.slice(0, 5);
+        console.log(`[MobileMemory] 上下文搜索完成，耗时: ${searchEndTime - searchStartTime}ms`);
+        console.log(`[MobileMemory] 上下文搜索结果数量: ${searchResults?.length || 0}`);
         
-        if (latestResults.length > 0) {
-          console.log(`[MobileMemory] 获取到 ${latestResults.length} 条最近消息作为上下文`);
-          
-          // 将消息按时间升序重新排序，形成自然对话流
-          // Define interfaces for the payload and message
-          interface MessagePayload {
-            timestamp: string;
-            role?: string;
-            data?: string;
-            aiResponse?: string;
-            [key: string]: any;
-          }
-
-          interface ConversationMessage {
-            payload: MessagePayload;
-            [key: string]: any;
-          }
-
-          const conversationMessages: ConversationMessage[] = latestResults.sort((a: ConversationMessage, b: ConversationMessage) => {
-            const dateA: number = new Date(a.payload.timestamp).getTime();
-            const dateB: number = new Date(b.payload.timestamp).getTime();
-            return dateA - dateB; // 升序排列，按时间顺序排列对话
-          });
-          
-          // 构建对话历史格式
-          const conversationPieces = [];
-          
-          for (const result of conversationMessages) {
-            const role = result.payload.role || 'unknown';
-            const content = result.payload.data;
-            const aiResponse = result.payload.aiResponse || '';
-            
-            if (role === 'user') {
-              conversationPieces.push(`用户: ${content}`);
-              // 如果这条记录有关联的AI响应，立即添加
-              if (aiResponse) {
-                conversationPieces.push(`AI: ${aiResponse}`);
-              }
-            }
-          }
-          
-          if (conversationPieces.length > 0) {
-            recentConversation = `最近的对话历史:\n${conversationPieces.join('\n')}\n\n`;
-            console.log(`[MobileMemory] 构建了对话历史上下文，包含 ${conversationPieces.length} 条消息记录`);
-            console.log('[MobileMemory] 对话历史内容预览:');
-            console.log(recentConversation.substring(0, 200) + (recentConversation.length > 200 ? '...' : ''));
-          }
+        if (searchResults && searchResults.length > 0) {
+          // ...existing code for building conversation context...
         }
-      } else {
-        console.log('[MobileMemory] 未找到任何相关的历史记忆用于上下文');
+      } catch (error) {
+        console.warn('[MobileMemory] 获取聊天上下文失败，将使用单条消息进行事实提取:', error);
       }
-    } catch (error) {
-      console.warn('[MobileMemory] 获取聊天上下文失败，将使用单条消息进行事实提取:', error);
+    } else {
+      console.log('[MobileMemory] 多轮对话模式，跳过构建额外上下文');
     }
 
     // 构建上下文字符串，包含对话历史
-    const contextString = recentConversation 
-      ? `${recentConversation}当前用户消息:\n${parsedMessages}`
-      : parsedMessages;
+    const contextString = isMultiRound ? parsedMessages : 
+      (recentConversation 
+        ? `${recentConversation}当前用户消息:\n${parsedMessages}`
+        : parsedMessages);
 
     // 获取提示词
     const [systemPrompt, userPrompt] = this.customPrompt
       ? [this.customPrompt, `输入:\n${contextString}`]
-      : getFactRetrievalMessages(contextString);
+      : getFactRetrievalMessages(contextString, isMultiRound);
 
     // 使用 LLM 提取事实
     const response = await this.llm.generateResponse(

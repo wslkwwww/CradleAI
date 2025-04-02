@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, GlobalSettings } from '@/shared/types';
+import { storeUserSettingsGlobally } from '@/utils/settings-helper';
 
 interface UserContextProps {
   user: User | null;
@@ -21,14 +22,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const userData = await AsyncStorage.getItem('user');
         if (userData) {
-          setUser(JSON.parse(userData));
+          const parsedUser = JSON.parse(userData);
+          setUser(parsedUser);
           
-          // Also store to localStorage for web compatibility
-          try {
-            localStorage.setItem('user_settings', JSON.stringify(JSON.parse(userData).settings));
-          } catch (error) {
-            console.warn('Could not save to localStorage', error);
+          // Store settings globally for services to access
+          if (parsedUser.settings) {
+            storeUserSettingsGlobally(parsedUser.settings);
           }
+          
+          // Also store to localStorage for web compatibility (already handled by settings helper)
         } else {
           // Initialize with default settings
           const defaultUser: User = {
@@ -36,6 +38,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
             name: 'User',
             avatar: null as any,
             settings: {
+              license: {
+                enabled: false,
+                licenseKey: undefined,
+                deviceId: undefined,
+                planId: undefined,
+                expiryDate: undefined
+              },
               app: {
                 darkMode: true,
                 autoSave: true,
@@ -52,6 +61,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 temperature: 0.7,
                 maxTokens: 800,
                 maxtokens: 800,
+                useZhipuEmbedding: false,
+                zhipuApiKey: '',
                 openrouter: {
                   enabled: false,
                   apiKey: '',
@@ -73,6 +84,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
           setUser(defaultUser);
           await AsyncStorage.setItem('user', JSON.stringify(defaultUser));
+          
+          // Store settings globally for services to access
+          if (defaultUser.settings) {
+            storeUserSettingsGlobally(defaultUser.settings);
+          }
         }
       } catch (error) {
         console.error('Failed to load user:', error);
@@ -123,15 +139,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(updatedUser);
       await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
       
-      // Also update localStorage for direct access by services
-      try {
-        localStorage.setItem('user_settings', JSON.stringify(updatedUser.settings));
-      } catch (error) {
-        console.warn('Could not save to localStorage', error);
-      }
+      // Also update global settings for direct access by services
+      storeUserSettingsGlobally(updatedUser.settings);
       
       console.log('[UserContext] Settings updated successfully, apiProvider:', 
-        updatedUser.settings.chat.apiProvider);
+        updatedUser.settings.chat.apiProvider, 
+        'useCloudService:', updatedUser.settings.chat.useCloudService);
     } catch (error) {
       console.error('Failed to update settings:', error);
       throw new Error('Failed to update settings');
