@@ -60,6 +60,24 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   // Add state for TTS functionality
   const [audioStates, setAudioStates] = useState<Record<string, AudioState>>({});
   
+  // Add state for TTS enhancer settings
+  const [ttsEnhancerEnabled, setTtsEnhancerEnabled] = useState(false);
+  
+  // Check TTS enhancer status when component mounts
+  useEffect(() => {
+    const checkTtsEnhancerStatus = () => {
+      const settings = ttsService.getEnhancerSettings();
+      setTtsEnhancerEnabled(settings.enabled);
+    };
+    
+    checkTtsEnhancerStatus();
+    
+    // Set up interval to periodically check enhancer status
+    const intervalId = setInterval(checkTtsEnhancerStatus, 5000);
+    
+    return () => clearInterval(intervalId);
+  }, []);
+  
   // Update current conversation ID when it changes
   useEffect(() => {
     if (selectedCharacter?.id && selectedCharacter.id !== currentConversationId) {
@@ -609,7 +627,12 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         ) : audioState.hasAudio ? (
           // If audio is available, show appropriate button based on playback state
           <TouchableOpacity
-            style={[styles.ttsButton, audioState.isPlaying && styles.ttsButtonActive]}
+            style={[
+              styles.ttsButton, 
+              audioState.isPlaying && styles.ttsButtonActive,
+              // Add special style for enhanced audio
+              ttsEnhancerEnabled && styles.ttsButtonEnhanced
+            ]}
             onPress={() => handlePlayAudio(message.id)}
           >
             {audioState.isPlaying ? (
@@ -622,14 +645,32 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
               // Has audio but not playing - show play button
               <Ionicons name="play" size={18} color="#fff" />
             )}
+            
+            {/* Add indicator for enhanced audio */}
+            {ttsEnhancerEnabled && (
+              <View style={styles.ttsEnhancerIndicator}>
+                <Ionicons name="sparkles-outline" size={10} color="#fff" />
+              </View>
+            )}
           </TouchableOpacity>
         ) : (
           // If no audio yet, show generate button
           <TouchableOpacity
-            style={styles.ttsButton}
+            style={[
+              styles.ttsButton,
+              // Add special style for enhanced mode
+              ttsEnhancerEnabled && styles.ttsButtonEnhanced
+            ]}
             onPress={() => handleTTSButtonPress(message.id, message.text)}
           >
             <Ionicons name="volume-high" size={18} color="#fff" />
+            
+            {/* Add indicator for enhanced mode */}
+            {ttsEnhancerEnabled && (
+              <View style={styles.ttsEnhancerIndicator}>
+                <Ionicons name="sparkles-outline" size={10} color="#fff" />
+              </View>
+            )}
           </TouchableOpacity>
         )}
         
@@ -1341,6 +1382,21 @@ const styles = StyleSheet.create({
     color: '#ff6666',
     fontSize: 12,
     marginLeft: 4,
+  },
+  // Add new styles for TTS enhancer
+  ttsButtonEnhanced: {
+    backgroundColor: 'rgba(255, 193, 7, 0.7)', // More golden color for enhanced mode
+  },
+  ttsEnhancerIndicator: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: 'rgba(255, 193, 7, 0.9)',
+    borderRadius: 8,
+    width: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

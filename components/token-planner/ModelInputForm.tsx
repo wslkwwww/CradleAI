@@ -21,6 +21,11 @@ interface InputValues {
   monthlyBudget: number;
   dailyChats: number;
   tokenPerWordRatio: number;
+  includeVoiceGeneration: boolean;
+  dailyVoiceMessages: number;
+  voiceDurationPerMessage: number;
+  includeImageGeneration: boolean;
+  monthlyGeneratedImages: number;
 }
 
 interface ModelInputFormProps {
@@ -36,6 +41,7 @@ const ModelInputForm: React.FC<ModelInputFormProps> = ({
 }) => {
   const [values, setValues] = useState<InputValues>(defaultValues);
   const [expanded, setExpanded] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
 
   const handleInputChange = (field: keyof InputValues, value: string | boolean) => {
     if (typeof value === 'boolean') {
@@ -44,7 +50,6 @@ const ModelInputForm: React.FC<ModelInputFormProps> = ({
         [field]: value
       }));
     } else {
-      // Convert string to number for numeric fields
       const numValue = value === '' ? 0 : parseFloat(value);
       setValues(prev => ({
         ...prev,
@@ -63,6 +68,10 @@ const ModelInputForm: React.FC<ModelInputFormProps> = ({
 
   const toggleExpanded = () => {
     setExpanded(!expanded);
+  };
+
+  const toggleAdvancedOptions = () => {
+    setShowAdvancedOptions(!showAdvancedOptions);
   };
 
   return (
@@ -179,6 +188,105 @@ const ModelInputForm: React.FC<ModelInputFormProps> = ({
                 placeholder="0"
               />
             </View>
+          )}
+          
+          <TouchableOpacity style={styles.advancedOptionsButton} onPress={toggleAdvancedOptions}>
+            <Text style={styles.advancedOptionsButtonText}>
+              {showAdvancedOptions ? "收起高级选项" : "展开高级选项"}
+            </Text>
+            <Ionicons 
+              name={showAdvancedOptions ? "chevron-up-outline" : "chevron-down-outline"}
+              size={16}
+              color={theme.colors.primary}
+            />
+          </TouchableOpacity>
+          
+          {showAdvancedOptions && (
+            <>
+              <View style={styles.featureSection}>
+                <View style={styles.switchRow}>
+                  <Text style={styles.label}>包含语音生成</Text>
+                  <Switch
+                    value={values.includeVoiceGeneration}
+                    onValueChange={(value) => handleInputChange('includeVoiceGeneration', value)}
+                    trackColor={{ false: '#767577', true: theme.colors.primary }}
+                    thumbColor={values.includeVoiceGeneration ? '#fff' : '#f4f3f4'}
+                    ios_backgroundColor="#3e3e3e"
+                  />
+                </View>
+                
+                {values.includeVoiceGeneration && (
+                  <>
+                    <View style={styles.inputRow}>
+                      <Text style={styles.label}>每日语音条数</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={values.dailyVoiceMessages.toString()}
+                        onChangeText={(value) => handleInputChange('dailyVoiceMessages', value)}
+                        keyboardType="numeric"
+                        placeholder="5"
+                      />
+                    </View>
+                    
+                    <View style={styles.inputRow}>
+                      <Text style={styles.label}>每条语音时长 (秒)</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={values.voiceDurationPerMessage.toString()}
+                        onChangeText={(value) => {
+                          const duration = parseFloat(value);
+                          if (isNaN(duration) || duration <= 15) {
+                            handleInputChange('voiceDurationPerMessage', value);
+                          } else {
+                            handleInputChange('voiceDurationPerMessage', '15');
+                          }
+                        }}
+                        keyboardType="numeric"
+                        placeholder="5"
+                      />
+                    </View>
+                    
+                    {parseFloat(values.voiceDurationPerMessage.toString()) > 15 && (
+                      <Text style={styles.warningText}>
+                        语音时长最大为15秒
+                      </Text>
+                    )}
+                  </>
+                )}
+              </View>
+              
+              <View style={styles.featureSection}>
+                <View style={styles.switchRow}>
+                  <Text style={styles.label}>包含图片生成</Text>
+                  <Switch
+                    value={values.includeImageGeneration}
+                    onValueChange={(value) => handleInputChange('includeImageGeneration', value)}
+                    trackColor={{ false: '#767577', true: theme.colors.primary }}
+                    thumbColor={values.includeImageGeneration ? '#fff' : '#f4f3f4'}
+                    ios_backgroundColor="#3e3e3e"
+                  />
+                </View>
+                
+                {values.includeImageGeneration && (
+                  <View style={styles.inputRow}>
+                    <Text style={styles.label}>每月生成图片数量</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={values.monthlyGeneratedImages.toString()}
+                      onChangeText={(value) => handleInputChange('monthlyGeneratedImages', value)}
+                      keyboardType="numeric"
+                      placeholder="10"
+                    />
+                  </View>
+                )}
+              </View>
+              
+              <View style={styles.pricingInfoContainer}>
+                <Text style={styles.pricingInfoTitle}>价格参考：</Text>
+                <Text style={styles.pricingInfoText}>• 语音生成：0.01元/秒（生成1秒音频≈运行1秒）</Text>
+                <Text style={styles.pricingInfoText}>• 图片生成：0.01元/秒（生成1张图片≈运行5秒）</Text>
+              </View>
+            </>
           )}
         </>
       )}
@@ -297,6 +405,50 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 14,
     marginLeft: 6,
+  },
+  advancedOptionsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    marginVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(100, 100, 255, 0.1)',
+  },
+  advancedOptionsButtonText: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    marginRight: 4,
+  },
+  featureSection: {
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(100, 100, 255, 0.3)',
+    paddingLeft: 12,
+    marginVertical: 8,
+  },
+  pricingInfoContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  pricingInfoTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.colors.text,
+    marginBottom: 6,
+  },
+  pricingInfoText: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  warningText: {
+    fontSize: 12,
+    color: theme.colors.warning,
+    marginBottom: 8,
+    marginTop: -6,
   }
 });
 

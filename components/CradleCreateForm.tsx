@@ -1991,8 +1991,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#222',
   },
   sidebarContainer: {
-    width: 80,
-    backgroundColor: 'rgba(40, 40, 40, 0.9)',
+    width: 70,
+    backgroundColor: theme.colors.backgroundSecondary,
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.1)',
     display: 'flex',

@@ -46,6 +46,11 @@ interface InputValues {
   monthlyBudget: number;
   dailyChats: number;
   tokenPerWordRatio: number;
+  includeVoiceGeneration: boolean;
+  dailyVoiceMessages: number;
+  voiceDurationPerMessage: number;
+  includeImageGeneration: boolean;
+  monthlyGeneratedImages: number;
 }
 
 interface CalculationResult {
@@ -60,7 +65,12 @@ interface CalculationResult {
   imageCost: number;
   contextLength: number;
   hasImageCapability: boolean;
+  voiceGenerationCost: number;
+  imageGenerationCost: number;
 }
+
+const VOICE_GENERATION_COST_PER_SECOND = 0.01;
+const IMAGE_GENERATION_COST_PER_IMAGE = 0.01 * 5;
 
 const TokenPlanner: React.FC = () => {
   const router = useRouter();
@@ -69,7 +79,6 @@ const TokenPlanner: React.FC = () => {
   const [results, setResults] = useState<CalculationResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   
-  // Default values for input form
   const defaultValues: InputValues = {
     userInputWords: 100,
     expectedOutputWords: 200,
@@ -79,12 +88,16 @@ const TokenPlanner: React.FC = () => {
     conversationTurns: 5,
     monthlyBudget: 30,
     dailyChats: 300,
-    tokenPerWordRatio: 0.75
+    tokenPerWordRatio: 0.75,
+    includeVoiceGeneration: false,
+    dailyVoiceMessages: 5,
+    voiceDurationPerMessage: 5,
+    includeImageGeneration: false,
+    monthlyGeneratedImages: 10
   };
 
   const [inputValues, setInputValues] = useState<InputValues>(defaultValues);
 
-  // Fetch models from API when component mounts
   useEffect(() => {
     fetchModels();
   }, []);
@@ -93,16 +106,11 @@ const TokenPlanner: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Add a small artificial delay to ensure loading shows
       await new Promise(resolve => setTimeout(resolve, 500));
-      
       const response = await fetch('https://openrouter.ai/api/v1/models');
-      
       if (!response.ok) {
         throw new Error('Failed to fetch models');
       }
-      
       const data = await response.json();
       setModels(data.data);
     } catch (err) {
@@ -119,7 +127,6 @@ const TokenPlanner: React.FC = () => {
 
     try {
       const calculationResults: CalculationResult[] = models.map(model => {
-        // Calculate tokens
         const inputTokens = values.userInputWords * values.tokenPerWordRatio;
         const outputTokens = values.expectedOutputWords * values.tokenPerWordRatio;
         const roleCardTokens = values.roleCardWords * values.tokenPerWordRatio;
@@ -127,32 +134,36 @@ const TokenPlanner: React.FC = () => {
         const totalTokensPerChat = inputTokens + outputTokens + roleCardTokens + chatHistoryTokens;
         const totalDailyTokens = totalTokensPerChat * values.dailyChats;
         const totalMonthlyTokens = totalDailyTokens * 30;
-        
-        // Parse pricing info
+
         const inputPricePerToken = parseFloat(model.pricing.prompt) || 0;
         const outputPricePerToken = parseFloat(model.pricing.completion) || 0;
         const imagePricePerImage = parseFloat(model.pricing.image) || 0;
-        
-        // Calculate costs
+
         const inputCost = (totalMonthlyTokens / 1000000) * inputPricePerToken * 1000000;
         const outputCost = (totalMonthlyTokens / 1000000) * outputPricePerToken * 1000000;
         const imageCost = values.includeImages ? 
           (values.imageCount / 1000000) * imagePricePerImage * 1000000 : 0;
-        
-        const totalMonthlyCost = inputCost + outputCost + imageCost;
-        
-        // Calculate days can chat
+
+        const voiceGenerationCost = values.includeVoiceGeneration ? 
+          values.dailyVoiceMessages * values.voiceDurationPerMessage * VOICE_GENERATION_COST_PER_SECOND * 30 : 0;
+
+        const imageGenerationCost = values.includeImageGeneration ? 
+          values.monthlyGeneratedImages * IMAGE_GENERATION_COST_PER_IMAGE : 0;
+
+        const modelUsageCost = inputCost + outputCost + imageCost;
+        const totalMonthlyCost = modelUsageCost;
+
         let daysCanChat = 0;
-        if (totalMonthlyCost > 0) {
-          const dailyCost = totalMonthlyCost / 30;
-          daysCanChat = values.monthlyBudget / dailyCost;
+        if (modelUsageCost > 0) {
+          const adjustedBudget = Math.max(0, values.monthlyBudget - voiceGenerationCost - imageGenerationCost);
+          const dailyModelCost = modelUsageCost / 30;
+          daysCanChat = dailyModelCost > 0 ? adjustedBudget / dailyModelCost : 9999;
         } else {
-          daysCanChat = 9999; // Effectively unlimited
+          daysCanChat = 9999;
         }
-        
-        // Check if model supports image input
+
         const hasImageCapability = model.architecture?.input_modalities?.includes('image') || false;
-        
+
         return {
           modelId: model.id,
           modelName: model.name,
@@ -164,11 +175,12 @@ const TokenPlanner: React.FC = () => {
           outputCost: outputCost,
           imageCost: imageCost,
           contextLength: model.context_length,
-          hasImageCapability
+          hasImageCapability,
+          voiceGenerationCost,
+          imageGenerationCost
         };
       });
-      
-      // Sort results by estimated cost (ascending)
+
       calculationResults.sort((a, b) => a.estimatedMonthlyCost - b.estimatedMonthlyCost);
       setResults(calculationResults);
     } catch (err) {
@@ -194,6 +206,7 @@ const TokenPlanner: React.FC = () => {
           <Text style={styles.introTitle}>优化您的 AI 使用成本</Text>
           <Text style={styles.introDescription}>
             基于您的使用习惯估算不同模型的费用，帮助您做出更明智的选择。
+            现在支持计算模型使用、语音生成和图片生成的综合成本。
           </Text>
         </View>
 
@@ -212,6 +225,8 @@ const TokenPlanner: React.FC = () => {
             results={results} 
             monthlyBudget={inputValues.monthlyBudget}
             includeImages={inputValues.includeImages}
+            includeVoiceGeneration={inputValues.includeVoiceGeneration}
+            includeImageGeneration={inputValues.includeImageGeneration}
           />
         ) : !loading && (
           <View style={styles.emptyContainer}>

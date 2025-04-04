@@ -752,32 +752,36 @@ export class GeminiAdapter {
      * @returns 生成的内容
      */
     async generateContentWithTools(contents: ChatMessage[], memoryResults?: any): Promise<string> {
-        // 检查最后一条消息中是否需要搜索功能
+        // 获取最后一条消息
         const lastMessage = contents[contents.length - 1];
         const messageText = lastMessage.parts?.[0]?.text || "";
-        const needsSearching = this.messageNeedsSearching(messageText);
+        
+        // 添加详细的调试日志
+        console.log(`[Gemini适配器] generateContentWithTools被调用，messageText: "${messageText.substring(0, 50)}${messageText.length > 50 ? '...' : ''}"`);
+        
+        // 检查是否需要搜索（即使没有启用搜索功能，也检查一下，便于调试）
+        const wouldNeedSearching = this.messageNeedsSearching(messageText);
+        console.log(`[Gemini适配器] 消息是否适合搜索: ${wouldNeedSearching}`);
         
         try {
+            // 检查是否同时存在记忆结果和搜索意图
+            const hasMemoryResults = memoryResults && 
+                                   memoryResults.results && 
+                                   memoryResults.results.length > 0;
+            
             // 解耦逻辑：根据情况处理不同类型的增强内容
-            if (needsSearching) {
-                console.log(`[Gemini适配器] 检测到搜索意图`);
-
-                // 检查是否提供了记忆搜索结果
-                const hasMemoryResults = memoryResults && memoryResults.results && memoryResults.results.length > 0;
-                
-                // Log more detailed information about memory results
-                if (hasMemoryResults) {
-                    console.log(`[Gemini适配器] 收到记忆搜索结果: ${memoryResults.results.length} 条记忆`);
-                    // Log a preview of the first few memories for debugging
-                    memoryResults.results.slice(0, 3).forEach((item: any, idx: number) => {
-                        console.log(`[Gemini适配器] 记忆 #${idx+1}: ${item.memory.substring(0, 100)}${item.memory.length > 100 ? '...' : ''}`);
-                    });
-                    
-                    return await this.handleWithMemoryResults(contents, memoryResults);
-                } else {
-                    console.log(`[Gemini适配器] 未提供记忆结果，尝试使用网络搜索`);
-                    return await this.handleSearchIntent(contents);
-                }
+            if (hasMemoryResults && wouldNeedSearching) {
+                // 同时处理记忆和搜索
+                console.log(`[Gemini适配器] 同时检测到记忆结果和搜索意图，使用组合增强处理`);
+                return await this.handleCombinedMemoryAndSearch(contents, memoryResults);
+            } else if (hasMemoryResults) {
+                // 如果只有记忆搜索结果，仅使用记忆增强
+                console.log(`[Gemini适配器] 检测到记忆搜索结果，使用记忆增强处理`);
+                return await this.handleWithMemoryResults(contents, memoryResults);
+            } else if (wouldNeedSearching) {
+                // 如果没有记忆结果但有搜索意图，使用网络搜索
+                console.log(`[Gemini适配器] 检测到搜索意图，尝试使用网络搜索`);
+                return await this.handleSearchIntent(contents);
             }
             
             // 如果没有搜索意图，使用普通对话方式
@@ -787,6 +791,115 @@ export class GeminiAdapter {
             console.error(`[Gemini适配器] 工具调用失败，回退到标准对话:`, error);
             // 如果工具调用失败，回退到标准对话
             return await this.generateContent(contents);
+        }
+    }
+
+    /**
+     * 处理同时具有记忆搜索结果和网络搜索意图的请求
+     * @param contents 消息内容
+     * @param memoryResults 记忆搜索结果
+     * @returns 生成的融合回复
+     */
+    private async handleCombinedMemoryAndSearch(contents: ChatMessage[], memoryResults: any): Promise<string> {
+        console.log(`[Gemini适配器] 开始处理记忆搜索和网络搜索的组合请求`);
+        
+        // 获取最后一条消息的内容
+        const lastMessage = contents[contents.length - 1];
+        const userQuery = lastMessage.parts?.[0]?.text || "";
+        
+        try {
+            // Step 1: 准备记忆部分
+            console.log(`[Gemini适配器] 处理记忆部分，发现 ${memoryResults.results.length} 条记忆`);
+            
+            let memorySection = `<mem>\n系统检索到的记忆内容：\n`;
+            // 格式化记忆结果
+            memoryResults.results.forEach((item: any, index: number) => {
+                memorySection += `${index + 1}. ${item.memory}\n`;
+            });
+            memorySection += `</mem>\n\n`;
+            
+            // Step 2: 准备网络搜索部分
+            console.log(`[Gemini适配器] 为用户查询准备网络搜索: "${userQuery}"`);
+            
+            // 确保MCP适配器已连接
+            if (!mcpAdapter.isReady()) {
+                await mcpAdapter.connect();
+            }
+            
+            // 先使用Gemini分析消息，提取搜索关键词
+            const extractionPrompt: ChatMessage[] = [
+                {
+                    role: "model",
+                    parts: [{ text: "我将帮助你提取搜索关键词。请给我一个问题或搜索请求，我会提取出最适合用于搜索引擎的关键词。我只会返回关键词，不会有任何额外的解释。" }]
+                },
+                {
+                    role: "user",
+                    parts: [{ text: userQuery }]
+                }
+            ];
+            
+            const refinedQuery = await this.generateContent(extractionPrompt);
+            const finalQuery = refinedQuery.trim() || userQuery;
+            
+            console.log(`[Gemini适配器] 提取的搜索关键词: ${finalQuery}`);
+            
+            // 使用MCP适配器执行搜索
+            const searchResults = await mcpAdapter.search({
+                query: finalQuery,
+                count: 5
+            });
+            
+            // 格式化搜索结果为可读文本
+            const formattedResults = mcpAdapter.formatSearchResults(searchResults);
+            
+            let searchSection = `<websearch>\n搜索引擎返回的联网检索结果：\n${formattedResults}\n</websearch>\n\n`;
+            
+            // Step 3: 构建融合提示词
+            console.log(`[Gemini适配器] 构建融合提示词，结合记忆和网络搜索结果`);
+            
+            let combinedPrompt = `${userQuery}\n\n`;
+            
+            // 添加记忆和搜索结果
+            combinedPrompt += memorySection;
+            combinedPrompt += searchSection;
+            
+            // 添加融合的响应指南
+            combinedPrompt += `<response_guidelines>
+- 请结合上面的记忆内容和联网搜索结果，全面回答用户的问题。
+- **首先**，在回复中用<mem></mem>标签包裹你对记忆内容的引用和回忆过程，例如:
+  <mem>我记得你之前提到过关于这个话题，当时我们讨论了...</mem>
+- **然后**，用<websearch></websearch>标签包裹你对网络搜索结果的解释和引用，例如:
+  <websearch>根据最新的网络信息，关于这个问题的专业观点是...</websearch>
+- 确保回复能够同时**有效整合记忆和网络信息**，让内容更加全面和有用。
+- 回复的语气和风格必须与角色人设保持一致。
+</response_guidelines>`;
+            
+            // 记录融合提示词的长度
+            console.log(`[Gemini适配器] 融合提示词构建完成，长度: ${combinedPrompt.length}`);
+            
+            // 使用标准的生成内容方法生成最终回复
+            // 保持原始请求结构，只修改用户消息内容
+            const finalPrompt: ChatMessage[] = [
+                ...contents.slice(0, -1), // 保留之前的对话历史，除了最后一条
+                {
+                    role: "user",
+                    parts: [{ text: combinedPrompt }]
+                }
+            ];
+            
+            return await this.generateContent(finalPrompt);
+        } catch (error) {
+            console.error(`[Gemini适配器] 组合处理记忆搜索和网络搜索时出错:`, error);
+            
+            // 如果组合处理失败，尝试退回到仅使用记忆搜索结果的方式
+            console.log(`[Gemini适配器] 组合处理失败，回退到仅使用记忆结果模式`);
+            try {
+                return await this.handleWithMemoryResults(contents, memoryResults);
+            } catch (fallbackError) {
+                console.error(`[Gemini适配器] 记忆处理也失败，回退到标准对话:`, fallbackError);
+                // 如最终都失败，使用标准方式
+                return await this.generateContent(contents);
+            }
         }
     }
 
@@ -948,12 +1061,15 @@ export class GeminiAdapter {
      * @returns 是否需要搜索
      */
     private messageNeedsSearching(messageText: string): boolean {
+        // 添加更多详细的调试日志
+        console.log(`[Gemini适配器] 正在分析消息是否需要搜索: "${messageText.substring(0, 50)}${messageText.length > 50 ? '...' : ''}"`);
+        
         // 检查消息是否包含搜索意图的关键词
         const searchKeywords = [
             '搜索', '查询', '查找', '寻找', '检索', '了解', '信息', 
-            '最新', '新闻', '什么是', '谁是', '哪里',
+            '最新', '新闻', '什么是', '谁是', '哪里', '如何', '怎么',
             'search', 'find', 'lookup', 'query', 'information about',
-            'latest', 'news', 'what is', 'who is', 'where'
+            'latest', 'news', 'what is', 'who is', 'where', 'how to'
         ];
         
         // 提问型关键词
@@ -975,7 +1091,17 @@ export class GeminiAdapter {
         
         // 如果同时满足以下条件，则判断需要搜索:
         // 1. 消息包含搜索关键词或者是一个问题
-        // 2. 消息长度不超过200个字符 (太长的消息可能不是搜索意图)
-        return (hasSearchKeyword || isQuestion) && messageText.length < 200;
+        // 2. 消息长度不超过300个字符 (放宽长度限制，从200改为300)
+        const needsSearching = (hasSearchKeyword || isQuestion) && messageText.length < 300;
+        
+        // 添加详细的判断结果日志
+        console.log(`[Gemini适配器] 消息搜索判断结果:`, {
+            hasSearchKeyword,
+            isQuestion,
+            messageLength: messageText.length,
+            needsSearching
+        });
+        
+        return needsSearching;
     }
 }

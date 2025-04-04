@@ -30,8 +30,9 @@ class Mem0Service {
   private messageCache: {
     [characterId: string]: {
       [conversationId: string]: {
-        messages: Array<{ message: string; role: 'user' | 'bot'; timestamp: string }>;
+        messages: Array<{ message: string; role: 'user' | 'bot'; timestamp: string; userName?: string; aiName?: string }>;
         userMessageCount: number;
+        pendingUserMessage: boolean; // 跟踪是否有未配对的用户消息
       };
     };
   } = {};
@@ -41,6 +42,14 @@ class Mem0Service {
   
   // 启用/禁用记忆功能
   private memoryEnabled: boolean = true;
+  
+  // Add property to store character-specific naming
+  private characterNames: {
+    [characterId: string]: {
+      userName: string;
+      aiName: string;
+    }
+  } = {};
   
   private constructor() {
     // 私有构造函数，防止外部直接创建实例
@@ -141,6 +150,117 @@ class Mem0Service {
   }
   
   /**
+   * 设置角色特定的命名
+   * @param characterId 角色ID
+   * @param userName 用户的自定义称呼
+   * @param aiName AI的名称
+   */
+  public setCharacterNames(characterId: string, userName: string, aiName: string): void {
+    if (!characterId) return;
+    
+    this.characterNames[characterId] = {
+      userName: userName || '用户',
+      aiName: aiName || 'AI'
+    };
+    
+    console.log(`[Mem0Service] 已为角色 ${characterId} 设置自定义称呼: ${userName || '用户'} 和 ${aiName || 'AI'}`);
+  }
+  
+  /**
+   * 获取角色特定的用户称呼
+   * @param characterId 角色ID
+   * @returns 用户称呼
+   */
+  public getUserName(characterId: string): string {
+    return this.characterNames[characterId]?.userName || '用户';
+  }
+  
+  /**
+   * 获取角色特定的AI称呼
+   * @param characterId 角色ID
+   * @returns AI称呼
+   */
+  public getAIName(characterId: string): string {
+    return this.characterNames[characterId]?.aiName || 'AI';
+  }
+  
+  /**
+   * 从缓存或数据库获取记忆事实，避免向量搜索
+   * @param characterId 角色ID
+   * @param conversationId 会话ID
+   * @param searchQuery 可选的搜索查询
+   * @returns 记忆事实数组
+   */
+  public async getCachedMemoryFacts(
+    characterId: string,
+    conversationId: string,
+    searchQuery?: string
+  ): Promise<any[]> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryRef) {
+        console.log('[Mem0Service] memoryRef不可用，无法获取缓存的记忆事实');
+        return [];
+      }
+      
+      console.log(`[Mem0Service] 获取角色${characterId}的缓存记忆事实`);
+      
+      // 使用memory实例的getAll方法检索记忆，而不是进行向量搜索
+      const filter = {
+        agentId: characterId
+      };
+      
+      // 只有在会话ID存在且非空时添加会话过滤器
+      if (conversationId && conversationId.trim() !== '') {
+        Object.assign(filter, { runId: conversationId });
+      }
+      
+      // 获取记忆
+      const result = await this.memoryRef.getAll({
+        ...filter,
+        limit: 100 // 限制返回的记忆数量
+      });
+      
+      let memories = result.results || [];
+      
+      // 如果有搜索查询，在客户端进行过滤
+      if (searchQuery && searchQuery.trim() !== '') {
+        const normalizedQuery = searchQuery.trim().toLowerCase();
+        interface Memory {
+          memory: string;
+          id: string;
+          createdAt: string;
+          updatedAt?: string;
+          metadata?: Record<string, unknown>;
+        }
+
+        memories = memories.filter((memory: Memory) => 
+          memory.memory.toLowerCase().includes(normalizedQuery)
+        );
+      }
+      
+      // 按最近更新的排序
+      interface Memory {
+        updatedAt?: string;
+        createdAt: string;
+      }
+
+            memories.sort((a: Memory, b: Memory) => {
+              const dateA: string = a.updatedAt || a.createdAt || '';
+              const dateB: string = b.updatedAt || b.createdAt || '';
+              return dateB.localeCompare(dateA);
+            });
+      
+      console.log(`[Mem0Service] 找到${memories.length}条缓存记忆事实`);
+      return memories;
+    } catch (error) {
+      console.error('[Mem0Service] 获取缓存记忆事实失败:', error);
+      return [];
+    }
+  }
+  
+  /**
    * 添加聊天记忆
    * @param message 消息文本
    * @param role 角色 ('user' | 'bot')
@@ -181,28 +301,45 @@ class Mem0Service {
       if (!this.messageCache[characterId][conversationId]) {
         this.messageCache[characterId][conversationId] = {
           messages: [],
-          userMessageCount: 0
+          userMessageCount: 0,
+          pendingUserMessage: false
         };
       }
       
-      // 添加当前消息到缓存
+      const cache = this.messageCache[characterId][conversationId];
+      
+      // 获取角色特定的命名
+      const userName = this.getUserName(characterId);
+      const aiName = this.getAIName(characterId);
+      
+      // 添加当前消息到缓存，使用自定义称呼
       const timestamp = new Date().toISOString();
-      this.messageCache[characterId][conversationId].messages.push({
+      cache.messages.push({
         message,
         role,
-        timestamp
+        timestamp,
+        userName,
+        aiName
       });
       
-      // 如果是用户消息，增加计数
+      // 改进: 实现对话轮次计数逻辑
       if (role === 'user') {
-        this.messageCache[characterId][conversationId].userMessageCount++;
-        console.log(`[Mem0Service] 缓存用户消息，当前计数: ${this.messageCache[characterId][conversationId].userMessageCount}/${this.processingInterval}`);
-      }
-      
-      // 检查是否达到处理间隔（每10轮用户消息处理一次）
-      if (this.messageCache[characterId][conversationId].userMessageCount >= this.processingInterval) {
-        console.log(`[Mem0Service] 达到处理间隔 ${this.processingInterval} 轮，开始处理缓存记忆`);
-        await this.processMessageCache(characterId, conversationId);
+        // 标记有一条待回复的用户消息
+        cache.pendingUserMessage = true;
+        console.log(`[Mem0Service] 添加用户消息到缓存，等待AI回复完成一轮对话`);
+      } else if (role === 'bot' && cache.pendingUserMessage) {
+        // 如果是AI回复，并且有待回复的用户消息，则完成一轮对话
+        cache.pendingUserMessage = false;
+        cache.userMessageCount++;
+        
+        // 打印当前对话轮次和处理间隔
+        console.log(`[Mem0Service] 完成第 ${cache.userMessageCount} 轮对话，处理间隔: ${this.processingInterval} 轮`);
+        
+        // 改进：使用取模运算，确保只在达到确切的倍数时触发处理
+        if (cache.userMessageCount > 0 && cache.userMessageCount % this.processingInterval === 0) {
+          console.log(`[Mem0Service] 达到处理间隔 ${this.processingInterval} 轮的整数倍，开始处理缓存记忆`);
+          await this.processMessageCache(characterId, conversationId);
+        }
       }
     } catch (error) {
       console.error('[Mem0Service] 添加聊天记忆失败:', error);
@@ -239,17 +376,29 @@ class Mem0Service {
       
       const cache = this.messageCache[characterId][conversationId];
       
-      // 构建多轮对话格式
+      if (cache.messages.length === 0) {
+        console.log(`[Mem0Service] 消息缓存为空，无需处理`);
+        return;
+      }
+      
+      // 获取角色特定的命名
+      const userName = this.getUserName(characterId);
+      const aiName = this.getAIName(characterId);
+      
+      // 构建多轮对话格式，使用自定义称呼
       let conversationText = "";
       cache.messages.forEach((msg, index) => {
-        const speaker = msg.role === 'user' ? '用户' : 'AI';
+        const speaker = msg.role === 'user' 
+          ? (msg.userName || userName) 
+          : (msg.aiName || aiName);
+        
         conversationText += `${speaker}: ${msg.message}\n\n`;
       });
       
       console.log(`[Mem0Service] 处理 ${cache.userMessageCount} 轮对话, 共 ${cache.messages.length} 条消息，角色ID=${characterId}`);
       console.log(`[Mem0Service] 对话内容预览: ${conversationText.substring(0, 100)}...`);
       
-      // 调用记忆系统处理多轮对话
+      // 将自定义称呼信息传递给记忆系统
       const result = await this.memoryActions!.add(
         conversationText,
         {
@@ -258,8 +407,10 @@ class Mem0Service {
           runId: conversationId,
           metadata: {
             timestamp: new Date().toISOString(),
-            role: 'user', // 使用user角色，让系统提取事实
-            isMultiRound: true // 在元数据中标记这是多轮对话
+            role: 'user',
+            isMultiRound: true,
+            userName: userName,
+            aiName: aiName
           }
         },
         true  // 明确标记这是多轮对话处理
@@ -300,15 +451,29 @@ class Mem0Service {
         }
       }
       
-      // 重置缓存
+      // 改进：重置消息缓存和计数器，但保留待处理的用户消息状态
+      const pendingUserMessage = cache.pendingUserMessage;
       this.messageCache[characterId][conversationId] = {
         messages: [],
-        userMessageCount: 0
+        userMessageCount: 0,
+        pendingUserMessage
       };
-      console.log(`[Mem0Service] 已重置消息缓存，准备下一轮收集`);
+      
+      console.log(`[Mem0Service] 已重置消息缓存和对话计数，准备下一轮收集，保留待处理用户消息状态: ${pendingUserMessage}`);
       
     } catch (error) {
       console.error('[Mem0Service] 处理消息缓存失败:', error);
+      
+      // 改进：即使处理失败也重置计数，避免因错误导致频繁尝试处理
+      if (this.messageCache[characterId]?.[conversationId]) {
+        const pendingUserMessage = this.messageCache[characterId][conversationId].pendingUserMessage;
+        this.messageCache[characterId][conversationId] = {
+          messages: [],
+          userMessageCount: 0,
+          pendingUserMessage
+        };
+        console.log(`[Mem0Service] 处理失败但已重置消息缓存和对话计数，保留待处理用户消息状态: ${pendingUserMessage}`);
+      }
     }
   }
   
@@ -648,6 +813,14 @@ class Mem0Service {
       
       console.log(`[Mem0Service] 手动处理角色 ${characterId} 的记忆缓存`);
       await this.processMessageCache(characterId, conversationId);
+      
+      // 重置计数器，确保下次从0开始
+      if (this.messageCache[characterId]?.[conversationId]) {
+        const pendingUserMessage = this.messageCache[characterId][conversationId].pendingUserMessage;
+        this.messageCache[characterId][conversationId].userMessageCount = 0;
+        console.log(`[Mem0Service] 手动处理后已重置对话计数，保留待处理用户消息状态: ${pendingUserMessage}`);
+      }
+      
       console.log(`[Mem0Service] 手动处理完成`);
     } catch (error) {
       console.error('[Mem0Service] 手动处理记忆缓存失败:', error);
@@ -686,6 +859,219 @@ class Mem0Service {
     } catch (error) {
       console.error('[Mem0Service] 处理所有角色记忆失败:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 直接获取角色的所有记忆数据（不使用向量搜索）
+   * @param characterId 角色ID
+   * @param limit 返回结果数量限制
+   * @returns 记忆数据列表
+   */
+  public async getCharacterMemories(characterId: string, limit: number = 100): Promise<any[]> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryRef || !this.memoryRef.vectorStore) {
+        console.log('[Mem0Service] memoryRef或vectorStore不可用，无法获取角色记忆');
+        return [];
+      }
+      
+      console.log(`[Mem0Service] 获取角色 ${characterId} 的所有记忆数据，限制 ${limit} 条`);
+      
+      // 直接使用vectorStore的getByCharacterId方法
+      const memories = await this.memoryRef.vectorStore.getByCharacterId(characterId, limit);
+      
+      // 转换为标准记忆项格式
+      interface VectorStoreMemoryItem {
+        id: string;
+        payload: {
+          data: string;
+          hash: string;
+          createdAt: string;
+          updatedAt: string;
+          userId: string;
+          agentId: string;
+          runId: string;
+          [key: string]: any;
+        };
+      }
+
+      interface FormattedMemoryItem {
+        id: string;
+        memory: string;
+        hash: string;
+        createdAt: string;
+        updatedAt: string;
+        metadata: Record<string, any>;
+        userId: string;
+        agentId: string;
+        runId: string;
+      }
+
+      const formattedMemories: FormattedMemoryItem[] = memories.map((mem: VectorStoreMemoryItem) => ({
+        id: mem.id,
+        memory: mem.payload.data,
+        hash: mem.payload.hash,
+        createdAt: mem.payload.createdAt,
+        updatedAt: mem.payload.updatedAt,
+        metadata: Object.entries(mem.payload)
+          .filter(([key]: [string, any]) => !['data', 'hash', 'createdAt', 'updatedAt', 'userId', 'agentId', 'runId'].includes(key))
+          .reduce((acc: Record<string, any>, [key, value]: [string, any]) => ({ ...acc, [key]: value }), {}),
+        userId: mem.payload.userId,
+        agentId: mem.payload.agentId,
+        runId: mem.payload.runId,
+      }));
+      
+      console.log(`[Mem0Service] 找到角色 ${characterId} 的 ${formattedMemories.length} 条记忆数据`);
+      return formattedMemories;
+    } catch (error) {
+      console.error('[Mem0Service] 获取角色记忆数据失败:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * 获取向量数据库统计信息
+   * @returns 数据库统计信息
+   */
+  public async getVectorDbStats(): Promise<{ totalCount: number, dbSize: number, dbSizeMB: string }> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryRef || !this.memoryRef.vectorStore) {
+        return { totalCount: 0, dbSize: 0, dbSizeMB: '0' };
+      }
+      
+      const stats = await this.memoryRef.vectorStore.getStats();
+      const dbSizeMB = (stats.dbSize / (1024 * 1024)).toFixed(2);
+      
+      return {
+        ...stats,
+        dbSizeMB
+      };
+    } catch (error) {
+      console.error('[Mem0Service] 获取向量数据库统计信息失败:', error);
+      return { totalCount: 0, dbSize: 0, dbSizeMB: '0' };
+    }
+  }
+  
+  /**
+   * 获取某角色的记忆数量
+   * @param characterId 角色ID
+   * @returns 记忆数量
+   */
+  public async getCharacterMemoryCount(characterId: string): Promise<number> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryRef || !this.memoryRef.vectorStore) {
+        return 0;
+      }
+      
+      return await this.memoryRef.vectorStore.getCountByCharacterId(characterId);
+    } catch (error) {
+      console.error('[Mem0Service] 获取角色记忆数量失败:', error);
+      return 0;
+    }
+  }
+  
+  /**
+   * 更新记忆内容
+   * @param memoryId 记忆ID
+   * @param content 新内容
+   * @returns 更新结果
+   */
+  public async updateMemory(memoryId: string, content: string): Promise<boolean> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryActions?.update) {
+        throw new Error('更新记忆功能不可用');
+      }
+      
+      console.log(`[Mem0Service] 更新记忆 ${memoryId}: ${content.substring(0, 50)}...`);
+      await this.memoryActions.update(memoryId, content);
+      return true;
+    } catch (error) {
+      console.error('[Mem0Service] 更新记忆失败:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * 删除记忆
+   * @param memoryId 记忆ID
+   * @returns 删除结果
+   */
+  public async deleteMemory(memoryId: string): Promise<boolean> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryActions?.delete) {
+        throw new Error('删除记忆功能不可用');
+      }
+      
+      console.log(`[Mem0Service] 删除记忆 ${memoryId}`);
+      await this.memoryActions.delete(memoryId);
+      return true;
+    } catch (error) {
+      console.error('[Mem0Service] 删除记忆失败:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * 创建新记忆
+   * @param content 记忆内容
+   * @param characterId 角色ID
+   * @param conversationId 对话ID
+   * @returns 新记忆ID
+   */
+  public async createMemory(
+    content: string, 
+    characterId: string, 
+    conversationId?: string
+  ): Promise<string | null> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryActions?.add) {
+        throw new Error('添加记忆功能不可用');
+      }
+      
+      if (!content || !characterId) {
+        throw new Error('记忆内容和角色ID不能为空');
+      }
+      
+      console.log(`[Mem0Service] 创建新记忆: ${content.substring(0, 50)}...`);
+      
+      // 直接添加为单条记忆
+      const result = await this.memoryActions.add(
+        content,
+        {
+          userId: 'current-user',
+          agentId: characterId,
+          runId: conversationId || 'manual-creation',
+          metadata: {
+            timestamp: new Date().toISOString(),
+            source: 'manual-creation',
+            isManuallyCreated: true
+          }
+        },
+        false
+      );
+      
+      if (result.results?.length > 0) {
+        const newMemoryId = result.results[0].id;
+        console.log(`[Mem0Service] 成功创建新记忆，ID: ${newMemoryId}`);
+        return newMemoryId;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[Mem0Service] 创建新记忆失败:', error);
+      return null;
     }
   }
 }

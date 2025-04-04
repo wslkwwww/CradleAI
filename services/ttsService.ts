@@ -2,17 +2,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { licenseService } from './license-service'; // Import license service
+import { CloudServiceProvider } from './cloud-service-provider'; // Import for LLM requests
+import { EventRegister } from 'react-native-event-listeners'; // Import for event handling
 
 // Configuration
 const TTS_API_URL = 'https://tts.cradleintro.top/api/tts';
 const TTS_CACHE_PREFIX = 'tts_cache_';
 const TTS_CACHE_DIR = FileSystem.cacheDirectory + 'tts/';
 const TTS_AUDIO_STATE_KEY = 'tts_audio_states';
+const TTS_ENHANCER_SETTINGS_KEY = 'tts_enhancer_settings';
 
 // Interface for TTS request
 interface TTSRequest {
   templateId: string;
   tts_text: string;
+  instruction?: string; // Optional instruction for voice generation
+  task?: string; // Optional task parameter to identify request type
 }
 
 // Interface for TTS response
@@ -58,13 +63,31 @@ interface PersistentAudioState {
   templateId?: string;
 }
 
+// Interface for TTS enhancer settings
+interface TTSEnhancerSettings {
+  enabled: boolean;
+  model: string;
+}
+
+// Interface for TTS enhancer result
+interface TTSEnhancerResult {
+  tts_text: string;
+  instruction: string;
+}
+
 class TTSService {
   // Map to keep track of audio states for different messages
   private audioStates: Map<string, AudioState> = new Map();
+  // TTS enhancer settings
+  private enhancerSettings: TTSEnhancerSettings = {
+    enabled: false,
+    model: 'anthropic/claude-instant-v1'
+  };
   
   constructor() {
     this.ensureCacheDirectoryExists();
     this.loadPersistedAudioStates();
+    this.loadEnhancerSettings();
   }
   
   // Initialize the cache directory
@@ -144,6 +167,38 @@ class TTSService {
     }
   }
   
+  // Load TTS enhancer settings
+  private async loadEnhancerSettings() {
+    try {
+      const settingsJson = await AsyncStorage.getItem(TTS_ENHANCER_SETTINGS_KEY);
+      if (settingsJson) {
+        this.enhancerSettings = JSON.parse(settingsJson);
+        console.log(`[TTSService] Loaded enhancer settings: ${JSON.stringify(this.enhancerSettings)}`);
+      }
+    } catch (error) {
+      console.error('[TTSService] Failed to load enhancer settings:', error);
+    }
+  }
+  
+  // Save TTS enhancer settings
+  async saveEnhancerSettings(settings: TTSEnhancerSettings) {
+    try {
+      this.enhancerSettings = settings;
+      await AsyncStorage.setItem(TTS_ENHANCER_SETTINGS_KEY, JSON.stringify(settings));
+      console.log(`[TTSService] Saved enhancer settings: ${JSON.stringify(settings)}`);
+      
+      // Emit event to notify components about settings change
+      EventRegister.emit('ttsEnhancerSettingsChanged', settings);
+    } catch (error) {
+      console.error('[TTSService] Failed to save enhancer settings:', error);
+    }
+  }
+  
+  // Get current TTS enhancer settings
+  getEnhancerSettings(): TTSEnhancerSettings {
+    return { ...this.enhancerSettings };
+  }
+  
   // Verify license before proceeding with API calls
   private async verifyLicense(): Promise<boolean> {
     console.log(`[TTSService] 验证许可证...`);
@@ -216,11 +271,41 @@ class TTSService {
         throw new Error('许可证信息不完整，请在API设置中重新激活您的许可证');
       }
 
-      // Prepare the request using the provided template ID
-      const requestData: TTSRequest = {
-        templateId,  // Use the character-specific template ID
-        tts_text: text
-      };
+      // Prepare the request data
+      let requestData: TTSRequest;
+      
+      // Apply TTS enhancer if enabled
+      if (this.enhancerSettings.enabled) {
+        try {
+          console.log(`[TTSService] TTS enhancer enabled, using model: ${this.enhancerSettings.model}`);
+          const enhancedTTS = await this.enhanceText(text);
+          
+          requestData = {
+            templateId,
+            tts_text: enhancedTTS.tts_text,
+            instruction: enhancedTTS.instruction,
+            task: "Instructed Voice Generation" // Add task parameter for enhanced TTS
+          };
+          
+          console.log(`[TTSService] Enhanced text: ${enhancedTTS.tts_text.substring(0, 50)}...`);
+          console.log(`[TTSService] Instruction: ${enhancedTTS.instruction}`);
+          console.log(`[TTSService] Task: ${requestData.task}`);
+        } catch (enhancerError) {
+          console.error('[TTSService] Error in TTS enhancer:', enhancerError);
+          // Fallback to original text if enhancement fails
+          console.log('[TTSService] Falling back to original text');
+          requestData = {
+            templateId,
+            tts_text: text
+          };
+        }
+      } else {
+        // Use original text if enhancer is disabled
+        requestData = {
+          templateId,
+          tts_text: text
+        };
+      }
       
       console.log(`[TTSService] Generating TTS for message ${messageId} with template ${templateId}`);
       
@@ -300,6 +385,99 @@ class TTSService {
     }
   }
   
+  // Enhance text with LLM for better TTS expression
+  private async enhanceText(text: string): Promise<TTSEnhancerResult> {
+    console.log('[TTSService] Enhancing text with LLM');
+    
+    try {
+      // Skip enhancement for very short texts
+      if (text.length < 10) {
+        console.log('[TTSService] Text too short for enhancement, returning original');
+        return {
+          tts_text: text,
+          instruction: "natural"
+        };
+      }
+      
+      // Create the prompt for the TTS enhancer
+      const messages = [
+        {
+          role: "user",
+          content: `你是一个专业的语音表现力增强器。你的任务是分析文本，并添加适当的语气标记，使语音生成更加生动自然。
+          
+语气标记规则:
+- <laughter></laughter>: 包裹一段文本，表示这段文本中包含笑声。如果原文本中已有"哈哈"等笑声，应替换为适当的<laughter>标记
+- <strong></strong>: 包裹需要强调的词语
+- [breath]: 插入在适当位置，表示换气声，通常在句子末尾
+
+同时你需要生成一个简短的指导语（instruction），用于指导语音生成的情感和风格。指导语可以是：
+- 情感描述词: 如"神秘"、"好奇"、"优雅"、"嘲讽"等
+- 模仿指导: 如"模仿机器人风格"、"模仿小猪佩奇的语气"等
+- 身份描述: 如"一个天真烂漫的小孩，总是充满幻想和无尽的好奇心"
+
+注意：
+1. 保留原文本的意思，仅添加语气标记和生成指导语
+2. 不要过度添加标记，保持自然
+3. 分析文本中隐含的情感，选择合适的指导语
+4. 回复必须是有效的JSON格式，包含tts_text和instruction两个字段`
+        },
+        {
+          role: "user",
+          content: `请增强以下文本的表现力，添加适当的语气标记，并生成指导语。以JSON格式返回结果：
+
+原文本: "${text}"`
+        }
+      ];
+
+      // Use CloudServiceProvider to make the LLM request
+      console.log(`[TTSService] Making LLM request with model: ${this.enhancerSettings.model}`);
+      
+      const response = await CloudServiceProvider.generateChatCompletion(messages, {
+        model: this.enhancerSettings.model,
+        temperature: 0.7,
+        max_tokens: 1024
+      });
+      
+      if (!response.ok) {
+        throw new Error(`LLM request failed with status: ${response.status}`);
+      }
+
+      const responseData = await response.json();
+      const llmResponse = responseData.choices[0].message.content;
+      
+      // Extract JSON object from response (considering LLM might add text before/after JSON)
+      const jsonMatch = llmResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('Could not extract JSON from LLM response');
+      }
+      
+      let enhancerResult: TTSEnhancerResult;
+      try {
+        enhancerResult = JSON.parse(jsonMatch[0]);
+      } catch (parseError) {
+        console.error('[TTSService] Failed to parse JSON from LLM response:', parseError);
+        throw new Error('Invalid JSON format in LLM response');
+      }
+      
+      // Validate the result has the required fields
+      if (!enhancerResult.tts_text || !enhancerResult.instruction) {
+        throw new Error('LLM response missing required fields');
+      }
+      
+      return {
+        tts_text: enhancerResult.tts_text,
+        instruction: enhancerResult.instruction
+      };
+    } catch (error) {
+      console.error('[TTSService] Error enhancing text:', error);
+      // Fallback to original text with default instruction
+      return {
+        tts_text: text,
+        instruction: "natural"
+      };
+    }
+  }
+  
   // Poll for audio completion when the server is still processing
   private async pollForAudioCompletion(messageId: string, templateId: string, text: string, attempts: number = 0): Promise<AudioState> {
     // Maximum number of retry attempts (10 attempts × 3 seconds = 30 seconds max wait time)
@@ -326,6 +504,17 @@ class TTSService {
       // Get license headers for polling request
       const licenseHeaders = await this.getLicenseHeaders();
       
+      // Determine if we need to include task parameter for enhanced TTS
+      let requestBody: TTSRequest = {
+        templateId,
+        tts_text: text
+      };
+      
+      // Add task parameter if enhancer is enabled
+      if (this.enhancerSettings.enabled) {
+        requestBody.task = "Instructed Voice Generation";
+      }
+      
       // Make a new request to check if audio is ready
       const response = await fetch(TTS_API_URL, {
         method: 'POST',
@@ -334,10 +523,7 @@ class TTSService {
           'Accept': 'application/json',
           ...licenseHeaders // Include license headers
         },
-        body: JSON.stringify({
-          templateId,
-          tts_text: text
-        })
+        body: JSON.stringify(requestBody)
       });
       
       const responseData: TTSResponse = await response.json();

@@ -1156,27 +1156,55 @@ export class NodeSTCore {
             // 添加适配器类型日志
             console.log('[NodeSTCore] Using adapter:', {
                 type: activeAdapter instanceof OpenRouterAdapter ? 'OpenRouter' : 'Gemini',
-                apiProvider: this.apiSettings?.apiProvider
+                apiProvider: this.apiSettings?.apiProvider,
+                hasMemoryResults: memorySearchResults && memorySearchResults.results && memorySearchResults.results.length > 0
             });
 
             // 发送到API，传递记忆搜索结果
             console.log('[NodeSTCore] Sending to API...');
-            // 普通对话不使用工具调用，所以不传递记忆搜索结果
-            const response = await activeAdapter.generateContent(cleanedContents);
-            console.log('[NodeSTCore] API response received:', {
-                hasResponse: !!response,
-                responseLength: response?.length || 0
-            });
+            
+            // 判断是否应该使用记忆增强
+            const shouldUseMemoryResults = memorySearchResults && 
+                                        memorySearchResults.results && 
+                                        memorySearchResults.results.length > 0;
+                                        
+            if (shouldUseMemoryResults) {
+                console.log('[NodeSTCore] 检测到有效记忆搜索结果，使用generateContentWithTools方法');
+                // 如果有记忆搜索结果，使用工具调用方法处理
+                const response = await activeAdapter.generateContentWithTools(cleanedContents, memorySearchResults);
+                console.log('[NodeSTCore] API response received:', {
+                    hasResponse: !!response,
+                    responseLength: response?.length || 0
+                });
 
-            // 保存更新后的历史和框架
-            if (response) {
-                console.log('[NodeSTCore] Saving updated history and framework...');
-                // 保存更新后的框架内容
-                await this.saveContents(contents, sessionId);
-                console.log('[NodeSTCore] Content framework and history saved successfully');
+                // 保存更新后的历史和框架
+                if (response) {
+                    console.log('[NodeSTCore] Saving updated history and framework...');
+                    // 保存更新后的框架内容
+                    await this.saveContents(contents, sessionId);
+                    console.log('[NodeSTCore] Content framework and history saved successfully');
+                }
+
+                return response;
+            } else {
+                console.log('[NodeSTCore] 没有记忆搜索结果，使用标准generateContent方法');
+                // 没有记忆搜索结果，使用标准方法
+                const response = await activeAdapter.generateContent(cleanedContents);
+                console.log('[NodeSTCore] API response received:', {
+                    hasResponse: !!response,
+                    responseLength: response?.length || 0
+                });
+
+                // 保存更新后的历史和框架
+                if (response) {
+                    console.log('[NodeSTCore] Saving updated history and framework...');
+                    // 保存更新后的框架内容
+                    await this.saveContents(contents, sessionId);
+                    console.log('[NodeSTCore] Content framework and history saved successfully');
+                }
+
+                return response;
             }
-
-            return response;
         } catch (error) {
             console.error('[NodeSTCore] Error in processChat:', error);
             return null;

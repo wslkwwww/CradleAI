@@ -12,10 +12,13 @@ import {
   ScrollView,
   PanResponder,
   TextInput,
+  Modal,
+  FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { theme } from '@/constants/theme';
 import { Picker } from '@react-native-picker/picker';
@@ -23,6 +26,7 @@ import { memoryService } from '@/services/memory-service';
 import Slider from '@react-native-community/slider';
 import { EventRegister } from 'react-native-event-listeners';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Mem0Service from '@/src/memory/services/Mem0Service';
 
 const SIDEBAR_WIDTH_EXPANDED = 280;
 const SWIPE_THRESHOLD = 50; // 向下滑动超过这个距离时关闭侧边栏
@@ -144,6 +148,22 @@ export default function SettingsSidebar({
     // Add the custom user name sync
     setCustomUserName(selectedCharacter?.customUserName || '');
   }, [selectedCharacter]);
+
+  // When user name or character changes, update Mem0Service
+  useEffect(() => {
+    if (selectedCharacter) {
+      try {
+        const mem0Service = Mem0Service.getInstance();
+        mem0Service.setCharacterNames(
+          selectedCharacter.id,
+          selectedCharacter.customUserName || '',
+          selectedCharacter.name
+        );
+      } catch (error) {
+        console.error('Failed to update memory service with custom names:', error);
+      }
+    }
+  }, [selectedCharacter?.id, selectedCharacter?.customUserName, selectedCharacter?.name]);
 
   // Handle sidebar animation
   useEffect(() => {
@@ -331,7 +351,19 @@ export default function SettingsSidebar({
         customUserName: customUserName.trim()
       };
       await updateCharacter(updatedCharacter);
-      Alert.alert('成功', '角色对你的称呼已更新');
+      
+      // Update the Mem0Service with the custom name
+      try {
+        const mem0Service = Mem0Service.getInstance();
+        mem0Service.setCharacterNames(
+          selectedCharacter.id,
+          customUserName.trim(),
+          selectedCharacter.name
+        );
+        Alert.alert('成功', '角色对你的称呼已更新');
+      } catch (error) {
+        console.error('Failed to update memory service with custom names:', error);
+      }
     }
   };
 

@@ -15,6 +15,7 @@ class NodeSTManagerClass {
   };
   private searchEnabled: boolean = false;
     async setSearchEnabled(enabled: boolean): Promise<void> {
+console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add logging
       this.searchEnabled = enabled;
     }
     
@@ -113,6 +114,7 @@ class NodeSTManagerClass {
     apiKey: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
     character?: Character;
+
   }): Promise<{
     success: boolean;
     text?: string;

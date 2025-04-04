@@ -9,9 +9,11 @@ import {
   Alert,
   StyleSheet,
   Image,
+  Modal,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Character } from '@/shared/types';
+import { Character, CradleCharacter } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,6 +33,10 @@ import LoadingIndicator from '@/components/LoadingIndicator';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import ActionButton from '@/components/ActionButton';
 import DetailSidebar from '@/components/character/DetailSidebar';
+import { Ionicons } from '@expo/vector-icons';
+import TagSelector from '@/components/TagSelector';
+import ArtistReferenceSelector from '@/components/ArtistReferenceSelector';
+import VoiceSelector from '@/components/VoiceSelector';
 
 import { 
   WorldBookSection,
@@ -38,9 +44,7 @@ import {
   AuthorNoteSection
 } from '@/components/character/CharacterSections';
 
-// Update the DEFAULT_PRESET_ENTRIES to include all required properties
 const DEFAULT_PRESET_ENTRIES = {
-  // 可编辑条目
   EDITABLE: [
     { 
       id: "main", 
@@ -98,7 +102,6 @@ const DEFAULT_PRESET_ENTRIES = {
     }
   ],
 
-  // 只可排序条目 (与角色卡关联)
   FIXED: [
     {
       id: "world_before",
@@ -219,15 +222,22 @@ const CharacterDetail: React.FC = () => {
     injection_depth: 0
   });
 
-  // New state variables for the enhanced UI
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'advanced' | 'appearance' | 'voice'>('basic');
   const [showDialog, setShowDialog] = useState(false);
   const [selectedDialogAction, setSelectedDialogAction] = useState<'save' | 'discard' | 'delete' | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Add missing selectedField state
+  const [uploadMode, setUploadMode] = useState<'upload' | 'generate'>('upload');
+  const [positiveTags, setPositiveTags] = useState<string[]>([]);
+  const [negativeTags, setNegativeTags] = useState<string[]>([]);
+  const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
+  const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
+  
+  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male');
+  const [voiceTemplateId, setVoiceTemplateId] = useState<string | undefined>(undefined);
+
   const [selectedField, setSelectedField] = useState<{
     title: string;
     content: string;
@@ -240,8 +250,6 @@ const CharacterDetail: React.FC = () => {
     onNameChange?: (text: string) => void;
   } | null>(null);
 
-  // ... existing selectedField state and handlers ...
-
   useEffect(() => {
     const loadCharacterData = async () => {
       setIsLoading(true);
@@ -253,20 +261,9 @@ const CharacterDetail: React.FC = () => {
         
         setCharacter(foundCharacter);
         
-        console.log('[CharacterDetail] Loading character data for:', foundCharacter.name);
-        console.log('[CharacterDetail] JsonData length:', foundCharacter.jsonData.length);
-        
         try {
           const data = JSON.parse(foundCharacter.jsonData);
           
-          console.log('[CharacterDetail] Successfully parsed jsonData:', {
-            hasRoleCard: !!data.roleCard,
-            hasWorldBook: !!data.worldBook,
-            hasPreset: !!data.preset,
-            hasAuthorNote: !!data.authorNote
-          });
-          
-          // 加载角色卡数据，使用默认值确保UI不出错
           setRoleCard({
             name: data.roleCard?.name || foundCharacter.name || '',
             first_mes: data.roleCard?.first_mes || 'Hello!',
@@ -276,7 +273,6 @@ const CharacterDetail: React.FC = () => {
             mes_example: data.roleCard?.mes_example || ''
           });
           
-          // 设置作者注释，为空时使用默认值
           setAuthorNote(data.authorNote || {
             charname: data.roleCard?.name || foundCharacter.name || '',
             username: user?.settings?.self.nickname || 'User',
@@ -284,7 +280,6 @@ const CharacterDetail: React.FC = () => {
             injection_depth: 0
           });
           
-          // 处理世界书条目
           if (data.worldBook?.entries) {
             const worldBookEntries = Object.entries(data.worldBook.entries)
               .map(([name, entry]: [string, any]) => ({
@@ -300,11 +295,8 @@ const CharacterDetail: React.FC = () => {
                 order: entry.order || 0
               }));
             
-            console.log('[CharacterDetail] Loaded worldBook entries:', worldBookEntries.length);
             setWorldBookEntries(worldBookEntries);
           } else {
-            console.log('[CharacterDetail] No worldBook entries found, creating default entries');
-            // 创建默认世界书条目
             setWorldBookEntries([
               {
                 id: String(Date.now()),
@@ -321,15 +313,12 @@ const CharacterDetail: React.FC = () => {
             ]);
           }
           
-          // 处理preset条目
           if (data.preset?.prompts) {
-            // 现有的preset处理逻辑...
             const defaultPresetEntries = [...DEFAULT_PRESET_ENTRIES.EDITABLE, ...DEFAULT_PRESET_ENTRIES.FIXED];
             const presetEntryMap = new Map<string, PresetEntryUI>(
               defaultPresetEntries.map(entry => [entry.identifier, { ...entry, content: '' }])
             );
             
-            // 更新preset条目内容
             data.preset.prompts.forEach((prompt: any) => {
               if (presetEntryMap.has(prompt.identifier)) {
                 const entry = presetEntryMap.get(prompt.identifier);
@@ -342,7 +331,6 @@ const CharacterDetail: React.FC = () => {
                   }
                 }
               } else {
-                // 添加自定义preset条目
                 presetEntryMap.set(prompt.identifier, {
                   id: String(Date.now()) + Math.random(),
                   name: prompt.name || 'Custom Prompt',
@@ -360,7 +348,6 @@ const CharacterDetail: React.FC = () => {
               }
             });
             
-            // 根据prompt_order排序
             if (data.preset.prompt_order && data.preset.prompt_order[0]) {
               const orderMap = new Map(
                 data.preset.prompt_order[0].order.map((item: any, index: number) => [item.identifier, index])
@@ -377,13 +364,10 @@ const CharacterDetail: React.FC = () => {
                 .map((entry, index) => ({ ...entry, order: index }));
               
               setPresetEntries(presetEntries);
-              console.log('[CharacterDetail] Loaded preset entries:', presetEntries.length);
             } else {
               setPresetEntries(Array.from(presetEntryMap.values()));
             }
           } else {
-            console.log('[CharacterDetail] No preset data found, creating default presets');
-            // 创建默认preset条目
             setPresetEntries(DEFAULT_PRESET_ENTRIES.EDITABLE.concat(DEFAULT_PRESET_ENTRIES.FIXED)
               .map((entry, index) => ({
                 ...entry,
@@ -391,10 +375,22 @@ const CharacterDetail: React.FC = () => {
                 order: index
               })));
           }
-        } catch (parseError) {
-          console.error('[CharacterDetail] Failed to parse character data:', parseError);
           
-          // 使用角色的基本信息创建简单的roleCard
+          if (foundCharacter.voiceType) {
+            setVoiceTemplateId(foundCharacter.voiceType);
+            setVoiceGender(foundCharacter.voiceType.endsWith('a') ? 'female' : 'male');
+          }
+          
+          if (foundCharacter.generationData?.appearanceTags) {
+            setPositiveTags(foundCharacter.generationData.appearanceTags.positive || []);
+            setNegativeTags(foundCharacter.generationData.appearanceTags.negative || []);
+            setSelectedArtistPrompt(foundCharacter.generationData.appearanceTags.artistPrompt || null);
+            if (foundCharacter.generationData.appearanceTags.positive?.length > 0) {
+              setUploadMode('generate');
+            }
+          }
+          
+        } catch (parseError) {
           setRoleCard({
             name: foundCharacter.name || '',
             first_mes: '你好，很高兴认识你！',
@@ -404,7 +400,6 @@ const CharacterDetail: React.FC = () => {
             mes_example: ''
           });
           
-          // 创建默认的世界书和preset条目
           setWorldBookEntries([
             {
               id: String(Date.now()),
@@ -433,7 +428,6 @@ const CharacterDetail: React.FC = () => {
               depth: entry.injection_depth || 0
             })));
             
-          // 使用简单的作者注释
           setAuthorNote({
             charname: foundCharacter.name || '',
             username: user?.settings?.self.nickname || 'User',
@@ -444,7 +438,6 @@ const CharacterDetail: React.FC = () => {
           Alert.alert('提示', '角色数据格式有误，已创建基础设定');
         }
       } catch (error) {
-        console.error('[CharacterDetail] Error loading character:', error);
         Alert.alert('错误', '加载角色数据失败');
       } finally {
         setIsLoading(false);
@@ -454,7 +447,6 @@ const CharacterDetail: React.FC = () => {
     loadCharacterData();
   }, [id, characters, user?.settings?.self.nickname]);
 
-  // Avatar and background image picker handlers
   const pickAvatar = async () => {
     try {
       let result = await ImagePicker.launchImageLibraryAsync({
@@ -465,14 +457,11 @@ const CharacterDetail: React.FC = () => {
       });
 
       if (!result.canceled && result.assets[0]) {
-        // Process the image to make it square
         const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
-          // 修复：使用 Image.getSize 来获取图像尺寸
           Image.getSize(result.assets[0].uri, (w: number, h: number) => {
             resolve({ width: w, height: h });
           }, () => {
-            // 添加错误处理函数
-            resolve({ width: 300, height: 300 }); // 默认值
+            resolve({ width: 300, height: 300 });
           });
         });
 
@@ -493,7 +482,6 @@ const CharacterDetail: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error("Image picking error:", error);
       Alert.alert("提示", "请确保选择合适的图片并正确裁剪");
     }
   };
@@ -503,7 +491,7 @@ const CharacterDetail: React.FC = () => {
       let result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [16, 9],  // 横向背景图
+        aspect: [9, 16],
         quality: 1,
       });
 
@@ -518,7 +506,6 @@ const CharacterDetail: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error("Background image picking error:", error);
       Alert.alert("错误", "选择背景图片失败");
     }
   };
@@ -528,7 +515,7 @@ const CharacterDetail: React.FC = () => {
       let result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [9, 16],  // 竖向聊天背景图
+        aspect: [9, 16],
         quality: 1,
       });
 
@@ -543,16 +530,13 @@ const CharacterDetail: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error("Chat background picking error:", error);
       Alert.alert("错误", "选择聊天背景失败");
     }
   };
 
-  // Handle role card changes
   const handleRoleCardChange = (field: keyof RoleCardJson, value: string) => {
     setRoleCard(prev => ({ ...prev, [field]: value }));
     
-    // Update character name when name field is changed
     if (field === 'name') {
       setAuthorNote(prev => ({ ...prev, charname: value }));
     }
@@ -560,7 +544,6 @@ const CharacterDetail: React.FC = () => {
     setHasUnsavedChanges(true);
   };
 
-  // Content saving logic
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
       Alert.alert('保存失败', '角色名称不能为空。');
@@ -575,7 +558,6 @@ const CharacterDetail: React.FC = () => {
     setIsSaving(true);
     
     try {
-      // Construct worldBook from worldBookEntries
       const worldBookData = {
         entries: Object.fromEntries(
           worldBookEntries
@@ -597,7 +579,6 @@ const CharacterDetail: React.FC = () => {
         )
       };
       
-      // Construct presetData with proper handling of insertion types and depths
       const presetData = {
         prompts: presetEntries.map(entry => ({
           name: entry.name,
@@ -605,7 +586,6 @@ const CharacterDetail: React.FC = () => {
           identifier: entry.identifier,
           enable: entry.enable,
           role: entry.role,
-          // Handle insertion type and depth correctly
           ...(entry.insertType === 'chat' ? { 
             injection_position: 1,
             injection_depth: entry.depth || 0
@@ -621,7 +601,6 @@ const CharacterDetail: React.FC = () => {
         }]
       };
       
-      // Construct authorNote data
       const authorNoteData = {
         charname: roleCard.name.trim(),
         username: user?.settings?.self.nickname || "User",
@@ -629,7 +608,6 @@ const CharacterDetail: React.FC = () => {
         injection_depth: authorNote.injection_depth || 0
       };
       
-      // Complete JSON data to be saved
       const jsonData = {
         roleCard: {
           ...roleCard,
@@ -640,27 +618,41 @@ const CharacterDetail: React.FC = () => {
         authorNote: authorNoteData
       };
       
-      // Build updated character object
-      const updatedCharacter: Character = {
+      const cradleFields: Partial<CradleCharacter> = {
+        inCradleSystem: character.inCradleSystem ?? true,
+        cradleStatus: character.cradleStatus ?? 'growing',
+        cradleCreatedAt: character.cradleCreatedAt ?? Date.now(),
+        cradleUpdatedAt: Date.now(),
+        feedHistory: character.feedHistory ?? [],
+        isDialogEditable: true,
+        ...(positiveTags.length > 0 ? {
+          generationData: {
+            appearanceTags: {
+              positive: positiveTags,
+              negative: negativeTags,
+              artistPrompt: selectedArtistPrompt || undefined
+            }
+          }
+        } : {}),
+        voiceType: voiceTemplateId
+      };
+      
+      const updatedCharacter: Character & Partial<CradleCharacter> = {
         ...character,
         name: roleCard.name.trim(),
         description: roleCard.description || '',
         personality: roleCard.personality || '',
         updatedAt: Date.now(),
-        jsonData: JSON.stringify(jsonData)
+        jsonData: JSON.stringify(jsonData),
+        ...cradleFields
       };
       
-      console.log("[CharacterDetail] Saving character with ID:", updatedCharacter.id);
-      
-      // Save updated character
       await updateCharacter(updatedCharacter);
       
-      // Send update to NodeST
       const apiKey = user?.settings?.chat?.characterApiKey || '';
       const apiSettings = user?.settings?.chat;
       
       if (apiKey) {
-        console.log("[CharacterDetail] Updating character in NodeST");
         await NodeSTManager.processChatMessage({
           userMessage: "",
           status: "更新人设",
@@ -674,18 +666,15 @@ const CharacterDetail: React.FC = () => {
         });
       }
       
-      // Notify user on success
       setHasUnsavedChanges(false);
       Alert.alert('成功', '角色设定已更新');
     } catch (error) {
-      console.error('Character update failed:', error);
       Alert.alert('保存失败', error instanceof Error ? error.message : '更新角色时出现错误。');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Handle back button with unsaved changes warning
   const handleBack = () => {
     if (hasUnsavedChanges) {
       setSelectedDialogAction('discard');
@@ -695,21 +684,18 @@ const CharacterDetail: React.FC = () => {
     }
   };
 
-  // Handle dialog confirmation
   const handleConfirmDialog = () => {
     if (selectedDialogAction === 'save') {
       saveCharacter();
     } else if (selectedDialogAction === 'discard') {
       router.back();
     } else if (selectedDialogAction === 'delete') {
-      // Handle character deletion
     }
     
     setShowDialog(false);
     setSelectedDialogAction(null);
   };
 
-  // Add missing handler methods
   const handleViewDetail = (
     title: string, 
     content: string,
@@ -734,7 +720,6 @@ const CharacterDetail: React.FC = () => {
     });
   };
 
-  // Add world book entry handlers
   const handleAddWorldBookEntry = () => {
     const newEntry: WorldBookEntryUI = {
       id: String(Date.now()),
@@ -767,7 +752,6 @@ const CharacterDetail: React.FC = () => {
       const [removed] = result.splice(fromIndex, 1);
       result.splice(toIndex, 0, removed);
       
-      // Update the order values
       return result.map((entry, idx) => ({
         ...entry,
         order: idx
@@ -776,7 +760,6 @@ const CharacterDetail: React.FC = () => {
     setHasUnsavedChanges(true);
   };
 
-  // Add preset entry handlers
   const handleAddPresetEntry = () => {
     const newEntry: PresetEntryUI = {
       id: String(Date.now()),
@@ -840,7 +823,200 @@ const CharacterDetail: React.FC = () => {
     setHasUnsavedChanges(true);
   };
 
-  // If still loading data
+  const renderTagGenerationSection = () => (
+    <View style={styles.tagGenerateContainer}>
+      <Text style={styles.tagInstructionsText}>
+        请选择描述角色外观的正面和负面标签，这些标签将被保存作为角色描述的一部分
+      </Text>
+      
+      <View style={styles.cradleInfoContainer}>
+        <Ionicons name="information-circle-outline" size={20} color={theme.colors.info} />
+        <Text style={styles.cradleInfoText}>
+          选择的标签将保存为角色的外观描述数据，但不会自动生成图像
+        </Text>
+      </View>
+      
+      <ArtistReferenceSelector 
+        selectedGender={character?.gender as 'male' | 'female' | 'other'}
+        onSelectArtist={setSelectedArtistPrompt}
+        selectedArtistPrompt={selectedArtistPrompt}
+      />
+      
+      <View style={styles.tagSummaryContainer}>
+        <Text style={styles.tagSummaryTitle}>已选标签</Text>
+        <View style={styles.selectedTagsRow}>
+          {positiveTags.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {positiveTags.map((tag, index) => (
+                <TouchableOpacity
+                  key={`pos-${index}`}
+                  style={styles.selectedPositiveTag}
+                  onPress={() => {
+                    setPositiveTags(tags => tags.filter(t => t !== tag));
+                  }}
+                >
+                  <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                  <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.noTagsSelectedText}>未选择正面标签</Text>
+          )}
+        </View>
+        
+        <View style={styles.selectedTagsRow}>
+          {negativeTags.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {negativeTags.map((tag, index) => (
+                <TouchableOpacity
+                  key={`neg-${index}`}
+                  style={styles.selectedNegativeTag}
+                  onPress={() => {
+                    setNegativeTags(tags => tags.filter(t => t !== tag));
+                  }}
+                >
+                  <Text style={styles.selectedTagText} numberOfLines={1}>{tag}</Text>
+                  <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.noTagsSelectedText}>未选择负面标签</Text>
+          )}
+        </View>
+        
+        <Text style={styles.defaultTagsInfo}>
+          选择的标签仅用于保存角色外观描述，不会触发图像生成
+        </Text>
+      </View>
+      
+      <TouchableOpacity 
+        style={styles.openTagSelectorButton}
+        onPress={() => setTagSelectorVisible(true)}
+      >
+        <Ionicons name="pricetag-outline" size={20} color="#fff" />
+        <Text style={styles.openTagSelectorText}>浏览标签并添加</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderVoiceSection = () => (
+    <View style={styles.tabContent}>
+      <VoiceSelector
+        selectedGender={voiceGender}
+        selectedTemplate={voiceTemplateId || null}
+        onSelectGender={(gender) => {
+          setVoiceGender(gender);
+          setHasUnsavedChanges(true);
+        }}
+        onSelectTemplate={(templateId) => {
+          setVoiceTemplateId(templateId);
+          setHasUnsavedChanges(true);
+        }}
+      />
+    </View>
+  );
+
+  const renderAppearanceSection = () => (
+    <View style={styles.tabContent}>
+      <Text style={styles.sectionTitle}>角色外观</Text>
+      
+      <View style={styles.modeSelectionContainer}>
+        <TouchableOpacity 
+          style={[styles.modeButton, uploadMode === 'upload' && styles.activeMode]}
+          onPress={() => setUploadMode('upload')}
+        >
+          <View style={styles.modeIconContainer}>
+            <Ionicons 
+              name="cloud-upload-outline" 
+              size={24} 
+              color={uploadMode === 'upload' ? theme.colors.primary : "#888"}
+            />
+          </View>
+          <View style={styles.modeTextContainer}>
+            <Text style={[styles.modeText, uploadMode === 'upload' && styles.activeModeText]}>
+              自己上传图片
+            </Text>
+            <Text style={styles.modeDescription}>
+              上传您准备好的角色形象图片
+            </Text>
+          </View>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.modeButton, uploadMode === 'generate' && styles.activeMode]}
+          onPress={() => setUploadMode('generate')}
+        >
+          <View style={styles.modeIconContainer}>
+            <Ionicons 
+              name="color-wand-outline" 
+              size={24} 
+              color={uploadMode === 'generate' ? theme.colors.primary : "#888"} 
+            />
+          </View>
+          <View style={styles.modeTextContainer}>
+            <Text style={[styles.modeText, uploadMode === 'generate' && styles.activeModeText]}>
+              根据Tag生成图片
+            </Text>
+            <Text style={styles.modeDescription}>
+              通过组合标签生成符合需求的角色形象
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+      
+      {uploadMode === 'upload' ? (
+        <View style={styles.uploadContainer}>
+          <View style={styles.cardPreviewSection}>
+            <Text style={styles.inputLabel}>角色卡图片 (9:16)</Text>
+            <View style={styles.cardImageContainer}>
+              <TouchableOpacity
+                style={styles.cardImagePicker}
+                onPress={pickBackground}
+              >
+                {character?.backgroundImage ? (
+                  <Image source={{ uri: character.backgroundImage }} style={styles.cardImagePreview} />
+                ) : (
+                  <>
+                    <Ionicons name="card-outline" size={40} color="#aaa" />
+                    <Text style={styles.imageButtonText}>添加角色卡图片</Text>
+                    <Text style={styles.imageButtonSubtext}>(9:16比例)</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.imageSeparator}>
+              <View style={styles.imageSeparatorLine} />
+              <Text style={styles.imageSeparatorText}>或</Text>
+              <View style={styles.imageSeparatorLine} />
+            </View>
+            
+            <Text style={styles.inputLabel}>头像图片 (方形)</Text>
+            <View style={styles.imageSelectionContainer}>
+              <TouchableOpacity
+                style={styles.avatarButton}
+                onPress={pickAvatar}
+              >
+                {character?.avatar ? (
+                  <Image source={{ uri: character.avatar }} style={styles.avatarPreview} />
+                ) : (
+                  <>
+                    <Ionicons name="person-circle-outline" size={40} color="#aaa" />
+                    <Text style={styles.imageButtonText}>添加头像</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : (
+        renderTagGenerationSection()
+      )}
+    </View>
+  );
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -857,37 +1033,43 @@ const CharacterDetail: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* Character Header */}
       <CharacterDetailHeader
         name={roleCard.name || ''}
-        avatar={character?.avatar || null}
         backgroundImage={character?.backgroundImage || null}
-        onAvatarPress={pickAvatar}
-        onBackgroundPress={pickBackground}
-        onChatBackgroundPress={pickChatBackground} // 新增聊天背景选择按钮
+        onBackgroundPress={() => setActiveTab('appearance')}
         onBackPress={handleBack}
         onFullscreenPress={() => {
-          // Handle fullscreen image viewer
+          // Handle fullscreen image viewer if needed
         }}
       />
       
-      {/* Tab Navigation */}
       <View style={styles.tabContainer}>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'basic' && styles.activeTab]} 
           onPress={() => setActiveTab('basic')}
         >
-          <Text style={[styles.tabText, activeTab === 'basic' && styles.activeTabText]}>基本设定</Text>
+          <Text style={[styles.tabText, activeTab === 'basic' && styles.activeTabText]}>基本</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'advanced' && styles.activeTab]} 
           onPress={() => setActiveTab('advanced')}
         >
-          <Text style={[styles.tabText, activeTab === 'advanced' && styles.activeTabText]}>高级设定</Text>
+          <Text style={[styles.tabText, activeTab === 'advanced' && styles.activeTabText]}>高级</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'appearance' && styles.activeTab]} 
+          onPress={() => setActiveTab('appearance')}
+        >
+          <Text style={[styles.tabText, activeTab === 'appearance' && styles.activeTabText]}>外观</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'voice' && styles.activeTab]} 
+          onPress={() => setActiveTab('voice')}
+        >
+          <Text style={[styles.tabText, activeTab === 'voice' && styles.activeTabText]}>声线</Text>
         </TouchableOpacity>
       </View>
       
-      {/* Content Area */}
       <ScrollView style={styles.content}>
         {activeTab === 'basic' ? (
           <View style={styles.tabContent}>
@@ -930,9 +1112,8 @@ const CharacterDetail: React.FC = () => {
               style={styles.attributeSection}
             />
           </View>
-        ) : (
+        ) : activeTab === 'advanced' ? (
           <View style={styles.tabContent}>
-            {/* World Book Section */}
             <WorldBookSection 
               entries={worldBookEntries}
               onAdd={handleAddWorldBookEntry}
@@ -941,7 +1122,6 @@ const CharacterDetail: React.FC = () => {
               onViewDetail={handleViewDetail}
             />
             
-            {/* Author Note Section */}
             <AuthorNoteSection
               content={authorNote.content || ''}
               injection_depth={authorNote.injection_depth || 0}
@@ -956,7 +1136,6 @@ const CharacterDetail: React.FC = () => {
               onViewDetail={handleViewDetail}
             />
             
-            {/* Preset Section */}
             <PresetSection
               entries={presetEntries}
               onAdd={handleAddPresetEntry}
@@ -966,17 +1145,20 @@ const CharacterDetail: React.FC = () => {
               onViewDetail={handleViewDetail}
             />
           </View>
+        ) : activeTab === 'appearance' ? (
+          renderAppearanceSection()
+        ) : (
+          renderVoiceSection()
         )}
       </ScrollView>
       
-      {/* Bottom Actions Bar */}
       <BlurView intensity={30} tint="dark" style={styles.bottomBar}>
         <ActionButton
           title="取消"
           icon="close-outline"
           onPress={handleBack}
           color="#666666"
-          textColor="#000" // Updated text color
+          textColor="#000"
           style={styles.cancelButton}
         />
         
@@ -988,13 +1170,12 @@ const CharacterDetail: React.FC = () => {
             setShowDialog(true);
           }}
           loading={isSaving}
-          color="rgb(255, 224, 195)" // 修改：使用米黄色而不是theme.colors.primary
-          textColor="#000" // Updated text color
+          color="rgb(255, 224, 195)"
+          textColor="#000"
           style={styles.saveButton}
         />
       </BlurView>
       
-      {/* Detail Sidebar for expanded editing */}
       <DetailSidebar
         isVisible={!!selectedField}
         onClose={() => setSelectedField(null)}
@@ -1009,7 +1190,6 @@ const CharacterDetail: React.FC = () => {
         onNameChange={selectedField?.onNameChange}
       />
       
-      {/* Confirm Dialog */}
       <ConfirmDialog
         visible={showDialog}
         title={
@@ -1037,6 +1217,38 @@ const CharacterDetail: React.FC = () => {
           selectedDialogAction === 'delete' ? 'trash-outline' : 'help-circle-outline'
         }
       />
+      
+      <Modal
+        visible={tagSelectorVisible}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setTagSelectorVisible(false)}
+      >
+        <View style={styles.tagSelectorModalContainer}>
+          <View style={styles.tagSelectorHeader}>
+            <Text style={styles.tagSelectorTitle}>选择标签</Text>
+            <TouchableOpacity 
+              style={styles.tagSelectorCloseButton}
+              onPress={() => setTagSelectorVisible(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.tagSelectorContent}>
+            <TagSelector 
+              onClose={() => setTagSelectorVisible(false)}
+              onAddPositive={(tag) => setPositiveTags(prev => [...prev, tag])}
+              onAddNegative={(tag) => setNegativeTags(prev => [...prev, tag])}
+              existingPositiveTags={positiveTags}
+              existingNegativeTags={negativeTags}
+              onPositiveTagsChange={setPositiveTags}
+              onNegativeTagsChange={setNegativeTags}
+              sidebarWidth="auto"
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1097,6 +1309,258 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     flex: 2,
+  },
+  
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginBottom: 16,
+  },
+  modeSelectionContainer: {
+    marginBottom: 16,
+  },
+  modeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  activeMode: {
+    backgroundColor: 'rgba(255, 224, 195, 0.1)',
+    borderColor: theme.colors.primary,
+  },
+  modeIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  modeTextContainer: {
+    flex: 1,
+  },
+  modeText: {
+    fontSize: 16,
+    color: theme.colors.textSecondary,
+  },
+  activeModeText: {
+    color: theme.colors.primary,
+  },
+  modeDescription: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginTop: 4,
+  },
+  uploadContainer: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 16,
+  },
+  cardPreviewSection: {
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 20,
+  },
+  imageSelectionContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 16, 
+  },
+  avatarButton: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: theme.colors.backgroundSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    overflow: 'hidden',
+  },
+  avatarPreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 60,
+  },
+  cardImageContainer: {
+    width: 120,
+    height: 200,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: theme.colors.backgroundSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardImagePicker: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardImagePreview: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  imageButtonText: {
+    color: theme.colors.textSecondary,
+    marginTop: 8,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  imageButtonSubtext: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  imageSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    width: '100%',
+  },
+  imageSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  imageSeparatorText: {
+    color: theme.colors.textSecondary,
+    marginHorizontal: 8,
+  },
+  inputLabel: {
+    color: theme.colors.text,
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  
+  tagGenerateContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  tagInstructionsText: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  cradleInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  cradleInfoText: {
+    flex: 1,
+    color: theme.colors.info,
+    fontSize: 13,
+    marginLeft: 8,
+    lineHeight: 18,
+  },
+  tagSummaryContainer: {
+    backgroundColor: theme.colors.cardBackground,
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 16,
+  },
+  tagSummaryTitle: {
+    color: theme.colors.text,
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  selectedTagsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 36,
+    marginBottom: 8,
+  },
+  selectedPositiveTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+  },
+  selectedNegativeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.danger,
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+  },
+  selectedTagText: {
+    fontSize: 12,
+    marginRight: 4,
+    maxWidth: 100,
+    color: theme.colors.black,
+  },
+  noTagsSelectedText: {
+    color: theme.colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  defaultTagsInfo: {
+    color: theme.colors.textSecondary,
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  openTagSelectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primaryDark,
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 8,
+  },
+  openTagSelectorText: {
+    color: theme.colors.black,
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  
+  tagSelectorModalContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  tagSelectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: theme.colors.cardBackground,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    position: 'relative',
+    paddingTop: Platform.OS === 'ios' ? 44 : 16,
+  },
+  tagSelectorTitle: {
+    color: theme.colors.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  tagSelectorCloseButton: {
+    position: 'absolute',
+    right: 16,
+    top: Platform.OS === 'ios' ? 44 : 16,
+    padding: 4,
+  },
+  tagSelectorContent: {
+    flex: 1,
   },
 });
 

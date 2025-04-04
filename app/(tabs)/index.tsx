@@ -12,6 +12,11 @@ import {
   Alert,
   KeyboardAvoidingView,
   AppState,
+  TextInput,
+  Modal,
+  FlatList,
+  ActivityIndicator,
+  Switch
 } from 'react-native';
 
 import ChatDialog from '@/components/ChatDialog';
@@ -22,6 +27,7 @@ import MemoOverlay from '@/components/MemoOverlay';  // 替换原来的 MemoShee
 import SaveManager from '@/components/SaveManager'; // Import the SaveManager component
 import NovelAITestModal from '@/components/NovelAITestModal'; // 导入 NovelAI 测试组件
 import VNDBTestModal from '@/src/components/VNDBTestModal'; // 导入 VNDB 测试组件
+import TTSEnhancerModal from '@/components/TTSEnhancerModal'; // Import the new modal component
 import { Message, Character, ChatSave } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext'; // 添加 useUser 导入
@@ -41,6 +47,11 @@ import '@/src/memory/utils/polyfills';
 // Import the new Memory components
 import MemoryOverviewPanel from '@/components/MemoryOverviewPanel';
 import Mem0Service from '@/src/memory/services/Mem0Service';
+
+// Import necessary components for TTS enhancer
+import { ttsService } from '@/services/ttsService';
+import { Ionicons } from '@expo/vector-icons';
+import { fetchTTSEnhancerModels, OpenRouterModel, getProviderEmoji, filterAndSortForTTSEnhancement } from '@/utils/tts-enhancer-models';
 
 // Create a stable memory configuration outside the component
 type MemoryConfig = {
@@ -181,6 +192,10 @@ const App = () => {
   // Add state to toggle search functionality
   const [braveSearchEnabled, setBraveSearchEnabled] = useState<boolean>(false);
   
+  // Add TTS enhancer state
+  const [isTtsEnhancerEnabled, setIsTtsEnhancerEnabled] = useState(false);
+  const [isTtsEnhancerModalVisible, setIsTtsEnhancerModalVisible] = useState(false);
+
   // Toggle brave search function
   const toggleBraveSearch = () => {
     const newState = !braveSearchEnabled;
@@ -213,6 +228,36 @@ const App = () => {
     };
     
     loadSearchPreference();
+  }, []);
+
+  // Load TTS enhancer settings when component mounts (only to know if it's enabled)
+  useEffect(() => {
+    const loadTtsEnhancerSettings = async () => {
+      try {
+        const settings = ttsService.getEnhancerSettings();
+        setIsTtsEnhancerEnabled(settings.enabled);
+      } catch (error) {
+        console.error('[App] Error loading TTS enhancer settings:', error);
+      }
+    };
+    
+    loadTtsEnhancerSettings();
+  }, []);
+  
+  // Listen for changes to enhancer settings
+  useEffect(() => {
+    const enhancerSettingsListener = EventRegister.addEventListener(
+      'ttsEnhancerSettingsChanged',
+      (settings: any) => {
+        if (settings && typeof settings.enabled === 'boolean') {
+          setIsTtsEnhancerEnabled(settings.enabled);
+        }
+      }
+    );
+    
+    return () => {
+      EventRegister.removeEventListener(enhancerSettingsListener as string);
+    };
   }, []);
 
   const toggleSettingsSidebar = () => {
@@ -1162,6 +1207,11 @@ const App = () => {
     }
   };
 
+  // Handler for TTS enhancer button click 
+  const handleTtsEnhancerToggle = () => {
+    setIsTtsEnhancerModalVisible(true);
+  };
+
   return (
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
@@ -1233,24 +1283,6 @@ const App = () => {
                     onScrollPositionChange={handleScrollPositionChange}
                     messageMemoryState={messageMemoryState} // Pass memory state to ChatDialog
                   />
-                  
-                  {/* Memory Toggle Button */}
-                  <TouchableOpacity 
-                    style={styles.memoryToggleButton}
-                    onPress={toggleMemoryPanel}
-                  >
-                    <Text style={styles.memoryToggleText}>
-                      {isMemoryPanelVisible ? "Hide Memory Facts" : "Show Memory Facts"}
-                    </Text>
-                  </TouchableOpacity>
-                  
-                  {/* Memory Overview Panel */}
-                  {isMemoryPanelVisible && (
-                    <MemoryOverviewPanel 
-                      facts={memoryFacts}
-                      onClose={toggleMemoryPanel}
-                    />
-                  )}
                 </View>
 
                 <View style={[
@@ -1258,46 +1290,21 @@ const App = () => {
                   selectedCharacter && styles.transparentBackground
                 ]}>
                   {selectedCharacter && (
-                    <>
-                      <View style={styles.inputBarContainer}>
-                        {/* Buttons container above ChatInput */}
-                        <View style={styles.buttonsContainer}>
-                          <TouchableOpacity
-                            style={[
-                              styles.actionButton,
-                              braveSearchEnabled && styles.actionButtonActive
-                            ]}
-                            onPress={toggleBraveSearch}
-                          >
-                            <Text style={styles.actionButtonText}>
-                              {braveSearchEnabled ? '🔍 搜索: 开' : '🔍 搜索: 关'}
-                            </Text>
-                          </TouchableOpacity>
-                          
-                          <TouchableOpacity 
-                            style={styles.actionButton}
-                            onPress={() => setIsNovelAITestVisible(true)}
-                          >
-                            <Text style={styles.actionButtonText}>🖼️ 图像测试</Text>
-                          </TouchableOpacity>
-                          
-                          <TouchableOpacity 
-                            style={styles.actionButton}
-                            onPress={() => setIsVNDBTestVisible(true)}
-                          >
-                            <Text style={styles.actionButtonText}>🎮 角色查询</Text>
-                          </TouchableOpacity>
-                        </View>
-                        
-                        <ChatInput
-                          onSendMessage={handleSendMessage}
-                          selectedConversationId={selectedConversationId}
-                          conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
-                          onResetConversation={handleResetConversation}
-                          selectedCharacter={selectedCharacter}
-                        />
-                      </View>
-                    </>
+                    <ChatInput
+                      onSendMessage={handleSendMessage}
+                      selectedConversationId={selectedConversationId}
+                      conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
+                      onResetConversation={handleResetConversation}
+                      selectedCharacter={selectedCharacter}
+                      // Pass search and TTS functionality to ChatInput
+                      braveSearchEnabled={braveSearchEnabled}
+                      toggleBraveSearch={toggleBraveSearch}
+                      isTtsEnhancerEnabled={isTtsEnhancerEnabled}
+                      onTtsEnhancerToggle={handleTtsEnhancerToggle}
+                      onShowNovelAI={() => setIsNovelAITestVisible(true)}
+                      onShowVNDB={() => setIsVNDBTestVisible(true)}
+                      onShowMemoryPanel={toggleMemoryPanel}
+                    />
                   )}
                 </View>
 
@@ -1351,6 +1358,12 @@ const App = () => {
                   onPreviewSave={handlePreviewSave}
                 />
               )}
+              
+              {/* TTS Enhancer Modal - same level as other modals */}
+              <TTSEnhancerModal
+                visible={isTtsEnhancerModalVisible}
+                onClose={() => setIsTtsEnhancerModalVisible(false)}
+              />
             </View>
           </KeyboardAvoidingView>
         </ImageBackground>
@@ -1444,54 +1457,8 @@ const styles = StyleSheet.create({
   keyboardAvoidView: {
     flex: 1,
   },
-  // Add new styles for memory features
-  memoryToggleButton: {
-    position: 'absolute',
-    bottom: 70,
-    left: 20,
-    backgroundColor: 'rgba(26, 115, 232, 0.8)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 100,
-  },
-  memoryToggleText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
   inputBarContainer: {
-    flexDirection: 'column',
     width: '100%',
-  },
-  buttonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 8,
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  actionButton: {
-    backgroundColor: 'rgba(50, 50, 50, 0.6)',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  actionButtonActive: {
-    backgroundColor: 'rgba(25, 118, 210, 0.8)',
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-  },
-  actionButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 14,
   },
 });
 

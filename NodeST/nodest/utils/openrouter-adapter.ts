@@ -32,7 +32,6 @@ export class OpenRouterAdapter {
   private model: string;
   private conversationHistory: ChatMessage[] = [];
   private baseUrl: string = 'https://openrouter.ai/api/v1';
-
   constructor(apiKey: string, model: string = "openai/gpt-3.5-turbo") {
     this.apiKey = apiKey;
     this.model = model;
@@ -290,16 +289,36 @@ export class OpenRouterAdapter {
    * @returns 生成的内容
    */
   async generateContentWithTools(contents: ChatMessage[], memoryResults?: any): Promise<string> {
-    // 检查最后一条消息中是否需要搜索功能
+    // 获取最后一条消息
     const lastMessage = contents[contents.length - 1];
     const messageText = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
-    const needsSearching = this.messageNeedsSearching(messageText);
+    
+    // 添加详细的调试日志
+    console.log(`【OpenRouterAdapter】 generateContentWithTools被调用，messageText: "${messageText.substring(0, 50)}${messageText.length > 50 ? '...' : ''}"`);
+    
+    // 检查是否需要搜索
+    const wouldNeedSearching = this.messageNeedsSearching(messageText);
+    console.log(`【OpenRouterAdapter】 消息是否适合搜索: ${wouldNeedSearching}`);
     
     try {
-      // 如果判断需要搜索，先尝试搜索
-      if (needsSearching) {
-        console.log(`【OpenRouterAdapter】 检测到搜索意图，尝试使用工具调用`);
-        return await this.handleSearchIntent(contents, memoryResults);
+      // 检查是否同时存在记忆结果和搜索意图
+      const hasMemoryResults = memoryResults && 
+                             memoryResults.results && 
+                             memoryResults.results.length > 0;
+      
+      // 解耦逻辑：根据情况处理不同类型的增强内容
+      if (hasMemoryResults && wouldNeedSearching) {
+        // 同时处理记忆和搜索
+        console.log(`【OpenRouterAdapter】 同时检测到记忆结果和搜索意图，使用组合增强处理`);
+        return await this.handleCombinedMemoryAndSearch(contents, memoryResults);
+      } else if (hasMemoryResults) {
+        // 如果只有记忆搜索结果，仅使用记忆增强
+        console.log(`【OpenRouterAdapter】 检测到记忆搜索结果，使用记忆增强处理`);
+        return await this.handleWithMemoryResults(contents, memoryResults);
+      } else if (wouldNeedSearching) {
+        // 如果没有记忆结果但有搜索意图，使用网络搜索
+        console.log(`【OpenRouterAdapter】 检测到搜索意图，尝试使用网络搜索`);
+        return await this.handleSearchIntent(contents);
       }
       
       // 否则使用普通对话方式
@@ -311,19 +330,281 @@ export class OpenRouterAdapter {
       return await this.generateContent(contents);
     }
   }
-  
+
+  /**
+   * 处理同时具有记忆搜索结果和网络搜索意图的请求
+   * @param contents 消息内容
+   * @param memoryResults 记忆搜索结果
+   * @returns 生成的融合回复
+   */
+  private async handleCombinedMemoryAndSearch(contents: ChatMessage[], memoryResults: any): Promise<string> {
+    console.log(`【OpenRouterAdapter】 开始处理记忆搜索和网络搜索的组合请求`);
+    
+    // 获取最后一条消息的内容
+    const lastMessage = contents[contents.length - 1];
+    const searchQuery = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
+    
+    try {
+      // Step 1: 准备记忆部分
+      console.log(`【OpenRouterAdapter】 处理记忆部分，发现 ${memoryResults.results.length} 条记忆`);
+      
+      let memorySection = `<mem>\n系统检索到的记忆内容：\n`;
+      // 格式化记忆结果
+      memoryResults.results.forEach((item: any, index: number) => {
+        memorySection += `${index + 1}. ${item.memory}\n`;
+      });
+      memorySection += `</mem>\n\n`;
+      
+      // Step 2: 准备网络搜索部分
+      console.log(`【OpenRouterAdapter】 为用户查询准备网络搜索: "${searchQuery}"`);
+      
+      // 确保MCP适配器已连接
+      if (!mcpAdapter.isReady()) {
+        await mcpAdapter.connect();
+      }
+      
+      // 提取搜索关键词
+      const extractionResult = await this.askLLM([
+        {
+          role: "user",
+          content: `请帮我提取以下问题的搜索关键词，只返回核心关键词，不要有其他解释：\n\n${searchQuery}`
+        }
+      ]);
+      
+      const finalQuery = extractionResult.trim() || searchQuery;
+      console.log(`【OpenRouterAdapter】 提取的搜索关键词: ${finalQuery}`);
+      
+      // 执行搜索
+      const searchResults = await mcpAdapter.search({
+        query: finalQuery,
+        count: 5
+      });
+      
+      // 格式化搜索结果
+      const formattedResults = mcpAdapter.formatSearchResults(searchResults);
+      let searchSection = `<websearch>\n搜索引擎返回的联网检索结果：\n${formattedResults}\n</websearch>\n\n`;
+      
+      // Step 3: 构建融合提示词
+      console.log(`【OpenRouterAdapter】 构建融合提示词，结合记忆和网络搜索结果`);
+      
+      let combinedPrompt = `${searchQuery}\n\n`;
+      
+      // 添加记忆和搜索结果
+      combinedPrompt += memorySection;
+      combinedPrompt += searchSection;
+      
+      // 添加融合的响应指南
+      combinedPrompt += `<response_guidelines>
+- 请结合上面的记忆内容和联网搜索结果，全面回答用户的问题。
+- **首先**，在回复中用<mem></mem>标签包裹你对记忆内容的引用和回忆过程，例如:
+  <mem>我记得你之前提到过关于这个话题，当时我们讨论了...</mem>
+- **然后**，用<websearch></websearch>标签包裹你对网络搜索结果的解释和引用，例如:
+  <websearch>根据最新的网络信息，关于这个问题的专业观点是...</websearch>
+- 确保回复能够同时**有效整合记忆和网络信息**，让内容更加全面和有用。
+- 回复的语气和风格必须与角色人设保持一致。
+</response_guidelines>`;
+      
+      // 记录融合提示词的长度
+      console.log(`【OpenRouterAdapter】 融合提示词构建完成，长度: ${combinedPrompt.length}`);
+      
+      // 将搜索结果转换为适当的格式
+      let formattedContents = [];
+      
+      // 转换历史消息
+      for (let i = 0; i < contents.length - 1; i++) {
+        const msg = contents[i];
+        if (msg.content || (msg.parts && msg.parts[0]?.text)) {
+          formattedContents.push({
+            role: msg.role,
+            content: msg.content || (msg.parts && msg.parts[0]?.text) || ""
+          });
+        }
+      }
+      
+      // 添加最后的用户查询和组合提示词
+      formattedContents.push({
+        role: "user",
+        content: combinedPrompt
+      });
+      
+      // 使用组合提示词生成最终回复
+      return await this.askLLM(formattedContents);
+    } catch (error) {
+      console.error(`【OpenRouterAdapter】 组合处理记忆搜索和网络搜索时出错:`, error);
+      
+      // 如果组合处理失败，尝试退回到仅使用记忆搜索结果的方式
+      console.log(`【OpenRouterAdapter】 组合处理失败，回退到仅使用记忆结果模式`);
+      try {
+        return await this.handleWithMemoryResults(contents, memoryResults);
+      } catch (fallbackError) {
+        console.error(`【OpenRouterAdapter】 记忆处理也失败，回退到标准对话:`, fallbackError);
+        // 如最终都失败，使用标准方式
+        return await this.generateContent(contents);
+      }
+    }
+  }
+
+  /**
+   * 使用记忆搜索结果处理请求
+   * @param contents 消息内容
+   * @param memoryResults 记忆搜索结果
+   * @returns 生成的回复
+   */
+  private async handleWithMemoryResults(contents: ChatMessage[], memoryResults: any): Promise<string> {
+    // 获取最后一条消息的内容
+    const lastMessage = contents[contents.length - 1];
+    const userQuery = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
+    
+    try {
+      // 添加详细的记忆结果结构日志
+      console.log(`【OpenRouterAdapter】 处理记忆增强请求，发现 ${memoryResults.results.length} 条记忆`);
+      console.log('【OpenRouterAdapter】 记忆结果结构:', {
+        hasResults: !!memoryResults.results,
+        resultCount: memoryResults.results?.length || 0,
+        firstMemoryFields: memoryResults.results && memoryResults.results.length > 0 
+          ? Object.keys(memoryResults.results[0]) 
+          : 'No memories',
+        firstMemoryScore: memoryResults.results?.[0]?.score,
+        hasMetadata: memoryResults.results?.[0]?.metadata !== undefined
+      });
+      
+      // 构建包含记忆搜索结果的提示
+      let combinedPrompt = `${userQuery}\n\n`;
+      
+      // 添加记忆搜索结果
+      combinedPrompt += `<mem>\n系统检索到的记忆内容：\n`;
+      
+      // 格式化记忆结果
+      memoryResults.results.forEach((item: any, index: number) => {
+        combinedPrompt += `${index + 1}. ${item.memory}\n`;
+      });
+      combinedPrompt += `</mem>\n\n`;
+      
+      // 添加响应指南
+      combinedPrompt += `<response_guidelines>
+- 除了对用户消息的回应之外，**务必** 结合记忆内容进行回复。
+- **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
+  - 示例: <mem>我想起您上次提到过类似的问题，当时...</mem>
+- 确保回复保持角色人设的一致性。
+</response_guidelines>`;
+      
+      // 记录准备的提示词
+      console.log('【OpenRouterAdapter】 准备了带记忆结果的提示:', combinedPrompt.substring(0, 200) + '...');
+      
+      // 将记忆提示转换为适当的格式
+      let formattedContents = [];
+      
+      // 转换历史消息
+      for (let i = 0; i < contents.length - 1; i++) {
+        const msg = contents[i];
+        if (msg.content || (msg.parts && msg.parts[0]?.text)) {
+          formattedContents.push({
+            role: msg.role,
+            content: msg.content || (msg.parts && msg.parts[0]?.text) || ""
+          });
+        }
+      }
+      
+      // 添加最后的用户查询和记忆结果
+      formattedContents.push({
+        role: "user",
+        content: combinedPrompt
+      });
+      
+      // 使用记忆提示词生成最终回复
+      return await this.askLLM(formattedContents);
+    } catch (error) {
+      console.error(`【OpenRouterAdapter】 记忆增强处理失败:`, error);
+      // 如果记忆处理失败，回退到标准方式
+      return await this.generateContent(contents);
+    }
+  }
+
+  /**
+   * 处理需要搜索的请求
+   * @param contents 消息内容
+   * @returns 生成的回复
+   */
+  private async handleSearchIntent(contents: ChatMessage[]): Promise<string> {
+    console.log(`【OpenRouterAdapter】 开始处理搜索请求`);
+    
+    try {
+      // 获取最后一条消息
+      const lastMessage = contents[contents.length - 1];
+      const searchQuery = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
+      
+      // 确保MCP适配器已连接
+      if (!mcpAdapter.isReady()) {
+        await mcpAdapter.connect();
+      }
+      
+      // 提取搜索关键词
+      const extractionResult = await this.askLLM([
+        {
+          role: "user",
+          content: `请帮我提取以下问题的搜索关键词，只返回核心关键词，不要有其他解释：\n\n${searchQuery}`
+        }
+      ]);
+      
+      const finalQuery = extractionResult.trim() || searchQuery;
+      console.log(`【OpenRouterAdapter】 提取的搜索关键词: ${finalQuery}`);
+      
+      // 执行搜索
+      const searchResults = await mcpAdapter.search({
+        query: finalQuery,
+        count: 5
+      });
+      
+      // 格式化搜索结果
+      const formattedResults = mcpAdapter.formatSearchResults(searchResults);
+      
+      // 构建带有搜索结果的提示词
+      const searchPrompt = `${searchQuery}\n\n<websearch>\n搜索引擎返回的联网检索结果：\n${formattedResults}\n</websearch>\n\n请基于以上搜索结果回答用户的问题。`;
+      
+      // 将搜索结果转换为适当的格式
+      let formattedContents = [];
+      
+      // 转换历史消息
+      for (let i = 0; i < contents.length - 1; i++) {
+        const msg = contents[i];
+        if (msg.content || (msg.parts && msg.parts[0]?.text)) {
+          formattedContents.push({
+            role: msg.role,
+            content: msg.content || (msg.parts && msg.parts[0]?.text) || ""
+          });
+        }
+      }
+      
+      // 添加带搜索结果的提示词
+      formattedContents.push({
+        role: "user",
+        content: searchPrompt
+      });
+      
+      // 使用搜索结果生成回复
+      return await this.askLLM(formattedContents);
+    } catch (error) {
+      console.error(`【OpenRouterAdapter】 搜索请求处理失败:`, error);
+      // 如果搜索处理失败，回退到标准对话
+      return await this.generateContent(contents);
+    }
+  }
+
   /**
    * 判断消息是否需要搜索
    * @param messageText 消息文本
    * @returns 是否需要搜索
    */
   private messageNeedsSearching(messageText: string): boolean {
+    // 添加更多详细的调试日志
+    console.log(`【OpenRouterAdapter】 正在分析消息是否需要搜索: "${messageText.substring(0, 50)}${messageText.length > 50 ? '...' : ''}"`);
+    
     // 检查消息是否包含搜索意图的关键词
     const searchKeywords = [
       '搜索', '查询', '查找', '寻找', '检索', '了解', '信息', 
-      '最新', '新闻', '什么是', '谁是', '哪里',
+      '最新', '新闻', '什么是', '谁是', '哪里', '如何', '怎么',
       'search', 'find', 'lookup', 'query', 'information about',
-      'latest', 'news', 'what is', 'who is', 'where'
+      'latest', 'news', 'what is', 'who is', 'where', 'how to'
     ];
     
     // 提问型关键词
@@ -345,130 +626,20 @@ export class OpenRouterAdapter {
     
     // 如果同时满足以下条件，则判断需要搜索:
     // 1. 消息包含搜索关键词或者是一个问题
-    // 2. 消息长度不超过200个字符 (太长的消息可能不是搜索意图)
-    return (hasSearchKeyword || isQuestion) && messageText.length < 200;
-  }
-  
-  /**
-   * 处理搜索意图
-   * @param contents 消息内容
-   * @param memoryResults 记忆搜索结果 (可选)
-   * @returns 搜索结果和回复
-   */
-  private async handleSearchIntent(contents: ChatMessage[], memoryResults?: any): Promise<string> {
-    // 获取最后一条消息的内容
-    const lastMessage = contents[contents.length - 1];
-    const searchQuery = lastMessage.content || (lastMessage.parts && lastMessage.parts[0]?.text) || "";
+    // 2. 消息长度不超过300个字符 (放宽长度限制，从200改为300)
+    const needsSearching = (hasSearchKeyword || isQuestion) && messageText.length < 300;
     
-    try {
-      // 确保MCP适配器已连接
-      if (!mcpAdapter.isReady()) {
-        await mcpAdapter.connect();
-      }
-      
-      // 构建工具调用消息
-      const toolCallMessages = [
-        {
-          role: "user",
-          content: `请帮我提取以下问题的搜索关键词，只返回核心关键词，不要有其他解释：\n\n${searchQuery}`
-        }
-      ];
-
-      // 提取搜索关键词
-      console.log(`【OpenRouterAdapter】正在提取搜索关键词...`);
-      
-      const extractionResult = await this.askLLM(toolCallMessages);
-      const refinedQuery = extractionResult.trim() || searchQuery;
-
-      console.log(`【OpenRouterAdapter】提取的搜索关键词: ${refinedQuery}`);
-      
-      // 使用MCP适配器执行搜索
-      const searchResults = await mcpAdapter.search({
-        query: refinedQuery,
-        count: 5
-      });
-      
-      // 格式化搜索结果为可读文本
-      const formattedResults = mcpAdapter.formatSearchResults(searchResults);
-      
-      console.log(`【OpenRouterAdapter】获取到搜索结果，正在生成回复`);
-      
-      // 构建包含记忆和网络搜索结果的修改版提示
-      let combinedPrompt = `${searchQuery}\n\n`;
-      
-      // 添加记忆搜索结果（如果有）
-      if (memoryResults && memoryResults.results && memoryResults.results.length > 0) {
-        console.log(`【OpenRouterAdapter】添加记忆搜索结果，包含 ${memoryResults.results.length} 条记忆`);
-        combinedPrompt += `<mem>\n系统检索到的记忆内容：\n`;
-        
-        // 格式化记忆结果
-        memoryResults.results.forEach((item: any, index: number) => {
-          combinedPrompt += `${index + 1}. ${item.memory}\n`;
-        });
-        combinedPrompt += `</mem>\n\n`;
-      }
-      
-      // 添加网络搜索结果
-      combinedPrompt += `<websearch>\n搜索引擎返回的联网检索结果：\n${formattedResults}\n</websearch>\n\n`;
-      
-      // 添加响应指南
-      combinedPrompt += `<response_guidelines>
-  - 除了对用户消息的回应之外，**务必** 结合记忆内容和联网搜索内容进行回复。
-  - **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
-    - 示例: <mem>我想起起您上次提到过类似的问题，当时...</mem>
-  - **根据角色设定，聊天上下文和记忆内容**，输出你对联网检索结果的解释，并用<websearch></websearch>包裹。
-    - 示例: <websearch>根据网络信息，[相关领域的专家]认为... 这可能对您有帮助。</websearch>
-</response_guidelines>`;
-      
-      // 将搜索结果转换为适当的格式
-      let formattedContents = [];
-      
-      // 转换历史消息
-      for (let i = 0; i < contents.length - 1; i++) {
-        const msg = contents[i];
-        if (msg.content || (msg.parts && msg.parts[0]?.text)) {
-          formattedContents.push({
-            role: msg.role,
-            content: msg.content || (msg.parts && msg.parts[0]?.text) || ""
-          });
-        }
-      }
-      
-      // 添加最后的用户查询和搜索结果
-      formattedContents.push({
-        role: "user",
-        content: combinedPrompt
-      });
-      
-      // 使用工具调用结果生成最终回复
-      return await this.askLLM(formattedContents);
-    } catch (error) {
-      console.error(`【OpenRouterAdapter】搜索处理失败:`, error);
-      
-      // 如果搜索失败，通知用户并使用标准方式回答
-      let formattedContents = [];
-      
-      // 转换历史消息
-      for (let i = 0; i < contents.length - 1; i++) {
-        const msg = contents[i];
-        if (msg.content || (msg.parts && msg.parts[0]?.text)) {
-          formattedContents.push({
-            role: msg.role,
-            content: msg.content || (msg.parts && msg.parts[0]?.text) || ""
-          });
-        }
-      }
-      
-      // 添加带有错误通知的最后查询
-      formattedContents.push({
-        role: "user",
-        content: `${searchQuery}\n\n(注意：我尝试搜索相关信息，但搜索功能暂时不可用。请根据你已有的知识回答我的问题。)`
-      });
-      
-      return await this.askLLM(formattedContents);
-    }
+    // 添加详细的判断结果日志
+    console.log(`【OpenRouterAdapter】 消息搜索判断结果:`, {
+      hasSearchKeyword,
+      isQuestion,
+      messageLength: messageText.length,
+      needsSearching
+    });
+    
+    return needsSearching;
   }
-  
+
   /**
    * 辅助方法：用于发送简单的LLM请求并获取回答
    * @param messages 消息

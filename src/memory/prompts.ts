@@ -2,31 +2,39 @@
  * 获取事实提取提示词
  * @param content 要分析的内容
  * @param isMultiRound 是否为多轮对话（默认为false）
+ * @param options 提示词选项，包括自定义用户称呼和AI称呼
  * @returns [系统提示词, 用户提示词]
  */
-export function getFactRetrievalMessages(content: string, isMultiRound: boolean = false): [string, string] {
-  const systemPrompt = `你是一位个人信息组织者，专门负责准确地提取和存储用户的事实、记忆和偏好。
+export function getFactRetrievalMessages(
+  content: string, 
+  isMultiRound: boolean = false,
+  options: { userName?: string; aiName?: string } = {}
+): [string, string] {
+  const userName = options.userName || '用户';
+  const aiName = options.aiName || 'AI';
+
+  const systemPrompt = `你是一位个人信息组织者，专门负责准确地提取和存储${userName}的事实、记忆和偏好。
 你的任务是从对话中提取相关的个人信息并将其组织成不同的、易于管理的事实。
-这些信息应该准确、简洁地反映用户所说的内容，不要添加推测或想象的细节。
+这些信息应该准确、简洁地反映${userName}所说的内容，不要添加推测或想象的细节。
 
 需要关注的信息类型:
-1. 个人偏好: 用户表达的喜好、厌恶和偏好（例如，"我喜欢民族歌手"）
+1. 个人偏好: ${userName}表达的喜好、厌恶和偏好（例如，"我喜欢民族歌手"）
 2. 个人详细信息: 名字、关系、重要日期等
-3. 用户的观点和意见: 记录用户对特定主题的看法
-4. 用户的经历和回忆: 用户分享的过去经历
-5. 用户的习惯和行为: 常规活动、习惯等
+3. ${userName}的观点和意见: 记录${userName}对特定主题的看法
+4. ${userName}的经历和回忆: ${userName}分享的过去经历
+5. ${userName}的习惯和行为: 常规活动、习惯等
 
 指导原则:
 - 提取独立的、原子化的事实（一个事实对应一个明确的信息点）
-- 只提取用户明确表达的信息，不要推断或假设
+- 只提取${userName}明确表达的信息，不要推断或假设
 - 保持事实简洁，但确保包含足够的上下文
-- 以第三人称记录事实（例如"用户喜欢民族歌手"而非"我喜欢民族歌手"）
+- 以第三人称记录事实（例如"${userName}喜欢民族歌手"而非"我喜欢民族歌手"）
 - 优先提取具体而非笼统的信息
 - 避免复制完整的对话或不相关的细节
 - 忽略打招呼、感谢等社交客套语
 - 忽略无信息价值的内容（如"我不知道"）
 ${isMultiRound ? `
-- 这是一次多轮对话分析，你将收到多个用户和AI之间的对话轮次
+- 这是一次多轮对话分析，你将收到多个${userName}和${aiName}之间的对话轮次
 - 请综合分析所有对话内容，提取关键事实
 - 避免重复提取相同的事实
 - 如果存在矛盾的信息，请以最新的信息为准` : ''}
@@ -34,16 +42,16 @@ ${isMultiRound ? `
 请以JSON格式返回提取的事实:
 {
   "facts": [
-    "用户喜欢民族歌手",
-    "用户的名字是李明"
+    "${userName}喜欢民族歌手",
+    "${userName}的名字是李明"
   ]
 }
 
-尽可能使事实与用户的原始表述保持一致，仅在必要时重新措辞以符合第三人称格式。
+尽可能使事实与${userName}的原始表述保持一致，仅在必要时重新措辞以符合第三人称格式。
 
-请注意，你会收到完整的对话上下文，包括用户和AI之间的${isMultiRound ? '多轮' : '最近'}交流。这些上下文可以帮助你更好地理解用户表达的信息，但只提取用户表达的事实，不要从AI回复中提取信息。`;
+请注意，你会收到完整的对话上下文，包括${userName}和${aiName}之间的${isMultiRound ? '多轮' : '最近'}交流。这些上下文可以帮助你更好地理解${userName}表达的信息，但只提取${userName}表达的事实，不要从${aiName}回复中提取信息。`;
 
-  const userPrompt = `以下是用户和助手之间的${isMultiRound ? '多轮' : ''}对话，${isMultiRound ? '包含了多次交流' : '包括最近的聊天记录和当前用户的消息'}。请从对话中提取有关用户的相关事实和偏好（如果有），并以JSON格式返回它们，如上所示。
+  const userPrompt = `以下是${userName}和${aiName}之间的${isMultiRound ? '多轮' : ''}对话，${isMultiRound ? '包含了多次交流' : '包括最近的聊天记录和当前用户的消息'}。请从对话中提取有关${userName}的相关事实和偏好（如果有），并以JSON格式返回它们，如上所示。
 
 ${content}
 

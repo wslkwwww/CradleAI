@@ -21,18 +21,24 @@ interface CalculationResult {
   imageCost: number;
   contextLength: number;
   hasImageCapability: boolean;
+  voiceGenerationCost: number;
+  imageGenerationCost: number;
 }
 
 interface ModelResultItemProps {
   result: CalculationResult;
   monthlyBudget: number;
   includeImages: boolean;
+  includeVoiceGeneration: boolean;
+  includeImageGeneration: boolean;
 }
 
 const ModelResultItem: React.FC<ModelResultItemProps> = ({ 
   result, 
   monthlyBudget,
-  includeImages
+  includeImages,
+  includeVoiceGeneration,
+  includeImageGeneration
 }) => {
   const [expanded, setExpanded] = useState(false);
   
@@ -84,6 +90,11 @@ const ModelResultItem: React.FC<ModelResultItemProps> = ({
   
   const isFreeModel = result.estimatedMonthlyCost === 0;
   
+  // Calculate total with additional services
+  const totalEstimatedCost = result.estimatedMonthlyCost + 
+    (includeVoiceGeneration ? result.voiceGenerationCost : 0) + 
+    (includeImageGeneration ? result.imageGenerationCost : 0);
+  
   return (
     <TouchableOpacity 
       style={[
@@ -115,15 +126,29 @@ const ModelResultItem: React.FC<ModelResultItemProps> = ({
                 <Text style={styles.imageCapabilityText}>支持图像</Text>
               </View>
             )}
+            
+            {includeVoiceGeneration && (
+              <View style={styles.voiceGenerationTag}>
+                <Ionicons name="mic-outline" size={12} color={theme.colors.primary} />
+                <Text style={styles.voiceGenerationText}>语音</Text>
+              </View>
+            )}
+            
+            {includeImageGeneration && (
+              <View style={styles.imageGenerationTag}>
+                <Ionicons name="brush-outline" size={12} color="#9c27b0" />
+                <Text style={styles.imageGenerationText}>绘图</Text>
+              </View>
+            )}
           </View>
         </View>
         
         <View style={styles.costsContainer}>
           <Text style={[
             styles.costText,
-            isFreeModel && styles.freeCostText
+            isFreeModel && !includeVoiceGeneration && !includeImageGeneration && styles.freeCostText
           ]}>
-            {formatCost(result.estimatedMonthlyCost)}
+            {formatCost(totalEstimatedCost)}
             {!isFreeModel && <Text style={styles.periodText}>/月</Text>}
           </Text>
           <Text style={[
@@ -182,6 +207,30 @@ const ModelResultItem: React.FC<ModelResultItemProps> = ({
               <Text style={styles.detailLabel}>图片处理费用</Text>
               <Text style={styles.detailValue}>{formatCost(result.imageCost)}</Text>
             </View>
+          )}
+          
+          {includeVoiceGeneration && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>语音生成费用</Text>
+              <Text style={styles.detailValue}>{formatCost(result.voiceGenerationCost)}</Text>
+            </View>
+          )}
+          
+          {includeImageGeneration && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>图片生成费用</Text>
+              <Text style={styles.detailValue}>{formatCost(result.imageGenerationCost)}</Text>
+            </View>
+          )}
+          
+          {(includeVoiceGeneration || includeImageGeneration) && (
+            <>
+              <View style={styles.separator} />
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>总计费用</Text>
+                <Text style={styles.detailValue}>{formatCost(totalEstimatedCost)}</Text>
+              </View>
+            </>
           )}
           
           <View style={styles.detailRow}>
@@ -270,6 +319,36 @@ const styles = StyleSheet.create({
   imageCapabilityText: {
     fontSize: 10,
     color: theme.colors.info,
+    marginLeft: 4,
+  },
+  voiceGenerationTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(100, 100, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  voiceGenerationText: {
+    fontSize: 10,
+    color: theme.colors.primary,
+    marginLeft: 4,
+  },
+  imageGenerationTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(156, 39, 176, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  imageGenerationText: {
+    fontSize: 10,
+    color: '#9c27b0',
     marginLeft: 4,
   },
   costsContainer: {

@@ -1170,7 +1170,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       backgroundColor: theme.colors.background,
     },
     sidebarContainer: {
-      width: 80,
+      width: 70,
       backgroundColor: theme.colors.backgroundSecondary,
       borderRightWidth: 1,
       borderRightColor: 'rgba(255,255,255,0.1)',

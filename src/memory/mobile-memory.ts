@@ -332,16 +332,20 @@ export class MobileMemory {
       console.log('[MobileMemory] 多轮对话模式，跳过构建额外上下文');
     }
 
+    // 获取自定义称呼
+    const userName = metadata.userName || '用户';
+    const aiName = metadata.aiName || 'AI';
+    
     // 构建上下文字符串，包含对话历史
     const contextString = isMultiRound ? parsedMessages : 
       (recentConversation 
-        ? `${recentConversation}当前用户消息:\n${parsedMessages}`
+        ? `${recentConversation}当前${userName}消息:\n${parsedMessages}`
         : parsedMessages);
 
-    // 获取提示词
+    // 获取提示词，传递自定义称呼
     const [systemPrompt, userPrompt] = this.customPrompt
       ? [this.customPrompt, `输入:\n${contextString}`]
-      : getFactRetrievalMessages(contextString, isMultiRound);
+      : getFactRetrievalMessages(contextString, isMultiRound, { userName, aiName });
 
     // 使用 LLM 提取事实
     const response = await this.llm.generateResponse(

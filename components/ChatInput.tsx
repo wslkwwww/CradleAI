@@ -11,13 +11,16 @@ import {
   Image,
   Modal,
   Text,
+  ScrollView,
+  TouchableHighlight,
+  TouchableWithoutFeedback,
+  Dimensions,
 } from 'react-native';
 import { MaterialIcons, Ionicons, } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { theme } from '@/constants/theme';
-import { BlurView } from 'expo-blur';
 import { useRegex } from '@/constants/RegexContext';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
@@ -31,6 +34,13 @@ interface ChatInputProps {
   conversationId: string;
   onResetConversation: () => void;
   selectedCharacter: Character;
+  braveSearchEnabled?: boolean;
+  toggleBraveSearch?: () => void;
+  isTtsEnhancerEnabled?: boolean;
+  onTtsEnhancerToggle?: () => void;
+  onShowNovelAI?: () => void;
+  onShowVNDB?: () => void;
+  onShowMemoryPanel?: () => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -39,6 +49,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
   conversationId,
   onResetConversation,
   selectedCharacter,
+  braveSearchEnabled = false,
+  toggleBraveSearch,
+  isTtsEnhancerEnabled = false,
+  onTtsEnhancerToggle,
+  onShowNovelAI,
+  onShowVNDB,
+  onShowMemoryPanel,
 }) => {
   const [text, setText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -47,29 +64,24 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const inputRef = useRef<TextInput>(null);
   const { applyRegexTools } = useRegex();
   
-  // Add state for image handling
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [showImageUrlModal, setShowImageUrlModal] = useState(false);
   const [showImagePreviewModal, setShowImagePreviewModal] = useState(false);
   const [selectedImageType, setSelectedImageType] = useState<string | null>(null);
   
-  // Add state for image generation
   const [imagePrompt, setImagePrompt] = useState<string>('');
   const [showImageGenModal, setShowImageGenModal] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   
-  // Add state for image editing
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [referenceImageType, setReferenceImageType] = useState<string | null>(null);
   const [showImageEditGenModal, setShowImageEditGenModal] = useState(false);
   
-  // Animation states
   const actionMenuHeight = useRef(new Animated.Value(0)).current;
   const actionMenuOpacity = useRef(new Animated.Value(0)).current;
 
-  // Keyboard listener effect
   useEffect(() => {
     const keyboardDidHideListener = Keyboard.addListener(
       'keyboardDidHide',
@@ -83,12 +95,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, []);
 
-  // Toggle action menu animation
   useEffect(() => {
     if (showActions) {
       Animated.parallel([
         Animated.timing(actionMenuHeight, {
-          toValue: 120,
+          toValue: 350, // Fixed height for all menu items
           duration: 300,
           useNativeDriver: false,
         }),
@@ -126,13 +137,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setIsLoading(true);
     
     try {
-      // 应用正则工具处理用户消息
       const processedMessage = applyRegexTools(messageToSend, 'user');
-      
-      // Skip memory-related processing if message is image-related
       const isImageRelated = processedMessage.includes('![') && processedMessage.includes(')');
       
-      // 在发送用户消息前，先尝试搜索相关记忆（不影响主流程）
       if (selectedCharacter?.id && !isImageRelated) {
         try {
           console.log('[ChatInput] 尝试检索与用户消息相关的记忆');
@@ -141,10 +148,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
             processedMessage,
             selectedCharacter.id,
             selectedConversationId,
-            5 // 检索最相关的5条记忆
+            5
           );
           
-          // 记录检索到的记忆
           const resultCount = memoryResults?.results?.length || 0;
           if (resultCount > 0) {
             console.log(`[ChatInput] 为用户消息找到 ${resultCount} 条相关记忆:`);
@@ -161,27 +167,24 @@ const ChatInput: React.FC<ChatInputProps> = ({
               results: MemoryResult[];
             }
 
-                        (memoryResults as MemorySearchResults).results.forEach((item: MemoryResult, index: number) => {
-                          console.log(`[ChatInput] 记忆 #${index + 1}:`);
-                          console.log(`  内容: ${item.memory}`);
-                          console.log(`  相似度: ${item.score}`);
-                          if (item.metadata?.aiResponse) {
-                            console.log(`  AI响应: ${item.metadata.aiResponse.substring(0, 100)}${item.metadata.aiResponse.length > 100 ? '...' : ''}`);
-                          }
-                        });
+            (memoryResults as MemorySearchResults).results.forEach((item: MemoryResult, index: number) => {
+              console.log(`[ChatInput] 记忆 #${index + 1}:`);
+              console.log(`  内容: ${item.memory}`);
+              console.log(`  相似度: ${item.score}`);
+              if (item.metadata?.aiResponse) {
+                console.log(`  AI响应: ${item.metadata.aiResponse.substring(0, 100)}${item.metadata.aiResponse.length > 100 ? '...' : ''}`);
+              }
+            });
           } else {
             console.log('[ChatInput] 未找到相关记忆');
           }
         } catch (searchError) {
           console.warn('[ChatInput] 搜索相关记忆失败:', searchError);
-          // 不阻断主流程
         }
       }
       
-      // Send user message
       onSendMessage(processedMessage, 'user');
       
-      // 添加到 Mem0 记忆系统，但仅当不是图片相关消息时
       let userMemoryAdded = false;
       if (selectedCharacter?.id && !isImageRelated) {
         try {
@@ -196,14 +199,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
           console.log('[ChatInput] 用户消息已成功添加到记忆系统的消息缓存');
         } catch (memoryError) {
           console.error('[ChatInput] 添加用户消息到记忆系统失败:', memoryError);
-          // 继续处理消息，不阻断主流程
         }
       }
       
-      // Create temp loading message for bot
       onSendMessage('', 'bot', true);
       
-      // 使用 NodeST 处理消息
       const result = await NodeSTManager.processChatMessage({
         userMessage: messageToSend,
         status: '同一角色继续对话',
@@ -216,20 +216,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
         character: selectedCharacter
       });
       
-      // 处理 AI 响应
       if (result.success) {
-        // 应用正则工具处理响应
         const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
         onSendMessage(processedResponse, 'bot');
         
-        // 只有在成功添加了用户记忆的情况下，才尝试更新AI响应，且不处理图片相关消息
         if (userMemoryAdded && selectedCharacter?.id && !isImageRelated) {
           try {
             const mem0Service = Mem0Service.getInstance();
             
-            // 确保响应不为空
             if (processedResponse && processedResponse.trim() !== '') {
-              // 通过传递bot角色触发添加到缓存，最终会触发updateAIResponseForMemories
               await mem0Service.addChatMemory(
                 processedResponse,
                 'bot',
@@ -258,7 +253,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  // Handle image sending
   const handleSendImage = async () => {
     if (!selectedConversationId || !selectedImage) {
       return;
@@ -268,46 +262,34 @@ const ChatInput: React.FC<ChatInputProps> = ({
       setIsLoading(true);
       setShowImagePreviewModal(false);
       
-      // Don't send base64 data directly to conversation
-      // Instead, use a placeholder text
       onSendMessage("发送了一张图片", "user");
-      
-      // Create temp loading message for bot
       onSendMessage('', 'bot', true);
       
-      // Get API key for Gemini
       const apiKey = user?.settings?.chat.characterApiKey || '';
       if (!apiKey) {
         throw new Error("API密钥未设置");
       }
       
-      // Create a Gemini adapter instance
       const geminiAdapter = new GeminiAdapter(apiKey);
       
       let response: string;
       let imageCacheId: string;
       
-      // Prepare the image based on its type
       if (selectedImageType === 'url') {
-        // For URL images
         response = await geminiAdapter.analyzeImage(
           { url: selectedImage },
           `这是用户发送的一张图片。请分析这张图片并作出回应。注意保持${selectedCharacter.name}的人设口吻。`
         );
         
-        // For URL images, we need to download and cache them
         try {
           const imageData = await geminiAdapter.fetchImageAsBase64(selectedImage);
           const cacheResult = await ImageManager.cacheImage(imageData.data, imageData.mimeType);
           imageCacheId = cacheResult.id;
         } catch (error) {
           console.error('[ChatInput] Error caching URL image:', error);
-          // If caching fails, use URL directly
           imageCacheId = selectedImage;
         }
       } else {
-        // For local/base64 images - process and cache them
-        // Extract the actual base64 data without the prefix
         let base64Data = selectedImage;
         let mimeType = selectedImageType || 'image/jpeg';
         
@@ -316,11 +298,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
           mimeType = selectedImage.split(';')[0].replace('data:', '');
         }
         
-        // Cache the image to file system and get the cache ID
         const cacheResult = await ImageManager.cacheImage(base64Data, mimeType);
         imageCacheId = cacheResult.id;
         
-        // Send to Gemini for analysis
         response = await geminiAdapter.analyzeImage(
           { 
             data: base64Data,
@@ -330,11 +310,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         );
       }
       
-      // Update user message to show the image using local URI or URL
-      // Make sure we're sending just the ID now, not the full path
       onSendMessage(`![用户图片](image:${imageCacheId})`, "user");
       
-      // Send the AI's response
       if (response) {
         const processedResponse = applyRegexTools(response, 'ai');
         onSendMessage(processedResponse, 'bot');
@@ -342,7 +319,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
         onSendMessage('抱歉，无法解析这张图片。', 'bot');
       }
       
-      // Reset image state
       setSelectedImage(null);
       setSelectedImageType(null);
       
@@ -364,46 +340,34 @@ const ChatInput: React.FC<ChatInputProps> = ({
     try {
       setIsGeneratingImage(true);
       
-      // Get API key for Gemini
       const apiKey = user?.settings?.chat.characterApiKey || '';
       if (!apiKey) {
         throw new Error("API密钥未设置");
       }
       
-      // Create a Gemini adapter instance
       const geminiAdapter = new GeminiAdapter(apiKey);
       
-      // First send a message showing what we're generating
       onSendMessage(`请为我生成图片: "${imagePrompt}"`, "user");
-      
-      // Create temp loading message for bot
       onSendMessage('', 'bot', true);
       
-      // Generate the image
       const images = await geminiAdapter.generateImage(imagePrompt, {
         temperature: 0.8
       });
       
       if (images && images.length > 0) {
         try {
-          // Store the generated image (use only first 100 characters for logging)
           const previewLogData = images[0].substring(0, 100) + '...';
           console.log(`[ChatInput] Image generated, data length: ${images[0].length}, preview: ${previewLogData}`);
           
-          // Cache the image to file system (both original and WebP versions)
           const cacheResult = await ImageManager.cacheImage(
-            images[0], // base64 data without prefix
-            'image/png' // Gemini generates images that can be treated as PNG
+            images[0],
+            'image/png'
           );
           
-          // Create markdown format for display using image ID for lookup
-          // Make sure we're using just the ID, not the full URI or path
           const imageMessage = `![Gemini生成的图像](image:${cacheResult.id})`;
           
-          // Send the AI's response with the image
           onSendMessage(imageMessage, 'bot');
           
-          // Alert user they can save the image
           setTimeout(() => {
             Alert.alert(
               '图片已生成',
@@ -434,7 +398,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onSendMessage('图像已生成，但保存过程中出现错误。', 'bot');
         }
       } else {
-        // If no image was generated, show an error message
         onSendMessage('抱歉，我现在无法生成这个图片。可能是描述需要更具体，或者该内容不适合生成。', 'bot');
       }
     } catch (error) {
@@ -447,7 +410,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  // Handle image editing with proper implementation
   const handleImageEditOperation = async () => {
     if (!imagePrompt.trim() || !selectedConversationId || !referenceImage) {
       Alert.alert('错误', '请输入有效的编辑指令和提供参考图片');
@@ -457,27 +419,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
     try {
       setIsGeneratingImage(true);
       
-      // Get API key for Gemini
       const apiKey = user?.settings?.chat.characterApiKey || '';
       if (!apiKey) {
         throw new Error("API密钥未设置");
       }
       
-      // Create a Gemini adapter instance
       const geminiAdapter = new GeminiAdapter(apiKey);
       
-      // First send a message showing what we're editing
       onSendMessage(`请将这张图片${imagePrompt}`, "user");
-      
-      // Create temp loading message for bot
       onSendMessage('', "bot", true);
       
-      // Prepare the reference image
       let imageInput;
       if (referenceImageType === 'url') {
         imageInput = { url: referenceImage };
       } else {
-        // 处理base64数据，移除前缀
         const base64Data = referenceImage!.includes('base64,') 
           ? referenceImage!.split('base64,')[1] 
           : referenceImage;
@@ -488,27 +443,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
         };
       }
       
-      // 调用正确的editImage方法
       const editedImage = await geminiAdapter.editImage(imageInput, imagePrompt, {
         temperature: 0.8
       });
       
       if (editedImage) {
         try {
-          // Cache the edited image to file system (both original and WebP versions)
           const cacheResult = await ImageManager.cacheImage(
-            editedImage, // base64 data without prefix
-            'image/png' // Edited images are treated as PNG
+            editedImage,
+            'image/png'
           );
           
-          // Create markdown format for display using image ID
-          // Make sure we're using just the ID, not the full URI or path
           const imageMessage = `![编辑后的图片](image:${cacheResult.id})`;
           
-          // Send the AI's response with the edited image
           onSendMessage(imageMessage, 'bot');
           
-          // Alert user they can save the image
           setTimeout(() => {
             Alert.alert(
               '图片已编辑完成',
@@ -539,7 +488,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onSendMessage('图像已编辑，但保存过程中出现错误。', 'bot');
         }
       } else {
-        // If no image was edited, show an error message
         onSendMessage('抱歉，我无法编辑这张图片。可能是因为编辑指令不够明确，或者模型暂不支持这种编辑操作。', 'bot');
       }
     } catch (error) {
@@ -554,16 +502,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  // Add cache management function
   const handleManageImageCache = async () => {
     try {
-      // Get cache info
       const cacheInfo = await ImageManager.getCacheInfo();
       
-      // Format size from bytes to MB
       const sizeMB = (cacheInfo.totalSize / (1024 * 1024)).toFixed(2);
       
-      // Show alert with cache info and options
       Alert.alert(
         '图片缓存管理',
         `当前缓存了 ${cacheInfo.count} 张图片，占用 ${sizeMB} MB 存储空间。${
@@ -592,7 +536,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setShowActions(!showActions);
   };
 
-  // Modified reset conversation handler that properly resets the chat history
   const handleResetConversation = () => {
     Alert.alert(
       '确定要重置对话吗？',
@@ -611,7 +554,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 return;
               }
               
-              // Ensure we have an API key
               const apiKey = user?.settings?.chat.characterApiKey || '';
               if (!apiKey) {
                 Alert.alert('错误', '未设置API密钥，无法重置对话');
@@ -621,25 +563,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
               
               console.log('[ChatInput] Resetting conversation:', selectedConversationId);
               
-              // Update API settings before resetting
               NodeSTManager.updateApiSettings(apiKey, {
                 apiProvider: user?.settings?.chat.apiProvider || 'gemini',
                 openrouter: user?.settings?.chat.openrouter
               });
               
-              // Call NodeSTManager to reset the chat history
               const success = await NodeSTManager.resetChatHistory(conversationId);
               
               if (success) {
                 console.log('[ChatInput] Chat history reset successful');
-                // Reset the conversation in the UI
                 onResetConversation();
-                // Send first_mes as the first message from bot
                 if (selectedCharacter?.jsonData) {
                   try {
                     const jsonData = JSON.parse(selectedCharacter.jsonData);
                     if (jsonData.roleCard?.first_mes) {
-                      // Wait a moment before sending first_mes to ensure UI is ready
                       setTimeout(() => {
                         onSendMessage(jsonData.roleCard.first_mes, 'bot');
                       }, 100);
@@ -666,7 +603,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     );
   };
 
-  // Combined image handling function
   const openImageOptions = () => {
     setShowActions(false);
     Alert.alert(
@@ -689,11 +625,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
     );
   };
 
-  // Image handling functions
   const pickImage = async () => {
     setShowActions(false);
     
-    // Request permission to access the photo library
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
@@ -702,7 +636,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
     
     try {
-      // Launch the image picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -713,14 +646,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedAsset = result.assets[0];
         
-        // Process the image to ensure it's not too large
         const manipResult = await manipulateAsync(
           selectedAsset.uri,
           [{ resize: { width: 1024 } }],
           { compress: 0.8, format: SaveFormat.JPEG, base64: true }
         );
         
-        // Set the processed image
         setSelectedImage(`data:image/jpeg;base64,${manipResult.base64}`);
         setSelectedImageType('image/jpeg');
         setShowImagePreviewModal(true);
@@ -752,9 +683,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setShowImageGenModal(true);
   };
 
-  // Function to select reference image for image editing
   const pickReferenceImage = async () => {
-    // Request permission to access the photo library
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
@@ -763,7 +692,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
     
     try {
-      // Launch the image picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -774,14 +702,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedAsset = result.assets[0];
         
-        // Process the image to ensure it's not too large
         const manipResult = await manipulateAsync(
           selectedAsset.uri,
           [{ resize: { width: 1024 } }],
           { compress: 0.8, format: SaveFormat.JPEG, base64: true }
         );
         
-        // Set the processed image as reference
         setReferenceImage(`data:image/jpeg;base64,${manipResult.base64}`);
         setReferenceImageType('image/jpeg');
       }
@@ -798,93 +724,189 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setImagePrompt('');
     setShowImageEditGenModal(true);
   };
+  
+  const handleBraveSearchToggle = () => {
+    setShowActions(false);
+    if (toggleBraveSearch) {
+      // Call NodeSTManager to update the search enabled state
+      NodeSTManager.setSearchEnabled(!braveSearchEnabled);
+      toggleBraveSearch();
+    }
+  };
+  
+  const handleTtsEnhancerToggle = () => {
+    setShowActions(false);
+    if (onTtsEnhancerToggle) {
+      onTtsEnhancerToggle();
+    }
+  };
+  
+  const handleShowNovelAI = () => {
+    setShowActions(false);
+    if (onShowNovelAI) {
+      onShowNovelAI();
+    }
+  };
+  
+  const handleShowVNDB = () => {
+    setShowActions(false);
+    if (onShowVNDB) {
+      onShowVNDB();
+    }
+  };
+  
+  const handleShowMemoryPanel = () => {
+    setShowActions(false);
+    if (onShowMemoryPanel) {
+      onShowMemoryPanel();
+    }
+  };
 
   return (
     <View style={styles.container}>
-      {/* Action Menu */}
-      <Animated.View
-        style={[
-          styles.actionMenuContainer,
-          {
-            height: actionMenuHeight,
-            opacity: actionMenuOpacity,
-          },
-        ]}
-      >
-        <BlurView
-          intensity={50}
-          tint="dark"
-          style={styles.actionMenuBlur}
-        >
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleResetConversation}
-            >
-              <View style={[styles.actionIcon, styles.resetIcon]}>
-                <Ionicons name="refresh" size={24} color="#fff" />
-              </View>
-              <Animated.Text style={styles.actionText}>
-                重置对话
-              </Animated.Text>
-            </TouchableOpacity>
+      {/* Completely redesigned action menu to fix button click issues */}
+      {showActions && (
+        <View style={styles.actionMenuOverlay}>
+          {/* Outer touchable area - closes menu when tapped outside */}
+          <TouchableWithoutFeedback onPress={() => setShowActions(false)}>
+            <View style={styles.actionMenuBackground} />
+          </TouchableWithoutFeedback>
+          
+          {/* Menu container that won't close when tapped */}
+          <View style={styles.actionMenuContainer}>
+            <ScrollView style={styles.actionMenuScroll}>
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleResetConversation}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#d9534f" }]}>
+                    <Ionicons name="refresh" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.actionMenuItemText}>重置对话</Text>
+                </View>
+              </TouchableOpacity>
 
-            {/* Combined Image Button - replaces separate buttons */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={openImageOptions}
-            >
-              <View style={[styles.actionIcon, styles.imageIcon]}>
-                <Ionicons name="images" size={24} color="#fff" />
-              </View>
-              <Animated.Text style={styles.actionText}>
-                添加图片
-              </Animated.Text>
-            </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={openImageOptions}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#3498db" }]}>
+                    <Ionicons name="images" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.actionMenuItemText}>添加图片</Text>
+                </View>
+              </TouchableOpacity>
 
-            {/* New Image Generation Button */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={openImageGenModal}
-            >
-              <View style={[styles.actionIcon, styles.generateIcon]}>
-                <Ionicons name="brush" size={24} color="#fff" />
-              </View>
-              <Animated.Text style={styles.actionText}>
-                生成图片
-              </Animated.Text>
-            </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={openImageGenModal}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#9b59b6" }]}>
+                    <Ionicons name="brush" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.actionMenuItemText}>生成图片</Text>
+                </View>
+              </TouchableOpacity>
 
-            {/* Image-to-Image Generation Button */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={openImageEditGenModal}
-            >
-              <View style={[styles.actionIcon, styles.editImageIcon]}>
-                <Ionicons name="color-wand" size={24} color="#fff" />
-              </View>
-              <Animated.Text style={styles.actionText}>
-                图片修改
-              </Animated.Text>
-            </TouchableOpacity>
-            
-            {/* New Image Cache Management Button */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleManageImageCache}
-            >
-              <View style={[styles.actionIcon, styles.cacheIcon]}>
-                <Ionicons name="trash-bin" size={24} color="#fff" />
-              </View>
-              <Animated.Text style={styles.actionText}>
-                图片缓存
-              </Animated.Text>
-            </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={openImageEditGenModal}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#8e44ad" }]}>
+                    <Ionicons name="color-wand" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.actionMenuItemText}>图片修改</Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleManageImageCache}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#e74c3c" }]}>
+                    <Ionicons name="trash-bin" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.actionMenuItemText}>图片缓存</Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleBraveSearchToggle}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#3498db" }]}>
+                    <Ionicons name="search" size={22} color="#fff" />
+                    {braveSearchEnabled && <View style={styles.activeIndicator} />}
+                  </View>
+                  <Text style={styles.actionMenuItemText}>
+                    {braveSearchEnabled ? "搜索: 已开启" : "搜索: 已关闭"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleTtsEnhancerToggle}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#9b59b6" }]}>
+                    <Ionicons name="mic" size={22} color="#fff" />
+                    {isTtsEnhancerEnabled && <View style={styles.activeIndicator} />}
+                  </View>
+                  <Text style={styles.actionMenuItemText}>
+                    {isTtsEnhancerEnabled ? "语音增强: 已开启" : "语音增强: 已关闭"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleShowNovelAI}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#e74c3c" }]}>
+                    <Ionicons name="image" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.actionMenuItemText}>图像测试</Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleShowVNDB}>
+                <View style={styles.actionMenuItemInner}>
+                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#2ecc71" }]}>
+                    <Ionicons name="game-controller" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.actionMenuItemText}>角色查询</Text>
+                </View>
+              </TouchableOpacity>
+              
+              {onShowMemoryPanel && (
+                <TouchableOpacity 
+                  style={styles.actionMenuItem}
+                  activeOpacity={0.7}
+                  onPress={handleShowMemoryPanel}>
+                  <View style={styles.actionMenuItemInner}>
+                    <View style={[styles.actionMenuItemIcon, { backgroundColor: "#f39c12" }]}>
+                      <Ionicons name="book" size={22} color="#fff" />
+                    </View>
+                    <Text style={styles.actionMenuItemText}>记忆面板</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
           </View>
-        </BlurView>
-      </Animated.View>
+        </View>
+      )}
 
-      {/* Input Area */}
       <View style={styles.inputContainer}>
         <TouchableOpacity
           style={[styles.button, styles.plusButton, showActions && styles.activeButton]}
@@ -927,7 +949,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* Image URL Modal */}
       <Modal
         visible={showImageUrlModal}
         transparent={true}
@@ -964,7 +985,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </View>
       </Modal>
 
-      {/* Image Preview Modal */}
       <Modal
         visible={showImagePreviewModal}
         transparent={true}
@@ -1004,7 +1024,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </View>
       </Modal>
 
-      {/* Image Generation Modal */}
       <Modal
         visible={showImageGenModal}
         transparent={true}
@@ -1045,7 +1064,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </View>
       </Modal>
 
-      {/* Image Edit Generation Modal */}
       <Modal
         visible={showImageEditGenModal}
         transparent={true}
@@ -1056,7 +1074,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
           <View style={styles.imageEditModalContent}>
             <Text style={styles.modalTitle}>图片编辑</Text>
             
-            {/* Reference Image Preview */}
             <View style={styles.referenceImageSection}>
               <Text style={styles.modalSubtitle}>参考图片:</Text>
               <View style={styles.referenceImageContainer}>
@@ -1084,7 +1101,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </TouchableOpacity>
             </View>
             
-            {/* Prompt input */}
             <Text style={styles.modalSubtitle}>修改指令:</Text>
             <TextInput
               style={[styles.urlInput, {height: 100}]}
@@ -1097,7 +1113,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
               textAlignVertical="top"
             />
             
-            {/* Button row */}
             <View style={styles.modalButtons}>
               <TouchableOpacity 
                 style={styles.modalButton}
@@ -1111,7 +1126,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   styles.modalButtonPrimary,
                   (!referenceImage || !imagePrompt.trim()) && styles.disabledButton
                 ]}
-                onPress={handleImageEditOperation}  // <- Updated to use the new function
+                onPress={handleImageEditOperation}
                 disabled={isGeneratingImage || !referenceImage || !imagePrompt.trim()}
               >
                 <Text style={[styles.modalButtonText, {color: '#fff'}]}>
@@ -1163,57 +1178,76 @@ const styles = StyleSheet.create({
   sendButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
+  
+  // Completely redesigned action menu styles
+  actionMenuOverlay: {
+    position: 'absolute',
+    top: -350, // Position above the input area
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    justifyContent: 'flex-end',
+  },
+  actionMenuBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent', // Keep transparent background
+  },
   actionMenuContainer: {
-    overflow: 'hidden',
-    marginBottom: 8,
+    maxHeight: 350,
+    backgroundColor: 'rgba(40, 40, 40, 0.95)',
     borderRadius: 16,
+    marginHorizontal: 10,
+    marginBottom: 20,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
   },
-  actionMenuBlur: {
-    flex: 1,
-    padding: 16,
-    justifyContent: 'center',
+  actionMenuScroll: {
+    maxHeight: 350,
+    paddingVertical: 12,
   },
-  actionsRow: {
+  actionMenuItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginVertical: 2,
+  },
+  actionMenuItemInner: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    flexWrap: 'wrap',
   },
-  actionButton: {
-    alignItems: 'center',
-    padding: 8,
-    borderRadius: 8,
-  },
-  actionIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  actionMenuItemIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginRight: 16,
   },
-  resetIcon: {
-    backgroundColor: '#d9534f',
-  },
-  regenerateIcon: {
-    backgroundColor: '#5bc0de',
-  },
-  continueIcon: {
-    backgroundColor: '#5cb85c',
-  },
-  imageIcon: {
-    backgroundColor: '#3498db',
-  },
-  urlIcon: {
-    backgroundColor: '#e67e22',
-  },
-  generateIcon: {
-    backgroundColor: '#9b59b6', // Purple for image generation
-  },
-  actionText: {
+  actionMenuItemText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 16,
+    fontWeight: '500',
   },
+  activeIndicator: {
+    position: 'absolute',
+    right: -3,
+    top: -3,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#4CD964',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  
+  // Keep existing modal styles
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -1335,10 +1369,10 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   editImageIcon: {
-    backgroundColor: '#8e44ad', // Different purple for edit image
+    backgroundColor: '#8e44ad',
   },
   cacheIcon: {
-    backgroundColor: '#e74c3c', // Red for cache management
+    backgroundColor: '#e74c3c',
   },
 });
 

@@ -23,12 +23,16 @@ interface CalculationResult {
   imageCost: number;
   contextLength: number;
   hasImageCapability: boolean;
+  voiceGenerationCost: number;
+  imageGenerationCost: number;
 }
 
 interface ModelResultListProps {
   results: CalculationResult[];
   monthlyBudget: number;
   includeImages: boolean;
+  includeVoiceGeneration: boolean;
+  includeImageGeneration: boolean;
 }
 
 enum FilterMode {
@@ -40,7 +44,9 @@ enum FilterMode {
 const ModelResultList: React.FC<ModelResultListProps> = ({ 
   results, 
   monthlyBudget,
-  includeImages
+  includeImages,
+  includeVoiceGeneration,
+  includeImageGeneration
 }) => {
   const [showAllModels, setShowAllModels] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,6 +166,24 @@ const ModelResultList: React.FC<ModelResultListProps> = ({
           />
         </TouchableOpacity>
       )}
+
+      {/* Show service inclusion indicators */}
+      {(includeVoiceGeneration || includeImageGeneration) && (
+        <View style={styles.servicesContainer}>
+          {includeVoiceGeneration && (
+            <View style={styles.serviceIndicator}>
+              <Ionicons name="mic-outline" size={14} color={theme.colors.primary} />
+              <Text style={styles.serviceText}>已包含语音生成费用</Text>
+            </View>
+          )}
+          {includeImageGeneration && (
+            <View style={styles.serviceIndicator}>
+              <Ionicons name="brush-outline" size={14} color="#9c27b0" />
+              <Text style={styles.serviceText}>已包含图片生成费用</Text>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 
@@ -201,6 +225,8 @@ const ModelResultList: React.FC<ModelResultListProps> = ({
               result={item}
               monthlyBudget={monthlyBudget}
               includeImages={includeImages}
+              includeVoiceGeneration={includeVoiceGeneration}
+              includeImageGeneration={includeImageGeneration}
             />
           )}
           contentContainerStyle={styles.listContent}
@@ -289,6 +315,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.primary,
     fontWeight: '500',
+  },
+  servicesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  serviceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+    marginBottom: 4,
+  },
+  serviceText: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginLeft: 4,
   },
   listContent: {
     paddingBottom: 16,

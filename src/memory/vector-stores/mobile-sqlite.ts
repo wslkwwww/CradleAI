@@ -1,10 +1,27 @@
 import * as SQLite from 'expo-sqlite';
 import { VectorStore } from './base';
 import { SearchFilters, VectorStoreConfig, VectorStoreResult } from './base';
+import * as FileSystem from 'expo-file-system';
 
 interface MobileSQLiteConfig extends VectorStoreConfig {
   dbName: string;
   dimension: number;
+}
+
+// Add interfaces for SQLite query results
+interface CountResult {
+  count: number;
+}
+
+interface VectorRow {
+  id: string;
+  vector: string;
+  payload: string;
+}
+
+interface PayloadRow {
+  id: string;
+  payload: string;
 }
 
 /**
@@ -14,10 +31,14 @@ export class MobileSQLiteVectorStore implements VectorStore {
   private db: SQLite.SQLiteDatabase;
   private dimension: number;
   private collectionName: string;
+  // Store database name separately since it's needed for file path access
+  private dbName: string;
 
   constructor(config: MobileSQLiteConfig) {
     this.dimension = config.dimension || 1536; // 默认 OpenAI 维度
     this.collectionName = config.collectionName;
+    this.dbName = config.dbName; // Store the db name separately
+    
     // 修复: 使用 openDatabaseSync 替代 openDatabase
     this.db = SQLite.openDatabaseSync(config.dbName);
     this.init().catch(console.error);
@@ -32,6 +53,12 @@ export class MobileSQLiteVectorStore implements VectorStore {
         payload TEXT NOT NULL
       )`);
       console.log(`[MobileSQLiteVectorStore] 表 ${this.collectionName} 初始化成功`);
+      
+      // 增加一个索引以提高按角色ID查询的性能
+      await this.db.execAsync(`CREATE INDEX IF NOT EXISTS idx_${this.collectionName}_agentId 
+        ON ${this.collectionName}(json_extract(payload, '$.agentId'))`);
+      console.log(`[MobileSQLiteVectorStore] 为表 ${this.collectionName} 创建角色ID索引成功`);
+      
     } catch (error) {
       console.error(`[MobileSQLiteVectorStore] 初始化表 ${this.collectionName} 失败:`, error);
       throw error;
@@ -48,20 +75,20 @@ export class MobileSQLiteVectorStore implements VectorStore {
     }
   }
 
-  private async all(sql: string, params: any[] = []): Promise<any[]> {
+  private async all<T>(sql: string, params: any[] = []): Promise<T[]> {
     try {
-      // 修复: 使用 getAllAsync 方法
-      return await this.db.getAllAsync(sql, params);
+      // 修复: 使用 getAllAsync 方法并添加类型
+      return await this.db.getAllAsync<T>(sql, params);
     } catch (error) {
       console.error('[MobileSQLiteVectorStore] 查询多条记录失败:', error);
       return [];
     }
   }
 
-  private async getOne(sql: string, params: any[] = []): Promise<any> {
+  private async getOne<T>(sql: string, params: any[] = []): Promise<T | null> {
     try {
-      // 修复: 使用 getFirstAsync 方法
-      return await this.db.getFirstAsync(sql, params);
+      // 修复: 使用 getFirstAsync 方法并添加类型
+      return await this.db.getFirstAsync<T>(sql, params);
     } catch (error) {
       console.error('[MobileSQLiteVectorStore] 查询单条记录失败:', error);
       return null;
@@ -131,7 +158,7 @@ export class MobileSQLiteVectorStore implements VectorStore {
       );
     }
 
-    const rows = await this.all(`SELECT id, vector, payload FROM ${this.collectionName}`);
+    const rows = await this.all<VectorRow>(`SELECT id, vector, payload FROM ${this.collectionName}`);
     const results: VectorStoreResult[] = [];
 
     for (const row of rows) {
@@ -159,7 +186,7 @@ export class MobileSQLiteVectorStore implements VectorStore {
   }
 
   async get(vectorId: string): Promise<VectorStoreResult | null> {
-    const row = await this.getOne(
+    const row = await this.getOne<PayloadRow>(
       `SELECT id, payload FROM ${this.collectionName} WHERE id = ?`,
       [vectorId]
     );
@@ -207,7 +234,7 @@ export class MobileSQLiteVectorStore implements VectorStore {
     filters?: SearchFilters,
     limit: number = 100,
   ): Promise<[VectorStoreResult[], number]> {
-    const rows = await this.all(
+    const rows = await this.all<PayloadRow>(
       `SELECT id, payload FROM ${this.collectionName}`
     );
     
@@ -229,5 +256,97 @@ export class MobileSQLiteVectorStore implements VectorStore {
     }
 
     return [results.slice(0, limit), results.length];
+  }
+
+  /**
+   * 获取数据库文件大小
+   * @returns 数据库大小（字节）
+   */
+  public async getDatabaseSize(): Promise<number> {
+    try {
+      // 获取数据库文件路径 - 修复: 使用 dbName 而不是 db.name
+      const dbPath = FileSystem.documentDirectory + 'SQLite/' + this.dbName;
+      const fileInfo = await FileSystem.getInfoAsync(dbPath);
+      
+      if (fileInfo.exists && fileInfo.size) {
+        console.log(`[MobileSQLiteVectorStore] 数据库大小: ${(fileInfo.size / (1024 * 1024)).toFixed(2)}MB`);
+        return fileInfo.size;
+      }
+      return 0;
+    } catch (error) {
+      console.error('[MobileSQLiteVectorStore] 获取数据库大小失败:', error);
+      return 0;
+    }
+  }
+  
+  /**
+   * 按角色ID获取向量数据
+   * @param characterId 角色ID
+   * @param limit 结果限制
+   * @returns 向量结果数组
+   */
+  public async getByCharacterId(characterId: string, limit: number = 100): Promise<VectorStoreResult[]> {
+    try {
+      // 使用 JSON_EXTRACT 函数提取 payload 中的 agentId
+      const query = `
+        SELECT id, payload 
+        FROM ${this.collectionName} 
+        WHERE json_extract(payload, '$.agentId') = ?
+        ORDER BY json_extract(payload, '$.updatedAt') DESC, json_extract(payload, '$.createdAt') DESC
+        LIMIT ?`;
+      
+      const rows = await this.db.getAllAsync<PayloadRow>(query, [characterId, limit]);
+      
+      const results: VectorStoreResult[] = rows.map(row => ({
+        id: row.id,
+        payload: JSON.parse(row.payload)
+      }));
+      
+      console.log(`[MobileSQLiteVectorStore] 按角色ID ${characterId} 查询到 ${results.length} 条记录`);
+      return results;
+    } catch (error) {
+      console.error(`[MobileSQLiteVectorStore] 按角色ID查询失败:`, error);
+      return [];
+    }
+  }
+  
+  /**
+   * 按角色ID获取记录数
+   * @param characterId 角色ID
+   * @returns 记录数
+   */
+  public async getCountByCharacterId(characterId: string): Promise<number> {
+    try {
+      const query = `
+        SELECT COUNT(*) as count
+        FROM ${this.collectionName} 
+        WHERE json_extract(payload, '$.agentId') = ?`;
+      
+      const result = await this.db.getFirstAsync<CountResult>(query, [characterId]);
+      // Fix: Add null check and use proper typed access to count
+      return result?.count || 0;
+    } catch (error) {
+      console.error(`[MobileSQLiteVectorStore] 获取角色ID记录数失败:`, error);
+      return 0;
+    }
+  }
+
+  /**
+   * 获取向量存储统计信息
+   * @returns 统计信息
+   */
+  public async getStats(): Promise<{ totalCount: number, dbSize: number }> {
+    try {
+      const countQuery = `SELECT COUNT(*) as count FROM ${this.collectionName}`;
+      const result = await this.db.getFirstAsync<CountResult>(countQuery);
+      // Fix: Add null check and use proper typed access to count
+      const totalCount = result?.count || 0;
+      const dbSize = await this.getDatabaseSize();
+      
+      return { totalCount, dbSize };
+    } catch (error) {
+      console.error('[MobileSQLiteVectorStore] 获取统计信息失败:', error);
+      return { totalCount: 0, dbSize: 0 };
+    }
   }
 }

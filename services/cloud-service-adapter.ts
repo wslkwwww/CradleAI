@@ -111,7 +111,7 @@ export class CloudServiceAdapter {
       if (licenseInfo?.isValid && CloudServiceProvider.isEnabled()) {
         try {
           console.log('[CloudServiceAdapter] 尝试通过云服务获取模型列表');
-          const modelsData = await CloudServiceProvider.listModels();
+          const modelsData = await CloudServiceProvider.listModels?.();
           return modelsData;
         } catch (cloudError) {
           console.warn('[CloudServiceAdapter] 通过云服务获取模型失败，尝试直接获取:', cloudError);
@@ -158,6 +158,14 @@ export class CloudServiceAdapter {
       const modelData = await response.json();
       console.log(`[CloudServiceAdapter] 成功直接从 OpenRouter 获取 ${modelData.data?.length || 0} 个模型`);
       
+      // Filter out "Auto Router" before returning
+      if (modelData?.data && Array.isArray(modelData.data)) {
+        modelData.data = modelData.data.filter(model => 
+          model.id !== 'openrouter/auto' && 
+          model.name !== 'Auto Router'
+        );
+      }
+      
       return modelData;
     } catch (error) {
       console.error('[CloudServiceAdapter] 直接从 OpenRouter 获取模型失败:', error);
@@ -180,7 +188,10 @@ export class CloudServiceAdapter {
         name: "GPT-3.5 Turbo",
         description: "Most capable GPT-3.5 model for chat and text generation",
         context_length: 16385,
-        pricing: { prompt: 0.0000015, completion: 0.000002 },
+        pricing: { 
+          prompt: "0.0000015", 
+          completion: "0.000002" 
+        },
         provider: { id: "openai", name: "OpenAI" }
       },
       {
@@ -188,7 +199,10 @@ export class CloudServiceAdapter {
         name: "GPT-4",
         description: "OpenAI's most advanced model for complex tasks",
         context_length: 8192,
-        pricing: { prompt: 0.00003, completion: 0.00006 },
+        pricing: { 
+          prompt: "0.00003", 
+          completion: "0.00006" 
+        },
         provider: { id: "openai", name: "OpenAI" }
       },
       {
@@ -196,7 +210,10 @@ export class CloudServiceAdapter {
         name: "Claude 3 Opus",
         description: "Anthropic's most capable model for complex tasks",
         context_length: 200000,
-        pricing: { prompt: 0.00005, completion: 0.00015 },
+        pricing: { 
+          prompt: "0.00005", 
+          completion: "0.00015" 
+        },
         provider: { id: "anthropic", name: "Anthropic" }
       },
       {
@@ -204,8 +221,33 @@ export class CloudServiceAdapter {
         name: "Gemini Pro",
         description: "Google's largest model for sophisticated tasks",
         context_length: 30720,
-        pricing: { prompt: 0.000005, completion: 0.000005 },
+        pricing: { 
+          prompt: "0.000005", 
+          completion: "0.000005" 
+        },
         provider: { id: "google", name: "Google" }
+      },
+      {
+        id: "meta-llama/llama-3-8b-instruct",
+        name: "Llama 3 8B Instruct",
+        description: "Open source model from Meta, optimized for instruction following",
+        context_length: 8192,
+        pricing: { 
+          prompt: "0", 
+          completion: "0" 
+        },
+        provider: { id: "meta", name: "Meta" }
+      },
+      {
+        id: "mistralai/mistral-small",
+        name: "Mistral Small",
+        description: "Lightweight model for efficient text generation",
+        context_length: 8192,
+        pricing: { 
+          prompt: "0.000002", 
+          completion: "0.000002" 
+        },
+        provider: { id: "mistral", name: "Mistral AI" }
       },
     ];
   }

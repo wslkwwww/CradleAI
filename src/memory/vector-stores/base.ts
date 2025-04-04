@@ -64,6 +64,29 @@ export interface VectorStore {
     filters?: SearchFilters,
     limit?: number,
   ): Promise<[VectorStoreResult[], number]>;
+
+  /**
+   * 按角色ID获取向量数据
+   * @param characterId 角色ID
+   * @param limit 结果限制
+   */
+  getByCharacterId(characterId: string, limit?: number): Promise<VectorStoreResult[]>;
+  
+  /**
+   * 按角色ID获取记录数
+   * @param characterId 角色ID
+   */
+  getCountByCharacterId(characterId: string): Promise<number>;
+  
+  /**
+   * 获取数据库文件大小
+   */
+  getDatabaseSize(): Promise<number>;
+  
+  /**
+   * 获取向量存储统计信息
+   */
+  getStats(): Promise<{ totalCount: number, dbSize: number }>;
 }
 
 /**

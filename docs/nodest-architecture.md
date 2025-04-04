@@ -5,6 +5,7 @@
 2025-0307: 实现了记忆总结功能，在长对话中自动总结历史记录，减轻LLM记忆衰退问题。
 2025-0308: 修复了对话历史恢复功能，解决了读取保存点后重复框架问题。
 2025-0324: 实现了记忆检索和联网搜索结果集成，优化了知识增强功能。
+2025-0325: 完善联网搜索和记忆检索的组合处理，确保功能开关在UI中正确传递到底层模块。
 
 # NodeST 架构文档
 
@@ -340,6 +341,11 @@ rFramework是与LLM交互的结构化提示框架，通过 `CharacterUtils.build
   - 使用模型分析用户消息，提取最适合搜索的关键词
   - 自动去除噪音词和非核心内容，提高搜索效率和质量
 
+- **统一功能开关机制**：
+  - 在UI界面提供简单的切换按钮控制搜索功能
+  - 通过NodeSTManager统一管理搜索功能状态
+  - 确保状态变更在整个应用程序中同步传递
+
 ### 3. 记忆检索流程
 
 - **Mem0Service搜索流程**：
@@ -410,7 +416,50 @@ rFramework是与LLM交互的结构化提示框架，通过 `CharacterUtils.build
   </response_guidelines>
   ```
 
-### 6. 容错机制设计
+### 6. 记忆与搜索融合处理
+
+- **独立与联合处理模式**：
+  - 系统能够独立处理记忆检索请求
+  - 系统能够独立处理联网搜索请求
+  - 当同时存在记忆和搜索意图时，采用特殊的融合处理模式
+
+- **融合处理流程**：
+  1. 同时准备记忆部分和搜索部分
+  2. 构建组合提示词，包含记忆和搜索结果
+  3. 提供专门的融合响应指南，指导模型如何整合两种信息源
+  4. 使用标签区分不同来源的信息，提高回复的可读性和条理性
+
+- **融合提示词结构**：
+  ```
+  用户原始消息
+
+  <mem>
+  系统检索到的记忆内容：
+  1. 记忆条目1
+  2. 记忆条目2
+  </mem>
+
+  <websearch>
+  搜索引擎返回的联网检索结果：
+  搜索结果内容...
+  </websearch>
+
+  <response_guidelines>
+    - 请结合上面的记忆内容和联网搜索结果，全面回答用户的问题。
+    - 首先，在回复中用<mem></mem>标签包裹你对记忆内容的引用和回忆过程。
+    - 然后，用<websearch></websearch>标签包裹你对网络搜索结果的解释和引用。
+    - 确保回复能够同时有效整合记忆和网络信息，让内容更加全面和有用。
+    - 回复的语气和风格必须与角色人设保持一致。
+  </response_guidelines>
+  ```
+
+- **各层级间的状态传递**：
+  1. UI层：通过ChatInput组件的开关按钮控制功能状态
+  2. 管理层：NodeSTManager接收状态变更并存储在实例中 
+  3. 请求时：将状态作为useToolCalls参数传递到底层处理模块
+  4. 适配层：GeminiAdapter根据需求选择不同的处理方法
+
+### 7. 容错机制设计
 
 - **记忆检索失败处理**：
   - 使用try-catch包装记忆检索逻辑
@@ -422,10 +471,16 @@ rFramework是与LLM交互的结构化提示框架，通过 `CharacterUtils.build
   - 搜索失败时自动回退到仅使用模型知识回答
   - 向用户提供适当的故障通知
 
-- **代码结构优势**：
-  - 模块化设计使各组件可独立运行和故障隔离
-  - 异步处理确保任一系统故障不会阻塞整体对话流程
-  - 适当的日志记录便于故障排查和优化
+- **融合处理失败回退策略**：
+  1. 首先尝试进行完整的融合处理（记忆+搜索）
+  2. 如果融合处理失败，回退到仅使用记忆结果
+  3. 如果记忆处理也失败，再回退到标准对话模式
+  4. 确保任何情况下用户都能得到回应
+
+- **详细日志记录**：
+  - 在关键步骤添加日志记录，方便诊断问题
+  - 记录消息分析结果、搜索决策过程和处理路径
+  - 收集处理时间和响应状态，便于性能分析
 
 ## 集成指南
 
@@ -483,7 +538,7 @@ if (result.success) {
 ```
 
 ```
-
+```
 ### 社交圈集成
 
 ```typescript
@@ -517,13 +572,13 @@ if (result.success) {
 
 ```typescript
 import { NodeST } from '@/NodeST/nodest';
-
-// 确保已初始化Mem0Service和记忆系统
+import { NodeSTManager } from '@/utils/NodeSTManager';
 
 // 1. 配置联网搜索功能
-const nodest = new NodeST();
+NodeSTManager.setSearchEnabled(true);  // 启用联网搜索功能
 
 // 2. 在聊天流程中传递角色ID以启用记忆检索
+const nodest = new NodeST();
 const result = await nodest.processChatMessage({
   userMessage: "谁是现任美国总统？",
   conversationId: "conversation123",
@@ -540,31 +595,38 @@ if (result.success) {
 }
 ```
 
-## API支持拓展
+### UI集成示例
 
-NodeST现在支持多种LLM API：
+```typescript
+// 在ChatInput组件中集成搜索开关
+const handleBraveSearchToggle = () => {
+  // 更新UI状态
+  setShowActions(false);
+  
+  // 调用NodeSTManager更新搜索功能状态
+  NodeSTManager.setSearchEnabled(!searchEnabled);
+  
+  // 更新父组件状态
+  if (toggleBraveSearch) {
+    toggleBraveSearch();
+  }
+};
 
-1. **Gemini API**:
-   - 默认API提供者
-   - 使用GeminiAdapter处理请求
-   - 每次调用前需要设置API Key
-
-2. **OpenRouter API**:
-   - 替代API提供者
-   - 通过OpenRouterAdapter使用不同模型
-   - 可在设置中配置:
-     ```typescript
-     nodest.updateApiSettings(apiKey, {
-       apiProvider: 'openrouter',
-       openrouter: {
-         enabled: true,
-         apiKey: 'your-openrouter-key',
-         model: 'anthropic/claude-3-haiku'
-       }
-     });
-     ```
-
-可根据不同需求选择不同的API提供者，系统会自动处理转换过程。
+// 渲染搜索开关按钮
+<TouchableOpacity 
+  style={styles.actionMenuItem}
+  onPress={handleBraveSearchToggle}>
+  <View style={styles.actionMenuItemInner}>
+    <View style={styles.actionMenuItemIcon}>
+      <Ionicons name="search" size={22} color="#fff" />
+      {searchEnabled && <View style={styles.activeIndicator} />}
+    </View>
+    <Text style={styles.actionMenuItemText}>
+      {searchEnabled ? "搜索: 已开启" : "搜索: 已关闭"}
+    </Text>
+  </View>
+</TouchableOpacity>
+```
 
 ## 性能考虑
 
@@ -576,3 +638,5 @@ NodeST现在支持多种LLM API：
 - 并行记忆和联网检索可能增加响应时间，但提高信息完整性
 - 合理设置总结阈值可平衡API调用频率和记忆效果
 - 监控API使用情况以保持在Gemini/OpenRouter的速率限制内
+- **融合处理模式会增加提示词长度**，可能导致token成本增加
+- **使用专门日志记录和分析**来确定最佳的搜索意图检测阈值

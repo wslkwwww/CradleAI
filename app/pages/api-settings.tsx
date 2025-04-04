@@ -769,36 +769,35 @@ const ApiSettings = () => {
 
       <Modal
         visible={isModelSelectorVisible}
-        transparent={true}
+        transparent={false}
         animationType="slide"
         onRequestClose={() => setIsModelSelectorVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>选择模型</Text>
-              <TouchableOpacity
-                onPress={() => setIsModelSelectorVisible(false)}
-                style={styles.modalCloseButton}
-              >
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            <ModelSelector
-              apiKey={openRouterKey || ''}
-              selectedModelId={useCloudService ? cloudModel : selectedModel}
-              onSelectModel={(modelId) => {
-                if (useCloudService) {
-                  setCloudModel(modelId);
-                } else {
-                  setSelectedModel(modelId);
-                }
-                setIsModelSelectorVisible(false);
-              }}
-              useCloudService={useCloudService}
-            />
+        <SafeAreaView style={styles.modalSafeArea}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              onPress={() => setIsModelSelectorVisible(false)}
+              style={styles.modalBackButton}
+            >
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>选择模型</Text>
+            <View style={styles.modalHeaderRight} />
           </View>
-        </View>
+          <ModelSelector
+            apiKey={openRouterKey || ''}
+            selectedModelId={useCloudService ? cloudModel : selectedModel}
+            onSelectModel={(modelId) => {
+              if (useCloudService) {
+                setCloudModel(modelId);
+              } else {
+                setSelectedModel(modelId);
+              }
+              setIsModelSelectorVisible(false);
+            }}
+            useCloudService={useCloudService}
+          />
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -1055,6 +1054,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#aaa',
     fontStyle: 'italic',
+  },
+  modalSafeArea: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  modalBackButton: {
+    padding: 8,
+  },
+  modalHeaderRight: {
+    width: 40,
   },
 });
 

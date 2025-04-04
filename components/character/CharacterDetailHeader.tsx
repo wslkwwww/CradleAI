@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   ImageBackground,
   Dimensions
 } from 'react-native';
@@ -13,28 +12,28 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 interface CharacterDetailHeaderProps {
   name: string;
-  avatar: string | null;
   backgroundImage: string | null;
-  onAvatarPress: () => void;
   onBackgroundPress: () => void;
   onBackPress: () => void;
-  onChatBackgroundPress: () => void;
-  onFullscreenPress: () => void;
+  onFullscreenPress?: () => void;
 }
 
 const { width } = Dimensions.get('window');
 
 const CharacterDetailHeader: React.FC<CharacterDetailHeaderProps> = ({
   name,
-  avatar,
   backgroundImage,
-  onAvatarPress,
   onBackgroundPress,
-  onBackPress
+  onBackPress,
+  onFullscreenPress
 }) => {
   return (
     <View style={styles.headerContainer}>
-      <TouchableOpacity style={styles.backgroundContainer} onPress={onBackgroundPress}>
+      <TouchableOpacity 
+        style={styles.backgroundContainer} 
+        onPress={onBackgroundPress}
+        activeOpacity={0.9}
+      >
         <ImageBackground
           source={
             backgroundImage
@@ -50,24 +49,17 @@ const CharacterDetailHeader: React.FC<CharacterDetailHeaderProps> = ({
             <TouchableOpacity style={styles.backButton} onPress={onBackPress}>
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
-
-            <View style={styles.headerContent}>
-              <TouchableOpacity style={styles.avatarContainer} onPress={onAvatarPress}>
-                <Image
-                  source={
-                    avatar
-                      ? { uri: avatar }
-                      : require('@/assets/images/default-avatar.png')
-                  }
-                  style={styles.avatar}
-                />
-                <View style={styles.editIconContainer}>
-                  <Ionicons name="camera" size={16} color="#fff" />
-                </View>
+            
+            {onFullscreenPress && (
+              <TouchableOpacity 
+                style={styles.fullscreenButton} 
+                onPress={onFullscreenPress}
+              >
+                <Ionicons name="expand-outline" size={20} color="#fff" />
               </TouchableOpacity>
+            )}
 
-              <Text style={styles.characterName}>{name}</Text>
-            </View>
+            <Text style={styles.characterName}>{name}</Text>
           </LinearGradient>
         </ImageBackground>
       </TouchableOpacity>
@@ -78,7 +70,7 @@ const CharacterDetailHeader: React.FC<CharacterDetailHeaderProps> = ({
 const styles = StyleSheet.create({
   headerContainer: {
     width: '100%',
-    height: 200,
+    height: 180,
   },
   backgroundContainer: {
     flex: 1,
@@ -91,31 +83,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     padding: 16,
-  },
-  headerContent: {
-    alignItems: 'center',
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 3,
-    borderColor: '#fff',
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginBottom: 12,
-  },
-  editIconContainer: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 15,
-    width: 30,
-    height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   characterName: {
     color: '#fff',
@@ -137,6 +104,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  fullscreenButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  }
 });
 
 export default CharacterDetailHeader;

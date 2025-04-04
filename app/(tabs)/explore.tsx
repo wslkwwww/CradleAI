@@ -21,7 +21,7 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
-import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
 import { CirclePost, CircleComment, CircleLike, Character, Message } from '@/shared/types';
 import ForwardSheet from '@/components/ForwardSheet';
@@ -41,6 +41,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import FavoriteList from '@/components/FavoriteList';
 import ImageViewer from '@/components/ImageViewer';
+import { theme } from '@/constants/theme';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -419,7 +420,7 @@ const Explore: React.FC = () => {
         // Add like
         const newLike: CircleLike = {
           userId: 'user-1',
-          userName: user?.settings?.self.nickname || 'Me',
+          userName: user?.settings?.self.nickname || '我',
           userAvatar: user?.avatar,
           isCharacter: false,
           createdAt: new Date().toISOString()
@@ -461,6 +462,122 @@ const Explore: React.FC = () => {
     }
   }, [characters, posts, updateCharacter, user]);
 
+  // Add function to handle image selection
+  const handleSelectImages = async () => {
+    try {
+      // Request media library permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library');
+        return;
+      }
+      
+      // Launch image picker with Expo API
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: 4,
+        quality: 0.8,
+      });
+      
+      if (!result.canceled && result.assets.length > 0) {
+        // Add selected images to state - extract URIs
+        const imageUris = result.assets.map(asset => asset.uri);
+        setUserPostImages([...userPostImages, ...imageUris]);
+      }
+    } catch (error) {
+      console.error('Error selecting images:', error);
+      Alert.alert('Error', 'Failed to select images');
+    }
+  };
+
+  // Add function to create user post
+  const handleCreateUserPost = async () => {
+    if (!userPostText.trim() && userPostImages.length === 0) {
+      Alert.alert('错误', '请输入文字或选择图片');
+      return;
+    }
+    
+    try {
+      setIsCreatingPost(true);
+      
+      // Get API key and settings
+      const apiKey = user?.settings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
+      
+      // Create the user post object
+      const newPost: CirclePost = {
+        id: `user-post-${Date.now()}`,
+        characterId: 'user-1',
+        characterName: user?.settings?.self.nickname || '我',
+        characterAvatar: user?.avatar || null,
+        content: userPostText,
+        images: userPostImages,
+        createdAt: new Date().toISOString(),
+        comments: [],
+        likes: 0,
+        likedBy: [],
+        hasLiked: false
+      };
+      
+      // Update posts state with the new post
+      const updatedPosts = [newPost, ...posts];
+      setPosts(updatedPosts);
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
+      
+      // Close modal and reset form immediately
+      setShowUserPostModal(false);
+      setUserPostText('');
+      setUserPostImages([]);
+      
+      // Show a temporary toast/alert
+      Alert.alert('发布成功', '你的朋友圈已发布，角色们将很快响应');
+      
+      // Process character responses in the background
+      CircleService.createUserPost(
+        user?.settings?.self.nickname || '我',
+        user?.avatar || null,
+        userPostText,
+        userPostImages,
+        apiKey,
+        apiSettings,
+        characters
+      ).then(({ post, responses }) => {
+        // Update the post with character responses
+        setPosts(prevPosts => {
+          const updatedPosts = prevPosts.map(p => p.id === newPost.id ? post : p);
+          // Save updated posts to AsyncStorage
+          AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts))
+            .catch(error => console.error('【朋友圈】保存更新的帖子失败:', error));
+          return updatedPosts;
+        });
+        
+        // Log response stats
+        const respondedCharacters = responses.filter(r => r.success).length;
+        if (respondedCharacters > 0) {
+          const likedPost = responses.filter(r => r.success && r.response?.action?.like).length;
+          const commentedPost = responses.filter(r => r.success && r.response?.action?.comment).length;
+          
+          console.log(`【朋友圈】${respondedCharacters}个角色响应了你的帖子，其中${likedPost}个点赞，${commentedPost}个评论`);
+        }
+      }).catch(error => {
+        console.error('处理角色响应失败:', error);
+      });
+      
+    } catch (error) {
+      console.error('创建用户帖子失败:', error);
+      Alert.alert('错误', '发布失败，请稍后重试');
+      setShowUserPostModal(false);
+    } finally {
+      setIsCreatingPost(false);
+    }
+  };
+
   // Comment handling
   const handleComment = useCallback(async (post: CirclePost) => {
     if (!commentText.trim() || !activePostId) return;
@@ -470,7 +587,7 @@ const Explore: React.FC = () => {
       const newComment: CircleComment = {
         id: String(Date.now()),
         userId: 'user-1',
-        userName: user?.settings?.self.nickname || 'Me',
+        userName: user?.settings?.self.nickname || '我',
         content: commentText.trim(),
         createdAt: new Date().toISOString(),
         type: 'user',
@@ -531,7 +648,7 @@ const Explore: React.FC = () => {
               type: 'character',
               replyTo: {
                 userId: 'user-1',
-                userName: user?.settings?.self.nickname || 'Me'
+                userName: user?.settings?.self.nickname || '我'
               }
             };
             
@@ -571,7 +688,7 @@ const Explore: React.FC = () => {
             user?.settings?.chat?.characterApiKey,
             {
               userId: 'user-1',
-              userName: user?.settings?.self.nickname || 'Me'
+              userName: user?.settings?.self.nickname || '我'
             },
             {
               apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
@@ -591,7 +708,7 @@ const Explore: React.FC = () => {
               type: 'character',
               replyTo: {
                 userId: 'user-1',
-                userName: user?.settings?.self.nickname || 'Me'
+                userName: user?.settings?.self.nickname || '我'
               }
             };
             
@@ -846,7 +963,7 @@ const Explore: React.FC = () => {
               回复 {replyTo.userName}
             </Text>
             <TouchableOpacity onPress={() => setReplyTo(null)}>
-              <MaterialIcons name="close" size={20} color="#666" />
+              <MaterialIcons name="close" size={20} color={theme.colors.textSecondary} />
             </TouchableOpacity>
           </View>
         )}
@@ -855,7 +972,7 @@ const Explore: React.FC = () => {
           value={commentText}
           onChangeText={setCommentText}
           placeholder={replyTo ? `回复 ${replyTo.userName}...` : "写评论..."}
-          placeholderTextColor="#666"
+          placeholderTextColor={theme.colors.textSecondary}
           multiline={false}
           autoFocus={true}
           blurOnSubmit={false}
@@ -864,7 +981,7 @@ const Explore: React.FC = () => {
           style={styles.sendButton}
           onPress={() => handleComment(post)}
         >
-          <MaterialIcons name="send" size={24} color="#FF9ECD" />
+          <MaterialIcons name="send" size={24} color={theme.colors.primary} />
         </TouchableOpacity>
       </View>
     );
@@ -976,13 +1093,13 @@ const Explore: React.FC = () => {
         
         {/* Show deletion indicator */}
         {deletingPostId === item.id && (
-          <ActivityIndicator size="small" color="#FF9ECD" style={{ marginLeft: 8 }} />
+          <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginLeft: theme.spacing.sm }} />
         )}
         
         {/* Show test processing indicator */}
         {testModeEnabled && processingCharacters.length > 0 && (
           <View style={styles.processingIndicator}>
-            <ActivityIndicator size="small" color="#FF9ECD" />
+            <ActivityIndicator size="small" color={theme.colors.primary} />
             <Text style={styles.processingText}>处理中 ({processingCharacters.length})</Text>
           </View>
         )}
@@ -992,7 +1109,7 @@ const Explore: React.FC = () => {
           style={styles.postMenuButton}
           onPress={() => showPostMenu(item)}
         >
-          <MaterialIcons name="more-vert" size={20} color="#fff" />
+          <MaterialIcons name="more-vert" size={20} color={theme.colors.white} />
         </TouchableOpacity>
       </View>
 
@@ -1019,7 +1136,7 @@ const Explore: React.FC = () => {
           <Ionicons
             name={item.hasLiked ? "heart" : "heart-outline"}
             size={24}
-            color={item.hasLiked ? "#FF9ECD" : "#fff"}
+            color={item.hasLiked ? theme.colors.primary : theme.colors.white}
           />
           <Text style={styles.actionText}>{item.likes}</Text>
         </TouchableOpacity>
@@ -1031,7 +1148,7 @@ const Explore: React.FC = () => {
           <MaterialCommunityIcons
             name={item.isFavorited ? "bookmark" : "bookmark-outline"}
             size={24}
-            color={item.isFavorited ? "#FFD700" : "#fff"}
+            color={item.isFavorited ? theme.colors.accent : theme.colors.white}
           />
         </TouchableOpacity>
 
@@ -1039,7 +1156,7 @@ const Explore: React.FC = () => {
           style={styles.actionButton}
           onPress={() => handleCommentPress(item.id)}
         >
-          <MaterialIcons name="comment" size={24} color="#fff" />
+          <MaterialIcons name="comment" size={24} color={theme.colors.white} />
           <Text style={styles.actionText}>{item.comments?.length || 0}</Text>
         </TouchableOpacity>
         
@@ -1050,7 +1167,7 @@ const Explore: React.FC = () => {
             setIsForwardSheetVisible(true);
           }}
         >
-          <MaterialIcons name="share" size={24} color="#fff" />
+          <MaterialIcons name="share" size={24} color={theme.colors.white} />
           <Text style={styles.actionText}>转发</Text>
         </TouchableOpacity>
       </View>
@@ -1058,7 +1175,7 @@ const Explore: React.FC = () => {
       {/* Show likes */}
       {item.likes > 0 && (
         <View style={styles.likesContainer}>
-          <Ionicons name="heart" size={16} color="#FF9ECD" style={styles.likeIcon} />
+          <Ionicons name="heart" size={16} color={theme.colors.primary} style={styles.likeIcon} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.likeAvatars}>
             {item.likedBy?.map((like: CircleLike, index: number) => (
               <Image
@@ -1086,506 +1203,16 @@ const Explore: React.FC = () => {
   ), [activePostId, renderComment, renderCommentInput, testModeEnabled, processingCharacters, 
       handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu, handleImagePress]);
 
-  // Add the relationship test functions
-  const runRelationshipTest = async (options: RelationshipTestOptions) => {
-    // Don't run if a test is already in progress
-    if (isRunningRelationshipTest) return;
-    
-    setIsRunningRelationshipTest(true);
-    const messages: string[] = [];
-    
-    const log = (message: string) => {
-      console.log(`【关系测试】${message}`);
-      if (options.showDetailedLogs) {
-        messages.push(message);
-      }
-    };
-    
-    try {
-      log('开始执行关系系统测试...');
-      
-      // 1. Select a character with relationship system enabled as the post author
-      const eligibleAuthors = characters.filter(c => c.relationshipEnabled);
-      
-      if (eligibleAuthors.length === 0) {
-        log('❌ 没有找到启用关系系统的角色，请先启用至少一个角色的关系系统');
-        Alert.alert('测试失败', '没有找到启用关系系统的角色，请先启用至少一个角色的关系系统');
-        setIsRunningRelationshipTest(false);
-        return;
-      }
-      
-      const author = eligibleAuthors[Math.floor(Math.random() * eligibleAuthors.length)];
-      log(`选择 ${author.name} 作为帖子发布者`);
-      
-      // 2. Find interacting characters (with relationship system enabled but not the author)
-      const interactors = characters.filter(c => 
-        c.relationshipEnabled && c.id !== author.id
-      );
-      
-      if (interactors.length === 0) {
-        log('❌ 没有足够的角色进行互动测试，请启用至少两个角色的关系系统');
-        Alert.alert('测试失败', '没有足够的角色进行互动测试，请启用至少两个角色的关系系统');
-        setIsRunningRelationshipTest(false);
-        return;
-      }
-      
-      log(`找到 ${interactors.length} 个可用于互动的角色`);
-      
-      // 3. Record relationships before the test
-      const beforeRelationships: Record<string, Relationship | null> = {};
-      
-      interactors.forEach(interactor => {
-        const rel = author.relationshipMap?.relationships[interactor.id] || null;
-        beforeRelationships[interactor.id] = rel ? {...rel} : null;
-        
-        if (rel) {
-          log(`${author.name} 与 ${interactor.name} 的初始关系: 类型=${rel.type}, 强度=${rel.strength}, 互动次数=${rel.interactions}`);
-        } else {
-          log(`${author.name} 与 ${interactor.name} 尚无关系记录`);
-        }
-      });
-      
-      // 4. Generate test post content
-      const postTemplates = [
-        '今天的心情超级好！阳光明媚，万里无云，你们周末有什么计划吗？',
-        '刚读完一本很棒的书，书名是《未来简史》，强烈推荐给大家！',
-        '昨晚做了一个奇怪的梦，梦见自己在太空中漂浮，感觉既恐怖又奇妙...',
-        '新学会了一道菜，红烧排骨，味道居然出乎意料的好，有没有人想要食谱？',
-        '今天工作中遇到了一个难题，思考了一整天都没解决，有点沮丧...'
-      ];
-      
-      const postContent = postTemplates[Math.floor(Math.random() * postTemplates.length)];
-      log(`${author.name} 发布了帖子: "${postContent}"`);
-      
-      // 5. Record interactions
-      const participants: {id: string; name: string; action: string}[] = [];
-      
-      // 6. Process interactions
-      log('开始处理角色互动...');
-      
-      // Create a test post object
-      const testPost = {
-        id: `test-post-${Date.now()}`,
-        characterId: author.id,
-        characterName: author.name,
-        characterAvatar: author.avatar || null,
-        content: postContent,
-        createdAt: new Date().toISOString(),
-        comments: [], // Initialize as empty array
-        likes: 0,
-        hasLiked: false,
-        likedBy: [] // Initialize as empty array
-      };
-      
-      // Process interactions for each character
-      for (const interactor of interactors) {
-        try {
-          // Randomly choose interaction type
-          const interactionType = Math.random() > 0.4 ? 'comment' : 'like';
-          let actionText = '';
-          
-          if (interactionType === 'like') {
-            actionText = '点赞了帖子';
-            log(`${interactor.name} 点赞了 ${author.name} 的帖子`);
-            
-            // Process like interaction
-            let updatedAuthor = { ...author };
-            if (!author.relationshipMap) {
-              updatedAuthor = await RelationshipService.initializeRelationshipMap(author);
-            }
-            
-            updatedAuthor = RelationshipService.processPostInteraction(
-              updatedAuthor,
-              interactor.id,
-              interactor.name,
-              'like',
-              '点赞',
-              testPost.id,
-              testPost.content
-            );
-            
-            // Apply strength modifier
-            if (updatedAuthor.relationshipMap?.relationships[interactor.id]) {
-              const rel = updatedAuthor.relationshipMap.relationships[interactor.id];
-              
-              // Add proper strength delta based on options
-              const strengthDelta = options.strengthModifier;
-              
-              // Randomly choose positive or negative update
-              const isPositive = Math.random() > 0.3; // 70% chance of positive
-              
-              if (isPositive) {
-                rel.strength = Math.min(100, rel.strength + strengthDelta);
-                log(`👍 ${author.name} 对 ${interactor.name} 的好感度增加了 ${strengthDelta} (${rel.strength})`);
-              } else {
-                rel.strength = Math.max(-100, rel.strength - strengthDelta);
-                log(`👎 ${author.name} 对 ${interactor.name} 的好感度降低了 ${strengthDelta} (${rel.strength})`);
-              }
-              
-              // Update relationship type
-              const oldType = rel.type;
-              rel.type = RelationshipService.getRelationshipTypeFromStrength(rel.strength);
-              
-              if (oldType !== rel.type) {
-                log(`🔄 关系类型从 ${oldType} 变为 ${rel.type}`);
-              }
-              
-              // Accelerate interaction count if enabled
-              if (options.accelerateInteractions) {
-                rel.interactions += 3; // Add extra interactions to accelerate action triggers
-                log(`🔄 互动次数加速增长到 ${rel.interactions}`);
-              }
-            }
-            
-            // Add like to test post
-            testPost.likes += 1;
-            (testPost.likedBy = testPost.likedBy || [] as CircleLike[]).push({
-              userId: interactor.id,
-              userName: interactor.name,
-              isCharacter: true,
-              createdAt: new Date().toISOString()
-            });
-            
-            // Update author
-            await updateCharacter(updatedAuthor);
-            
-            // Record participant action
-            participants.push({
-              id: interactor.id,
-              name: interactor.name,
-              action: '点赞了帖子'
-            });
-            
-          } else {
-            // Comment interaction
-            const commentTemplates = [
-              '这个内容真有趣，谢谢分享！',
-              '我也有类似的经历，感同身受。',
-              '这让我想到了一些事情，改天我们聊聊？',
-              '这真是太棒了，我很喜欢！',
-              '有意思，不过我有不同的看法...'
-            ];
-            
-            const commentContent = commentTemplates[Math.floor(Math.random() * commentTemplates.length)];
-            actionText = `评论: "${commentContent}"`;
-            log(`${interactor.name} 评论了 ${author.name} 的帖子: "${commentContent}"`);
-            
-            // Process comment interaction
-            let updatedAuthor = { ...author };
-            if (!author.relationshipMap) {
-              updatedAuthor = await RelationshipService.initializeRelationshipMap(author);
-            }
-            
-            updatedAuthor = RelationshipService.processPostInteraction(
-              updatedAuthor,
-              interactor.id,
-              interactor.name,
-              'comment',
-              commentContent,
-              testPost.id,
-              testPost.content
-            );
-            
-            // Apply strength modifier as with likes
-            if (updatedAuthor.relationshipMap?.relationships[interactor.id]) {
-              const rel = updatedAuthor.relationshipMap.relationships[interactor.id];
-              
-              // Comments have more impact than likes
-              const strengthDelta = options.strengthModifier * 1.5;
-              
-              const isPositive = Math.random() > 0.2; // 80% chance of positive for comments
-              
-              if (isPositive) {
-                rel.strength = Math.min(100, rel.strength + strengthDelta);
-                log(`👍 ${author.name} 对 ${interactor.name} 的好感度增加了 ${strengthDelta} (${rel.strength})`);
-              } else {
-                rel.strength = Math.max(-100, rel.strength - strengthDelta);
-                log(`👎 ${author.name} 对 ${interactor.name} 的好感度降低了 ${strengthDelta} (${rel.strength})`);
-              }
-              
-              // Update relationship type
-              const oldType = rel.type;
-              rel.type = RelationshipService.getRelationshipTypeFromStrength(rel.strength);
-              
-              if (oldType !== rel.type) {
-                log(`🔄 关系类型从 ${oldType} 变为 ${rel.type}`);
-              }
-              
-              // Accelerate interaction count if enabled
-              if (options.accelerateInteractions) {
-                rel.interactions += 5; // Comments add more interactions
-                log(`🔄 互动次数加速增长到 ${rel.interactions}`);
-              }
-            }
-            
-            // Add comment to test post
-            (testPost.comments = testPost.comments || []).push({
-              id: `comment-${Date.now()}-${interactor.id}`,
-              userId: interactor.id,
-              userName: interactor.name,
-              content: commentContent,
-              createdAt: new Date().toISOString(),
-              type: 'character'
-            });
-            
-            // Update author
-            await updateCharacter(updatedAuthor);
-            
-            // Record participant action
-            participants.push({
-              id: interactor.id,
-              name: interactor.name,
-              action: `评论: "${commentContent}"`
-            });
-          }
-        } catch (err) {
-          log(`处理 ${interactor.name} 互动时出错: ${err}`);
-        }
-      }
-      
-      // 7. Check for relationship updates
-      log('检查关系更新结果...');
-      
-      const relationshipUpdates: {
-        targetId: string;
-        targetName: string;
-        before: Relationship | null;
-        after: Relationship | null;
-      }[] = [];
-      
-      // Get latest author data
-      const updatedAuthor = characters.find(c => c.id === author.id);
-      if (!updatedAuthor || !updatedAuthor.relationshipMap) {
-        throw new Error('无法获取更新后的作者数据');
-      }
-      
-      // Compare before and after relationships
-      interactors.forEach(interactor => {
-        const beforeRel = beforeRelationships[interactor.id];
-        const afterRel = updatedAuthor.relationshipMap?.relationships[interactor.id] || null;
-        
-        relationshipUpdates.push({
-          targetId: interactor.id,
-          targetName: interactor.name,
-          before: beforeRel,
-          after: afterRel
-        });
-        
-        if (beforeRel && afterRel) {
-          if (beforeRel.strength !== afterRel.strength) {
-            log(`${updatedAuthor.name} 对 ${interactor.name} 的关系强度: ${beforeRel.strength} -> ${afterRel.strength}`);
-          }
-          if (beforeRel.type !== afterRel.type) {
-            log(`${updatedAuthor.name} 对 ${interactor.name} 的关系类型: ${beforeRel.type} -> ${afterRel.type}`);
-          }
-        } else if (!beforeRel && afterRel) {
-          log(`${updatedAuthor.name} 与 ${interactor.name} 建立了新关系: 类型=${afterRel.type}, 强度=${afterRel.strength}`);
-        }
-      });
-      
-      // 8. Check for triggered actions
-      log('检查是否触发关系行动...');
-      
-      const newActions = ActionService.checkForPotentialActions(updatedAuthor);
-      log(`检测到 ${newActions.length} 个潜在关系行动`);
-      
-      if (newActions.length > 0) {
-        const updatedAuthorWithActions = {
-          ...updatedAuthor,
-          relationshipActions: [
-            ...(updatedAuthor.relationshipActions || []),
-            ...newActions
-          ]
-        };
-        
-        await updateCharacter(updatedAuthorWithActions);
-        
-        // Log triggered actions
-        newActions.forEach(action => {
-          const targetChar = characters.find(c => c.id === action.targetCharacterId);
-          log(`🎯 触发行动: ${action.type} - ${updatedAuthor.name} -> ${targetChar?.name || 'unknown'}`);
-        });
-      }
-      
-      // 9. Prepare test results
-      const testResult: RelationshipTestResult = {
-        postAuthor: {
-          id: author.id,
-          name: author.name
-        },
-        postContent,
-        participants,
-        relationshipUpdates,
-        triggeredActions: newActions,
-        messages
-      };
-      
-      // 10. Display results
-      setRelationshipTestResults(testResult);
-      setShowRelationshipTestResults(true);
-      
-      log('测试完成');
-      
-    } catch (error) {
-      console.error('【关系测试】测试过程出错:', error);
-      Alert.alert('测试失败', '测试过程中发生错误');
-    } finally {
-      setIsRunningRelationshipTest(false);
-    }
-  };
-
-  // Reset all relationships
-  const resetAllRelationships = async () => {
-    try {
-      let updatedCount = 0;
-      
-      // Reset each character's relationship data
-      for (const character of characters) {
-        if (character.relationshipMap || character.messageBox || character.relationshipActions) {
-          const resetCharacter = {
-            ...character,
-            relationshipMap: undefined,
-            messageBox: undefined,
-            relationshipActions: undefined
-          };
-          
-          await updateCharacter(resetCharacter);
-          updatedCount++;
-        }
-      }
-      
-      Alert.alert('重置完成', `已重置 ${updatedCount} 个角色的关系数据`);
-    } catch (error) {
-      console.error('重置关系数据失败:', error);
-      Alert.alert('错误', '重置关系数据时发生错误');
-    }
-  };
-
-  // Add function to handle image selection
-  const handleSelectImages = async () => {
-    try {
-      // Request media library permissions
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant permission to access your photo library');
-        return;
-      }
-      
-      // Launch image picker with Expo API
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: true,
-        selectionLimit: 4,
-        quality: 0.8,
-      });
-      
-      if (!result.canceled && result.assets.length > 0) {
-        // Add selected images to state - extract URIs
-        const imageUris = result.assets.map(asset => asset.uri);
-        setUserPostImages([...userPostImages, ...imageUris]);
-      }
-    } catch (error) {
-      console.error('Error selecting images:', error);
-      Alert.alert('Error', 'Failed to select images');
-    }
-  };
-
-  // Add function to create user post
-  const handleCreateUserPost = async () => {
-    if (!userPostText.trim() && userPostImages.length === 0) {
-      Alert.alert('错误', '请输入文字或选择图片');
-      return;
-    }
-    
-    try {
-      setIsCreatingPost(true);
-      
-      // Get API key and settings
-      const apiKey = user?.settings?.chat?.characterApiKey;
-      const apiSettings = {
-        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-        openrouter: user?.settings?.chat?.openrouter
-      };
-      
-      // Create the user post object
-      const newPost: CirclePost = {
-        id: `user-post-${Date.now()}`,
-        characterId: 'user-1',
-        characterName: user?.settings?.self.nickname || '我',
-        characterAvatar: user?.avatar || null,
-        content: userPostText,
-        images: userPostImages,
-        createdAt: new Date().toISOString(),
-        comments: [],
-        likes: 0,
-        likedBy: [],
-        hasLiked: false
-      };
-      
-      // Update posts state with the new post
-      const updatedPosts = [newPost, ...posts];
-      setPosts(updatedPosts);
-      
-      // Save to AsyncStorage
-      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
-      
-      // Close modal and reset form immediately
-      setShowUserPostModal(false);
-      setUserPostText('');
-      setUserPostImages([]);
-      
-      // Show a temporary toast/alert
-      Alert.alert('发布成功', '你的朋友圈已发布，角色们将很快响应');
-      
-      // Process character responses in the background
-      CircleService.createUserPost(
-        user?.settings?.self.nickname || '我',
-        user?.avatar || null,
-        userPostText,
-        userPostImages,
-        apiKey,
-        apiSettings,
-        characters
-      ).then(({ post, responses }) => {
-        // Update the post with character responses
-        setPosts(prevPosts => {
-          const updatedPosts = prevPosts.map(p => p.id === newPost.id ? post : p);
-          // Save updated posts to AsyncStorage
-          AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts))
-            .catch(error => console.error('【朋友圈】保存更新的帖子失败:', error));
-          return updatedPosts;
-        });
-        
-        // Log response stats
-        const respondedCharacters = responses.filter(r => r.success).length;
-        if (respondedCharacters > 0) {
-          const likedPost = responses.filter(r => r.success && r.response?.action?.like).length;
-          const commentedPost = responses.filter(r => r.success && r.response?.action?.comment).length;
-          
-          console.log(`【朋友圈】${respondedCharacters}个角色响应了你的帖子，其中${likedPost}个点赞，${commentedPost}个评论`);
-        }
-      }).catch(error => {
-        console.error('处理角色响应失败:', error);
-      });
-      
-    } catch (error) {
-      console.error('创建用户帖子失败:', error);
-      Alert.alert('错误', '发布失败，请稍后重试');
-      setShowUserPostModal(false);
-    } finally {
-      setIsCreatingPost(false);
-    }
-  };
-
   const renderCircleHeaderButtons = () => (
     <View style={styles.circleHeaderButtons}>
+      {/* Add Favorite List button */}
       <TouchableOpacity 
-        style={styles.headerButton} 
-        onPress={() => setShowUserPostModal(true)}
+        style={styles.iconButton}
+        onPress={() => setShowFavoriteList(true)}
       >
-        <Text style={styles.headerButtonText}>新建动态</Text>
+        <MaterialCommunityIcons name="bookmark-outline" size={24} color={theme.colors.text} />
       </TouchableOpacity>
-      
+
       <TouchableOpacity 
         style={[
           styles.headerButton,
@@ -1595,22 +1222,13 @@ const Explore: React.FC = () => {
         disabled={publishingPost}
       >
         {publishingPost ? (
-          <ActivityIndicator size="small" color="#fff" />
+          <ActivityIndicator size="small" color={theme.colors.white} />
         ) : (
-          <Text style={styles.headerButtonText}>角色发布</Text>
+          <View style={styles.headerButtonContent}>
+            <MaterialIcons name="auto-awesome" size={16} color={theme.colors.white} />
+            <Text style={styles.headerButtonText}>角色发布</Text>
+          </View>
         )}
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={[
-          styles.headerButton, 
-          testModeEnabled && styles.testButtonActive
-        ]} 
-        onPress={toggleTestMode}
-      >
-        <Text style={styles.headerButtonText}>
-          {testModeEnabled ? '关闭测试' : '互动测试'}
-        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -1630,7 +1248,7 @@ const Explore: React.FC = () => {
               onPress={() => setShowUserPostModal(false)}
               style={styles.modalCloseButton}
             >
-              <Ionicons name="close" size={24} color="#fff" />
+              <Ionicons name="close" size={24} color={theme.colors.white} />
             </TouchableOpacity>
           </View>
           
@@ -1639,7 +1257,7 @@ const Explore: React.FC = () => {
               style={styles.postTextInput}
               multiline
               placeholder="分享你的想法..."
-              placeholderTextColor="#888"
+              placeholderTextColor={theme.colors.textSecondary}
               value={userPostText}
               onChangeText={setUserPostText}
               maxLength={500}
@@ -1659,7 +1277,7 @@ const Explore: React.FC = () => {
                         setUserPostImages(newImages);
                       }}
                     >
-                      <Ionicons name="close-circle" size={20} color="#fff" />
+                      <Ionicons name="close-circle" size={20} color={theme.colors.white} />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -1675,7 +1293,7 @@ const Explore: React.FC = () => {
                 <Ionicons 
                   name="image-outline" 
                   size={24} 
-                  color={userPostImages.length >= 4 ? "#666" : "#fff"} 
+                  color={userPostImages.length >= 4 ? theme.colors.textSecondary : theme.colors.white} 
                 />
               </TouchableOpacity>
               
@@ -1688,7 +1306,7 @@ const Explore: React.FC = () => {
                 disabled={isCreatingPost || (!userPostText.trim() && userPostImages.length === 0)}
               >
                 {isCreatingPost ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={theme.colors.white} />
                 ) : (
                   <Text style={styles.postSubmitButtonText}>发布</Text>
                 )}
@@ -1704,7 +1322,7 @@ const Explore: React.FC = () => {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF9ECD" />
+          <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>加载中...</Text>
         </View>
       </SafeAreaView>
@@ -1731,55 +1349,6 @@ const Explore: React.FC = () => {
     );
   }
 
-  // Change the CharacterSelector implementation to avoid nesting FlatLists
-  const renderCharacterSelector = () => {
-    if (!charactersArray || charactersArray.length === 0) {
-      return null;
-    }
-    
-    return (
-      <View style={styles.characterSelectorContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.characterSelectorContent}
-        >
-          {charactersArray.filter(c => c.relationshipEnabled).map(character => (
-            <TouchableOpacity
-              key={character.id}
-              style={[
-                styles.characterAvatarContainer,
-                selectedCharacterId === character.id && styles.selectedCharacterContainer
-              ]}
-              onPress={() => setSelectedCharacterId(character.id)}
-            >
-              <Image
-                source={
-                  character.avatar
-                    ? { uri: character.avatar }
-                    : require('@/assets/images/default-avatar.png')
-                }
-                style={[
-                  styles.characterAvatar, 
-                  selectedCharacterId === character.id && styles.selectedCharacterAvatar
-                ]}
-              />
-              <Text
-                style={[
-                  styles.characterName,
-                  selectedCharacterId === character.id && styles.selectedCharacterName
-                ]}
-                numberOfLines={1}
-              >
-                {character.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    );
-  };
-
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1787,53 +1356,23 @@ const Explore: React.FC = () => {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : -200}
       enabled={true}
     >
-      <StatusBar barStyle="light-content" backgroundColor={styles.safeArea.backgroundColor} />
+      <StatusBar barStyle="light-content" backgroundColor={theme.colors.background} />
       <ImageBackground 
         source={require('@/assets/images/default-background.jpeg')}
         style={styles.backgroundImage}
       >
-        {/* 调整后的 Tab Navigation */}
-        <View style={styles.tabBar}>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'circle' && styles.activeTab]}
-            onPress={() => setActiveTab('circle')}
-          >
-            <MaterialCommunityIcons 
-              name="forum-outline" 
-              size={20} 
-              color={activeTab === 'circle' ? "#FF9ECD" : "#FFFFFF"} 
-            />
-            <Text style={[
-              styles.tabText, 
-              activeTab === 'circle' && styles.activeTabText
-            ]}>
-              动态
-            </Text>
-          </TouchableOpacity>
+        {/* 新设计的社交媒体样式顶部栏 */}
+        <View style={styles.socialHeader}>
+          <View style={styles.headerTitle}>
+            <Text style={styles.headerTitleText}>朋友圈</Text>
+          </View>
           
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'relationships' && styles.activeTab]}
-            onPress={() => setActiveTab('relationships')}
-          >
-            <MaterialCommunityIcons 
-              name="account-multiple-outline" 
-              size={20} 
-              color={activeTab === 'relationships' ? "#FF9ECD" : "#FFFFFF"} 
-            />
-            <Text style={[
-              styles.tabText, 
-              activeTab === 'relationships' && styles.activeTabText
-            ]}>
-              关系
-            </Text>
-          </TouchableOpacity>
+          {renderCircleHeaderButtons()}
         </View>
 
         {/* Circle Tab Content */}
         {activeTab === 'circle' && (
           <>
-            {renderCircleHeaderButtons()}
-            
             <FlatList
               ref={flatListRef}
               data={posts}
@@ -1850,228 +1389,23 @@ const Explore: React.FC = () => {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
-                  colors={['#FF9ECD']}
-                  tintColor="#FF9ECD"
+                  colors={[theme.colors.primary]}
+                  tintColor={theme.colors.primary}
                   title="加载中..."
-                  titleColor="#FF9ECD"
+                  titleColor={theme.colors.primary}
                 />
               }
             />
           </>
-        )}
-        
-        {/* Relationships Tab Content */}
-        {activeTab === 'relationships' && (
-          <View style={styles.relationshipsContainer}>
-            {/* Character selector row with avatars */}
-            <View style={styles.characterSelectorContainer}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.characterSelectorContent}
-              >
-                {charactersArray.filter(c => c.relationshipEnabled).map(character => (
-                  <TouchableOpacity
-                    key={character.id}
-                    style={[
-                      styles.characterAvatarContainer,
-                      selectedCharacterId === character.id && styles.selectedCharacterContainer
-                    ]}
-                    onPress={() => setSelectedCharacterId(character.id)}
-                  >
-                    <Image
-                      source={
-                        character.avatar
-                          ? { uri: character.avatar }
-                          : require('@/assets/images/default-avatar.png')
-                      }
-                      style={[
-                        styles.characterAvatar, 
-                        selectedCharacterId === character.id && styles.selectedCharacterAvatar
-                      ]}
-                    />
-                    <Text
-                      style={[
-                        styles.characterName,
-                        selectedCharacterId === character.id && styles.selectedCharacterName
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {character.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-            
-            {selectedCharacterId ? (
-              <View style={styles.relationshipActionsContainer}>
-                {/* Action buttons toolbar */}
-                <View style={styles.actionToolbar}>
-                  <View style={styles.toolbarTitle}>
-                    <Text style={styles.toolbarTitleText}>角色关系互动</Text>
-                    {isGeneratingActions && <ActivityIndicator size="small" color="#FF9ECD" style={{marginLeft: 10}} />}
-                  </View>
-                  
-                  <View style={styles.toolbarButtons}>
-                    <TouchableOpacity 
-                      style={styles.toolbarButton}
-                      onPress={handleGenerateActions}
-                      disabled={isGeneratingActions}
-                    >
-                      <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
-                      <Text style={styles.toolbarButtonText}>生成行动</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={styles.toolbarButton}
-                      onPress={() => setShowMessageBoxModal(true)}
-                    >
-                      <Ionicons name="mail-outline" size={18} color="#FFFFFF" />
-                      <Text style={styles.toolbarButtonText}>消息盒子</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={styles.toolbarButton}
-                      onPress={() => setShowTestControlsModal(true)}
-                    >
-                      <FontAwesome5 name="flask" size={16} color="#FFFFFF" />
-                      <Text style={styles.toolbarButtonText}>关系测试</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                
-                {/* Main content - Relationship Actions */}
-                {characters.find(c => c.id === selectedCharacterId)?.relationshipActions?.length === 0 ? (
-                  <View style={styles.emptyActionsContainer}>
-                    <Ionicons name="people-outline" size={64} color="#555" />
-                    <Text style={styles.emptyActionsText}>暂无关系互动</Text>
-                    <Text style={styles.emptyActionsSubtext}>
-                      角色之间的互动会在此处显示，点击"生成行动"按钮尝试创建新的互动
-                    </Text>
-                  </View>
-                ) : (
-                  <FlatList
-                    data={
-                      characters
-                        .find(c => c.id === selectedCharacterId)
-                        ?.relationshipActions?.sort((a, b) => b.createdAt - a.createdAt) || []
-                    }
-                    renderItem={({ item }) => (
-                      <ActionCard
-                        key={`action-${item.id}`} // Add explicit key here
-                        action={item}
-                        sourceCharacter={characters.find(c => c.id === item.sourceCharacterId)}
-                        targetCharacter={characters.find(c => c.id === item.targetCharacterId)}
-                        currentCharacterId={selectedCharacterId} // Pass the current character ID
-                        onRespond={(response) => {
-                          // Use the ActionService approach like in RelationshipActions
-                          const updatedCharacters = ActionService.processActionResponse(
-                            item,
-                            response,
-                            Object.fromEntries(charactersArray.map(c => [c.id, c]))
-                          );
-                          handleUpdateCharacters(Object.values(updatedCharacters));
-                        }}
-                      />
-                    )}
-                    keyExtractor={item => `action-${item.id}`} // Ensure unique keys in FlatList
-                    contentContainerStyle={styles.actionsList}
-                    ItemSeparatorComponent={() => <View style={styles.actionSeparator} />}
-                    ListEmptyComponent={
-                      <View style={styles.emptyActionsContainer}>
-                        <Ionicons name="people-outline" size={64} color="#555" />
-                        <Text style={styles.emptyActionsText}>暂无关系互动</Text>
-                        <Text style={styles.emptyActionsSubtext}>
-                          角色之间的互动会在此处显示，点击"生成行动"按钮尝试创建新的互动
-                        </Text>
-                      </View>
-                    }
-                  />
-                )}
-              </View>
-            ) : (
-              <View style={styles.noCharacterContainer}>
-                <Ionicons name="person-circle-outline" size={80} color="#555" />
-                <Text style={styles.noCharacterText}>请选择一个角色</Text>
-                <Text style={styles.noCharacterSubtext}>点击上方的角色头像以查看其关系互动</Text>
-              </View>
-            )}
-            
-            {/* Message Box Modal */}
-            <Modal
-              visible={showMessageBoxModal}
-              transparent={true}
-              animationType="slide"
-              onRequestClose={() => setShowMessageBoxModal(false)}
-            >
-              <View style={styles.modalContainer}>
-                <View style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>消息盒子</Text>
-                    <TouchableOpacity
-                      onPress={() => setShowMessageBoxModal(false)}
-                      style={styles.modalCloseButton}
-                    >
-                      <Ionicons name="close" size={24} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                  
-                  {selectedCharacterId && (
-                    <MessageBoxContent
-                      character={characters.find(c => c.id === selectedCharacterId)!}
-                      onUpdateCharacter={updateCharacter}
-                    />
-                  )}
-                </View>
-              </View>
-            </Modal>
-            
-            {/* Test Controls Modal */}
-            <Modal
-              visible={showTestControlsModal}
-              transparent={true}
-              animationType="slide"
-              onRequestClose={() => setShowTestControlsModal(false)}
-            >
-              <View style={styles.modalContainer}>
-                <View style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>关系测试</Text>
-                    <TouchableOpacity
-                      onPress={() => setShowTestControlsModal(false)}
-                      style={styles.modalCloseButton}
-                    >
-                      <Ionicons name="close" size={24} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                  
-                  <View style={styles.modalBody}>
-                    <RelationshipTestControls
-                      characters={charactersArray}
-                      onRunTest={(options) => {
-                        runRelationshipTest(options);
-                        setShowTestControlsModal(false);
-                      }}
-                      onResetRelationships={() => {
-                        resetAllRelationships();
-                        setShowTestControlsModal(false);
-                      }}
-                      isRunningTest={isRunningRelationshipTest}
-                    />
-                  </View>
-                </View>
-              </View>
-            </Modal>
+        )}      
 
-            {/* Keep the existing RelationshipTestResults modal */}
-            <RelationshipTestResults
-              visible={showRelationshipTestResults}
-              onClose={() => setShowRelationshipTestResults(false)}
-              results={relationshipTestResults}
-            />
-          </View>
-        )}
+        {/* 浮动发布按钮 - 仅使用图标 */}
+        <TouchableOpacity 
+          style={styles.floatingActionButton}
+          onPress={() => setShowUserPostModal(true)}
+        >
+          <Feather name="plus" size={24} color={theme.colors.white} />
+        </TouchableOpacity>
         
         {isForwardSheetVisible && selectedPost && (
           <ForwardSheet
@@ -2136,50 +1470,129 @@ const Explore: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  // Existing tab navigation styles
-  // ...
+  // Social media style header
+  socialHeader: {
+    backgroundColor: theme.colors.background,
+    paddingTop: Platform.OS === 'ios' ? 47 : StatusBar.currentHeight,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.md,
+    height: Platform.OS === 'ios' ? 90 : 90,
+  },
+  headerTitle: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  headerTitleText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  
+  // Floating action button style
+  floatingActionButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
   
   // Post and card styles
   card: {
     width: CARD_WIDTH,
-    backgroundColor: 'rgba(51, 51, 51, 0.95)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    backgroundColor: theme.colors.cardBackground,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
     flex: 1,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: theme.spacing.sm,
   },
   authorAvatar: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: AVATAR_SIZE / 2,
-    marginRight: 8,
+    marginRight: theme.spacing.sm,
   },
   authorName: {
-    color: '#FFFFFF',
-    fontSize: 16,
+    color: theme.colors.text,
+    fontSize: theme.fontSizes.md,
     fontWeight: 'bold',
   },
   timestamp: {
-    color: '#777777',
-    fontSize: 12,
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSizes.sm,
   },
   content: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginBottom: 8,
+    color: theme.colors.text,
+    fontSize: theme.fontSizes.md,
+    marginBottom: theme.spacing.sm,
   },
   cardActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 8,
+    marginBottom: theme.spacing.sm,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: theme.spacing.xs,
   },
   actionText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
+    marginLeft: 4,
+  },
+  
+  // Header button styles
+  circleHeaderButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: theme.spacing.sm, // Add gap between buttons
+  },
+  
+  // Add new style for icon button
+  iconButton: {
+    padding: theme.spacing.xs,
+    marginRight: theme.spacing.xs,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: 'transparent',
+  },
+
+  headerButton: {
+    backgroundColor: theme.colors.accent,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.full,
+  },
+  headerButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButtonDisabled: {
+    backgroundColor: theme.colors.disabled,
+  },
+  headerButtonText: {
+    color: theme.colors.white,
+    fontSize: theme.fontSizes.sm,
+    fontWeight: '500',
     marginLeft: 4,
   },
   
@@ -2187,13 +1600,13 @@ const styles = StyleSheet.create({
   likesContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#444',
+    borderBottomColor: theme.colors.border,
   },
   likeIcon: {
-    marginRight: 8,
+    marginRight: theme.spacing.sm,
   },
   likeAvatars: {
     flexDirection: 'row',
@@ -2203,35 +1616,35 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 15,
     marginRight: 4,
-    backgroundColor: '#444',
+    backgroundColor: theme.colors.input,
   },
   
   // Comment styles
   comment: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 8,
+    paddingVertical: theme.spacing.sm,
   },
   commentAvatar: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    marginRight: 8,
+    marginRight: theme.spacing.sm,
   },
   commentContent: {
     flex: 1,
   },
   commentAuthor: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontWeight: 'bold',
     marginBottom: 2,
   },
   commentText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     flexShrink: 1,
   },
   replyText: {
-    color: '#FF9ECD',
+    color: theme.colors.primary,
     fontWeight: 'bold',
     marginRight: 4,
   },
@@ -2240,136 +1653,67 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   replyButtonText: {
-    color: '#666',
-    fontSize: 12,
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSizes.xs,
   },
   
   // Comment input styles
   commentInput: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    paddingTop: 8,
+    marginTop: theme.spacing.sm,
+    paddingTop: theme.spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#444',
+    borderTopColor: theme.colors.border,
     position: 'relative',
     zIndex: 1,
     paddingBottom: Platform.OS === 'android' ? 4 : 0,
   },
   commentTextInput: {
     flex: 1,
-    backgroundColor: '#444',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    color: '#fff',
-    marginRight: 8,
+    backgroundColor: theme.colors.input,
+    borderRadius: theme.borderRadius.full,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    color: theme.colors.text,
+    marginRight: theme.spacing.sm,
     maxHeight: 100,
   },
   sendButton: {
-    padding: 8,
+    padding: theme.spacing.sm,
   },
   replyIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#3a3a3a',
-    padding: 8,
-    borderRadius: 8,
-    marginBottom: 8,
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: theme.spacing.sm,
+    borderRadius: theme.borderRadius.sm,
+    marginBottom: theme.spacing.sm,
   },
   replyIndicatorText: {
-    color: '#fff',
-    fontSize: 12,
+    color: theme.colors.text,
+    fontSize: theme.fontSizes.sm,
   },
   processingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: 'auto',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    backgroundColor: theme.colors.overlay,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.md,
   },
   processingText: {
-    color: '#fff',
-    fontSize: 12,
+    color: theme.colors.text,
+    fontSize: theme.fontSizes.sm,
     marginLeft: 4,
   },
   
-  // The rest of your existing styles
-  // ...
-  // Tab navigation styles
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(40, 40, 40, 0.95)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    paddingTop: Platform.OS === 'ios' ? 47 : StatusBar.currentHeight, // 调整顶部内边距
-    height: Platform.OS === 'ios' ? 90 : 90, // 确保总高度与其他页面一致
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 12, // 调整底部内边距
-  },
-  tabText: {
-    marginLeft: 8,
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#FF9ECD',
-  },
-  activeTabText: {
-    color: '#FF9ECD',
-    fontWeight: '500',
-  },
-  relationshipsContent: {
-    flex: 1,
-    backgroundColor: 'rgba(40, 40, 40, 0.7)',
-  },
-  actionsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  generateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FF9ECD',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 4,
-  },
-  generateButtonText: {
-    color: '#ffffff',
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  circleHeaderButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    padding: 8,
-    backgroundColor: 'rgba(51, 51, 51, 0.95)',
-  },
-  
-  // These style properties should be moved from your existing styles
-  // to create comprehensive styles list
+  // Common layout styles
   safeArea: {
     flex: 1,
-    backgroundColor: '#282828',
+    backgroundColor: theme.colors.background,
   },
   loadingContainer: {
     flex: 1,
@@ -2377,9 +1721,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    color: '#fff',
+    color: theme.colors.text,
     marginTop: 10,
-    fontSize: 16,
+    fontSize: theme.fontSizes.md,
   },
   errorContainer: {
     flex: 1,
@@ -2388,20 +1732,20 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   errorText: {
-    color: '#ff4444',
-    fontSize: 16,
+    color: theme.colors.danger,
+    fontSize: theme.fontSizes.md,
     marginBottom: 20,
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: '#FF9ECD',
+    backgroundColor: theme.colors.primary,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
   },
   retryButtonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: theme.colors.text,
+    fontSize: theme.fontSizes.md,
   },
   emptyContainer: {
     flex: 1,
@@ -2410,470 +1754,132 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   emptyText: {
-    color: '#666',
-    fontSize: 16,
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSizes.md,
   },
   listContainer: {
-    padding: 16,
+    padding: theme.spacing.md,
   },
   backgroundImage: {
     flex: 1,
     width: '100%',
   },
-  headerButtons: {
-    position: 'absolute',
-    right: 16,
-    flexDirection: 'row',
-  },
-  headerButton: {
-    backgroundColor: '#444',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginLeft: 8,
-  },
-  headerButtonDisabled: {
-    backgroundColor: '#666',
-  },
-  headerButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  testButtonActive: {
-    backgroundColor: '#FF9ECD',
-  },
-  testControlContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  
-  // Updated relationship container styles
-  relationshipsContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(40, 40, 40, 0.7)',
-  },
-  
-  // Character selector styles
-  characterSelectorContainer: {
-    backgroundColor: 'rgba(51, 51, 51, 0.95)',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  characterSelectorContent: {
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  characterAvatarContainer: {
-    alignItems: 'center',
-    marginHorizontal: 8,
-    width: 70,
-    opacity: 0.7,
-  },
-  selectedCharacterContainer: {
-    opacity: 1,
-  },
-  characterAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  selectedCharacterAvatar: {
-    borderColor: '#FF9ECD',
-    borderWidth: 3,
-  },
-  characterName: {
-    color: '#fff',
-    fontSize: 12,
-    marginTop: 8,
-    textAlign: 'center',
-    width: 70,
-  },
-  selectedCharacterName: {
-    fontWeight: 'bold',
-    color: '#FF9ECD',
-  },
-  
-  // Action toolbar styles
-  actionToolbar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(40, 40, 40, 0.8)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  toolbarTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  toolbarTitleText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  toolbarButtons: {
-    flexDirection: 'row',
-  },
-  toolbarButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(150, 150, 150, 0.3)',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    marginLeft: 8,
-  },
-  toolbarButtonText: {
-    color: '#FFFFFF',
-    marginLeft: 6,
-    fontSize: 14,
-  },
-  
-  // Relationship actions container
-  relationshipActionsContainer: {
-    flex: 1,
-  },
-  actionsList: {
-    padding: 16,
-  },
-  actionSeparator: {
-    height: 16,
-  },
-  
-  // Action card styles
-  actionCard: {
-    backgroundColor: 'rgba(51, 51, 51, 0.95)',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.22,
-    shadowRadius: 2.22,
-    elevation: 3,
-  },
-  actionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  actionCharacters: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  actionAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  actionAvatarPlaceholder: {
-    backgroundColor: '#555',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarInitial: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  actionArrow: {
-    marginHorizontal: 8,
-  },
-  actionStatus: {
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  actionStatusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  actionTypeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  actionTypeIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 156, 205, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  actionType: {
-    color: '#FF9ECD',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  actionContent: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  actionTime: {
-    color: '#999',
-    fontSize: 12,
-  },
-  responseContainer: {
-    marginTop: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  responseLabel: {
-    color: '#999',
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  responseContent: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    marginTop: 16,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  acceptButton: {
-    backgroundColor: '#4CAF50', // Green
-  },
-  rejectButton: {
-    backgroundColor: '#F44336', // Red
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontWeight: '500',
-  },
-  
-  // Empty states
-  noCharacterContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  noCharacterText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '500',
-    marginTop: 16,
-  },
-  noCharacterSubtext: {
-    color: '#999',
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  emptyActionsContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    minHeight: 300,
-  },
-  emptyActionsText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '500',
-    marginTop: 16,
-  },
-  emptyActionsSubtext: {
-    color: '#999',
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-    maxWidth: 300,
-  },
-  
+
   // Modal styles
   modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
     width: '90%',
     maxHeight: '80%',
-    backgroundColor: '#333',
-    borderRadius: 12,
+    backgroundColor: theme.colors.cardBackground,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: 'rgba(255, 156, 205, 0.2)',
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.backgroundSecondary,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: theme.colors.border,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: theme.fontSizes.lg,
     fontWeight: 'bold',
-    color: '#fff',
+    color: theme.colors.text,
   },
   modalCloseButton: {
     padding: 4,
   },
-  modalBody: {
-    padding: 16,
-  },
-  
-  // Message Box styles
-  emptyMessagesContainer: {
-    padding: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyMessagesText: {
-    color: '#999',
-    marginTop: 16,
-    fontSize: 16,
-  },
-  messagesList: {
-    padding: 16,
-  },
-  messageItem: {
-    backgroundColor: 'rgba(40, 40, 40, 0.7)',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-  },
-  messageHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  messageSender: {
-    color: '#FF9ECD',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  messageTime: {
-    color: '#999',
-    fontSize: 12,
-  },
-  messageContent: {
-    color: '#fff',
-    fontSize: 15,
-  },
-  messageContext: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 8,
-  },
-  contextLabel: {
-    color: '#999',
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  contextContent: {
-    color: '#ddd',
-    fontSize: 14,
-  },
 
-  // New styles for user post modal
+  // User Post Modal styles
   postModalContent: {
     width: '90%',
     maxHeight: '80%',
-    backgroundColor: '#333',
-    borderRadius: 12,
+    backgroundColor: theme.colors.cardBackground,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
   },
   postInputContainer: {
-    padding: 16,
+    padding: theme.spacing.md,
   },
   postTextInput: {
-    backgroundColor: '#444',
-    borderRadius: 8,
-    padding: 12,
-    color: '#fff',
+    backgroundColor: theme.colors.input,
+    borderRadius: theme.borderRadius.sm,
+    padding: theme.spacing.md,
+    color: theme.colors.text,
     minHeight: 100,
     textAlignVertical: 'top',
   },
   imagePreviewContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 12,
+    marginTop: theme.spacing.md,
   },
   imagePreviewWrapper: {
     position: 'relative',
-    marginRight: 8,
-    marginBottom: 8,
+    marginRight: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
   },
   imagePreview: {
     width: 80,
     height: 80,
-    borderRadius: 4,
+    borderRadius: theme.borderRadius.sm,
   },
   removeImageButton: {
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     borderRadius: 12,
   },
   postActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: theme.spacing.md,
   },
   imagePickerButton: {
     padding: 10,
   },
   postSubmitButton: {
-    backgroundColor: '#FF9ECD',
+    backgroundColor: theme.colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 8,
     borderRadius: 20,
   },
   disabledButton: {
-    backgroundColor: '#666',
+    backgroundColor: theme.colors.disabled,
   },
   postSubmitButtonText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontWeight: '500',
-    fontSize: 16,
+    fontSize: theme.fontSizes.md,
   },
   // Add post menu button style
   postMenuButton: {
-    padding: 8,
-    marginLeft: 8,
+    padding: theme.spacing.sm,
+    marginLeft: theme.spacing.sm,
   },
   
-  // Add images container style
+  // Images container style
   imagesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginVertical: 8,
+    marginVertical: theme.spacing.sm,
   },
   
   contentImage: {
     width: CARD_WIDTH / 2 - 12,
     height: 150,
-    borderRadius: 8,
+    borderRadius: theme.borderRadius.sm,
     margin: 4,
-    backgroundColor: '#444',
+    backgroundColor: theme.colors.input,
   },
 });
 

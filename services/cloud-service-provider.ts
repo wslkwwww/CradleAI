@@ -16,7 +16,6 @@ class CloudServiceProviderClass {
   private preferredModel: string = 'openai/gpt-3.5-turbo'; // Default model
   private cloudEndpoint: string = API_CONFIG.CLOUD_API_URL || 'https://chat.cradleintro.top';
   private initializationInProgress: boolean = false;
-  
   constructor() {
     // Listen for tracker updates and synchronize the state
     addCloudServiceStatusListener((enabled) => {
@@ -503,53 +502,6 @@ class CloudServiceProviderClass {
       }
       
       console.error('[CloudService] 请求转发失败:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * List available models from CradleAI
-   */
-  async listModels(): Promise<any> {
-    if (!this.isEnabled()) {
-      throw new Error('Cloud service is not enabled or properly configured');
-    }
-    
-    try {
-      console.log('[CloudService] 获取可用模型列表');
-      
-      // Prepare headers for cloud service
-      const headers = new Headers({
-        'Accept': 'application/json',
-        'X-License-Key': this.licenseKey!,
-        'X-Device-ID': this.deviceId!
-      });
-      
-      // Ensure the cloud endpoint URL is properly formatted
-      let endpoint = this.cloudEndpoint.trim().replace(/\/+$/, '');
-      const apiUrl = `${endpoint}/api/models`;
-      
-      console.log(`[CloudService] 发送请求到: ${apiUrl}`);
-      
-      // Make the request
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: headers,
-        cache: 'no-store' // Ensure we always get a fresh response
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[CloudService] 获取模型列表失败 (${response.status}): ${errorText}`);
-        throw new Error(`获取模型列表失败: ${response.status} ${response.statusText}`);
-      }
-      
-      const modelsData = await response.json();
-      console.log(`[CloudService] 成功获取模型列表，共 ${modelsData.data?.length || 0} 个模型`);
-      
-      return modelsData;
-    } catch (error) {
-      console.error('[CloudService] 获取模型列表失败:', error);
       throw error;
     }
   }
