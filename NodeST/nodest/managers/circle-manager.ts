@@ -249,7 +249,7 @@ export class CircleManager {
 
     // 添加 updateCircleMemory 方法
     private async updateCircleMemory(
-        responderId: string,  // 改为responderId
+        responderId: string,  
         options: CirclePostOptions,
         response: CircleResponse
     ): Promise<void> {
@@ -632,11 +632,18 @@ export class CircleManager {
         // 检查是否为自己发布的帖子（发帖者和响应者是同一角色）
         const isOwnPost = options.content.authorId === options.responderId;
         
-        // 获取用户自定义称呼 (如果在上下文中提到"用户本人")
-        const userCustomName = options.responderCharacter?.customUserName;
-        const userIdentification = options.content.context && options.content.context.includes('用户本人') ? 
-            (userCustomName ? `用户${userCustomName}` : '用户') : 
-            (options.content.authorName || '某人');
+        // 检查是否是用户对角色帖子的评论（用户ID为'user-1'）
+        const isUserComment = options.content.authorId === 'user-1';
+        
+        // 获取用户自定义称呼 (针对用户回复)
+        let userIdentification = options.content.authorName || '某人';
+        
+        // 使用 customUserName 而不是上下文来判断
+        if (isUserComment) { // 检查是否是用户评论
+            userIdentification = options.responderCharacter?.customUserName ? 
+                `用户${options.responderCharacter.customUserName}` : 
+                '用户';
+        }
         
         // 准备场景参数
         const params: ScenePromptParams = {
@@ -645,13 +652,21 @@ export class CircleManager {
             context: options.content.context,
             hasImages,
             charDescription: framework.base.charDescription,
-            userIdentification
+            userIdentification,
+            // Pass conversation history if available
+            conversationHistory: options.content.conversationHistory,
+            // Pass character JSON data if available
+            characterJsonData: options.content.characterJsonData
         };
 
         // 根据互动类型选择合适的提示词模板
         let scenePrompt: string;
         
         switch (options.type) {
+            case 'continuedConversation': // Add support for continuous conversation
+                scenePrompt = CirclePrompts.continuedConversation(params);
+                break;
+                
             case 'forwardedPost':
                 scenePrompt = CirclePrompts.forwardedPost(params);
                 break;
@@ -665,7 +680,9 @@ export class CircleManager {
                 break;
                 
             case 'replyToPost':
-                if (isOwnPost) {
+                // 关键修改: 当是自己帖子"或"是用户评论角色帖子时，使用selfPost模板
+                if (isOwnPost || isUserComment) {
+                    console.log('【朋友圈】检测到用户评论角色帖子或角色查看自己帖子，使用selfPost模板');
                     scenePrompt = CirclePrompts.selfPost(params);
                 } else if (hasImages) {
                     scenePrompt = CirclePrompts.replyToPostWithImage(params);
@@ -734,10 +751,22 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                     success: true,
                     post: extractedJson.post,
                     action: {
-like: false, // No like for own post
+                        like: false, // No like for own post
                         comment: extractedJson.post // Use post content as comment
                     },
                     emotion: extractedJson.emotion // Preserve emotion data
+                };
+            } else if (extractedJson.thoughts && extractedJson.response) {
+                // 处理selfPost格式 - 包含thoughts和response
+                return {
+                    success: true,
+                    thoughts: extractedJson.thoughts,
+                    response: extractedJson.response,
+                    action: {
+                        like: false, // 不能给自己点赞
+                        comment: extractedJson.response // 使用response作为评论内容
+                    },
+                    emotion: extractedJson.emotion
                 };
             } else if (extractedJson.action) {
                 // 处理标准的互动响应格式
@@ -765,14 +794,14 @@ like: false, // No like for own post
             if (typeof extractedJson === 'object' && extractedJson !== null) {
                 // Look for any useful fields we might use
                 const possibleComment = 
-extractedJson.comment || 
-extractedJson.content || 
+                    extractedJson.comment || 
+                    extractedJson.content || 
                     extractedJson.message || 
-extractedJson.text;
+                    extractedJson.text;
                     
                 return {
                     success: true,
-action: {
+                    action: {
                         like: Boolean(extractedJson.like || false),
                         comment: typeof possibleComment === 'string' ? possibleComment : undefined
                     }
@@ -862,12 +891,20 @@ action: {
             return true;
         }
 
-        // 3. 检查是否是"reflection"格式（用于自我帖子反思）
+        // 3. 检查是否是"thoughts/response"格式（用于selfPost回复）
+        if (typeof json.thoughts === 'string' && 
+            typeof json.response === 'string' &&
+            json.thoughts.trim().length > 0 &&
+            json.response.trim().length > 0) {
+            return true;
+        }
+
+        // 4. 检查是否是"reflection"格式（用于自我帖子反思）
         if (typeof json.reflection === 'string' && json.reflection.trim().length > 0) {
             return true;
         }
 
-        // 4. 检查是否是标准的"action"格式回复
+        // 5. 检查是否是标准的"action"格式回复
         if (json.action && typeof json.action === 'object') {
             // action必须包含like字段
             if (typeof json.action.like !== 'boolean') {
@@ -882,7 +919,7 @@ action: {
             return true;
         }
 
-        // 5. 检查是否有其他可用字段（宽松检验，用作最后的尝试）
+        // 6. 检查是否有其他可用字段（宽松检验，用作最后的尝试）
         const hasUsableField = 
             (typeof json.comment === 'string') || 
             (typeof json.content === 'string') ||

@@ -23,6 +23,7 @@ import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageManager, { ImageInfo } from '@/utils/ImageManager';
 import { ttsService, AudioState } from '@/services/ttsService'; // Import the TTS service
+import { useDialogMode } from '@/constants/DialogModeContext';
 
 // Update ChatDialogProps interface in the file or in shared/types.ts to include messageMemoryState
 interface ExtendedChatDialogProps extends ChatDialogProps {
@@ -62,6 +63,12 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   
   // Add state for TTS enhancer settings
   const [ttsEnhancerEnabled, setTtsEnhancerEnabled] = useState(false);
+  
+  // Get dialog mode from context
+  const { mode, visualNovelSettings, isHistoryModalVisible, setHistoryModalVisible } = useDialogMode();
+  
+  // State to track last AI message for visual novel mode
+  const [lastAiMessage, setLastAiMessage] = useState<Message | null>(null);
   
   // Check TTS enhancer status when component mounts
   useEffect(() => {
@@ -167,6 +174,20 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     
     loadRatedMessages();
   }, [selectedCharacter?.id]);
+
+  // Update last AI message when messages change (for visual novel mode)
+  useEffect(() => {
+    if (mode === 'visual-novel' && messages.length > 0) {
+      // Find the last non-loading AI message
+      const lastBotMessage = [...messages]
+        .reverse()
+        .find(msg => msg.sender === 'bot' && !msg.isLoading);
+      
+      if (lastBotMessage) {
+        setLastAiMessage(lastBotMessage);
+      }
+    }
+  }, [messages, mode]);
 
   // Enhanced rate message handler with animations and persistence
   const handleRateMessage = async (messageId: string, isUpvote: boolean) => {
@@ -913,58 +934,181 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     }
   };
 
-  return (
-    <>
-      <ScrollView
-        ref={scrollViewRef}
-        style={[styles.container, style]}
-        contentContainerStyle={
-          messages.length === 0 ? styles.emptyContent : styles.content
-        }
-        onScroll={handleScroll}
-        scrollEventThrottle={16} // For more accurate scroll tracking
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.length === 0 ? (
-          renderEmptyState()
-        ) : (
-          <Animated.View
-            style={[
-              styles.messagesContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: translateAnim }],
-              },
-            ]}
+  // Render visual novel dialog box
+  const renderVisualNovelDialog = () => {
+    if (!lastAiMessage || !selectedCharacter) return null;
+    
+    return (
+      <View style={[
+        styles.visualNovelContainer,
+        { backgroundColor: visualNovelSettings.backgroundColor }
+      ]}>
+        <View style={styles.visualNovelHeader}>
+          <Image
+            source={
+              selectedCharacter?.avatar
+                ? { uri: String(selectedCharacter.avatar) }
+                : require('@/assets/images/default-avatar.png')
+            }
+            style={styles.visualNovelAvatar}
+          />
+          <Text style={[
+            styles.visualNovelCharacterName,
+            { color: visualNovelSettings.textColor }
+          ]}>
+            {selectedCharacter.name}
+          </Text>
+          
+          <TouchableOpacity
+            style={styles.historyButton}
+            onPress={() => setHistoryModalVisible(true)}
           >
+            <Ionicons name="time-outline" size={20} color="#fff" />
+            <Text style={styles.historyButtonText}>查看历史</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView style={styles.visualNovelTextContainer}>
+          <Text style={[
+            styles.visualNovelText,
+            { 
+              fontFamily: visualNovelSettings.fontFamily, 
+              color: visualNovelSettings.textColor 
+            }
+          ]}>
+            {lastAiMessage.text}
+          </Text>
+        </ScrollView>
+      </View>
+    );
+  };
+  
+  // Render history modal for visual novel mode
+  const renderHistoryModal = () => {
+    return (
+      <Modal
+        visible={isHistoryModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setHistoryModalVisible(false)}
+      >
+        <View style={styles.historyModalContainer}>
+          <View style={styles.historyModalHeader}>
+            <Text style={styles.historyModalTitle}>对话历史</Text>
+            <TouchableOpacity
+              style={styles.historyModalCloseButton}
+              onPress={() => setHistoryModalVisible(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.historyModalContent}>
             {messages.map((message, index) => {
               const isUser = message.sender === 'user';
-              const showTime = index === 0 || index % 5 === 0; // Show time every 5 messages
-              const isLoading = message.isLoading;
+              const showTime = index === 0 || 
+                              (index > 0 && new Date(message.timestamp || 0).getMinutes() !== 
+                                new Date(messages[index-1].timestamp || 0).getMinutes());
               
               return (
-                <View key={message.id} style={styles.messageWrapper}>
-                  {showTime && message.timestamp && renderTimeGroup(message.timestamp)}
+                <View key={message.id} style={styles.historyMessageContainer}>
+                  {showTime && message.timestamp && (
+                    <Text style={styles.historyTimeText}>
+                      {new Date(message.timestamp).toLocaleTimeString()}
+                    </Text>
+                  )}
                   
-                  <View
-                    style={[
-                      styles.messageContainer,
-                      isUser ? styles.userMessageContainer : styles.botMessageContainer,
-                    ]}
-                  >
-                    {/* Remove avatar containers here as they're now inside the message content */}
-                    {renderMessageContent(message, isUser, index)}
+                  <View style={[
+                    styles.historyMessage,
+                    isUser ? styles.historyUserMessage : styles.historyBotMessage
+                  ]}>
+                    <Text style={[
+                      styles.historyMessageText,
+                      isUser ? styles.historyUserMessageText : styles.historyBotMessageText
+                    ]}>
+                      {message.text}
+                    </Text>
                   </View>
                 </View>
               );
             })}
-            
-            <View style={styles.endSpacer} />
-          </Animated.View>
-        )}
-      </ScrollView>
+          </ScrollView>
+        </View>
+      </Modal>
+    );
+  };
+
+  return (
+    <>
+      {/* If in visual novel mode, render novel dialog */}
+      {mode === 'visual-novel' ? (
+        <>
+          {/* Empty space for background display */}
+          <View style={[styles.container, style, styles.backgroundFocusContainer]} />
+          {/* Fixed position dialog at bottom */}
+          {renderVisualNovelDialog()}
+          {/* History modal */}
+          {renderHistoryModal()}
+        </>
+      ) : (
+        <ScrollView
+          ref={scrollViewRef}
+          style={[
+            styles.container, 
+            style,
+            // Apply position settings for background focus mode instead of height limit
+            mode === 'background-focus' && styles.backgroundFocusContainer
+          ]}
+          contentContainerStyle={[
+            messages.length === 0 ? styles.emptyContent : styles.content,
+            // Add padding to content when in background focus mode
+            mode === 'background-focus' && styles.backgroundFocusPadding
+          ]}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+        >
+          {messages.length === 0 ? (
+            renderEmptyState()
+          ) : (
+            <Animated.View
+              style={[
+                styles.messagesContainer,
+                // Use animated values directly in the style array instead of through animatedStyle
+                { 
+                  opacity: fadeAnim, // This is the correct way to use animated values
+                  transform: [{ translateY: translateAnim }] 
+                }
+              ]}
+            >
+              {messages.map((message, index) => {
+                const isUser = message.sender === 'user';
+                const showTime = index === 0 || index % 5 === 0;
+                const isLoading = message.isLoading;
+                
+                return (
+                  <View key={message.id} style={styles.messageWrapper}>
+                    {showTime && message.timestamp && renderTimeGroup(message.timestamp)}
+                    
+                    <View
+                      style={[
+                        styles.messageContainer,
+                        isUser ? styles.userMessageContainer : styles.botMessageContainer,
+                      ]}
+                    >
+                      {renderMessageContent(message, isUser, index)}
+                    </View>
+                  </View>
+                );
+              })}
+              
+              <View style={styles.endSpacer} />
+            </Animated.View>
+          )}
+        </ScrollView>
+      )}
       
-      {/* 全屏查看图片的模态框 */}
+      {/* Fullscreen image modal and other modals remain unchanged */}
       <Modal
         visible={!!fullscreenImage}
         transparent={true}
@@ -1397,6 +1541,130 @@ const styles = StyleSheet.create({
     height: 16,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // Update background focus mode styles to show top half of image
+  backgroundFocusContainer: {
+    position: 'absolute',
+    top: '50%', // Position the scroll view halfway down the screen
+    left: 0,
+    right: 0,
+    bottom: 0,  // Extend to bottom of screen
+    maxHeight: '50%', // Take up bottom 50% of screen
+  },
+  backgroundFocusPadding: {
+    paddingTop: 20, // Add some padding to the top for better appearance
+  },
+  
+  // Add styles for visual novel mode
+  visualNovelContainer: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    right: 10,
+    minHeight: 200,
+    maxHeight: 320,
+    borderRadius: 16,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  visualNovelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  visualNovelAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  visualNovelCharacterName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  visualNovelTextContainer: {
+    maxHeight: 220,
+  },
+  visualNovelText: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  historyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  historyButtonText: {
+    color: '#fff',
+    marginLeft: 4,
+    fontSize: 14,
+  },
+  
+  // History modal styles
+  historyModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+  },
+  historyModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    paddingTop: 40,
+    backgroundColor: 'rgba(30, 30, 30, 0.8)',
+  },
+  historyModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  historyModalCloseButton: {
+    padding: 8,
+  },
+  historyModalContent: {
+    flex: 1,
+    padding: 16,
+  },
+  historyMessageContainer: {
+    marginBottom: 16,
+  },
+  historyTimeText: {
+    color: '#aaa',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  historyMessage: {
+    padding: 12,
+    borderRadius: 12,
+    maxWidth: '85%',
+  },
+  historyUserMessage: {
+    backgroundColor: 'rgba(255, 224, 195, 0.85)',
+    alignSelf: 'flex-end',
+    borderTopRightRadius: 4,
+  },
+  historyBotMessage: {
+    backgroundColor: 'rgba(68, 68, 68, 0.85)',
+    alignSelf: 'flex-start',
+    borderTopLeftRadius: 4,
+  },
+  historyMessageText: {
+    fontSize: 16,
+  },
+  historyUserMessageText: {
+    color: '#333',
+  },
+  historyBotMessageText: {
+    color: '#fff',
   },
 });
 

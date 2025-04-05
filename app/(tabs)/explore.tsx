@@ -21,7 +21,7 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
-import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome5, Feather } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome5, Feather, AntDesign } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
 import { CirclePost, CircleComment, CircleLike, Character, Message } from '@/shared/types';
 import ForwardSheet from '@/components/ForwardSheet';
@@ -30,17 +30,13 @@ import { useUser } from '@/constants/UserContext';
 import { CircleService } from '@/services/circle-service';
 import { RelationshipAction } from '@/shared/types/relationship-types';
 import { ActionService } from '@/services/action-service';
-import RelationshipTestControls, { RelationshipTestOptions } from '@/components/RelationshipTestControls';
 import RelationshipTestResults, { RelationshipTestResult } from '@/components/RelationshipTestResults';
-import { RelationshipService,} from '@/services/relationship-service';
-import { Relationship } from '@/shared/types/relationship-types';
-import MessageBoxContent from '@/components/MessageBoxContent';
-import ActionCard from '@/components/ActionCard';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import FavoriteList from '@/components/FavoriteList';
 import ImageViewer from '@/components/ImageViewer';
+import CharacterInteractionSettings from '@/components/CharacterInteractionSettings';
 import { theme } from '@/constants/theme';
 
 const { width } = Dimensions.get('window');
@@ -134,6 +130,12 @@ const Explore: React.FC = () => {
   const [isImageViewerVisible, setIsImageViewerVisible] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
+
+  // Add new state for character interaction settings modal
+  const [showInteractionSettings, setShowInteractionSettings] = useState(false);
+
+  // Add a new state to track expanded thought bubbles
+  const [expandedThoughts, setExpandedThoughts] = useState<{[key: string]: boolean}>({});
 
   // Add the image handling function before renderPost
   const handleImagePress = useCallback((images: string[], index: number) => {
@@ -649,7 +651,8 @@ const Explore: React.FC = () => {
               replyTo: {
                 userId: 'user-1',
                 userName: user?.settings?.self.nickname || '我'
-              }
+              },
+              thoughts: response.thoughts // Add thoughts if available
             };
             
             // Update with the character's comment
@@ -709,7 +712,8 @@ const Explore: React.FC = () => {
               replyTo: {
                 userId: 'user-1',
                 userName: user?.settings?.self.nickname || '我'
-              }
+              },
+              thoughts: response.thoughts // Add thoughts if available
             };
             
             // Update with the character's reply
@@ -737,6 +741,13 @@ const Explore: React.FC = () => {
       Alert.alert('评论失败', '发送评论时出现错误');
     }
   }, [activePostId, commentText, replyTo, characters, user, posts]);
+
+  const toggleThoughtExpansion = useCallback((commentId: string) => {
+    setExpandedThoughts(prev => ({
+      ...prev,
+      [commentId]: !prev[commentId]
+    }));
+  }, []);
 
   const handleReplyPress = useCallback((comment: CircleComment) => {
     setReplyTo({
@@ -931,6 +942,9 @@ const Explore: React.FC = () => {
 
   // Comment rendering
   const renderComment = useCallback((comment: CircleComment) => {
+    const hasThoughts = !!comment.thoughts;
+    const isExpanded = expandedThoughts[comment.id] || false;
+
     return (
       <View key={comment.id} style={styles.comment}>
         <Image
@@ -939,6 +953,32 @@ const Explore: React.FC = () => {
         />
         <View style={styles.commentContent}>
           <Text style={styles.commentAuthor}>{comment.userName}</Text>
+          
+          {/* Display thoughts if available */}
+          {hasThoughts && (
+            <View style={styles.thoughtsContainer}>
+              <TouchableOpacity 
+                style={styles.thoughtsHeader}
+                onPress={() => toggleThoughtExpansion(comment.id)}
+              >
+                <Text style={styles.thoughtsTitle}>
+                  {isExpanded ? '收起内心想法' : '查看内心想法'}
+                </Text>
+                <AntDesign 
+                  name={isExpanded ? 'caretup' : 'caretdown'} 
+                  size={12} 
+                  color={theme.colors.textSecondary} 
+                />
+              </TouchableOpacity>
+              
+              {isExpanded && (
+                <View style={styles.thoughtsBubble}>
+                  <Text style={styles.thoughtsText}>{comment.thoughts}</Text>
+                </View>
+              )}
+            </View>
+          )}
+          
           <Text style={styles.commentText}>
             {comment.replyTo && <Text style={styles.replyText}>回复 {comment.replyTo.userName}：</Text>}
             {comment.content}
@@ -952,7 +992,7 @@ const Explore: React.FC = () => {
         </View>
       </View>
     );
-  }, [handleReplyPress]);
+  }, [handleReplyPress, expandedThoughts, toggleThoughtExpansion]);
 
   const renderCommentInput = useCallback((post: CirclePost) => {
     return (
@@ -987,7 +1027,7 @@ const Explore: React.FC = () => {
     );
   }, [commentText, replyTo, handleComment]);
 
-  // Add post deletion method
+  // Add function to handle post deletion
   const handleDeletePost = useCallback(async (postId: string) => {
     try {
       setDeletingPostId(postId);
@@ -1205,6 +1245,14 @@ const Explore: React.FC = () => {
 
   const renderCircleHeaderButtons = () => (
     <View style={styles.circleHeaderButtons}>
+      {/* Add Character Interaction Settings button */}
+      <TouchableOpacity 
+        style={styles.iconButton}
+        onPress={() => setShowInteractionSettings(true)}
+      >
+        <Ionicons name="settings-outline" size={24} color={theme.colors.text} />
+      </TouchableOpacity>
+
       {/* Add Favorite List button */}
       <TouchableOpacity 
         style={styles.iconButton}
@@ -1464,6 +1512,12 @@ const Explore: React.FC = () => {
             }}
           />
         </Modal>
+
+        {/* Character Interaction Settings Modal */}
+        <CharacterInteractionSettings
+          isVisible={showInteractionSettings}
+          onClose={() => setShowInteractionSettings(false)}
+        />
       </ImageBackground>
     </KeyboardAvoidingView>
   );
@@ -1880,6 +1934,37 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.sm,
     margin: 4,
     backgroundColor: theme.colors.input,
+  },
+
+  // Add styles for thoughts section
+  thoughtsContainer: {
+    marginVertical: theme.spacing.xs,
+  },
+  thoughtsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: theme.spacing.xs,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderRadius: theme.borderRadius.sm,
+    alignSelf: 'flex-start',
+  },
+  thoughtsTitle: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSizes.xs,
+    marginRight: 4,
+  },
+  thoughtsBubble: {
+    backgroundColor: theme.colors.background,
+    borderRadius: theme.borderRadius.sm,
+    padding: theme.spacing.sm,
+    marginTop: theme.spacing.xs,
+    borderLeftWidth: 2,
+    borderLeftColor: theme.colors.accent,
+  },
+  thoughtsText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSizes.sm,
+    fontStyle: 'italic',
   },
 });
 

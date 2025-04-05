@@ -12,13 +12,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   AppState,
-  TextInput,
-  Modal,
-  FlatList,
-  ActivityIndicator,
-  Switch
 } from 'react-native';
-
 import ChatDialog from '@/components/ChatDialog';
 import ChatInput from '@/components/ChatInput';
 import Sidebar from '@/components/Sidebar';
@@ -36,22 +30,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import TopBarWithBackground from '@/components/TopBarWithBackground';
 import { NodeSTManager } from '@/utils/NodeSTManager';  // 导入 NodeSTManager
 import { EventRegister } from 'react-native-event-listeners';
-
-// 引入 Mem0 相关组件
 import { MemoryProvider } from '@/src/memory/providers/MemoryProvider';
 import Mem0Initializer from '@/src/memory/components/Mem0Initializer';
-
-// 确保导入 polyfills
 import '@/src/memory/utils/polyfills';
-
-// Import the new Memory components
-import MemoryOverviewPanel from '@/components/MemoryOverviewPanel';
 import Mem0Service from '@/src/memory/services/Mem0Service';
-
-// Import necessary components for TTS enhancer
 import { ttsService } from '@/services/ttsService';
-import { Ionicons } from '@expo/vector-icons';
-import { fetchTTSEnhancerModels, OpenRouterModel, getProviderEmoji, filterAndSortForTTSEnhancement } from '@/utils/tts-enhancer-models';
+import { useDialogMode } from '@/constants/DialogModeContext';
 
 // Create a stable memory configuration outside the component
 type MemoryConfig = {
@@ -195,6 +179,9 @@ const App = () => {
   // Add TTS enhancer state
   const [isTtsEnhancerEnabled, setIsTtsEnhancerEnabled] = useState(false);
   const [isTtsEnhancerModalVisible, setIsTtsEnhancerModalVisible] = useState(false);
+
+  // Get dialog mode
+  const { mode } = useDialogMode();
 
   // Toggle brave search function
   const toggleBraveSearch = () => {
@@ -1218,11 +1205,21 @@ const App = () => {
 
       <MemoryProvider config={memoryConfig}>
         <Mem0Initializer />
-        <ImageBackground
-          source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
-          style={styles.backgroundImage}
-          resizeMode="cover"
-        >
+        
+        {/* Modified backgroundImage container to prevent keyboard resizing */}
+        <View style={styles.backgroundContainer}>
+          <ImageBackground
+            source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
+            style={styles.backgroundImage}
+            resizeMode="cover"
+          >
+            {/* This empty View ensures the ImageBackground fills the container */}
+            <View style={{flex: 1}} />
+          </ImageBackground>
+        </View>
+        
+        {/* Content container placed on top of background */}
+        <View style={styles.contentMainContainer}>
           <KeyboardAvoidingView 
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.keyboardAvoidView}
@@ -1237,13 +1234,15 @@ const App = () => {
                 onMemoPress={() => setIsMemoSheetVisible(true)}
                 onSettingsPress={toggleSettingsSidebar}
                 onMenuPress={toggleSidebar}
-                onSaveManagerPress={toggleSaveManager} // Add save manager button handler
-                showBackground={false} // 不在 TopBar 中显示背景，因为我们已经在整个屏幕上设置了背景
+                onSaveManagerPress={toggleSaveManager}
+                showBackground={false}
               />
 
               <SafeAreaView style={[
                 styles.safeArea,
-                selectedCharacter && styles.transparentBackground
+                selectedCharacter && styles.transparentBackground,
+                // Add extra styles for background focus mode
+                mode === 'background-focus' && styles.backgroundFocusSafeArea
               ]}>
                 {/* Preview Mode Banner */}
                 {isPreviewMode && previewBannerVisible && (
@@ -1271,11 +1270,17 @@ const App = () => {
                 
                 <View style={[
                   styles.contentContainer,
-                  selectedCharacter && styles.transparentBackground
+                  selectedCharacter && styles.transparentBackground,
+                  // Adjust container to accommodate different modes
+                  mode === 'visual-novel' && styles.visualNovelContentContainer,
+                  mode === 'background-focus' && styles.backgroundFocusContentContainer
                 ]}>
                   <ChatDialog
                     messages={messages}
-                    style={styles.chatDialog}
+                    style={StyleSheet.flatten([
+                      styles.chatDialog,
+                      // Empty style for normal mode, specific styles applied within ChatDialog
+                    ])}
                     selectedCharacter={selectedCharacter}
                     onRateMessage={handleRateMessage}
                     onRegenerateMessage={handleRegenerateMessage}
@@ -1285,9 +1290,13 @@ const App = () => {
                   />
                 </View>
 
+                {/* Adjust input bar position for different modes */}
                 <View style={[
                   styles.inputBar,
-                  selectedCharacter && styles.transparentBackground
+                  selectedCharacter && styles.transparentBackground,
+                  // Add specific styles for different modes
+                  mode === 'visual-novel' && styles.visualNovelInputBar,
+                  mode === 'background-focus' && styles.backgroundFocusInputBar
                 ]}>
                   {selectedCharacter && (
                     <ChatInput
@@ -1366,7 +1375,7 @@ const App = () => {
               />
             </View>
           </KeyboardAvoidingView>
-        </ImageBackground>
+        </View>
       </MemoryProvider>
     </View>
   );
@@ -1376,10 +1385,27 @@ const styles = StyleSheet.create({
   outerContainer: {
     flex: 1,
   },
+  // New styles for fixed background
+  backgroundContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0,
+  },
   backgroundImage: {
     flex: 1,
     width: '100%',
     height: '100%',
+  },
+  contentMainContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
   },
   container: {
     flex: 1,
@@ -1459,6 +1485,29 @@ const styles = StyleSheet.create({
   },
   inputBarContainer: {
     width: '100%',
+  },
+  // Add styles for visual novel mode
+  visualNovelContentContainer: {
+    flex: 1,
+
+    paddingBottom: 200, // Add extra space for visual novel dialog
+  },
+  visualNovelInputBar: {
+    paddingBottom: 180, // Add extra padding to position above visual novel dialog
+  },
+  // Adjust styles for background focus mode to show top half
+  backgroundFocusSafeArea: {
+    // Keep the normal safeArea settings, no special adjustments needed
+  },
+  backgroundFocusContentContainer: {
+    flex: 1, // Take only the top half of the screen
+    padding: 10,
+  },
+  backgroundFocusInputBar: {
+    padding: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Add slight darkening for better visibility
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
   },
 });
 

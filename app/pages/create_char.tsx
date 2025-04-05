@@ -110,6 +110,7 @@ interface CreateCharProps {
   activeTab?: 'basic' | 'advanced' | 'voice';
   creationMode?: 'manual' | 'auto';
   allowTagImageGeneration?: boolean;
+  onClose?: () => void;
 }
 
 const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = 'basic' }) => {

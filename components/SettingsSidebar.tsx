@@ -27,6 +27,8 @@ import Slider from '@react-native-community/slider';
 import { EventRegister } from 'react-native-event-listeners';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mem0Service from '@/src/memory/services/Mem0Service';
+import { useDialogMode, DialogMode } from '@/constants/DialogModeContext';
+import * as Font from 'expo-font';
 
 const SIDEBAR_WIDTH_EXPANDED = 280;
 const SWIPE_THRESHOLD = 50; // 向下滑动超过这个距离时关闭侧边栏
@@ -49,6 +51,20 @@ interface MemorySummarySettingsProps {
   updateCharacter: (character: Character) => Promise<void>;
 }
 
+// Add this interface for DialogModeSettings props
+interface DialogModeSettingsProps {
+  updateVisualNovelSettings: (settings: Partial<{
+    fontFamily: string;
+    textColor: string;
+    backgroundColor: string;
+  }>) => void;
+  visualNovelSettings: {
+    fontFamily: string;
+    textColor: string;
+    backgroundColor: string;
+  };
+}
+
 // Modified constructor to set notification state from character
 export default function SettingsSidebar({
   isVisible,
@@ -58,6 +74,8 @@ export default function SettingsSidebar({
   const slideAnim = useRef(new Animated.Value(SIDEBAR_WIDTH_EXPANDED)).current;
   const slideYAnim = useRef(new Animated.Value(0)).current; // 用于向下滑动动画
   const { updateCharacter } = useCharacters();
+  const { mode, setMode, visualNovelSettings, updateVisualNovelSettings } = useDialogMode();
+  const [availableFonts, setAvailableFonts] = useState<string[]>([]);
 
   // Replace isPermanentMemoryEnabled with isMemorySummaryEnabled
   const [isMemorySummaryEnabled, setIsMemorySummaryEnabled] = useState(false);
@@ -179,6 +197,37 @@ export default function SettingsSidebar({
     }
   }, [isVisible]);
 
+  // Load available fonts on component mount
+  useEffect(() => {
+    const loadFonts = async () => {
+      try {
+        // Default system font is always available
+        const fonts = ['System'];
+        
+        // Check if SpaceMono is available
+        const spaceMonoLoaded = await Font.isLoaded('SpaceMono-Regular');
+        if (spaceMonoLoaded) {
+          fonts.push('SpaceMono-Regular');
+        } else {
+          try {
+            await Font.loadAsync({
+              'SpaceMono-Regular': require('@/assets/fonts/SpaceMono-Regular.ttf'),
+            });
+            fonts.push('SpaceMono-Regular');
+          } catch (err) {
+            console.warn('Could not load SpaceMono font');
+          }
+        }
+        
+        setAvailableFonts(fonts);
+      } catch (error) {
+        console.error('Error loading fonts:', error);
+      }
+    };
+
+    loadFonts();
+  }, []);
+
   // Replace memory toggle with memory summary toggle
   const handleMemorySummaryToggle = async () => {
     if (selectedCharacter) {
@@ -290,26 +339,6 @@ export default function SettingsSidebar({
       }
     }
   };
-  
-  const handleRelationshipToggle = async () => {
-    if (selectedCharacter) {
-      const updatedCharacter = {
-        ...selectedCharacter,
-        relationshipEnabled: !isRelationshipEnabled
-      };
-      await updateCharacter(updatedCharacter);
-      setIsRelationshipEnabled(!isRelationshipEnabled);
-      
-      // Show a hint if enabling relationship system
-      if (!isRelationshipEnabled) {
-        Alert.alert(
-          '提示', 
-          '已启用关系系统功能，角色将能够与其他角色建立和发展关系。',
-          [{ text: '确定', style: 'default' }]
-        );
-      }
-    }
-  };
 
   const handleBackgroundChange = async () => {
     if (!selectedCharacter) return;
@@ -367,104 +396,25 @@ export default function SettingsSidebar({
     }
   };
 
-  const CircleInteractionSettings: React.FC<CircleInteractionSettingsProps> = ({ character, updateCharacter }) => {
-    const handleToggleCircleInteraction = (value: boolean) => {
-      // 默认值设置
-      const updates: Partial<Character> = {
-        circleInteraction: value,
-      };
-      
-      // 如果是开启状态，设置默认频率
-      if (value) {
-        Object.assign(updates, {
-          circlePostFrequency: character.circlePostFrequency || 'medium',
-          circleInteractionFrequency: character.circleInteractionFrequency || 'medium',
-          circleStats: character.circleStats || {
-            repliedToCharacters: {},
-            repliedToPostsCount: 0,
-            repliedToCommentsCount: {}
-          }
-        });
-      }
-      
-      updateCharacter({
-        ...character,
-        ...updates
-      });
-    };
+  // Add dialog mode toggle function
+  const handleModeChange = (newMode: DialogMode) => {
+    setMode(newMode);
+    // Give some feedback to the user
+    let modeDescription = '';
     
-    const handleFrequencyChange = (type: 'circlePostFrequency' | 'circleInteractionFrequency', value: 'low' | 'medium' | 'high') => {
-      updateCharacter({
-        ...character,
-        [type]: value
-      });
-    };
+    switch(newMode) {
+      case 'normal':
+        modeDescription = '常规对话模式';
+        break;
+      case 'background-focus':
+        modeDescription = '背景强调模式，限制聊天高度以展示更多背景';
+        break;
+      case 'visual-novel':
+        modeDescription = '视觉小说模式，类似Galgame的对话框风格';
+        break;
+    }
     
-    const getFrequencyDescription = (type: 'circlePostFrequency' | 'circleInteractionFrequency', value: string | undefined) => {
-      if (type === 'circlePostFrequency') {
-        switch (value) {
-          case 'low': return '低 (1次/天)';
-          case 'medium': return '中 (3次/天)';
-          case 'high': return '高 (5次/天)';
-          default: return '中';
-        }
-      } else {
-        switch (value) {
-          case 'low': return '低';
-          case 'medium': return '中';
-          case 'high': return '高';
-          default: return '中';
-        }
-      }
-    };
-    
-    return (
-      <View style={styles.settingSection}>
-        <Text style={styles.settingSectionTitle}>朋友圈互动设置</Text>
-        
-        <View style={styles.settingRow}>
-          <View style={styles.pickerContainer}>
-            <Text style={styles.settingLabel}>发布频率</Text>
-            <Picker
-              selectedValue={character.circlePostFrequency || 'medium'}
-              style={styles.picker}
-              onValueChange={(value) => handleFrequencyChange('circlePostFrequency', value as 'low' | 'medium' | 'high')}
-              dropdownIconColor="#fff"
-            >
-              <Picker.Item label="低 (1次/天)" value="low" />
-              <Picker.Item label="中 (3次/天)" value="medium" />
-              <Picker.Item label="高 (5次/天)" value="high" />
-            </Picker>
-          </View>
-        </View>
-        
-        <View style={styles.settingRow}>
-          <View style={styles.pickerContainer}>
-            <Text style={styles.settingLabel}>互动频率</Text>
-            <Picker
-              selectedValue={character.circleInteractionFrequency || 'medium'}
-              style={styles.picker}
-              onValueChange={(value) => handleFrequencyChange('circleInteractionFrequency', value as 'low' | 'medium' | 'high')}
-              dropdownIconColor="#fff"
-            >
-              <Picker.Item label="低" value="low" />
-              <Picker.Item label="中" value="medium" />
-              <Picker.Item label="高" value="high" />
-            </Picker>
-          </View>
-        </View>
-        
-        <Text style={styles.settingDescription}>
-          {`互动频率 ${getFrequencyDescription('circleInteractionFrequency', character.circleInteractionFrequency || 'medium')} 表示：\n`}
-          {character.circleInteractionFrequency === 'low' 
-            ? '- 最多回复同一角色的朋友圈1次\n- 最多回复5个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论1次' 
-            : character.circleInteractionFrequency === 'medium'
-              ? '- 最多回复同一角色的朋友圈3次\n- 最多回复5个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论3次'
-              : '- 最多回复同一角色的朋友圈5次\n- 最多回复7个不同角色的朋友圈\n- 最多回复朋友圈下其他角色的评论5次'
-          }
-        </Text>
-      </View>
-    );
+    Alert.alert('已切换对话模式', modeDescription);
   };
 
   // Memory Summary Settings Component
@@ -527,6 +477,85 @@ export default function SettingsSidebar({
     );
   };
 
+  // Visual novel settings component
+  const VisualNovelSettings: React.FC<DialogModeSettingsProps> = ({ visualNovelSettings, updateVisualNovelSettings }) => {
+    if (mode !== 'visual-novel') return null;
+    
+    const colorOptions = [
+      { label: '白色', value: '#FFFFFF' },
+      { label: '浅灰色', value: '#E0E0E0' },
+      { label: '米色', value: '#F5F5DC' },
+      { label: '淡黄色', value: '#FFFACD' },
+    ];
+
+    const bgOptions = [
+      { label: '黑色半透明', value: 'rgba(0, 0, 0, 0.7)' },
+      { label: '深灰半透明', value: 'rgba(40, 40, 40, 0.8)' },
+      { label: '棕色半透明', value: 'rgba(50, 30, 20, 0.8)' },
+      { label: '深蓝半透明', value: 'rgba(20, 30, 50, 0.8)' },
+    ];
+
+    return (
+      <View style={styles.settingSection}>
+        <Text style={styles.settingSectionTitle}>视觉小说设置</Text>
+        
+        <View style={styles.settingItem}>
+          <Text style={styles.settingLabel}>字体</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={visualNovelSettings.fontFamily}
+              onValueChange={(value) => updateVisualNovelSettings({ fontFamily: value })}
+              style={styles.picker}
+              dropdownIconColor="#fff"
+            >
+              {availableFonts.map((font) => (
+                <Picker.Item key={font} label={font} value={font} />
+              ))}
+            </Picker>
+          </View>
+        </View>
+        
+        <View style={styles.settingItem}>
+          <Text style={styles.settingLabel}>文字颜色</Text>
+          <View style={styles.colorOptionsContainer}>
+            {colorOptions.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.colorOption,
+                  { backgroundColor: option.value },
+                  visualNovelSettings.textColor === option.value && styles.colorOptionSelected
+                ]}
+                onPress={() => updateVisualNovelSettings({ textColor: option.value })}
+              />
+            ))}
+          </View>
+        </View>
+        
+        <View style={styles.settingItem}>
+          <Text style={styles.settingLabel}>背景颜色</Text>
+          <View style={styles.colorOptionsContainer}>
+            {bgOptions.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.colorOption,
+                  { backgroundColor: option.value },
+                  visualNovelSettings.backgroundColor === option.value && styles.colorOptionSelected
+                ]}
+                onPress={() => updateVisualNovelSettings({ backgroundColor: option.value })}
+              />
+            ))}
+          </View>
+        </View>
+        
+        <Text style={styles.settingDescription}>
+          视觉小说模式下，对话将以类似Galgame的形式展示。您可以自定义对话框的外观。
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <Animated.View
       style={[
@@ -556,6 +585,75 @@ export default function SettingsSidebar({
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>角色设置</Text>
+
+        {/* Add dialog mode settings section */}
+        <View style={styles.settingSection}>
+          <Text style={styles.settingSectionTitle}>对话模式</Text>
+          
+          <TouchableOpacity 
+            style={[
+              styles.modeButton,
+              mode === 'normal' && styles.modeButtonSelected
+            ]}
+            onPress={() => handleModeChange('normal')}
+          >
+            <MaterialIcons 
+              name="chat" 
+              size={24} 
+              color={mode === 'normal' ? "rgb(255, 224, 195)" : "#aaa"} 
+            />
+            <Text style={[
+              styles.modeButtonText,
+              mode === 'normal' && styles.modeButtonTextSelected
+            ]}>
+              常规模式
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.modeButton,
+              mode === 'background-focus' && styles.modeButtonSelected
+            ]}
+            onPress={() => handleModeChange('background-focus')}
+          >
+            <MaterialIcons 
+              name="image" 
+              size={24} 
+              color={mode === 'background-focus' ? "rgb(255, 224, 195)" : "#aaa"} 
+            />
+            <Text style={[
+              styles.modeButtonText,
+              mode === 'background-focus' && styles.modeButtonTextSelected
+            ]}>
+              背景强调模式
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.modeButton,
+              mode === 'visual-novel' && styles.modeButtonSelected
+            ]}
+            onPress={() => handleModeChange('visual-novel')}
+          >
+            <MaterialIcons 
+              name="menu-book" 
+              size={24} 
+              color={mode === 'visual-novel' ? "rgb(255, 224, 195)" : "#aaa"} 
+            />
+            <Text style={[
+              styles.modeButtonText,
+              mode === 'visual-novel' && styles.modeButtonTextSelected
+            ]}>
+              视觉小说模式
+            </Text>
+          </TouchableOpacity>
+          
+          <Text style={styles.settingDescription}>
+            选择不同的对话模式可以更改聊天的显示方式。背景强调模式会限制聊天区域高度以显示更多背景，视觉小说模式则会以Galgame风格显示对话。
+          </Text>
+        </View>
 
         {/* Add custom user name setting */}
         <View style={styles.settingSection}>
@@ -647,16 +745,6 @@ export default function SettingsSidebar({
           />
         </View>
 
-        <View style={styles.settingItem}>
-          <Text style={styles.settingLabel}>关系系统</Text>
-          <Switch
-            value={isRelationshipEnabled}
-            onValueChange={handleRelationshipToggle}
-            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
-            thumbColor={isRelationshipEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
-          />
-        </View>
-
         <TouchableOpacity
           style={styles.backgroundButton}
           onPress={handleBackgroundChange}
@@ -669,10 +757,12 @@ export default function SettingsSidebar({
           <MemorySummarySettings character={selectedCharacter} updateCharacter={updateCharacter} />
         )}
 
-        {selectedCharacter && isCircleInteractionEnabled && (
-          <CircleInteractionSettings character={selectedCharacter} updateCharacter={updateCharacter} />
-        )}
-        
+        {/* Render visual novel settings when that mode is selected */}
+        <VisualNovelSettings 
+          visualNovelSettings={visualNovelSettings}
+          updateVisualNovelSettings={updateVisualNovelSettings}
+        />
+
         {/* 添加一些底部间距 */}
         <View style={styles.bottomPadding} />
       </ScrollView>
@@ -868,6 +958,45 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: 'rgb(255, 224, 195)',
     fontWeight: '600',
+  },
+  modeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  modeButtonSelected: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    borderColor: 'rgb(255, 224, 195)',
+    borderWidth: 1,
+  },
+  modeButtonText: {
+    fontSize: 16,
+    color: '#ddd',
+    marginLeft: 10,
+  },
+  modeButtonTextSelected: {
+    color: 'rgb(255, 224, 195)',
+    fontWeight: '600',
+  },
+  colorOptionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  colorOption: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginHorizontal: 5,
+    borderWidth: 1,
+    borderColor: '#555',
+  },
+  colorOptionSelected: {
+    borderColor: 'rgb(255, 224, 195)',
+    borderWidth: 3,
   },
 });
 

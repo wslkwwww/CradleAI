@@ -328,6 +328,8 @@ export interface CircleComment {
     userAvatar?: string;
     content: string;
     createdAt: string;
+    thoughts?: string;
+    response?: string;
     type: 'user' | 'character';
     replyTo?: {
         userId: string;

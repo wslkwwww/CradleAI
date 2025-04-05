@@ -16,51 +16,6 @@ serverless：客户端-存储端-函数服务端
 存储端-客户端：文件返回。
 
 
-现在后端需要：
-
-1.TTS接入R2对象存储，并且在前端加入TTS功能。
-
-**目标：** 修改 replicate-TTS 服务流程，不再从 MinIO 存储，而是从指定 URL 获取 `source_audio.mp3` 和 `source_transcript.txt`。
-
-**现有流程：**
-
-1.  **前端请求：** 前端发送包含 `templateId` 和 `tts_text` 的 JSON 请求。
-    ```json
-    {
-      "templateId": "template1",
-      "tts_text": "这是一段要转换为语音的示例文本。"
-    }
-    ```
-2.  **后端处理：**
-    *   后端接收到前端请求。
-    *   根据 `templateId` 从 MinIO 存储中查找对应的 `source_audio.mp3` 和 `source_transcript.txt`。
-    *   将 `source_audio.mp3`、`source_transcript.txt`、`tts_text` 和默认的 `task` 参数传递给 Replicate 服务。
-    *   后端期望获得 Replicate 服务的响应。
-
-**修改内容：**
-
-不再从MinIO 获取 `source_audio.mp3` 和 `source_transcript.txt` 的方式，改为从以下 URL 格式获取：
-
-```
-https://cradleintro.top/{templateId}/source_audio.mp3
-https://cradleintro.top/{templateId}/source_transcript.txt
-```
-
-**示例：**
-
-如果 `templateId` 为 "template1"，则 `source_audio.mp3` 和 `source_transcript.txt` 的 URL 如下：
-
-```
-https://cradleintro.top/template1/source_audio.mp3
-https://cradleintro.top/template1/source_transcript.txt
-```
-
-**总结：**
-
-后端需要修改从 MinIO 获取文件的逻辑，改为构建并请求指定的 URL 来获取 `source_audio.mp3` 和 `source_transcript.txt`。 其他流程保持不变，包括把返回的文件上传到minio并响应的流程，也不变
-
-
-
 
 
 
@@ -69,24 +24,35 @@ https://cradleintro.top/template1/source_transcript.txt
 朋友圈问题
 
 
-   -人称问题
-
-
    -角色发帖频率和朋友圈页面的联动问题
+   
+   -允许用户和角色在朋友圈中进行多轮互动。在多轮互动中，角色的回复必须参考的当前所在朋友圈的所有历史回复内容，以确保上下文的连续性。多轮互动适用于：
+
+       -用户回复角色的朋友圈时
+
+       -角色回复用户的朋友圈时
+
+       -用户和角色，在其他角色的朋友圈评论区，进行互相回复时
+ 
+    -角色回复时需要参考自己Character对象的jsonData属性，该属性是一个json对象，包含了角色的人物设定信息。
 
 
 TTS问题
 
+轮询机制的问题：
+
+1.轮询：
+
+如果没有收到后端响应，则发送一个post请求，期望查看当前任务的运行状态，如果服务端返回failed，则宣告任务失败。如果为waiting/starting/processing，则间隔30秒之后再Post询问一次。连续Post询问三次，无succeed结果，才最终宣告任务失败。
+
+2.如果后端收到完全一样的请求体，首先检查prediction是否还在运行中，如果是，那么等到这个prediction完毕后，再返回结果，而不是再创建一个prediction；如果缓存中存在和该请求体对应的响应，则直接返回缓存的响应
 
 
-TTS服务的中文示例音微调，TTS服务的所有示例音和transcript提供生成版本
-
-在开启tts_enhancer之后，会调用LLM基于当前的聊天消息，生成语音参数tts_text和instructions参数，这是没问题的。
-
-现在我们需要：开启tts_enhancer后，ttsService除了向服务端传递LLM生成tts_text和instructions之外，还需要再向服务端传输一个task参数，值为字符串"Instructed Voice Generation"。这样做的目的是让服务端识别这是一段需要增强的文本。
 
 
-后端：允许前端传入task值
+
+
+
 
 其他问题
 
@@ -97,37 +63,21 @@ TTS服务的中文示例音微调，TTS服务的所有示例音和transcript提�
 
 
 
-
-
-
-
-
 10.云服务：openrouter的转发，图片，tts的价格的问题。-
-
 
 
   -首先在模型计算器中，选择自己的使用习惯，需要更新对声音和图片的需求，计算出每个月的价格（充值+服务器费用）
 
-  -用户得出目标价格之后在官网充值
 
 
 
-为token_planner页面的计算器增加功能，用户输入中增加可选项为：语音生成和图片生成的需求输入（默认不选）选择后，计算结果将综合原本的模型费用计算结果，以及语音生成和图片生成的价格，得出一个每月的总价格
 
-      -语音生成运行1分钱1秒钟，运行1秒约等于生成1秒或更长音频
-
-      -图片生成运行1分钱1秒钟，生成1张图片大约5秒
-
-      -openrouter服务转发和代充值，加收5%的手续费。优点在于不用自己搭建网络环境，以及更高的并发请求数量，如果同时启用联网搜索，记忆服务，语音增强，需要多次调用大模型，而自备的api可能会经常达到速率限制。
-    
-
+画风参考和tag的实用性问题。
 
 
 
 
 网站联系信息和售后
-
-
 
 
 6.app打包
@@ -136,13 +86,25 @@ TTS服务的中文示例音微调，TTS服务的所有示例音和transcript提�
 
 新增角色类型定义：动态立绘
 
-前端摇篮页面代码新增生成动态立绘入口
+功能入口：
 
-前端在该入口，先上传角色图库中的图片，或本地相册的图片，到cd r2存储桶，用于在摇篮界面生成角色的动态立绘（需选择立绘名称）后，生成立绘，加入图库（可重新生成）
+1.摇篮页面-角色图库中，增加选项卡，可添加动态立绘
+
+2.动态立绘可从手机相册选择，或在当前图库中选择。
+
+3.顺便让现在的角色图库中的静态图片，也支持从手机上传图片。
+
+动态立绘画
+
+添加动态立绘的第一步是上传图片到cd r2存储桶
 
 理解r2存储桶的上传规则，编写相应代码。
 
-成功上传后，将url地址发送给replicate后端
+成功上传后，将图片的url地址发送给replicate后端
+
+等待replicate返回视频的url，并下载。
+
+
 
 
 replicate：
@@ -151,7 +113,7 @@ replicate：
 
 -前端传入图片将上传到cd r2存储桶，
 
--url默认为首尾帧
+-首帧和尾帧都是同一个图片url，因为我们需要的是动态立绘
 
 -新增一个luma ai的调用，传入首尾帧
 

@@ -7,6 +7,7 @@ import { Colors } from '@/constants/Colors';
 import { RegexProvider } from '@/constants/RegexContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { EventRegister } from 'react-native-event-listeners';
+import { DialogModeProvider } from '@/constants/DialogModeContext';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme() || 'light';
@@ -67,110 +68,112 @@ export default function TabLayout() {
   };
 
   return (
-    <RegexProvider>
-      <Tabs
-        screenOptions={{
-          tabBarActiveTintColor: colorTheme.tabIconSelected,
-          tabBarStyle: {
-            backgroundColor: '#282828',
-            borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          },
-          tabBarLabelStyle: {
-            fontWeight: '500',
-          },
-          headerStyle: {
-            backgroundColor: '#282828',
-          },
-          headerTitleStyle: {
-            color: 'rgb(255, 224, 195)',
-            fontWeight: 'bold',
-          },
-          headerTintColor: 'rgb(255, 224, 195)',
-        }}>
-        <Tabs.Screen
-          name="index"
-          listeners={{
-            tabPress: () => handleTabPress('index'),
-          }}
-          options={{
-            title: '聊天',
-            headerShown: false,
-            tabBarIcon: ({ color, focused }) => (
-              <View style={styles.iconContainer}>
+    <DialogModeProvider>
+      <RegexProvider>
+        <Tabs
+          screenOptions={{
+            tabBarActiveTintColor: colorTheme.tabIconSelected,
+            tabBarStyle: {
+              backgroundColor: '#282828',
+              borderTopColor: 'rgba(255, 255, 255, 0.1)',
+            },
+            tabBarLabelStyle: {
+              fontWeight: '500',
+            },
+            headerStyle: {
+              backgroundColor: '#282828',
+            },
+            headerTitleStyle: {
+              color: 'rgb(255, 224, 195)',
+              fontWeight: 'bold',
+            },
+            headerTintColor: 'rgb(255, 224, 195)',
+          }}>
+          <Tabs.Screen
+            name="index"
+            listeners={{
+              tabPress: () => handleTabPress('index'),
+            }}
+            options={{
+              title: '聊天',
+              headerShown: false,
+              tabBarIcon: ({ color, focused }) => (
+                <View style={styles.iconContainer}>
+                  <Ionicons
+                    name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
+                    size={26}
+                    color={color}
+                  />
+                  {unreadCount > 0 && (
+                    <View style={styles.badgeContainer}>
+                      <Text style={styles.badgeText}>
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ),
+            }}
+          />
+          <Tabs.Screen
+            name="explore"
+            options={{
+              title: '发现',
+              headerShown: false,
+              tabBarIcon: ({ color, focused }) => (
                 <Ionicons
-                  name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
+                  name={focused ? 'compass' : 'compass-outline'}
                   size={26}
                   color={color}
                 />
-                {unreadCount > 0 && (
-                  <View style={styles.badgeContainer}>
-                    <Text style={styles.badgeText}>
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="explore"
-          options={{
-            title: '发现',
-            headerShown: false,
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? 'compass' : 'compass-outline'}
-                size={26}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="Character"
-          options={{
-            title: '角色卡',
-            headerShown: false,
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? 'document-text' : 'document-text-outline'}
-                size={26}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="cradle"
-          options={{
-            title: '摇篮',
-            headerShown: false,
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? 'leaf' : 'leaf-outline'}
-                size={26}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="profile"
-          options={{
-            title: '我',
-            headerShown: false,
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? 'person' : 'person-outline'}
-                size={26}
-                color={color}
-              />
-            ),
-          }}
-        />
-      </Tabs>
-    </RegexProvider>
+              ),
+            }}
+          />
+          <Tabs.Screen
+            name="Character"
+            options={{
+              title: '角色卡',
+              headerShown: false,
+              tabBarIcon: ({ color, focused }) => (
+                <Ionicons
+                  name={focused ? 'document-text' : 'document-text-outline'}
+                  size={26}
+                  color={color}
+                />
+              ),
+            }}
+          />
+          <Tabs.Screen
+            name="cradle"
+            options={{
+              title: '摇篮',
+              headerShown: false,
+              tabBarIcon: ({ color, focused }) => (
+                <Ionicons
+                  name={focused ? 'leaf' : 'leaf-outline'}
+                  size={26}
+                  color={color}
+                />
+              ),
+            }}
+          />
+          <Tabs.Screen
+            name="profile"
+            options={{
+              title: '我',
+              headerShown: false,
+              tabBarIcon: ({ color, focused }) => (
+                <Ionicons
+                  name={focused ? 'person' : 'person-outline'}
+                  size={26}
+                  color={color}
+                />
+              ),
+            }}
+          />
+        </Tabs>
+      </RegexProvider>
+    </DialogModeProvider>
   );
 }
 

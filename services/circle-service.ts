@@ -211,6 +211,9 @@ export class CircleService {
         `（包含${post.images!.length}张图片）` : 
         '';
       
+      // Determine if this is the character's own post
+      const isOwnPost = character.id === post.characterId;
+      
       // Determine if replyTo is the user
       const isReplyToUser = replyTo?.userId === 'user-1';
       
@@ -219,6 +222,30 @@ export class CircleService {
         character.customUserName : 
         (replyTo?.userName || '用户');
       
+      // Extract character jsonData for added consistency
+      let characterJsonData = '';
+      try {
+        if (character.jsonData) {
+          // Parse and extract the most essential character information
+          const jsonData = JSON.parse(character.jsonData);
+          const essentialInfo = {
+            name: jsonData.name || character.name,
+            personality: jsonData.personality || character.personality,
+            background: jsonData.background || character.description,
+          };
+          characterJsonData = JSON.stringify(essentialInfo);
+        }
+      } catch (error) {
+        console.log('【朋友圈服务】提取角色jsonData失败', error);
+      }
+      
+      // NEW: Get conversation history from the post or comment thread
+      let conversationHistory = '';
+      if (replyTo) {
+        // This is a reply to a specific comment, get the conversation thread
+        conversationHistory = this.extractConversationThread(post, replyTo.userId);
+      }
+      
       if (isForwarded) {
         // Enhanced special context for forwarded posts with image indication
         context = `用户转发了${post.characterName}的朋友圈给你${imageInfo}: "${post.content}"`;
@@ -226,6 +253,16 @@ export class CircleService {
         // Add additional context for images
         if (hasImages) {
           context += `\n请特别关注图片内容，优先对图片作出回应。`;
+        }
+      } else if (isOwnPost) {
+        // This is a comment to the character's own post
+        context = post.content; // Use the original post content as context
+        
+        // If the comment comes from a user, make it explicit
+        const commentorName = character.customUserName || '用户';
+        if (!replyTo || replyTo.userId === 'user-1') {
+          // Log this special case for debugging
+          console.log(`【朋友圈服务】用户 ${commentorName} 回复了角色 ${character.name} 自己的帖子`);
         }
       } else if (replyTo) {
         // Enhanced: Reply to comment with better context including original post content
@@ -261,15 +298,24 @@ export class CircleService {
         this.updateInteractionStats(character, replyTo.userId, 'comment');
       }
       
+      // Determine the appropriate interaction type based on conversation history
+      const interactionType = conversationHistory ? 
+        'continuedConversation' : // Use new template for continued conversations
+        (replyTo ? 'replyToComment' : (isForwarded ? 'forwardedPost' : 'replyToPost'));
+      
       // Create comment options with responderId
       const commentOptions: CirclePostOptions = {
-        type: replyTo ? 'replyToComment' : (isForwarded ? 'forwardedPost' : 'replyToPost'),
+        type: interactionType as any, // Cast to allow our new type
         content: {
-          authorId: post.characterId,
-          authorName: post.characterName,
+          // 关键修改: 当用户评论角色自己的帖子时，设置authorId为'user-1'
+          authorId: isOwnPost ? 'user-1' : post.characterId,
+          // 使用用户昵称作为authorName
+          authorName: isOwnPost ? (character.customUserName || '用户') : post.characterName,
           text: comment,
           context: context,
-          images: post.images // Include any images from the post
+          images: post.images, // Include any images from the post
+          conversationHistory: conversationHistory, // Add conversation history
+          characterJsonData: characterJsonData // Add character JSON data
         },
         responderId: character.id,
         responderCharacter: character
@@ -285,7 +331,15 @@ export class CircleService {
       }
 
       // Process the interaction through NodeST with apiKey
-      return await this.getNodeST(apiKey, apiSettings).processCircleInteraction(commentOptions);
+      const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(commentOptions);
+      
+      // Log detailed response for debugging if it contains thoughts
+      if (response.success && response.thoughts) {
+        console.log(`【朋友圈服务】${character.name} 回复了用户评论，内心想法:`, 
+          response.thoughts.substring(0, 50) + (response.thoughts.length > 50 ? '...' : ''));
+      }
+      
+      return response;
     } catch (error) {
       console.error(`【朋友圈服务】评论互动处理失败 ${character.name}:`, error);
       return {
@@ -295,6 +349,86 @@ export class CircleService {
     }
   }
   
+  /**
+   * NEW: Extract conversation thread from post or comments
+   * This helps maintain context continuity in conversations
+   */
+  static extractConversationThread(post: CirclePost, commenterId: string): string {
+    try {
+      // If the post has no comments, return empty string
+      if (!post.comments || post.comments.length === 0) {
+        return '';
+      }
+      
+      // First identify the thread by finding all related comments
+      const threadComments: CircleComment[] = [];
+      
+      // Start with direct comments by the commenter
+      let commenterComments = post.comments.filter(c => c.userId === commenterId);
+      
+      // For each comment from the target user, find replies to it
+      for (const comment of commenterComments) {
+        // Add this comment to the thread
+        threadComments.push(comment);
+        
+        // Find replies to this comment
+        const replies = post.comments.filter(c => 
+          c.replyTo?.userId === comment.userId && 
+          c.createdAt > comment.createdAt
+        );
+        
+        // Add replies to the thread
+        threadComments.push(...replies);
+      }
+      
+      // Find comments the target user replied to
+      const repliedToComments = post.comments.filter(comment => {
+        return post.comments.some(reply => 
+          reply.replyTo?.userId === comment.userId && 
+          reply.userId === commenterId
+        );
+      });
+      
+      // Add those comments to the thread
+      threadComments.push(...repliedToComments);
+      
+      // Sort all thread comments by time
+      const sortedThread = threadComments
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      
+      // Remove duplicates by creating a Map with comment IDs as keys
+      const uniqueThreadMap = new Map<string, CircleComment>();
+      sortedThread.forEach(comment => uniqueThreadMap.set(comment.id, comment));
+      
+      // Convert the thread to text format
+      let threadText = Array.from(uniqueThreadMap.values())
+        .map((comment, index) => {
+          const replyPrefix = comment.replyTo ? `回复${comment.replyTo.userName}: ` : '';
+          return `${index + 1}. ${comment.userName}: ${replyPrefix}${comment.content}`;
+        })
+        .join('\n');
+      
+      // If thread is too long, trim it to last 5 messages
+      if (uniqueThreadMap.size > 5) {
+        const lastComments = Array.from(uniqueThreadMap.values()).slice(-5);
+        threadText = lastComments
+          .map((comment, index) => {
+            const replyPrefix = comment.replyTo ? `回复${comment.replyTo.userName}: ` : '';
+            return `${index + 1}. ${comment.userName}: ${replyPrefix}${comment.content}`;
+          })
+          .join('\n');
+        
+        // Add note that this is truncated
+        threadText = `(较早的对话已省略)\n${threadText}`;
+      }
+      
+      return threadText;
+    } catch (error) {
+      console.error('提取对话线程失败:', error);
+      return '';
+    }
+  }
+
   // 新增：处理对评论的回复
   static async replyToComment(
     character: Character,
@@ -378,7 +512,8 @@ export class CircleService {
   static updatePostWithResponse(
     post: CirclePost, 
     character: Character, 
-    response: CircleResponse
+    response: CircleResponse,
+    replyTo?: { userId: string, userName: string } // Add replyTo parameter
   ): { updatedPost: CirclePost, updatedTargetCharacter?: Character } {
     if (!response.success || !response.action) {
       return { updatedPost: post };
@@ -430,7 +565,9 @@ export class CircleService {
         userAvatar: character.avatar as string,
         content: response.action.comment,
         createdAt: new Date().toISOString(),
-        type: 'character'
+        type: 'character',
+        // Add replyTo information if this is a reply to a specific comment
+        ...(replyTo ? { replyTo: { userId: replyTo.userId, userName: replyTo.userName } } : {})
       };
       
       updatedPost.comments = [...(updatedPost.comments || []), newComment];
@@ -745,10 +882,6 @@ export class CircleService {
     
     return updatedCharacter;
   }
-
-  // Add method for user posts - adding more detailed implementation
-  // Modify the createUserPost method to accept characters as a parameter
-
 
   /**
    * Delete a post and update related data

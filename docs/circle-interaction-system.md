@@ -1,5 +1,11 @@
 # 更新日志
 
+## v1.3.0 (最新版本)
+- 增加多轮互动支持，角色可持续参与对话线程
+- 添加上下文连续性机制，确保对话前后一致
+- 强化角色一致性，利用jsonData保持角色设定完整
+- 新增可专为多轮对话优化的提示词模板
+
 # 开发规范
 
 为确保系统的一致性和可维护性，我们规定**所有**基于AI对话的扩展工具和功能**必须**使用`PromptBuilderService`构建请求体，并遵循以下规范：
@@ -50,14 +56,14 @@ const entry = {
 ## 2. 系统架构
 
 系统采用三层架构设计：
-1. **UI 层**：Explore 页面、SettingsSidebar 组件、CircleManager 组件
+1. **UI 层**：Explore 页面、CharacterInteractionSettings组件
 2. **服务层**：CircleService、CircleScheduler
 3. **核心层**：NodeST 的 CircleManager 实现
 
 ```mermaid
 graph TD
     A[Explore 页面] -->|事件触发| B[CircleService]
-    F[SettingsSidebar] -->|角色配置| B
+    F[Explore页面] -->|朋友圈配置| B
     B -->|API调用| C[NodeST Core]
     C -->|状态更新| B
     B -->|UI更新| A
@@ -588,3 +594,80 @@ export const CircleManager = () => {
 - 帖子创建与互动
 - Gemini API 支持
 - 角色设置界面
+
+## 14. 多轮互动与上下文连续性
+
+朋友圈系统现已支持完整的多轮对话互动，包括以下核心功能：
+
+### 14.1 对话线程提取
+
+系统能自动从朋友圈帖子中提取相关的对话线程，确保上下文连贯：
+
+```typescript
+// 提取某用户参与的所有相关评论，形成对话线程
+const threadComments = CircleService.extractConversationThread(post, userId);
+```
+
+### 14.2 角色记忆与上下文
+
+角色在回复时会考虑以下上下文信息：
+1. **历史对话内容** - 当前帖子下的相关历史对话
+2. **角色设定信息** - 从 character.jsonData 提取的核心设定
+3. **情境感知能力** - 区分不同对话场景(评论原帖/回复评论)
+
+### 14.3 多轮互动场景
+
+系统支持以下多轮互动场景：
+
+1. **用户-角色对话**
+   - 用户评论角色帖子 → 角色回复 → 用户再回复 → 角色持续对话
+   - 系统传递完整对话历史，确保对话连贯性
+
+2. **角色-角色对话**
+   - 角色A发帖 → 角色B评论 → 角色A回复 → 角色B继续对话
+   - 每次回复都基于完整对话历史
+
+3. **多人对话**
+   - 在同一个帖子下，多个角色和用户可同时参与讨论
+   - 系统智能区分回复对象，保持对话关系清晰
+
+### 14.4 互动模板优化
+
+为支持多轮对话，新增了专门的对话模板：
+
+```typescript
+CirclePrompts.continuedConversation(params)
+```
+
+该模板具有以下特性：
+- 完整包含历史对话记录
+- 清晰标记当前回复对象
+- 注入角色设定信息确保性格一致性
+- 优化提示词结构，确保回复与历史语境一致
+
+### 14.5 实现示例
+
+以下是一个完整的多轮对话示例：
+
+```typescript
+// 用户对角色帖子的初次评论
+const response1 = await CircleService.processCommentInteraction(
+  character,
+  post, 
+  "我觉得你说得很有道理",
+  apiKey,
+  apiSettings
+);
+
+// 用户对角色回复的二次回复
+const response2 = await CircleService.processCommentInteraction(
+  character,
+  post,
+  "能详细解释一下吗？",
+  apiKey,
+  { userId: character.id, userName: character.name }, // 回复角色的上一条评论
+  apiSettings
+);
+
+// 系统会自动提取这两次互动的内容，形成对话线程
+// 角色的第二次回复会参考完整的对话上下文

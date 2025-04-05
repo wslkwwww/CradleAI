@@ -11,6 +11,7 @@ export interface CirclePost {
   images?: string[];
   createdAt: string;
   comments: CircleComment[];
+  thoughts?: string;
   likes: number;
   hasLiked: boolean;
   likedBy?: CircleLike[];
@@ -90,13 +91,15 @@ export interface CircleRFramework {
 }
 
 export interface CirclePostOptions {
-    type: 'newPost' | 'replyToComment' | 'replyToPost' | 'forwardedPost'  // Added 'forwardedPost'
+    type: 'newPost' | 'replyToComment' | 'replyToPost' | 'forwardedPost' | 'continuedConversation'  // Added new types
     content: {
         authorId: string;
         authorName?: string;  
         text: string;
         context?: string;
         images?: string[];  // Add support for images array
+        conversationHistory?: string; // NEW: Add support for conversation history
+        characterJsonData?: string;   // NEW: Add support for character JSON data
     };
     responderId: string; 
     responderCharacter?: Character;
@@ -118,6 +121,8 @@ export interface CircleResponse {
         strengthDelta: number;
         newType?: string;
     }>;
+    thoughts?: string;
+    response?: string;  // Add this field to handle new response content
     reflection?: string;
     expectation?: string;
     post?: string;  // Add this field to handle new post content

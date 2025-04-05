@@ -43,7 +43,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     <View style={styles.overlay}>
       <BlurView style={styles.sidebar} intensity={30} tint="dark">
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>聊天</Text>
+          <Text style={styles.headerTitle}>窗口</Text>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
@@ -87,7 +87,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               <View style={styles.conversationDetails}>
                 <Text style={styles.conversationName}>{item.name}</Text>
                 <Text style={styles.conversationPreview} numberOfLines={1}>
-                  {item.type || "AI角色"}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -101,17 +100,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             ) : null
           }
         />
-
-        <TouchableOpacity 
-          style={styles.createButton}
-          onPress={() => {
-            router.push('/pages/create_char');
-            onClose();
-          }}
-        >
-          <Ionicons name="add" size={24} color="#fff" />
-          <Text style={styles.createButtonText}>创建新角色</Text>
-        </TouchableOpacity>
       </BlurView>
     </View>
   ) : null;
@@ -123,7 +111,7 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   sidebar: {
-    width: '80%',
+    width: '45%',
     height: '100%',
     backgroundColor: 'rgba(30, 30, 30, 0.9)',
     paddingTop: StatusBar.currentHeight || 0,
