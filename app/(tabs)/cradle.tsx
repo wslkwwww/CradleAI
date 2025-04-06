@@ -1293,12 +1293,14 @@ const handleSetAsAvatar = async (imageId: string) => {
     // Determine if character is manually uploaded or AI-generated
     const isTagGenerated = character.generationData?.appearanceTags !== undefined;
     
+    const isSelected = selectedCharacter?.id === character.id;
+    
     return (
       <View key={character.id} style={styles.characterCardWrapper}>
         <TouchableOpacity 
           style={[
             styles.characterCard,
-            selectedCharacter?.id === character.id && styles.selectedCharacterCard
+            isSelected && styles.selectedCharacterCard
           ]}
           onPress={() => {
             setSelectedCharacter(character);
@@ -1344,81 +1346,73 @@ const handleSetAsAvatar = async (imageId: string) => {
               
             </LinearGradient>
             
-            {/* Action buttons overlay - positioned at bottom */}
-            <View style={styles.characterCardActionsOverlay}>
-              <LinearGradient
-                colors={['transparent', 'rgba(0,0,0,0.8)']}
-                style={styles.actionsGradient}
-              >
-                <View style={styles.characterCardActions}>
-                  {/* Edit button */}
-                  <TouchableOpacity
-                    style={styles.imageActionButton}
-                    onPress={() => {
-                      // Check if character is editable
-                      const isEditable = !!(character.isCradleGenerated === true || 
-                                            character.isDialogEditable === true || 
-                                            (character.jsonData && character.jsonData.length > 0));
-                                            
-                      if (isEditable) {
-                        // Set the editing character and show edit dialog
-                        if (character.jsonData && character.jsonData.length > 0) {
-                          try {
-                            const parsedJson = JSON.parse(character.jsonData);
-                            if (!parsedJson.roleCard || !parsedJson.worldBook) {
-                              throw new Error('JSON数据缺少必要的结构');
+            {/* Action buttons overlay - positioned at bottom, only show when selected */}
+            {isSelected && (
+              <View style={styles.characterCardActionsOverlay}>
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.8)']}
+                  style={styles.actionsGradient}
+                >
+                  <View style={styles.characterCardActions}>
+                    {/* Edit button */}
+                    <TouchableOpacity
+                      style={[styles.imageActionButton, styles.transparentButton]}
+                      onPress={() => {
+                        // Check if character is editable
+                        const isEditable = !!(character.isCradleGenerated === true || 
+                                              character.isDialogEditable === true || 
+                                              (character.jsonData && character.jsonData.length > 0));
+                                              
+                        if (isEditable) {
+                          // Set the editing character and show edit dialog
+                          if (character.jsonData && character.jsonData.length > 0) {
+                            try {
+                              const parsedJson = JSON.parse(character.jsonData);
+                              if (!parsedJson.roleCard || !parsedJson.worldBook) {
+                                throw new Error('JSON数据缺少必要的结构');
+                              }
+                              setEditingCharacter(character);
+                              setShowEditDialog(true);
+                            } catch (error) {
+                              Alert.alert(
+                                "角色数据格式错误",
+                                "角色的JSON数据格式不正确，无法编辑。错误：" + (error instanceof Error ? error.message : String(error)),
+                                [{ text: "确定", style: "default" }]
+                              );
                             }
-                            setEditingCharacter(character);
-                            setShowEditDialog(true);
-                          } catch (error) {
+                          } else {
                             Alert.alert(
-                              "角色数据格式错误",
-                              "角色的JSON数据格式不正确，无法编辑。错误：" + (error instanceof Error ? error.message : String(error)),
+                              "数据不完整",
+                              "该角色缺少必要的数据，无法编辑。请尝试先完成角色培育。",
                               [{ text: "确定", style: "default" }]
                             );
                           }
                         } else {
                           Alert.alert(
-                            "数据不完整",
-                            "该角色缺少必要的数据，无法编辑。请尝试先完成角色培育。",
-                            [{ text: "确定", style: "default" }]
+                            "角色尚未生成",
+                            "请先完成角色培育并生成，然后才能通过对话修改角色数据。",
+                            [{ text: "了解", style: "default" }]
                           );
                         }
-                      } else {
-                        Alert.alert(
-                          "角色尚未生成",
-                          "请先完成角色培育并生成，然后才能通过对话修改角色数据。",
-                          [{ text: "了解", style: "default" }]
-                        );
-                      }
-                    }}
-                  >
-                    <Ionicons name="brush-outline" size={18} color="#fff" />
-                  </TouchableOpacity>
-                  
-                  {/* Image regeneration button */}
-                  <TouchableOpacity
-                    style={styles.imageActionButton}
-                    onPress={() => {
-                      setSelectedCharacter(character);
-                      setShowImageModal(true);
-                    }}
-                  >
-                    <Ionicons name="refresh-outline" size={18} color="#fff" />
-                  </TouchableOpacity>
-                  
-
-                  
-                  {/* Delete button */}
-                  <TouchableOpacity
-                    style={styles.imageActionButton}
-                    onPress={() => handleDeleteCharacter(character)}
-                  >
-                    <Ionicons name="trash-outline" size={18} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              </LinearGradient>
-            </View>
+                      }}
+                    >
+                      <Ionicons name="brush-outline" size={18} color="#fff" />
+                    </TouchableOpacity>
+                    
+                    {/* Image regeneration button */}
+                    <TouchableOpacity
+                      style={[styles.imageActionButton, styles.transparentButton]}
+                      onPress={() => {
+                        setSelectedCharacter(character);
+                        setShowImageModal(true);
+                      }}
+                    >
+                      <Ionicons name="refresh-outline" size={18} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       </View>
@@ -2219,7 +2213,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(80, 80, 80, 0.8)',
     alignItems: 'center',
     justifyContent: 'center',
-    width: ((SCREEN_WIDTH - 48) / 2 - 20) / 5, // Distribute buttons evenly
+    width: ((SCREEN_WIDTH - 48) / 2 - 20) / 3, // Distribute buttons evenly (updated for 2 buttons)
+  },
+  transparentButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   regenerateButton: {
     backgroundColor: 'rgba(138, 43, 226, 0.6)',

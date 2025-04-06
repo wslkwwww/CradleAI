@@ -366,7 +366,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 
       // 发送请求到图片生成服务，并携带许可证信息
       console.log(`[图片重生成] 正在向服务器发送请求...`);
-      const response = await fetch(`${IMAGE_SERVICE_BASE_URL}/generate`, {
+      const response = await fetch(`${IMAGE_SERVICE_BASE_URL}/api/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -411,9 +411,10 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       let isSuccess = false;
 
       // 判断响应是否成功的条件 - 更加宽松和适应不同格式
-      if (data.success === true || data.status === 'success' || data.task_id || data.taskId) {
+      if (data.success === true) {
         isSuccess = true;
-        taskId = data.task_id || data.taskId || '';
+        // 修复: 确保正确从data.data中获取taskId
+        taskId = data.data?.taskId || '';
         console.log(`[图片重生成] 任务提交成功，ID: ${taskId}`);
       } else if (data.error) {
         console.error(`[图片重生成] 请求失败: ${data.error}`);
@@ -444,11 +445,9 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         onSuccess(completedImage);
         onClose();
         return;
-      } else {
-        console.error(`[图片重生成] 服务器响应格式异常:`, data);
-        throw new Error('服务器响应格式异常，无法识别任务状态');
       }
 
+      // 检查taskId是否存在
       if (isSuccess && taskId) {
         const generationConfig = {
           positiveTags: positiveTags,
@@ -489,7 +488,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         
         return;
       } else {
-        throw new Error('未能获取有效的任务ID');
+        throw new Error('未能获取有效的任务ID，服务器返回的数据格式不正确');
       }
     } catch (error) {
       console.error('[图片重生成] 生成失败:', error);
@@ -519,9 +518,10 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           ...(licenseHeaders || {})
         };
         
+        // 更新API端点路径适应新的后端
         let response;
         try {
-          response = await fetch(`${IMAGE_SERVICE_BASE_URL}/task_status/${taskId}`, {
+          response = await fetch(`${IMAGE_SERVICE_BASE_URL}/api/generate/task/${taskId}`, {
             headers: headers
           });
           
@@ -553,39 +553,19 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           }
         }
         
-        let isDone = false;
-        let isSuccess = false;
-        let imageUrl = null;
-        let errorMessage = null;
+        // 适应新的API响应格式
+        const taskData = data.data || {};
+        const status = taskData.status || '';
         
-        if (data.done === true || data.status === 'completed' || data.completed === true) {
-          isDone = true;
-        }
+        // 判断任务是否完成
+        const isDone = status === 'succeeded' || status === 'failed' || taskData.completedAt;
+        const isSuccess = status === 'succeeded';
+        const imageUrls = taskData.urls || [];
+        const imageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+        const errorMessage = taskData.error || null;
         
-        if (data.success === true || data.status === 'success') {
-          isSuccess = true;
-        }
-        
-        if (data.image_url) {
-          imageUrl = data.image_url;
-        } else if (data.url) {
-          imageUrl = data.url;
-        } else if (data.images && Array.isArray(data.images) && data.images.length > 0) {
-          imageUrl = data.images[0];
-        } else if (data.urls && Array.isArray(data.urls) && data.urls.length > 0) {
-          imageUrl = data.urls[0];
-        } else if (data.output && typeof data.output === 'string') {
-          imageUrl = data.output;
-        }
-        
-        if (data.error) {
-          errorMessage = data.error;
-        } else if (data.message && !isSuccess) {
-          errorMessage = data.message;
-        }
-        
-        if (isDone || isSuccess || imageUrl) {
-          if (imageUrl) {
+        if (isDone) {
+          if (isSuccess && imageUrl) {
             console.log(`[图片重生成] 图像生成成功: ${imageUrl}`);
             
             const completedImage: CharacterImage = {
@@ -635,53 +615,12 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             
             onSuccess(failedImage);
             return;
-          } else if (isDone) {
-            console.warn(`[图片重生成] 任务标记为完成，但未返回图片URL`);
-            
-            try {
-              const directUrlResponse = await fetch(`${IMAGE_SERVICE_BASE_URL}/task_result/${taskId}`, {
-                headers: headers
-              });
-              
-              if (directUrlResponse.ok) {
-                const urlData = await directUrlResponse.json();
-                if (urlData.url || urlData.image_url || (urlData.urls && urlData.urls.length > 0)) {
-                  const finalUrl = urlData.url || urlData.image_url || urlData.urls[0];
-                  console.log(`[图片重生成] 通过直接查询获取到图片URL: ${finalUrl}`);
-                  
-                  const completedImage: CharacterImage = {
-                    id: imageId,
-                    url: finalUrl,
-                    characterId: characterId,
-                    createdAt: Date.now(),
-                    tags: {
-                      positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
-                      negative: negativeTags,
-                    },
-                    isFavorite: false,
-                    generationStatus: 'success',
-                    generationTaskId: undefined,
-                    setAsBackground: replaceBackground,
-                    isAvatar: false,
-                    generationConfig: {
-                      positiveTags: positiveTags,
-                      negativeTags: negativeTags,
-                      artistPrompt: selectedArtistPrompt,
-                      customPrompt: customPrompt.trim().replace(/, /g, ','),
-                      useCustomPrompt: useCustomPrompt
-                    }
-                  };
-                  
-                  onSuccess(completedImage);
-                  return;
-                }
-              }
-              
-              console.log(`[图片重生成] 直接查询未返回URL，继续检查状态`);
-            } catch (directError) {
-              console.warn(`[图片重生成] 直接查询图片URL失败:`, directError);
-            }
+          } else {
+            console.warn(`[图片重生成] 任务标记为完成，但未返回图片URL或错误信息`);
           }
+        } else {
+          // 任务仍在处理中，显示状态
+          console.log(`[图片重生成] 任务状态: ${status}`);
         }
         
         retries++;

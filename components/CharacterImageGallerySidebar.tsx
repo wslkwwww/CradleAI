@@ -32,7 +32,7 @@ interface CharacterImageGallerySidebarProps {
   onToggleFavorite: (imageId: string) => void;
   onDelete: (imageId: string) => void;
   onSetAsBackground: (imageId: string) => void;
-  onSetAsAvatar?: (imageId: string) => void; // Add this new prop
+  onSetAsAvatar?: (imageId: string) => void;
   isLoading?: boolean;
   character: CradleCharacter;
   onAddNewImage?: (newImage: CharacterImage) => void;
@@ -44,7 +44,7 @@ interface CharacterImageGallerySidebarProps {
   };
 }
 
-const imageSize = (width * 0.75 - 64) / 2; // 2 images per row in the sidebar
+const imageSize = (width * 0.75 - 64) / 2;
 
 const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> = ({
   visible,
@@ -53,7 +53,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   onToggleFavorite,
   onDelete,
   onSetAsBackground,
-  onSetAsAvatar, // Add the new prop here
+  onSetAsAvatar,
   isLoading = false,
   character,
   onAddNewImage
@@ -66,36 +66,21 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [activeImage, setActiveImage] = useState<CharacterImage | null>(null);
   const { user } = useUser();
-  
-  // Add state for image cropping
   const [showCropper, setShowCropper] = useState(false);
   const [cropImageUri, setCropImageUri] = useState<string | null>(null);
   const [pendingAvatarImageId, setPendingAvatarImageId] = useState<string | null>(null);
-  
-  // Add state variable to track updates and force re-renders
   const [updateCounter, setUpdateCounter] = useState(0);
   const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(Date.now());
-
-  // New state for image regeneration
   const [showRegenerationModal, setShowRegenerationModal] = useState(false);
   const [regenerationImageConfig, setRegenerationImageConfig] = useState<any>(null);
-
-  // New state for tracking downloads
   const [downloadingImages, setDownloadingImages] = useState<Record<string, boolean>>({});
-
-  // Get API key for image editing
   const apiKey = user?.settings?.chat?.characterApiKey || '';
-  
-  // Create a combined image array that includes initial character images
+
   const allImages = useMemo(() => {
-    console.log(`[图库侧栏] 计算图库内容 (更新计数: ${updateCounter}), 图像数量: ${images.length}`);
-    
     let combinedImages = [...images];
-    
-    // Add character avatar as the first image if it exists and isn't already in the gallery
     if (character.avatar && !images.some(img => img.url === character.avatar || img.localUri === character.avatar)) {
       const avatarImage: CharacterImage = {
-        id: `avatar_${character.id}_${lastUpdateTimestamp}`, // Add timestamp for uniqueness
+        id: `avatar_${character.id}_${lastUpdateTimestamp}`,
         url: character.avatar,
         localUri: character.avatar,
         characterId: character.id,
@@ -105,13 +90,13 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       };
       combinedImages.unshift(avatarImage);
     }
-    
-    // Add background image if it exists and isn't already in the gallery
-    if (character.backgroundImage && 
-        !images.some(img => img.url === character.backgroundImage || img.localUri === character.backgroundImage) &&
-        character.backgroundImage !== character.avatar) {
+    if (
+      character.backgroundImage &&
+      !images.some(img => img.url === character.backgroundImage || img.localUri === character.backgroundImage) &&
+      character.backgroundImage !== character.avatar
+    ) {
       const bgImage: CharacterImage = {
-        id: `bg_${character.id}_${lastUpdateTimestamp}`, // Add timestamp for uniqueness
+        id: `bg_${character.id}_${lastUpdateTimestamp}`,
         url: character.backgroundImage,
         localUri: character.backgroundImage,
         characterId: character.id,
@@ -122,55 +107,29 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       };
       combinedImages.unshift(bgImage);
     }
-    
-    // Critical fix: Process pending images that actually have a URL
-    // This fixes images stuck in pending state even though they're generated
     combinedImages = combinedImages.map(img => {
-      // If image is marked as pending but already has a URL/URI, it's actually completed
       if (img.generationStatus === 'pending' && (img.url || img.localUri)) {
-        console.log(`[图库侧栏] 发现已有URL的待处理图像，修正状态:`, img.id);
         return {
           ...img,
           generationStatus: 'success',
-          // Clear task ID to prevent repeated checking
           generationTaskId: undefined
         };
       }
       return img;
     });
-    
-    // Also filter out any pending images with missing generationTaskId
-    combinedImages = combinedImages.filter(img => 
-      !(img.generationStatus === 'pending' && !img.generationTaskId)
+    combinedImages = combinedImages.filter(
+      img => !(img.generationStatus === 'pending' && !img.generationTaskId)
     );
-    
-    // Find and log any remaining pending images
-    const pendingImages = combinedImages.filter(img => img.generationStatus === 'pending');
-    if (pendingImages.length > 0) {
-      console.log(`[图库侧栏] 发现 ${pendingImages.length} 个待处理图像`);
-    }
-    
     return combinedImages;
   }, [images, character.avatar, character.backgroundImage, updateCounter, lastUpdateTimestamp]);
-  
-  // Ensure UI refreshes when images or character changes
+
   useEffect(() => {
-    console.log('[图库侧栏] 图像数据已更新, 总数:', images.length);
-    
-    // Update timestamp to force useMemo recalculation
     setLastUpdateTimestamp(Date.now());
-    
-    // Increment the update counter to trigger re-renders
     setUpdateCounter(prev => prev + 1);
   }, [images, character.avatar, character.backgroundImage]);
-  
+
   useEffect(() => {
     if (visible) {
-      console.log('[图库侧栏] 侧栏变为可见，刷新内容');
-      
-      // Force refresh when sidebar becomes visible
-      setUpdateCounter(prev => prev + 1);
-      
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 300,
@@ -185,44 +144,22 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   }, [visible, slideAnim]);
 
-  // Add this function to ensure each image has a local version
   const ensureLocalImages = async () => {
     if (!images || images.length === 0) return;
-    
-    // Check for images that have a URL but no local URI
     const imagesNeedingLocalStorage = images.filter(
       img => img.url && (!img.localUri || img.localUri.startsWith('http')) && img.generationStatus !== 'pending'
     );
-    
     if (imagesNeedingLocalStorage.length === 0) return;
-    
-    console.log(`[图库侧栏] 发现 ${imagesNeedingLocalStorage.length} 个图像需要保存到本地`);
-    
-    // Process each image that needs downloading
     for (const image of imagesNeedingLocalStorage) {
-      // Skip if already downloading this image
       if (downloadingImages[image.id]) continue;
-      
       setDownloadingImages(prev => ({ ...prev, [image.id]: true }));
-      
       try {
-        console.log(`[图库侧栏] 正在下载图像: ${image.id}`);
-        const localUri = await downloadAndSaveImage(
-          image.url,
-          image.characterId,
-          'gallery'
-        );
-        
+        const localUri = await downloadAndSaveImage(image.url, image.characterId, 'gallery');
         if (localUri) {
-          console.log(`[图库侧栏] 图像已保存到本地: ${localUri}`);
-          
-          // Update the image with local URI
           const updatedImage = {
             ...image,
             localUri
           };
-          
-          // Notify parent component of update
           if (onAddNewImage) {
             onAddNewImage(updatedImage);
           }
@@ -235,7 +172,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   };
 
-  // Call the function whenever images change
   useEffect(() => {
     if (visible) {
       ensureLocalImages();
@@ -246,43 +182,29 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     setSelectedImage(image);
     setShowEditor(true);
   };
-  
+
   const handleEditSuccess = (newImage: CharacterImage) => {
     if (onAddNewImage) {
       onAddNewImage(newImage);
     }
     setShowEditor(false);
   };
-  
-  // Modify the handleViewImage function to download if needed
+
   const handleViewImage = async (image: CharacterImage) => {
-    // If image has URL but no local URI, download it first
     if (image.url && (!image.localUri || image.localUri.startsWith('http')) && !downloadingImages[image.id]) {
       setDownloadingImages(prev => ({ ...prev, [image.id]: true }));
-      
       try {
-        const localUri = await downloadAndSaveImage(
-          image.url,
-          image.characterId,
-          'gallery'
-        );
-        
+        const localUri = await downloadAndSaveImage(image.url, image.characterId, 'gallery');
         if (localUri) {
-          // Update the image with local URI
           const updatedImage = {
             ...image,
             localUri
           };
-          
-          // Notify parent component of update
           if (onAddNewImage) {
             onAddNewImage(updatedImage);
           }
-          
-          // Use the local URI for viewing
           setFullImageUri(localUri);
         } else {
-          // If download fails, use the remote URL
           setFullImageUri(image.url);
         }
       } catch (error) {
@@ -292,20 +214,16 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
         setDownloadingImages(prev => ({ ...prev, [image.id]: false }));
       }
     } else {
-      // Use existing URI
       setFullImageUri(image.localUri || image.url);
     }
-    
     setShowFullImage(true);
   };
 
-  // Show image options menu
   const showImageOptions = (image: CharacterImage) => {
     setActiveImage(image);
     setShowOptionsMenu(true);
   };
 
-  // Modify the handleSetAsAvatar function to show cropper first
   const handleSetAsAvatar = (imageId: string) => {
     const image = allImages.find(img => img.id === imageId);
     if (image) {
@@ -316,7 +234,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   };
 
-  // Add handler for crop completion
   const handleCropComplete = (croppedUri: string) => {
     if (pendingAvatarImageId && onSetAsAvatar) {
       onSetAsAvatar(pendingAvatarImageId);
@@ -326,11 +243,8 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   };
 
-  // Add new function to handle image regeneration
   const handleRegenerateImage = (image: CharacterImage) => {
-    // Check if image has tags or generation config
     if (image.generationConfig || (image.tags && (image.tags.positive || image.tags.negative))) {
-      // Prepare configuration for regeneration
       const config = {
         positiveTags: image.generationConfig?.positiveTags || image.tags?.positive || [],
         negativeTags: image.generationConfig?.negativeTags || image.tags?.negative || [],
@@ -338,11 +252,9 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
         customPrompt: image.generationConfig?.customPrompt || '',
         useCustomPrompt: image.generationConfig?.useCustomPrompt || false
       };
-      
       setRegenerationImageConfig(config);
       setShowRegenerationModal(true);
     } else {
-      // No configuration found, show warning
       Alert.alert(
         "无法重新生成",
         "该图像没有关联的生成配置，无法继续重新生成。请使用创建新图像功能。",
@@ -351,12 +263,9 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   };
 
-  // Add new function to save image to device
   const handleSaveImageToDevice = async (image: CharacterImage) => {
     try {
-      // Request permissions first
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      
       if (status !== 'granted') {
         Alert.alert(
           "权限被拒绝",
@@ -365,17 +274,12 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
         );
         return;
       }
-      
       const imageUri = image.localUri || image.url;
       if (!imageUri) {
         Alert.alert("错误", "图片URI无效");
         return;
       }
-
-      // Show loading indicator
       Alert.alert("正在保存...", "请等待图片保存完成");
-      
-      // Download image if it's a remote URL
       let localUri = imageUri;
       if (imageUri.startsWith('http')) {
         try {
@@ -391,28 +295,21 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           return;
         }
       }
-      
       try {
-        // Save to media library
         const asset = await MediaLibrary.createAssetAsync(localUri);
-        
-        // Create album if needed and add to it
         let album = await MediaLibrary.getAlbumAsync("AI伙伴");
         if (album === null) {
           await MediaLibrary.createAlbumAsync("AI伙伴", asset, false);
         } else {
           await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
         }
-        
         Alert.alert(
-          "保存成功", 
+          "保存成功",
           "图片已保存到您的相册中的'AI伙伴'相册",
           [{ text: "太好了", style: "default" }]
         );
       } catch (saveError) {
         console.error("保存到媒体库失败:", saveError);
-        
-        // Try alternative sharing method if available
         if (Platform.OS !== 'web' && await Sharing.isAvailableAsync()) {
           try {
             await Sharing.shareAsync(localUri, {
@@ -441,17 +338,17 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       );
     }
   };
-  
+
   if (!visible) return null;
-  
+
   return (
     <View style={styles.overlay}>
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.overlayBackdrop}
         activeOpacity={1}
         onPress={onClose}
       />
-      
+
       <Animated.View
         style={[
           styles.sidebar,
@@ -460,14 +357,14 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>角色图库</Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.closeButton}
             onPress={onClose}
           >
             <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
-        
+
         <View style={styles.content}>
           {isLoading ? (
             <View style={styles.loadingContainer}>
@@ -483,12 +380,12 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           ) : (
             <FlatList
               data={allImages}
-              key={`gallery-${updateCounter}`} // Add key to force re-render on update
-              keyExtractor={(item) => `${item.id}-${updateCounter}`} // Include update counter for unique keys
+              key={`gallery-${updateCounter}`}
+              keyExtractor={(item) => `${item.id}-${updateCounter}`}
               numColumns={2}
               contentContainerStyle={styles.galleryContainer}
-              extraData={updateCounter} // Make sure FlatList rerenders when this changes
-              initialNumToRender={6} // Optimize initial rendering
+              extraData={updateCounter}
+              initialNumToRender={6}
               maxToRenderPerBatch={10}
               renderItem={({ item }) => (
                 <View style={styles.imageCard}>
@@ -502,85 +399,52 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                         <Text style={styles.pendingText}>生成中...</Text>
                       </View>
                     ) : downloadingImages[item.id] ? (
-                      // Add loading indicator for downloading images
                       <View style={styles.pendingImageContainer}>
                         <ActivityIndicator size="small" color="#fff" />
                         <Text style={styles.pendingText}>下载中...</Text>
                       </View>
                     ) : (
-                      <Image 
+                      <Image
                         source={{ uri: item.localUri || item.url }}
                         style={styles.thumbnail}
                         resizeMode="cover"
                         onError={(e) => console.log(`[图库侧栏] 加载图片失败: ${item.id}`, e.nativeEvent.error)}
                       />
                     )}
-                    
+
                     {item.isAvatar && (
                       <View style={styles.imageTypeOverlay}>
                         <Text style={styles.imageTypeText}>头像</Text>
                       </View>
                     )}
-                    
+
                     {item.isDefaultBackground && (
                       <View style={styles.imageTypeOverlay}>
                         <Text style={styles.imageTypeText}>背景</Text>
                       </View>
                     )}
-                    
+
                     {item.isFavorite && (
                       <View style={styles.favoriteOverlay}>
                         <Ionicons name="heart" size={18} color="#FF6B6B" />
                       </View>
                     )}
-                    
-                    {/* Add View button overlay */}
-                    <View style={styles.viewButtonOverlay}>
+
+                    {item.generationStatus !== 'pending' && !downloadingImages[item.id] && (
                       <TouchableOpacity
-                        style={styles.viewButton}
-                        onPress={() => handleViewImage(item)}
-                      >
-                        <Ionicons name="eye-outline" size={16} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                  </TouchableOpacity>
-                  
-                  {/* Only show actions for non-pending images */}
-                  {item.generationStatus !== 'pending' && !downloadingImages[item.id] && (
-                    <View style={styles.imageActions}>
-                      {/* Restore the edit button */}
-                      <TouchableOpacity
-                        style={styles.imageActionButton}
-                        onPress={() => handleEdit(item)}
-                      >
-                        <Ionicons name="brush-outline" size={18} color="#fff" />
-                      </TouchableOpacity>
-                      
-                      {/* Regenerate button - new */}
-                      <TouchableOpacity
-                        style={[styles.imageActionButton, styles.regenerateButton]}
-                        onPress={() => handleRegenerateImage(item)}
-                      >
-                        <Ionicons name="refresh-outline" size={18} color="#fff" />
-                      </TouchableOpacity>
-                      
-                      {/* Options menu button */}
-                      <TouchableOpacity
-                        style={styles.imageActionButton}
+                        style={styles.optionsButtonOverlay}
                         onPress={() => showImageOptions(item)}
                       >
-                        <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
+                        <View style={styles.optionsButton}>
+                          <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
+                        </View>
                       </TouchableOpacity>
-                    </View>
-                  )}
+                    )}
+                  </TouchableOpacity>
                 </View>
               )}
               onRefresh={() => {
-                // Don't trigger refresh operation during loading
                 if (isLoading) return;
-                
-                // Manual refresh handler
-                console.log('[图库侧栏] 手动刷新图库');
                 setUpdateCounter(prev => prev + 1);
               }}
               refreshing={isLoading}
@@ -588,8 +452,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           )}
         </View>
       </Animated.View>
-      
-      {/* Image Editor Modal */}
+
       {selectedImage && (
         <ImageEditorModal
           visible={showEditor}
@@ -599,13 +462,11 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           apiKey={apiKey}
           onSuccess={(newImage) => {
             handleEditSuccess(newImage);
-            // Force gallery refresh after editing
             setUpdateCounter(prev => prev + 1);
           }}
         />
       )}
 
-      {/* Full Image Viewer Modal */}
       <Modal
         visible={showFullImage}
         transparent={true}
@@ -619,7 +480,7 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           >
             <Ionicons name="close" size={28} color="#fff" />
           </TouchableOpacity>
-          
+
           {fullImageUri && (
             <Image
               source={{ uri: fullImageUri }}
@@ -630,7 +491,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
         </View>
       </Modal>
 
-      {/* Image Options Menu Modal */}
       <Modal
         visible={showOptionsMenu}
         transparent={true}
@@ -644,9 +504,20 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
         >
           <View style={styles.optionsMenuContainer}>
             <Text style={styles.optionsMenuTitle}>图像选项</Text>
-            
+
             {activeImage && (
               <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    handleViewImage(activeImage);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons name="eye-outline" size={22} color="#FFF" />
+                  <Text style={styles.menuItemText}>查看大图</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={() => {
@@ -654,17 +525,27 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                     setShowOptionsMenu(false);
                   }}
                 >
-                  <Ionicons 
-                    name={activeImage.isFavorite ? "heart" : "heart-outline"} 
-                    size={22} 
-                    color={activeImage.isFavorite ? "#FF6B6B" : "#FFF"} 
+                  <Ionicons
+                    name={activeImage.isFavorite ? "heart" : "heart-outline"}
+                    size={22}
+                    color={activeImage.isFavorite ? "#FF6B6B" : "#FFF"}
                   />
                   <Text style={styles.menuItemText}>
                     {activeImage.isFavorite ? "取消收藏" : "收藏图片"}
                   </Text>
                 </TouchableOpacity>
 
-                {/* Add Save to Device option */}
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    handleEdit(activeImage);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons name="brush-outline" size={22} color="#FFF" />
+                  <Text style={styles.menuItemText}>编辑图片</Text>
+                </TouchableOpacity>
+
                 {Platform.OS !== 'web' && (
                   <TouchableOpacity
                     style={styles.menuItem}
@@ -678,7 +559,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                   </TouchableOpacity>
                 )}
 
-                {/* Add Share option for platforms that support it */}
                 {Platform.OS !== 'web' && (
                   <TouchableOpacity
                     style={styles.menuItem}
@@ -686,16 +566,12 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                       const imageUri = activeImage.localUri || activeImage.url;
                       if (imageUri && await Sharing.isAvailableAsync()) {
                         try {
-                          // For Android, we need to ensure we have a file:// URI
                           let shareableUri = imageUri;
-                          
-                          // If it's a remote URL, download first
                           if (imageUri.startsWith('http')) {
                             const fileUri = `${FileSystem.documentDirectory}share_temp_${Date.now()}.jpg`;
                             const downloadResult = await FileSystem.downloadAsync(imageUri, fileUri);
                             shareableUri = downloadResult.uri;
                           }
-                          
                           await Sharing.shareAsync(shareableUri, {
                             mimeType: 'image/jpeg',
                             dialogTitle: '分享图片'
@@ -715,7 +591,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                   </TouchableOpacity>
                 )}
 
-                {/* Add Regenerate option */}
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={() => {
@@ -730,23 +605,23 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={() => {
-                    handleEdit(activeImage);
-                    setShowOptionsMenu(false);
-                  }}
-                >
-                  <Ionicons name="brush-outline" size={22} color="#FFF" />
-                  <Text style={styles.menuItemText}>编辑图片</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={() => {
                     onSetAsBackground(activeImage.id);
                     setShowOptionsMenu(false);
                   }}
                 >
                   <Ionicons name="copy-outline" size={22} color="#FFF" />
                   <Text style={styles.menuItemText}>设为背景</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    handleSetAsAvatar(activeImage.id);
+                    setShowOptionsMenu(false);
+                  }}
+                >
+                  <Ionicons name="person-outline" size={22} color="#FFF" />
+                  <Text style={styles.menuItemText}>设为头像</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -765,7 +640,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
         </TouchableOpacity>
       </Modal>
 
-      {/* Image Regeneration Modal */}
       {showRegenerationModal && character && (
         <ImageRegenerationModal
           visible={showRegenerationModal}
@@ -780,7 +654,6 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           existingImageConfig={regenerationImageConfig}
         />
       )}
-
     </View>
   );
 };
@@ -881,18 +754,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 4,
   },
-  imageActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 8,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  imageActionButton: {
-    padding: 6,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    marginHorizontal: 4,
-  },
   fullImageContainer: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.9)',
@@ -915,7 +776,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 10,
   },
-  // New styles for the options menu
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -924,11 +784,11 @@ const styles = StyleSheet.create({
   },
   optionsMenuContainer: {
     width: '100%',
-    backgroundColor: '#333',
+    backgroundColor: '#282828',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 16,
-    paddingBottom: 32, // 增加底部空间，适应底部导航栏
+    paddingBottom: 32,
   },
   optionsMenuTitle: {
     color: '#fff',
@@ -955,7 +815,6 @@ const styles = StyleSheet.create({
   deleteMenuItemText: {
     color: '#FF6B6B',
   },
-  // Add new styles for pending images and view button
   pendingImageContainer: {
     width: '100%',
     height: '100%',
@@ -982,22 +841,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
   },
-  viewButtonOverlay: {
+  optionsButtonOverlay: {
     position: 'absolute',
     bottom: 8,
     right: 8,
+    zIndex: 10,
   },
-  viewButton: {
+  optionsButton: {
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 15,
     width: 30,
     height: 30,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  // Add new style for regenerate button
-  regenerateButton: {
-    backgroundColor: 'rgba(138, 43, 226, 0.4)',
   },
 });
 

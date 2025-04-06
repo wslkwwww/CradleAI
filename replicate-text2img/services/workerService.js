@@ -56,7 +56,20 @@ class WorkerService {
       
       // Create prediction
       taskService.updateTask(taskId, 'prediction_creating');
-      const prediction = await replicateService.createPrediction(input);
+      let prediction;
+      
+      try {
+        prediction = await replicateService.createPrediction(input);
+        
+        if (!prediction || !prediction.id) {
+          throw new Error('Invalid prediction response: missing ID');
+        }
+        
+        logger.info(`Created prediction with ID: ${prediction.id} for task: ${taskId}`);
+      } catch (predictionError) {
+        logger.error(`Failed to create prediction for task ${taskId}:`, predictionError);
+        throw new Error(`Failed to create prediction: ${predictionError.message}`);
+      }
       
       // Store prediction ID with task
       taskService.updateTask(taskId, 'prediction_created', { 
@@ -65,11 +78,28 @@ class WorkerService {
       
       // Wait for prediction to complete
       taskService.updateTask(taskId, 'waiting_for_prediction');
-      const completedPrediction = await replicateService.waitForPrediction(prediction.id);
+      
+      // Use a more robust polling mechanism
+      let completedPrediction;
+      try {
+        completedPrediction = await replicateService.waitForPrediction(
+          prediction.id, 
+          60,  // 60 attempts
+          2000 // 2 seconds between attempts
+        );
+      } catch (pollingError) {
+        logger.error(`Error polling prediction for task ${taskId}:`, pollingError);
+        throw new Error(`Error polling prediction: ${pollingError.message}`);
+      }
       
       // Check prediction output
-      if (!completedPrediction.output || !Array.isArray(completedPrediction.output)) {
-        throw new Error('Invalid prediction output');
+      if (!completedPrediction.output) {
+        throw new Error('Prediction completed but no output was returned');
+      }
+      
+      if (!Array.isArray(completedPrediction.output)) {
+        logger.warn(`Prediction output is not an array for task ${taskId}. Converting single item to array.`);
+        completedPrediction.output = [completedPrediction.output];
       }
       
       // Update task with URLs
@@ -89,14 +119,15 @@ class WorkerService {
       // Schedule for retry if appropriate
       const currentTask = taskService.getTask(taskId);
       
-      if (currentTask && currentTask.retryCount < config.retry.maxRetries) {
+      if (currentTask && (!currentTask.retryCount || currentTask.retryCount < config.retry.maxRetries)) {
+        const retryCount = (currentTask.retryCount || 0) + 1;
         taskService.updateTask(taskId, 'retrying', {
-          retryCount: currentTask.retryCount + 1
+          retryCount: retryCount
         });
         
         await rabbitmqService.scheduleRetry(
           task,
-          currentTask.retryCount
+          currentTask.retryCount || 0
         );
       }
       

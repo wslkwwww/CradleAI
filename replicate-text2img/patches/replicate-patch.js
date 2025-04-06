@@ -68,7 +68,25 @@ if (typeof global.Headers === 'undefined') global.Headers = Headers;
 if (typeof global.Request === 'undefined') global.Request = Request;
 if (typeof global.Response === 'undefined') global.Response = Response;
 
+// 修复 headers 问题
+if (Headers && Headers.prototype) {
+  const originalInit = Headers.prototype.constructor;
+  Headers.prototype.constructor = function(init) {
+    if (init && typeof init === 'object') {
+      const safeInit = {};
+      Object.keys(init).forEach(key => {
+        if (init[key] !== undefined && init[key] !== null) {
+          safeInit[key] = String(init[key]);
+        }
+      });
+      return originalInit.call(this, safeInit);
+    }
+    return originalInit.call(this, init);
+  };
+}
+
 // 修复 _fetch 不是函数的问题
+const Replicate = require('./lib/replicate');
 if (typeof Replicate !== 'undefined' && Replicate.prototype) {
   Replicate.prototype._fetch = fetch;
 }
@@ -80,6 +98,30 @@ if (typeof Replicate !== 'undefined' && Replicate.prototype) {
     // 写回文件
     fs.writeFileSync(replicateIndexPath, content, 'utf8');
     console.log('兼容性补丁已成功应用!');
+  }
+  
+  // 6. 尝试修复 predictions.js 文件中的 headers 处理
+  try {
+    const predictionsPath = path.join(replicateDir, 'lib', 'predictions.js');
+    if (fs.existsSync(predictionsPath)) {
+      let predictionsContent = fs.readFileSync(predictionsPath, 'utf8');
+      
+      // 确保 headers 值都是字符串
+      if (!predictionsContent.includes('// HEADERS PATCH APPLIED')) {
+        console.log(`修复 ${predictionsPath} 中的 headers 处理...`);
+        
+        // 修改 headers 处理逻辑
+        predictionsContent = predictionsContent.replace(
+          /headers: {[^}]*authorization: `Token \${this\.auth}`[^}]*}/,
+          'headers: { authorization: `Token ${this.auth}`, "Content-Type": "application/json" } // HEADERS PATCH APPLIED'
+        );
+        
+        fs.writeFileSync(predictionsPath, predictionsContent, 'utf8');
+        console.log('Headers 处理补丁已应用');
+      }
+    }
+  } catch (headersPatchError) {
+    console.warn('应用 headers 处理补丁时出错:', headersPatchError);
   }
   
   console.log('补丁应用完成，请重启应用');
