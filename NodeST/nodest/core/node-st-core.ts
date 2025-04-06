@@ -59,7 +59,10 @@ export class NodeSTCore {
 
     private initAdapters(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
         if (!apiKey) {
-            throw new Error("API key is required");
+            // Don't throw an error for initialization without API key
+            // This allows operations like deletion to work without a key
+            console.log('[NodeSTCore] No API key provided, some operations may be limited');
+            return;
         }
 
         // Always initialize Gemini as a fallback
@@ -1984,6 +1987,45 @@ export class NodeSTCore {
             return true;
         } catch (error) {
             console.error('[NodeSTCore] Error resetting chat history:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Delete all data associated with a specific conversation ID
+     * Does not require an API key since it's only performing deletion operations
+     * 
+     * @param conversationId The conversation ID to delete data for
+     * @returns true if deletion was successful, false otherwise
+     */
+    async deleteCharacterData(conversationId: string): Promise<boolean> {
+        try {
+            console.log('[NodeSTCore] Deleting all data for conversation:', conversationId);
+            
+            // Define all the keys we need to delete
+            const keys = [
+                this.getStorageKey(conversationId, '_role'),
+                this.getStorageKey(conversationId, '_world'),
+                this.getStorageKey(conversationId, '_preset'),
+                this.getStorageKey(conversationId, '_note'),
+                this.getStorageKey(conversationId, '_history'),
+                this.getStorageKey(conversationId, '_contents')
+            ];
+            
+            // Delete all keys in parallel
+            await Promise.all(keys.map(async (key) => {
+                try {
+                    await AsyncStorage.removeItem(key);
+                    console.log(`[NodeSTCore] Deleted key: ${key}`);
+                } catch (error) {
+                    console.error(`[NodeSTCore] Error deleting key ${key}:`, error);
+                }
+            }));
+            
+            console.log('[NodeSTCore] Successfully deleted all data for conversation:', conversationId);
+            return true;
+        } catch (error) {
+            console.error('[NodeSTCore] Error deleting character data:', error);
             return false;
         }
     }

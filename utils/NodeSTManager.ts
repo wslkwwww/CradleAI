@@ -114,7 +114,6 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     apiKey: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
     character?: Character;
-
   }): Promise<{
     success: boolean;
     text?: string;
@@ -811,6 +810,38 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     }
     
     return await instance.resetChatHistory(conversationId);
+  }
+
+  /**
+   * Delete all data associated with a character
+   * This method doesn't require API keys since it only performs deletion
+   * 
+   * @param conversationId Character ID or conversation ID
+   * @returns Whether deletion was successful
+   */
+  async deleteCharacterData(conversationId: string): Promise<boolean> {
+    try {
+        console.log('[NodeSTManager] Deleting all character data for:', conversationId);
+
+        if (!this.nodeST) {
+            console.log('[NodeSTManager] NodeST instance not initialized, creating new instance');
+            // No API key needed for deletion operations
+            this.nodeST = new NodeST();
+        }
+        
+        // Call the NodeST deleteCharacterData method
+        return await this.nodeST.deleteCharacterData(conversationId);
+    } catch (error) {
+        console.error('[NodeSTManager] Error deleting character data:', error);
+        return false;
+    }
+  }
+
+  // Add static method for character deletion - also doesn't require API key
+  static async deleteCharacterData(conversationId: string): Promise<boolean> {
+    const instance = new NodeSTManagerClass();
+    // We don't need to set API key for deletion operations
+    return await instance.deleteCharacterData(conversationId);
   }
 
   // Add static method for setting search enabled

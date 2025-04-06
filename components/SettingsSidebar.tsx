@@ -568,6 +568,8 @@ export default function SettingsSidebar({
           width: SIDEBAR_WIDTH_EXPANDED,
           right: 0,
           left: 'auto',
+          opacity: isVisible ? 1 : 0,
+          pointerEvents: isVisible ? 'auto' : 'none',
         },
       ]}
     >
@@ -829,6 +831,7 @@ const styles = StyleSheet.create({
     color: "rgb(255, 224, 195)", // 修改：使用米黄色
     marginBottom: theme.spacing.md,
     textAlign: 'center',
+    marginTop: 10, // Add some spacing at the top
   },
   settingItem: {
     flexDirection: 'row',
@@ -867,7 +870,7 @@ const styles = StyleSheet.create({
   settingSectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: "rgb(255, 224, 195)", // 修改：使用米黄色
+    color: "rgb(255, 224, 195)", // Accent color
     marginBottom: theme.spacing.sm,
   },
   settingRow: {
@@ -968,7 +971,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   modeButtonSelected: {
-    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    backgroundColor: 'rgba(255, 224, 195, 0.2)', // Consistent accent color with transparency
     borderColor: 'rgb(255, 224, 195)',
     borderWidth: 1,
   },

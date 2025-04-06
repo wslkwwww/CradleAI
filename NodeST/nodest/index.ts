@@ -347,6 +347,31 @@ export class NodeST {
                     data.preset.prompt_order = this.createDefaultPreset().prompt_order;
                 }
                 
+                // Check prompt_order structure and fix if needed
+                if (data.preset.prompt_order && data.preset.prompt_order.length > 0) {
+                    const firstOrder = data.preset.prompt_order[0];
+                    if (!firstOrder || typeof firstOrder !== 'object') {
+                        console.log("[NodeST] 修复空的prompt_order[0]对象");
+                        data.preset.prompt_order[0] = { order: [] };
+                    } else if (!firstOrder.order) {
+                        console.log("[NodeST] 为prompt_order[0]添加缺失的order数组");
+                        firstOrder.order = [];
+                    } else if (!Array.isArray(firstOrder.order)) {
+                        console.log("[NodeST] prompt_order[0].order不是数组，修复为空数组");
+                        firstOrder.order = [];
+                    }
+                    
+                    // Log the structure to help diagnose issues
+                    console.log("[NodeST] prompt_order结构:", {
+                        length: data.preset.prompt_order.length,
+                        firstItemType: typeof data.preset.prompt_order[0],
+                        hasOrderProp: firstOrder && 'order' in firstOrder,
+                        orderType: firstOrder && firstOrder.order ? typeof firstOrder.order : 'undefined',
+                        isOrderArray: firstOrder && firstOrder.order ? Array.isArray(firstOrder.order) : false,
+                        orderLength: firstOrder && Array.isArray(firstOrder.order) ? firstOrder.order.length : 0
+                    });
+                }
+                
                 // Check that required system prompts exist
                 const requiredPrompts = [
                     {name: "Character System", identifier: "characterSystem", role: "user"},
@@ -374,7 +399,13 @@ export class NodeST {
                         injection_depth?: number;
                     }
 
-                    if (!data.preset.prompts.some((p: Prompt) => p.identifier === required.identifier)) {
+                    // Check if the prompt exists using safe type checking
+                    const hasPrompt = Array.isArray(data.preset.prompts) && 
+                        data.preset.prompts.some((p: any) => 
+                            p && typeof p === 'object' && p.identifier === required.identifier
+                        );
+
+                    if (!hasPrompt) {
                         console.log(`[NodeST] 添加缺失的必要prompt: ${required.identifier}`);
                         const defaultPrompt: Prompt | undefined = this.createDefaultPreset().prompts.find(
                             (p: Prompt) => p.identifier === required.identifier
@@ -394,15 +425,16 @@ export class NodeST {
                         enabled: boolean;
                     }
 
-                    interface PromptOrder {
-                        order: PromptOrderEntry[];
-                    }
-
-                    if (!firstOrder.order.some((o: PromptOrderEntry) => o.identifier === "chatHistory")) {
+                    // Check using safe type checking and add if missing
+                    const hasChatHistory = firstOrder.order.some((o: any) => 
+                        o && typeof o === 'object' && o.identifier === "chatHistory"
+                    );
+                    
+                    if (!hasChatHistory) {
                         console.log("[NodeST] 在prompt_order中添加chatHistory");
                         // Find where to insert chatHistory (typically before contextInstruction)
                         const contextInstructionIndex: number = firstOrder.order.findIndex(
-                            (o: PromptOrderEntry) => o.identifier === "contextInstruction"
+                            (o: any) => o && typeof o === 'object' && o.identifier === "contextInstruction"
                         );
                         
                         if (contextInstructionIndex !== -1) {
@@ -433,7 +465,11 @@ export class NodeST {
                         identifier: string;
                         enabled: boolean;
                     }
-                    const chatHistoryEntry: PromptOrderEntry | undefined = order.find((entry: PromptOrderEntry) => entry.identifier.toLowerCase().includes('chathistory'));
+                    const chatHistoryEntry: PromptOrderEntry | undefined = order.find((entry: any) => 
+                        entry && typeof entry === 'object' && 
+                        typeof entry.identifier === 'string' && 
+                        entry.identifier.toLowerCase().includes('chathistory')
+                    );
                     if (chatHistoryEntry) {
                         chatHistoryIdentifier = chatHistoryEntry.identifier;
                     }
@@ -459,8 +495,14 @@ export class NodeST {
                 chatHistory = data.chatHistory;
                 
                 // Check if first message exists, if not add it
-                const hasFirstMessage = chatHistory.parts.some(msg => msg.is_first_mes);
+                const hasFirstMessage = Array.isArray(chatHistory.parts) && 
+                    chatHistory.parts.some(msg => msg && typeof msg === 'object' && msg.is_first_mes);
+                    
                 if (!hasFirstMessage && data.roleCard && data.roleCard.first_mes) {
+                    if (!Array.isArray(chatHistory.parts)) {
+                        chatHistory.parts = [];
+                    }
+                    
                     chatHistory.parts.unshift({
                         role: "model",
                         parts: [{ text: data.roleCard.first_mes }],
@@ -473,7 +515,8 @@ export class NodeST {
             console.log("[NodeST] 角色JSON数据解析成功，chatHistory状态:", {
                 exists: !!chatHistory,
                 messagesCount: chatHistory?.parts?.length || 0,
-                hasFirstMessage: chatHistory?.parts?.some(p => p.is_first_mes) || false
+                hasFirstMessage: Array.isArray(chatHistory.parts) && 
+                    chatHistory.parts.some(p => p && typeof p === 'object' && p.is_first_mes) || false
             });
             
             return {
@@ -670,6 +713,30 @@ export class NodeST {
             return await this.nodeSTCore.resetChatHistory(conversationId);
         } catch (error) {
             console.error('[NodeST] Error resetting chat history:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Delete all data associated with a character/conversation
+     * This operation doesn't require an API key since it's just deleting storage
+     * 
+     * @param conversationId The conversation ID to delete data for
+     * @returns true if deletion was successful, false otherwise
+     */
+    async deleteCharacterData(conversationId: string): Promise<boolean> {
+        try {
+            // For deletion operations, we can create a nodeSTCore instance
+            // even without an API key - it will just be limited in functionality
+            if (!this.nodeSTCore) {
+                console.log(`【NodeST】初始化NodeSTCore实例用于删除角色数据: ${conversationId}`);
+                this.nodeSTCore = new NodeSTCore(this.apiKey || "");  // Empty string is ok for deletion
+            }
+            
+            console.log(`【NodeST】删除角色数据: ${conversationId}`);
+            return await this.nodeSTCore.deleteCharacterData(conversationId);
+        } catch (error) {
+            console.error('[NodeST] Error deleting character data:', error);
             return false;
         }
     }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { AppState } from 'react-native';
 import {
   View,
   Text,
@@ -17,19 +18,19 @@ import {
   TextStyle,
   Modal,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router'; // Add useFocusEffect import
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
 import { Character } from '@/shared/types';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { CharacterImporter } from '@/utils/CharacterImporter';
-import { useUser } from '@/constants/UserContext';
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CreateChar from '@/app/pages/create_char';
 import CradleCreateForm from '@/components/CradleCreateForm';
 import { theme } from '@/constants/theme';
+import { NodeSTManager } from '@/utils/NodeSTManager';
 
 const VIEW_MODE_SMALL = 'small';
 const VIEW_MODE_LARGE = 'large';
@@ -54,6 +55,49 @@ const CharactersScreen: React.FC = () => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showCreationModal, setShowCreationModal] = useState(false);
   const [creationType, setCreationType] = useState<'manual' | 'auto' | 'import'>('manual');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const appState = useRef(AppState.currentState);
+  const [appStateVisible, setAppStateVisible] = useState(appState.current);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('[Character] App came to foreground, refreshing data');
+        setRefreshKey(prev => prev + 1);
+      }
+
+      appState.current = nextAppState;
+      setAppStateVisible(appState.current);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[Character] Screen focused, refreshing data');
+      setRefreshKey(prev => prev + 1);
+      return () => {
+        console.log('[Character] Screen unfocused');
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    return () => {
+      setShowAddMenu(false);
+      setShowCreationModal(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (showCreationModal) {
+      setShowAddMenu(false);
+    }
+  }, [showCreationModal]);
 
   const handleManage = () => {
     setIsManaging((prevIsManaging) => !prevIsManaging);
@@ -64,6 +108,8 @@ const CharactersScreen: React.FC = () => {
   };
 
   const handleAddPress = () => {
+    if (showCreationModal) return;
+
     setShowAddMenu(!showAddMenu);
     if (isManaging) {
       setIsManaging(false);
@@ -72,18 +118,23 @@ const CharactersScreen: React.FC = () => {
 
   const handleCreateManual = () => {
     setShowAddMenu(false);
-    setCreationType('manual');
-    setShowCreationModal(true);
+    setTimeout(() => {
+      setCreationType('manual');
+      setShowCreationModal(true);
+    }, 100);
   };
 
   const handleCreateAuto = () => {
     setShowAddMenu(false);
-    setCreationType('auto');
-    setShowCreationModal(true);
+    setTimeout(() => {
+      setCreationType('auto');
+      setShowCreationModal(true);
+    }, 100);
   };
 
   const handleImport = async () => {
     setShowAddMenu(false);
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -121,8 +172,10 @@ const CharactersScreen: React.FC = () => {
 
         await AsyncStorage.setItem('temp_import_data', JSON.stringify(completeData));
 
-        setCreationType('manual');
-        setShowCreationModal(true);
+        setTimeout(() => {
+          setCreationType('manual');
+          setShowCreationModal(true);
+        }, 100);
       }
     } catch (error) {
       console.error('[Character Import] Error:', error);
@@ -130,11 +183,12 @@ const CharactersScreen: React.FC = () => {
     }
   };
 
-  const handleCharacterPress = (id: string) => {
+  const handleCharacterPress = useCallback((id: string) => {
     if (!isManaging) {
+      console.log('[Character] Navigating to character detail:', id);
       router.push(`/pages/character-detail?id=${id}`);
     }
-  };
+  }, [isManaging, router]);
 
   const toggleSelectCharacter = (id: string) => {
     setSelectedCharacters((prevSelected) =>
@@ -156,12 +210,42 @@ const CharactersScreen: React.FC = () => {
         text: '删除',
         style: 'destructive',
         onPress: async () => {
-          await deleteCharacters(selectedCharacters);
-          setSelectedCharacters([]);
-          setIsManaging(false);
+          setIsLoading(true);
+
+          try {
+            const deletePromises = selectedCharacters.map(async (characterId) => {
+              console.log(`删除角色数据: ${characterId}`);
+              await NodeSTManager.deleteCharacterData(characterId);
+
+              const character = characters.find(c => c.id === characterId);
+              if (character?.conversationId && character.conversationId !== characterId) {
+                await NodeSTManager.deleteCharacterData(character.conversationId);
+              }
+            });
+
+            await Promise.all(deletePromises);
+            await deleteCharacters(selectedCharacters);
+
+            setSelectedCharacters([]);
+            setIsManaging(false);
+          } catch (error) {
+            console.error("Error deleting characters:", error);
+            Alert.alert("删除失败", "删除角色时出现错误");
+          } finally {
+            setIsLoading(false);
+          }
         },
       },
     ]);
+  };
+
+  const handleCreationModalClose = () => {
+    console.log('[Character] Closing creation modal');
+    setShowCreationModal(false);
+    setTimeout(() => {
+      setRefreshKey(prev => prev + 1);
+      setCreationType('manual');
+    }, 300);
   };
 
   const renderItem = useMemo(
@@ -211,7 +295,7 @@ const CharactersScreen: React.FC = () => {
         animationType="slide"
         transparent={false}
         visible={showCreationModal}
-        onRequestClose={() => setShowCreationModal(false)}
+        onRequestClose={handleCreationModalClose}
       >
         <SafeAreaView style={styles.creationModalContainer}>
           <View style={styles.creationModalHeader}>
@@ -222,7 +306,7 @@ const CharactersScreen: React.FC = () => {
                 ? '自动创建角色'
                 : '导入角色'}
             </Text>
-            <TouchableOpacity onPress={() => setShowCreationModal(false)}>
+            <TouchableOpacity onPress={handleCreationModalClose}>
               <Ionicons name="close" size={24} color={COLOR_TEXT} />
             </TouchableOpacity>
           </View>
@@ -233,11 +317,14 @@ const CharactersScreen: React.FC = () => {
                 activeTab={'basic'}
                 creationMode="manual"
                 allowTagImageGeneration={true}
-                onClose={() => setShowCreationModal(false)}
+                onClose={handleCreationModalClose}
               />
             )}
             {creationType === 'auto' && (
-              <CradleCreateForm embedded={true} onClose={() => setShowCreationModal(false)} />
+              <CradleCreateForm 
+                embedded={true} 
+                onClose={handleCreationModalClose} 
+              />
             )}
           </View>
         </SafeAreaView>
@@ -299,7 +386,8 @@ const CharactersScreen: React.FC = () => {
         keyExtractor={keyExtractor}
         numColumns={viewMode === VIEW_MODE_SMALL ? 2 : 1}
         contentContainerStyle={styles.listContainer}
-        key={viewMode}
+        key={`${viewMode}-${refreshKey}`}
+        extraData={[isManaging, selectedCharacters, refreshKey]}
       />
 
       {renderCreationModal()}
@@ -331,10 +419,18 @@ const CharacterCard: React.FC<{
         margin: 8,
       };
 
+  const handleCardPress = () => {
+    if (isManaging) {
+      onSelect(item.id);
+    } else {
+      onPress(item.id);
+    }
+  };
+
   return (
     <TouchableOpacity
       style={[styles.card, cardStyle, isManaging && styles.manageCard]}
-      onPress={() => onPress(item.id)}
+      onPress={handleCardPress}
       onLongPress={() => onSelect(item.id)}
     >
       <Image
@@ -352,12 +448,11 @@ const CharacterCard: React.FC<{
       </View>
 
       {isManaging && (
-        <TouchableOpacity
+        <View
           style={[styles.checkboxContainer, isSelected && styles.checkboxSelected]}
-          onPress={() => onSelect(item.id)}
         >
           {isSelected && <Ionicons name="checkmark" size={16} color="white" />}
-        </TouchableOpacity>
+        </View>
       )}
     </TouchableOpacity>
   );

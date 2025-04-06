@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,18 @@ import {
   Image,
   FlatList,
   StatusBar,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Character } from '@/shared/types';
 import { useRouter } from 'expo-router';
 import SearchBar from '@/components/SearchBar';
+import { theme } from '@/constants/theme';
+
+// Match the width used in SettingsSidebar
+const SIDEBAR_WIDTH = 280;
 
 interface SidebarProps {
   isVisible: boolean;
@@ -31,6 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
 
   // 过滤出搜索结果
   const filteredConversations = searchQuery 
@@ -38,10 +45,37 @@ const Sidebar: React.FC<SidebarProps> = ({
         conv.name.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : conversations;
+  
+  // Handle sidebar animation similar to SettingsSidebar
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: isVisible ? 0 : -SIDEBAR_WIDTH,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [isVisible]);
 
-  return isVisible ? (
-    <View style={styles.overlay}>
-      <BlurView style={styles.sidebar} intensity={30} tint="dark">
+  return (
+    <Animated.View
+      style={[
+        styles.overlay,
+        {
+          // Only show the overlay when sidebar is visible
+          opacity: isVisible ? 1 : 0,
+          // Remove from accessibility/touch tree when not visible
+          pointerEvents: isVisible ? 'auto' : 'none',
+        }
+      ]}
+    >
+      <Animated.View 
+        style={[
+          styles.sidebar,
+          {
+            transform: [{ translateX: slideAnim }],
+            width: SIDEBAR_WIDTH,
+          }
+        ]}
+      >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>窗口</Text>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -100,9 +134,18 @@ const Sidebar: React.FC<SidebarProps> = ({
             ) : null
           }
         />
-      </BlurView>
-    </View>
-  ) : null;
+      </Animated.View>
+      
+      {/* Add overlay to close sidebar when touching outside */}
+      {isVisible && (
+        <TouchableOpacity
+          style={styles.overlayTouchable}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+      )}
+    </Animated.View>
+  );
 };
 
 const styles = StyleSheet.create({
@@ -110,30 +153,38 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 1000,
   },
-  sidebar: {
-    width: '45%',
+  overlayTouchable: {
+    position: 'absolute',
+    top: 0,
+    left: SIDEBAR_WIDTH,
     height: '100%',
-    backgroundColor: 'rgba(30, 30, 30, 0.9)',
+    width: Dimensions.get('window').width - SIDEBAR_WIDTH,
+  },
+  sidebar: {
+    height: '100%',
+    backgroundColor: "rgba(40, 40, 40, 0.9)", // Matching SettingsSidebar background
     paddingTop: StatusBar.currentHeight || 0,
+    ...theme.shadows.medium,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
+    paddingTop: 50, // Add safe area padding
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#ffffff',
+    color: "rgb(255, 224, 195)", // Match accent color from SettingsSidebar
   },
   closeButton: {
     padding: 8,
   },
   searchContainer: {
-    padding: 8,
+    padding: theme.spacing.md,
     marginBottom: 8,
   },
   searchBar: {
@@ -147,7 +198,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   selectedConversation: {
-    backgroundColor: 'rgba(255, 158, 205, 0.1)',
+    backgroundColor: 'rgba(255, 224, 195, 0.2)', // Match accent color with transparency
   },
   avatar: {
     width: 48,
@@ -176,21 +227,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     color: '#9e9e9e',
     fontSize: 16,
-  },
-  createButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    backgroundColor: 'rgba(255, 158, 205, 0.2)',
-    margin: 16,
-    borderRadius: 8,
-  },
-  createButtonText: {
-    marginLeft: 8,
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#ffffff',
   },
 });
 

@@ -20,5 +20,23 @@ module.exports = {
   },
   sourceFiles: {
     baseUrl: 'https://cradleintro.top'
+  },
+  // SSE 配置
+  sse: {
+    heartbeatInterval: 30000, // 30秒发送一次心跳
+    clientTimeout: 120000 // 客户端连接超时时间 (2分钟)
+  },
+  // 消息队列配置
+  rabbitmq: {
+    url: process.env.RABBITMQ_URL || 'amqp://localhost',
+    retryQueue: 'tts_retry_queue',
+    deadLetterQueue: 'tts_dead_letter_queue'
+  },
+  // 重试机制配置
+  retry: {
+    maxRetries: 5, // 最大重试次数
+    initialInterval: 30000, // 初始重试间隔 (30秒)
+    multiplier: 2, // 指数退避倍率
+    maxInterval: 600000 // 最大重试间隔 (10分钟)
   }
 };

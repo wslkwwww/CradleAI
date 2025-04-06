@@ -12,6 +12,29 @@ module.exports = {
     accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
     secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
     bucketName: process.env.MINIO_BUCKET_NAME || 'images',
-    useSSL: process.env.MINIO_USE_SSL === 'true'
+    useSSL: process.env.MINIO_USE_SSL === 'true',
+    publicEndpoint: process.env.MINIO_PUBLIC_ENDPOINT // 可选的公共访问端点
+  },
+  rabbitmq: {
+    url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
+    queues: {
+      generation: 'img_generation_queue',
+      retry: 'img_retry_queue',
+      deadLetter: 'img_dead_letter_queue'
+    }
+  },
+  retry: {
+    maxRetries: parseInt(process.env.MAX_RETRIES || '3'),
+    initialInterval: parseInt(process.env.RETRY_INITIAL_INTERVAL || '10000'),
+    multiplier: 2,
+    maxInterval: 300000 // 最大重试间隔5分钟
+  },
+  sse: {
+    heartbeatInterval: 30000, // 30秒发送一次心跳
+    clientTimeout: 120000 // 2分钟超时
+  },
+  logging: {
+    level: process.env.LOG_LEVEL || 'info',
+    directory: 'logs'
   }
 };

@@ -113,7 +113,7 @@ interface CreateCharProps {
   onClose?: () => void;
 }
 
-const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = 'basic' }) => {
+const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = 'basic', creationMode = 'manual', allowTagImageGeneration = false, onClose }) => {
   const router = useRouter();
   const { addCharacter, addConversation,} = useCharacters();
   const { user } = useUser();
@@ -626,32 +626,90 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         ...cradleFields
       };
   
-      // 保存角色和创建会话
-      await addCharacter(newCharacter);
-      await addConversation({
-        id: characterId,
-        title: roleCard.name.trim()
-      });
+      console.log('[CreateChar] Saving character:', characterId);
+      
+      // 保存角色和创建会话 - FIXED: Use Promise.all to ensure both operations complete
+      await Promise.all([
+        addCharacter(newCharacter),
+        addConversation({
+          id: characterId,
+          title: roleCard.name.trim()
+        })
+      ]);
   
       // 设置为当前会话
       await AsyncStorage.setItem('lastConversationId', characterId);
-  
-      // Always use the standard flow since we're not generating images
-      router.replace({
-        pathname: "/(tabs)",
-        params: { characterId }
-      });
-  
-      // 异步初始化 NodeST，不阻塞导航
-      NodeSTManager.processChatMessage({
+      
+      // Reset states before navigation
+      setIsSaving(false);
+      setHasUnsavedChanges(false);
+
+      // FIXED: Initialize NodeST BEFORE navigation and wait for it to complete
+      console.log('[CreateChar] Initializing NodeST for new character...');
+      await NodeSTManager.processChatMessage({
         userMessage: "你好！",
         conversationId: characterId,
         status: "新建角色",
         apiKey: user?.settings?.chat.characterApiKey || '',
         character: newCharacter
       }).catch(error => {
-        console.error('NodeST initialization error:', error);
+        console.warn('[CreateChar] NodeST initialization warning:', error);
+        // Continue with navigation even if there was an error
       });
+      
+      console.log('[CreateChar] Character saved and initialized successfully, navigating...');
+      
+      // Modified: Check if onClose is provided (modal mode) or use router.back()
+      if (onClose) {
+        onClose();
+      } else {
+        // Use router.back() to return to the character page instead of navigating to index
+        setTimeout(() => {
+          router.back();
+        }, 300);
+      }
+
+      // Clear character data - moved to execute regardless of navigation method
+      setTimeout(() => {
+        setRoleCard({
+          name: '',
+          first_mes: '',
+          description: '',
+          personality: '',
+          scenario: '',
+          mes_example: '',
+          data: {
+            extensions: {
+              regex_scripts: []
+            }
+          }
+        });
+        
+        setCharacter({
+          id: '',
+          name: '',
+          avatar: null,
+          backgroundImage: null,
+          conversationId: '',
+          description: '',
+          personality: '',
+          interests: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          inCradleSystem: true,
+          cradleStatus: 'growing',
+          feedHistory: [],
+          cradleCreatedAt: Date.now(),
+          cradleUpdatedAt: Date.now(),
+          voiceType: undefined
+        });
+
+        // Also reset other form state
+        setWorldBookEntries([]);
+        setPositiveTags([]);
+        setNegativeTags([]);
+        setSelectedArtistPrompt(null);
+      }, 500);
   
     } catch (error) {
       console.error('[Error] Character creation failed:', error);
@@ -662,6 +720,69 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       setIsSaving(false);
     }
   };
+
+  // Add component initialization effect to clear data on mount
+  useEffect(() => {
+    // Clear any previously stored data on component mount
+    const clearPreviousData = async () => {
+      try {
+        await AsyncStorage.removeItem('temp_import_data');
+        
+        // Reset all state to default values
+        setRoleCard({
+          name: '',
+          first_mes: '',
+          description: '',
+          personality: '',
+          scenario: '',
+          mes_example: '',
+          data: {
+            extensions: {
+              regex_scripts: []
+            }
+          }
+        });
+        
+        setCharacter({
+          id: '',
+          name: '',
+          avatar: null,
+          backgroundImage: null,
+          conversationId: '',
+          description: '',
+          personality: '',
+          interests: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          inCradleSystem: true,
+          cradleStatus: 'growing',
+          feedHistory: [],
+          cradleCreatedAt: Date.now(),
+          cradleUpdatedAt: Date.now(),
+          voiceType: undefined
+        });
+        
+        setWorldBookEntries([]);
+        setPositiveTags([]);
+        setNegativeTags([]);
+        setSelectedArtistPrompt(null);
+      } catch (error) {
+        console.error('[Init] Failed to clear previous data:', error);
+      }
+    };
+    
+    clearPreviousData();
+    
+    return () => {
+      // Ensure all modals are closed when component unmounts
+      setShowConfirmDialog(false);
+      setTagSelectorVisible(false);
+      
+      // Reset states to prevent them from persisting
+      setIsSaving(false);
+      setHasUnsavedChanges(false);
+    };
+  }, []);
 
   // Load imported data if available
   useEffect(() => {

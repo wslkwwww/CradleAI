@@ -591,6 +591,135 @@ ${JSON.stringify(characterJsonData, null, 2)}
           roleCard.first_mes = roleCard.first_mes || "你好，很高兴认识你！";
         }
         
+        // Fix the preset structure to ensure it has the correct format for NodeST validation
+        if (mergedData.preset) {
+          // Ensure prompt_order is properly structured with an array of objects that have an 'order' property
+          if (!Array.isArray(mergedData.preset.prompt_order) || mergedData.preset.prompt_order.length === 0) {
+            mergedData.preset.prompt_order = [{ 
+              order: [] 
+            }];
+          }
+          
+          // Ensure the first prompt_order item has an 'order' property that is an array
+          if (mergedData.preset.prompt_order[0] && !Array.isArray(mergedData.preset.prompt_order[0].order)) {
+            mergedData.preset.prompt_order[0].order = [];
+          }
+          
+          // If we have prompts, ensure they are represented in the prompt_order
+          if (Array.isArray(mergedData.preset.prompts)) {
+            interface PromptIdentifier {
+              identifier: string;
+              enabled: boolean;
+            }
+
+            const promptIdentifiers: PromptIdentifier[] = mergedData.preset.prompts.map((p: { identifier: string; enable?: boolean }) => ({
+              identifier: p.identifier,
+              enabled: p.enable !== false
+            }));
+            
+            // Make sure all prompts are represented in the prompt_order
+            if (mergedData.preset.prompt_order[0] && Array.isArray(mergedData.preset.prompt_order[0].order)) {
+              // Get existing identifiers to avoid duplicates
+              const existingIdentifiers = new Set(
+                mergedData.preset.prompt_order[0].order.map((item: any) => item.identifier)
+              );
+              
+              // Add any prompts not already in the prompt_order
+              promptIdentifiers.forEach(prompt => {
+                if (!existingIdentifiers.has(prompt.identifier)) {
+                  mergedData.preset.prompt_order[0].order.push(prompt);
+                }
+              });
+            } else {
+              // Create a new prompt_order structure
+              mergedData.preset.prompt_order = [{ order: promptIdentifiers }];
+            }
+          }
+          
+          // Ensure all required system prompts exist in the prompts array
+          const requiredPrompts = [
+            {name: "Character System", identifier: "characterSystem", role: "user"},
+            {name: "Character Confirmation", identifier: "characterConfirmation", role: "model"},
+            {name: "Character Introduction", identifier: "characterIntro", role: "user"},
+            {name: "Context Instruction", identifier: "contextInstruction", role: "user"},
+            {name: "Continue", identifier: "continuePrompt", role: "user"}
+          ];
+          
+          if (!Array.isArray(mergedData.preset.prompts)) {
+            mergedData.preset.prompts = [];
+          }
+          
+          // Check if required prompts exist, add them if not
+          for (const required of requiredPrompts) {
+            interface RequiredPrompt {
+              name: string;
+              identifier: string;
+              role: "user" | "model";
+            }
+
+            interface PromptOrder {
+              identifier: string;
+              enabled: boolean;
+            }
+
+            interface Prompt {
+              name: string;
+              content: string;
+              enable: boolean;
+              identifier: string;
+              role: "user" | "model";
+              isDefault: boolean;
+            }
+
+            interface PromptOrderContainer {
+              order: PromptOrder[];
+            }
+
+            interface PresetData {
+              prompts: Prompt[];
+              prompt_order: PromptOrderContainer[];
+            }
+
+                        if (!mergedData.preset.prompts.some((p: Prompt) => p.identifier === required.identifier)) {
+                          console.log(`[CharacterEditDialog] Adding required prompt: ${required.identifier}`);
+                          mergedData.preset.prompts.push({
+                            name: required.name,
+                            content: required.name === "Character System" ? 
+                              "You are a Roleplayer who is good at playing various types of roles." :
+                              required.name === "Character Confirmation" ?
+                              "[Understood]" :
+                              required.name === "Character Introduction" ?
+                              "The following are some information about the character you will be playing." :
+                              required.name === "Context Instruction" ?
+                              "推荐以下面的指令&剧情继续：\n{{lastMessage}}" :
+                              "继续",
+                            enable: true,
+                            identifier: required.identifier,
+                            role: required.role,
+                            isDefault: true
+                          } as Prompt);
+                          
+                          // Add to prompt_order if not already there
+                          if (mergedData.preset.prompt_order[0] && 
+                              !mergedData.preset.prompt_order[0].order.some((o: PromptOrder) => o.identifier === required.identifier)) {
+                            mergedData.preset.prompt_order[0].order.push({
+                              identifier: required.identifier,
+                              enabled: true
+                            } as PromptOrder);
+                          }
+                        }
+          }
+          
+          // Also make sure chatHistory is in the prompt_order
+          if (mergedData.preset.prompt_order[0] && 
+              !mergedData.preset.prompt_order[0].order.some((o: any) => o.identifier === "chatHistory")) {
+            mergedData.preset.prompt_order[0].order.push({
+              identifier: "chatHistory",
+              enabled: true
+            });
+          }
+        }
+        
         // Convert the merged data back to JSON string
         const mergedJsonString = JSON.stringify(mergedData);
         console.log('[CharacterEditDialog] Created merged JSON data, length:', mergedJsonString.length);
@@ -667,6 +796,124 @@ ${JSON.stringify(characterJsonData, null, 2)}
             if (!parsedJson.roleCard || !parsedJson.worldBook) {
               throw new Error('角色数据缺少必要的roleCard或worldBook结构');
             }
+            
+            // Make sure preset structure is valid
+            if (!parsedJson.preset || !parsedJson.preset.prompts) {
+              console.log('[CharacterEditDialog] 添加缺失的preset结构');
+              parsedJson.preset = parsedJson.preset || {};
+              parsedJson.preset.prompts = parsedJson.preset.prompts || [];
+              parsedJson.preset.prompt_order = parsedJson.preset.prompt_order || [{ order: [] }];
+            }
+            
+            // Ensure preset.prompt_order structure is correct
+            if (!parsedJson.preset.prompt_order || !Array.isArray(parsedJson.preset.prompt_order) || parsedJson.preset.prompt_order.length === 0) {
+              console.log('[CharacterEditDialog] 修复preset.prompt_order结构');
+              parsedJson.preset.prompt_order = [{ order: [] }];
+            }
+            
+            // Ensure order property exists in the first item
+            const firstOrderItem = parsedJson.preset.prompt_order[0];
+            if (!firstOrderItem || typeof firstOrderItem !== 'object' || !Array.isArray(firstOrderItem.order)) {
+              console.log('[CharacterEditDialog] 修复preset.prompt_order[0].order结构');
+              parsedJson.preset.prompt_order[0] = { order: [] };
+            }
+            
+            // Add at least one prompt to the order array if it's empty
+            if (parsedJson.preset.prompts.length > 0 && parsedJson.preset.prompt_order[0].order.length === 0) {
+              console.log('[CharacterEditDialog] 添加至少一个prompt到order数组');
+              const firstPromptId = parsedJson.preset.prompts[0].identifier || 'characterSystem';
+              parsedJson.preset.prompt_order[0].order.push({ 
+                identifier: firstPromptId, 
+                enabled: true 
+              });
+            }
+            
+            // Add required system prompts if missing
+            const requiredPrompts = [
+              {name: "Character System", identifier: "characterSystem", role: "user", content: "You are a Roleplayer who is good at playing various types of roles."},
+              {name: "Character Confirmation", identifier: "characterConfirmation", role: "model", content: "[Understood]"},
+              {name: "Character Introduction", identifier: "characterIntro", role: "user", content: "The following are some information about the character you will be playing."},
+              {name: "Context Instruction", identifier: "contextInstruction", role: "user", content: "推荐以下面的指令&剧情继续：\n{{lastMessage}}"},
+              {name: "Continue", identifier: "continuePrompt", role: "user", content: "继续"}
+            ];
+            
+            for (const required of requiredPrompts) {
+              // Check if prompt exists in prompts array
+              interface SystemPrompt {
+                name: string;
+                identifier: string;
+                role: 'user' | 'model';
+                content: string;
+              }
+
+              interface PresetPrompt {
+                name: string;
+                content: string;
+                enable: boolean;
+                identifier: string;
+                role: 'user' | 'model';
+                isDefault: boolean;
+              }
+
+              interface ParsedJson {
+                preset: {
+                  prompts: PresetPrompt[];
+                }
+              }
+
+              if (!parsedJson.preset.prompts.some((p: PresetPrompt) => p.identifier === required.identifier)) {
+                console.log(`[CharacterEditDialog] 添加缺失的必要prompt: ${required.identifier}`);
+                parsedJson.preset.prompts.push({
+                  name: required.name,
+                  content: required.content, 
+                  enable: true,
+                  identifier: required.identifier,
+                  role: required.role,
+                  isDefault: true
+                });
+              }
+              
+              // Check if prompt exists in prompt_order
+              interface PromptOrderItem {
+                identifier: string;
+                enabled: boolean;
+              }
+
+              interface PromptOrder {
+                order: PromptOrderItem[];
+              }
+
+              interface PresetData {
+                prompt_order: PromptOrder[];
+              }
+
+                            if (!parsedJson.preset.prompt_order[0].order.some((o: PromptOrderItem) => o.identifier === required.identifier)) {
+                              parsedJson.preset.prompt_order[0].order.push({
+                                identifier: required.identifier,
+                                enabled: true
+                              } as PromptOrderItem);
+                            }
+            }
+            
+            // Log the preset structure for debugging
+            console.log('[CharacterEditDialog] DEBUG: Preset structure:', {
+              hasPromptOrder: !!parsedJson.preset.prompt_order,
+              promptOrderType: typeof parsedJson.preset.prompt_order,
+              promptOrderLength: Array.isArray(parsedJson.preset.prompt_order) ? parsedJson.preset.prompt_order.length : 0,
+              firstOrderType: typeof parsedJson.preset.prompt_order?.[0],
+              firstOrderHasOrderProp: parsedJson.preset.prompt_order?.[0]?.order ? true : false,
+              firstOrderOrderType: typeof parsedJson.preset.prompt_order?.[0]?.order,
+              orderArrayLength: Array.isArray(parsedJson.preset.prompt_order?.[0]?.order) ? parsedJson.preset.prompt_order[0].order.length : 0,
+              firstOrderItem: JSON.stringify(parsedJson.preset.prompt_order?.[0]),
+              hasPrompts: !!parsedJson.preset.prompts,
+              promptsLength: Array.isArray(parsedJson.preset.prompts) ? parsedJson.preset.prompts.length : 0
+            });
+            
+            // Update the JSON data with fixed structure
+            updatedCharacter.jsonData = JSON.stringify(parsedJson);
+            
+            // Debug log to see the complete structure
+            console.log('[CharacterEditDialog] DEBUG: Complete character JSON structure:', parsedJson);
           } catch (parseError) {
             console.error('[CharacterEditDialog] Invalid JSON data:', parseError);
             Alert.alert(
@@ -707,13 +954,15 @@ ${JSON.stringify(characterJsonData, null, 2)}
             
             // Send to NodeSTManager with "更新人设" status
             console.log('[CharacterEditDialog] Sending normal character update to NodeSTManager');
+            
+            // Fix: Pass the character object instead of using jsonString directly
             const response = await NodeSTManager.processChatMessage({
               userMessage: "",
               conversationId: updatedGeneratedCharacter.id,
               status: "更新人设",
               apiKey,
               apiSettings,
-              character: updatedGeneratedCharacter
+              character: updatedGeneratedCharacter // Pass the whole character object
             });
             
             if (!response.success) {
@@ -767,7 +1016,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
             inCradleSystem: true // Ensure it stays in cradle system
           };
           
-          // Send update to NodeSTManager
+          // Send update to NodeSTManager - Fix: Use the character object instead of jsonString
           console.log('[CharacterEditDialog] Sending cradle character update to NodeSTManager');
           const response = await NodeSTManager.processChatMessage({
             userMessage: "",
@@ -775,7 +1024,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
             status: "更新人设",
             apiKey,
             apiSettings,
-            character: finalCradleCharacter
+            character: finalCradleCharacter // Pass the character object
           });
           
           if (!response.success) {
@@ -806,7 +1055,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
             updatedAt: Date.now()
           };
           
-          // Send to NodeSTManager
+          // Send to NodeSTManager - Fix: Use the character object instead of jsonString
           console.log('[CharacterEditDialog] Sending regular character update to NodeSTManager');
           const response = await NodeSTManager.processChatMessage({
             userMessage: "",
@@ -814,7 +1063,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
             status: "更新人设",
             apiKey,
             apiSettings,
-            character: finalCharacter
+            character: finalCharacter // Pass the character object directly
           });
           
           if (!response.success) {

@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system';
 import { licenseService } from './license-service'; // Import license service
 import { CloudServiceProvider } from './cloud-service-provider'; // Import for LLM requests
 import { EventRegister } from 'react-native-event-listeners'; // Import for event handling
+import { ttsServerAdapter } from './ttsServerAdapter'; // Import for the server adapter
 
 // Configuration
 const TTS_API_URL = 'https://tts.cradleintro.top/api/tts';
@@ -25,6 +26,7 @@ interface TTSResponse {
   success: boolean;
   data?: {
     audio_url: string;
+    taskId?: string;
   };
   error?: string;
 }
@@ -37,6 +39,14 @@ type PlaybackStatus = {
   positionMillis?: number;
   didJustFinish?: boolean;
   error?: string;
+  // Extended properties for polling status
+  extendedPolling?: boolean;
+  pollingStartTime?: number;
+  pollingProgress?: number;
+  currentAttempt?: number;
+  totalAttempts?: number;
+  wasExtendedPolling?: boolean;
+  pollingAttempts?: number; // Add this missing property
   // Add other properties as needed
 };
 
@@ -52,6 +62,7 @@ export interface AudioState {
   localUri?: string;
   isComplete?: boolean; // Add flag to track if audio has completed playback
   templateId?: string;  // Store template ID for potential regeneration
+  statusMessage?: string; // Add human-readable status message
 }
 
 // Define a simplified version of AudioState for persistence
@@ -83,11 +94,16 @@ class TTSService {
     enabled: false,
     model: 'anthropic/claude-instant-v1'
   };
-  
+  // Flag to use SSE for real-time updates
+  private useRealtimeUpdates: boolean = false;
+  // Map of message IDs to task IDs
+  private messageToTaskMap = new Map<string, string>();
+
   constructor() {
     this.ensureCacheDirectoryExists();
     this.loadPersistedAudioStates();
     this.loadEnhancerSettings();
+    this.loadRealtimeUpdatesSetting();
   }
   
   // Initialize the cache directory
@@ -199,6 +215,111 @@ class TTSService {
     return { ...this.enhancerSettings };
   }
   
+  // Load real-time updates setting
+  private async loadRealtimeUpdatesSetting() {
+    try {
+      const setting = await AsyncStorage.getItem('tts_realtime_updates');
+      this.useRealtimeUpdates = setting === 'true';
+      
+      if (this.useRealtimeUpdates) {
+        // Connect to SSE if real-time updates are enabled
+        this.connectToRealtimeUpdates();
+      }
+    } catch (error) {
+      console.error('[TTSService] Failed to load real-time updates setting:', error);
+    }
+  }
+  
+  // Connect to real-time updates via SSE
+  private async connectToRealtimeUpdates() {
+    try {
+      await ttsServerAdapter.connect();
+      
+      // Add global callback for all task updates
+      ttsServerAdapter.addGlobalCallback((status) => {
+        // Only process updates if we have the message in our audio states
+        if (status.taskId && this.findMessageIdByTaskId(status.taskId)) {
+          this.handleTaskStatusUpdate(status);
+        }
+      });
+      
+      console.log('[TTSService] Connected to real-time updates');
+    } catch (error) {
+      console.error('[TTSService] Failed to connect to real-time updates:', error);
+    }
+  }
+  
+  // Handle task status updates from SSE
+  private handleTaskStatusUpdate(status: any) {
+    const messageId = this.findMessageIdByTaskId(status.taskId);
+    if (!messageId) return;
+    
+    switch (status.status) {
+      case 'processing':
+        // Update state to show progress
+        this.updateAudioState(messageId, {
+          isLoading: true,
+          hasAudio: false,
+          error: null
+        });
+        break;
+        
+      case 'succeeded':
+        // Audio is ready
+        if (status.output || status.audioUrl) {
+          const audioUrl = status.output || status.audioUrl;
+          
+          // Download and update the state
+          this.downloadAndCacheAudio(messageId, audioUrl).then(localUri => {
+            this.updateAudioState(messageId, {
+              isLoading: false,
+              hasAudio: true,
+              audioUrl,
+              localUri,
+              error: null,
+              isPlaying: false,
+              isComplete: false
+            });
+            
+            this.persistAudioStates();
+          });
+        }
+        break;
+        
+      case 'failed':
+        // Update audio state with error
+        this.updateAudioState(messageId, {
+          isLoading: false,
+          hasAudio: false,
+          error: status.error || 'Failed to generate audio',
+          isPlaying: false
+        });
+        break;
+    }
+  }
+  
+  // Find message ID by task ID
+  private findMessageIdByTaskId(taskId: string): string | null {
+    for (const [messageId, tId] of this.messageToTaskMap.entries()) {
+      if (tId === taskId) {
+        return messageId;
+      }
+    }
+    return null;
+  }
+  
+  // Enable real-time updates
+  async enableRealtimeUpdates(enable: boolean): Promise<void> {
+    this.useRealtimeUpdates = enable;
+    await AsyncStorage.setItem('tts_realtime_updates', enable ? 'true' : 'false');
+    
+    if (enable && !ttsServerAdapter.isConnected()) { // Fix: use the public method isConnected()
+      this.connectToRealtimeUpdates();
+    } else if (!enable && ttsServerAdapter.isConnected()) { // Fix: use the public method isConnected()
+      ttsServerAdapter.disconnect();
+    }
+  }
+  
   // Verify license before proceeding with API calls
   private async verifyLicense(): Promise<boolean> {
     console.log(`[TTSService] 验证许可证...`);
@@ -271,105 +392,195 @@ class TTSService {
         throw new Error('许可证信息不完整，请在API设置中重新激活您的许可证');
       }
 
-      // Prepare the request data
-      let requestData: TTSRequest;
-      
-      // Apply TTS enhancer if enabled
-      if (this.enhancerSettings.enabled) {
-        try {
-          console.log(`[TTSService] TTS enhancer enabled, using model: ${this.enhancerSettings.model}`);
-          const enhancedTTS = await this.enhanceText(text);
+      if (this.useRealtimeUpdates) {
+        // Use server adapter for real-time updates
+        let enhancedText = null;
+        let enhancedInstruction = null;
+        let requestTask: string | undefined = undefined;
+
+        // Apply TTS enhancer if enabled
+        if (this.enhancerSettings.enabled) {
+          try {
+            console.log(`[TTSService] TTS enhancer enabled, using model: ${this.enhancerSettings.model}`);
+            const enhancedTTS = await this.enhanceText(text);
+            enhancedText = enhancedTTS.tts_text;
+            enhancedInstruction = enhancedTTS.instruction;
+            
+            // Only set task if we have a valid instruction
+            if (enhancedInstruction && enhancedInstruction.trim()) {
+              requestTask = "Instructed Voice Generation";
+              console.log(`[TTSService] Enhanced text: ${enhancedTTS.tts_text.substring(0, 50)}...`);
+              console.log(`[TTSService] Instruction: ${enhancedTTS.instruction}`);
+              console.log(`[TTSService] Task: ${requestTask}`);
+            } else {
+              console.log('[TTSService] Instruction is empty, not using task parameter');
+            }
+          } catch (enhancerError) {
+            console.error('[TTSService] Error in TTS enhancer:', enhancerError);
+            // Fallback to original text if enhancement fails
+            console.log('[TTSService] Falling back to original text without instruction');
+            enhancedText = text;
+            enhancedInstruction = null;
+            requestTask = undefined; // Change null to undefined to match expected type
+          }
+        }
+        
+        const result = await ttsServerAdapter.generateAudio({
+          templateId,
+          tts_text: enhancedText || text,
+          instruction: enhancedInstruction && enhancedInstruction.trim() ? enhancedInstruction : undefined,
+          task: enhancedInstruction && enhancedInstruction.trim() ? requestTask : undefined
+        });
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to generate audio');
+        }
+        
+        // If we got a task ID, store the mapping and wait for updates via SSE
+        if (result.data?.taskId) {
+          this.messageToTaskMap.set(messageId, result.data.taskId);
           
-          requestData = {
-            templateId,
-            tts_text: enhancedTTS.tts_text,
-            instruction: enhancedTTS.instruction,
-            task: "Instructed Voice Generation" // Add task parameter for enhanced TTS
-          };
+          // Subscribe to specific task updates
+          ttsServerAdapter.subscribeToTask(result.data.taskId, (status) => {
+            this.handleTaskStatusUpdate(status);
+          });
+        }
+        
+        // If we got an audio URL immediately, use it
+        if (result.data?.audio_url) {
+          const audioUrl = result.data.audio_url;
+          const localUri = await this.downloadAndCacheAudio(messageId, audioUrl);
           
-          console.log(`[TTSService] Enhanced text: ${enhancedTTS.tts_text.substring(0, 50)}...`);
-          console.log(`[TTSService] Instruction: ${enhancedTTS.instruction}`);
-          console.log(`[TTSService] Task: ${requestData.task}`);
-        } catch (enhancerError) {
-          console.error('[TTSService] Error in TTS enhancer:', enhancerError);
-          // Fallback to original text if enhancement fails
-          console.log('[TTSService] Falling back to original text');
+          this.updateAudioState(messageId, {
+            isLoading: false,
+            hasAudio: true,
+            audioUrl,
+            localUri,
+            error: null,
+            isPlaying: false,
+            isComplete: false,
+            templateId: templateId
+          });
+          
+          await this.persistAudioStates();
+          
+          return this.getAudioState(messageId);
+        }
+        
+        // Return current state, which should be loading
+        return this.getAudioState(messageId);
+      } else {
+        // Use original implementation for backward compatibility
+        let requestData: TTSRequest;
+        
+        // Apply TTS enhancer if enabled
+        if (this.enhancerSettings.enabled) {
+          try {
+            console.log(`[TTSService] TTS enhancer enabled, using model: ${this.enhancerSettings.model}`);
+            const enhancedTTS = await this.enhanceText(text);
+            
+            // Only add task parameter if we have a valid instruction
+            if (enhancedTTS.instruction && enhancedTTS.instruction.trim()) {
+              requestData = {
+                templateId,
+                tts_text: enhancedTTS.tts_text,
+                instruction: enhancedTTS.instruction,
+                task: "Instructed Voice Generation" // Add task parameter for enhanced TTS
+              };
+              
+              console.log(`[TTSService] Enhanced text: ${enhancedTTS.tts_text.substring(0, 50)}...`);
+              console.log(`[TTSService] Instruction: ${enhancedTTS.instruction}`);
+              console.log(`[TTSService] Task: Instructed Voice Generation`);
+            } else {
+              // If we don't have a valid instruction, don't set the task parameter
+              console.log('[TTSService] No valid instruction from enhancer, using standard TTS');
+              requestData = {
+                templateId,
+                tts_text: enhancedTTS.tts_text
+              };
+            }
+          } catch (enhancerError) {
+            console.error('[TTSService] Error in TTS enhancer:', enhancerError);
+            // Fallback to original text if enhancement fails
+            console.log('[TTSService] Falling back to original text');
+            requestData = {
+              templateId,
+              tts_text: text
+            };
+          }
+        } else {
+          // Use original text if enhancer is disabled
           requestData = {
             templateId,
             tts_text: text
           };
         }
-      } else {
-        // Use original text if enhancer is disabled
-        requestData = {
-          templateId,
-          tts_text: text
-        };
+        
+        console.log(`[TTSService] Generating TTS for message ${messageId} with template ${templateId}`);
+        
+        // Make the API request with license headers
+        const response = await fetch(TTS_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...licenseHeaders  // Add license headers
+          },
+          body: JSON.stringify(requestData)
+        });
+        
+        // Get raw response for better error handling
+        const responseText = await response.text();
+        let responseData: TTSResponse;
+        
+        try {
+          // Parse the response
+          responseData = JSON.parse(responseText);
+        } catch (error) {
+          console.error(`[TTSService] Failed to parse response: ${responseText}`);
+          throw new Error(`服务器返回的不是有效的JSON: ${responseText.substring(0, 100)}...`);
+        }
+        
+        if (!response.ok) {
+          console.error(`[TTSService] Server returned error: HTTP ${response.status}`);
+          let errorDetail = responseData.error || responseText;
+          throw new Error(`服务器响应错误: ${response.status} - ${errorDetail}`);
+        }
+        
+        if (!responseData.success) {
+          throw new Error(responseData.error || 'Failed to generate audio');
+        }
+        
+        if (!responseData.data?.audio_url) {
+          // If no audio URL is returned but the request was successful,
+          // the server might still be processing - set up polling
+          console.log(`[TTSService] No immediate audio URL returned, starting polling for message ${messageId}`);
+          return this.pollForAudioCompletion(messageId, templateId, text);
+        }
+        
+        const audioUrl = responseData.data.audio_url;
+        console.log(`[TTSService] Audio generated immediately: ${audioUrl}`);
+        
+        // Download and cache the audio file
+        const localUri = await this.downloadAndCacheAudio(messageId, audioUrl);
+        
+        // Update audio state with success
+        this.updateAudioState(messageId, {
+          isLoading: false,
+          hasAudio: true,
+          audioUrl,
+          localUri,
+          error: null,
+          isPlaying: false,
+          isComplete: false,
+          templateId: templateId
+        });
+        
+        // Persist audio states after successful generation
+        await this.persistAudioStates();
+        
+        return this.getAudioState(messageId);
       }
-      
-      console.log(`[TTSService] Generating TTS for message ${messageId} with template ${templateId}`);
-      
-      // Make the API request with license headers
-      const response = await fetch(TTS_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...licenseHeaders  // Add license headers
-        },
-        body: JSON.stringify(requestData)
-      });
-      
-      // Get raw response for better error handling
-      const responseText = await response.text();
-      let responseData: TTSResponse;
-      
-      try {
-        // Parse the response
-        responseData = JSON.parse(responseText);
-      } catch (error) {
-        console.error(`[TTSService] Failed to parse response: ${responseText}`);
-        throw new Error(`服务器返回的不是有效的JSON: ${responseText.substring(0, 100)}...`);
-      }
-      
-      if (!response.ok) {
-        console.error(`[TTSService] Server returned error: HTTP ${response.status}`);
-        let errorDetail = responseData.error || responseText;
-        throw new Error(`服务器响应错误: ${response.status} - ${errorDetail}`);
-      }
-      
-      if (!responseData.success) {
-        throw new Error(responseData.error || 'Failed to generate audio');
-      }
-      
-      if (!responseData.data?.audio_url) {
-        // If no audio URL is returned but the request was successful,
-        // the server might still be processing - set up polling
-        return this.pollForAudioCompletion(messageId, templateId, text);
-      }
-      
-      const audioUrl = responseData.data.audio_url;
-      console.log(`[TTSService] Audio generated: ${audioUrl}`);
-      
-      // Download and cache the audio file
-      const localUri = await this.downloadAndCacheAudio(messageId, audioUrl);
-      
-      // Update audio state with success
-      this.updateAudioState(messageId, {
-        isLoading: false,
-        hasAudio: true,
-        audioUrl,
-        localUri,
-        error: null,
-        isPlaying: false,
-        isComplete: false,
-        templateId: templateId
-      });
-      
-      // Persist audio states after successful generation
-      await this.persistAudioStates();
-      
-      return this.getAudioState(messageId);
     } catch (error) {
       console.error(`[TTSService] Error generating TTS:`, error);
       
@@ -382,6 +593,181 @@ class TTSService {
       });
       
       return this.getAudioState(messageId);
+    }
+  }
+  
+  // Poll for audio completion when the server is still processing
+  private async pollForAudioCompletion(messageId: string, templateId: string, text: string, attempts: number = 0, extendedPolling: boolean = false): Promise<AudioState> {
+    // Maximum number of retry attempts
+    const INITIAL_MAX_ATTEMPTS = 10; // 10 attempts × 3 seconds = 30 seconds initial polling
+    const EXTENDED_MAX_ATTEMPTS = 30; // 30 additional attempts × 5 seconds = 150 seconds extended polling
+    const INITIAL_RETRY_DELAY = 3000; // 3 seconds between initial attempts
+    const EXTENDED_RETRY_DELAY = 5000; // 5 seconds between extended attempts
+    
+    const MAX_ATTEMPTS = extendedPolling ? EXTENDED_MAX_ATTEMPTS : INITIAL_MAX_ATTEMPTS;
+    const RETRY_DELAY = extendedPolling ? EXTENDED_RETRY_DELAY : INITIAL_RETRY_DELAY;
+    
+    if (attempts >= MAX_ATTEMPTS) {
+      if (!extendedPolling) {
+        // If we've reached the end of initial polling, start extended polling
+        console.log(`[TTSService] Initial max polling attempts (${INITIAL_MAX_ATTEMPTS}) reached for message ${messageId}. Switching to extended polling.`);
+        
+        // Update audio state to show extended processing
+        this.updateAudioState(messageId, {
+          isLoading: true,
+          hasAudio: false,
+          error: null,
+          isPlaying: false,
+          // Add a hint that we're in extended polling mode
+          status: {
+            isLoaded: false,
+            extendedPolling: true,
+            pollingStartTime: Date.now()
+          }
+        });
+        
+        // Start extended polling
+        return this.pollForAudioCompletion(messageId, templateId, text, 0, true);
+      } else {
+        // We've reached the end of extended polling too - now we can consider it a failure
+        console.log(`[TTSService] Extended max polling attempts (${EXTENDED_MAX_ATTEMPTS}) reached for message ${messageId}. Polling failed.`);
+        this.updateAudioState(messageId, {
+          isLoading: false,
+          hasAudio: false,
+          error: `Audio generation took too long (${Math.round((INITIAL_MAX_ATTEMPTS * INITIAL_RETRY_DELAY + EXTENDED_MAX_ATTEMPTS * EXTENDED_RETRY_DELAY) / 1000)} seconds). Please try again or retry manually.`,
+          isPlaying: false
+        });
+        return this.getAudioState(messageId);
+      }
+    }
+    
+    // Wait before trying again
+    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+    
+    try {
+      const pollingMode = extendedPolling ? 'Extended' : 'Initial';
+      const totalAttempts = extendedPolling ? EXTENDED_MAX_ATTEMPTS : INITIAL_MAX_ATTEMPTS;
+      
+      console.log(`[TTSService] ${pollingMode} polling for audio completion (attempt ${attempts + 1}/${totalAttempts})`);
+      
+      // Update audio state with progress information
+      const progressPercentage = Math.min(95, Math.round((attempts / totalAttempts) * 100));
+      this.updateAudioState(messageId, {
+        status: {
+          isLoaded: false, // Explicitly set isLoaded to false to match required type
+          pollingProgress: progressPercentage,
+          currentAttempt: attempts + 1,
+          totalAttempts: totalAttempts,
+          extendedPolling: extendedPolling
+        }
+      });
+      
+      // Get license headers for polling request
+      const licenseHeaders = await this.getLicenseHeaders();
+      
+      // Determine if we need to include task parameter for enhanced TTS
+      let requestBody: TTSRequest = {
+        templateId,
+        tts_text: text
+      };
+      
+      // Add task parameter if enhancer is enabled and we have instruction
+      if (this.enhancerSettings.enabled) {
+        try {
+          const enhancedTTS = await this.enhanceText(text);
+          
+          // Only add task if we have a valid instruction
+          if (enhancedTTS.instruction && enhancedTTS.instruction.trim()) {
+            requestBody = {
+              templateId,
+              tts_text: enhancedTTS.tts_text,
+              instruction: enhancedTTS.instruction,
+              task: "Instructed Voice Generation"
+            };
+          } else {
+            requestBody = {
+              templateId,
+              tts_text: enhancedTTS.tts_text
+            };
+          }
+        } catch (error) {
+          console.error('[TTSService] Error enhancing text during polling:', error);
+          // Keep using original text without task parameter
+        }
+      }
+      
+      // Make a new request to check if audio is ready
+      const response = await fetch(TTS_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...licenseHeaders // Include license headers
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      // Get raw response for better error handling
+      const responseText = await response.text();
+      let responseData: TTSResponse;
+      
+      try {
+        // Parse the response
+        responseData = JSON.parse(responseText);
+      } catch (error) {
+        console.error(`[TTSService] Failed to parse response during polling: ${responseText}`);
+        // Continue polling instead of failing immediately
+        return this.pollForAudioCompletion(messageId, templateId, text, attempts + 1, extendedPolling);
+      }
+      
+      if (responseData.success && responseData.data?.audio_url) {
+        // Audio is ready!
+        const audioUrl = responseData.data.audio_url;
+        console.log(`[TTSService] Audio ready after ${pollingMode.toLowerCase()} polling (attempt ${attempts + 1}): ${audioUrl}`);
+        
+        // Download and cache the audio file
+        const localUri = await this.downloadAndCacheAudio(messageId, audioUrl);
+        
+        // Update audio state with success
+        this.updateAudioState(messageId, {
+          isLoading: false,
+          hasAudio: true,
+          audioUrl,
+          localUri,
+          error: null,
+          isPlaying: false,
+          isComplete: false,
+          templateId: templateId,
+          status: {
+            isLoaded: true,
+            extendedPolling: false,
+            pollingAttempts: attempts + 1, // This property now exists in the type
+            wasExtendedPolling: extendedPolling
+          }
+        });
+        
+        // Persist audio states after successful generation
+        await this.persistAudioStates();
+        
+        return this.getAudioState(messageId);
+      } else if (!response.ok || !responseData.success) {
+        // If we get an error response but we're still in polling phase, 
+        // log it but continue polling instead of failing
+        const errorDetail = responseData.error || 
+          (response.status ? `HTTP ${response.status}` : 'Unknown error');
+        
+        console.warn(`[TTSService] Error during ${pollingMode.toLowerCase()} polling (attempt ${attempts + 1}): ${errorDetail}. Continuing to poll...`);
+        return this.pollForAudioCompletion(messageId, templateId, text, attempts + 1, extendedPolling);
+      } else {
+        // Audio still not ready, continue polling
+        console.log(`[TTSService] Audio not ready yet in ${pollingMode.toLowerCase()} polling, continuing to poll...`);
+        return this.pollForAudioCompletion(messageId, templateId, text, attempts + 1, extendedPolling);
+      }
+    } catch (error) {
+      console.error(`[TTSService] Error while ${extendedPolling ? 'extended' : 'initial'} polling for audio:`, error);
+      
+      // Try again instead of failing immediately
+      return this.pollForAudioCompletion(messageId, templateId, text, attempts + 1, extendedPolling);
     }
   }
   
@@ -475,93 +861,6 @@ class TTSService {
         tts_text: text,
         instruction: "natural"
       };
-    }
-  }
-  
-  // Poll for audio completion when the server is still processing
-  private async pollForAudioCompletion(messageId: string, templateId: string, text: string, attempts: number = 0): Promise<AudioState> {
-    // Maximum number of retry attempts (10 attempts × 3 seconds = 30 seconds max wait time)
-    const MAX_ATTEMPTS = 10;
-    const RETRY_DELAY = 3000; // 3 seconds between attempts
-    
-    if (attempts >= MAX_ATTEMPTS) {
-      console.log(`[TTSService] Max polling attempts reached for message ${messageId}`);
-      this.updateAudioState(messageId, {
-        isLoading: false,
-        hasAudio: false,
-        error: 'Audio generation timed out after 30 seconds',
-        isPlaying: false
-      });
-      return this.getAudioState(messageId);
-    }
-    
-    // Wait before trying again
-    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-    
-    try {
-      console.log(`[TTSService] Polling for audio completion (attempt ${attempts + 1}/${MAX_ATTEMPTS})`);
-      
-      // Get license headers for polling request
-      const licenseHeaders = await this.getLicenseHeaders();
-      
-      // Determine if we need to include task parameter for enhanced TTS
-      let requestBody: TTSRequest = {
-        templateId,
-        tts_text: text
-      };
-      
-      // Add task parameter if enhancer is enabled
-      if (this.enhancerSettings.enabled) {
-        requestBody.task = "Instructed Voice Generation";
-      }
-      
-      // Make a new request to check if audio is ready
-      const response = await fetch(TTS_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...licenseHeaders // Include license headers
-        },
-        body: JSON.stringify(requestBody)
-      });
-      
-      const responseData: TTSResponse = await response.json();
-      
-      if (responseData.success && responseData.data?.audio_url) {
-        // Audio is ready!
-        const audioUrl = responseData.data.audio_url;
-        console.log(`[TTSService] Audio ready after polling: ${audioUrl}`);
-        
-        // Download and cache the audio file
-        const localUri = await this.downloadAndCacheAudio(messageId, audioUrl);
-        
-        // Update audio state with success
-        this.updateAudioState(messageId, {
-          isLoading: false,
-          hasAudio: true,
-          audioUrl,
-          localUri,
-          error: null,
-          isPlaying: false,
-          isComplete: false,
-          templateId: templateId
-        });
-        
-        // Persist audio states after successful generation
-        await this.persistAudioStates();
-        
-        return this.getAudioState(messageId);
-      } else {
-        // Audio still not ready, continue polling
-        console.log(`[TTSService] Audio not ready yet, continuing to poll...`);
-        return this.pollForAudioCompletion(messageId, templateId, text, attempts + 1);
-      }
-    } catch (error) {
-      console.error(`[TTSService] Error while polling for audio:`, error);
-      
-      // Try again instead of failing immediately
-      return this.pollForAudioCompletion(messageId, templateId, text, attempts + 1);
     }
   }
   
@@ -717,13 +1016,23 @@ class TTSService {
   
   // Get the current audio state for a message
   getAudioState(messageId: string): AudioState {
-    return this.audioStates.get(messageId) || {
+    const state = this.audioStates.get(messageId) || {
       isPlaying: false,
       isLoading: false,
       hasAudio: false,
       error: null,
       isComplete: false
     };
+    
+    // Add some human-readable status messages based on the polling state
+    if (state.isLoading && state.status?.extendedPolling) {
+      const elapsedSeconds = Math.floor((Date.now() - (state.status.pollingStartTime || Date.now())) / 1000);
+      
+      // Calculate and append a human-readable status message
+      state.statusMessage = `Still generating audio... (${elapsedSeconds}s, ${state.status.pollingProgress || 0}%)`;
+    }
+    
+    return state;
   }
   
   // Update the audio state for a message
@@ -732,6 +1041,83 @@ class TTSService {
     const newState = { ...currentState, ...updates };
     this.audioStates.set(messageId, newState);
     return newState;
+  }
+  
+  // Add method to retry failed TTS generation
+  async retryTTSGeneration(messageId: string): Promise<AudioState> {
+    const state = this.getAudioState(messageId);
+    
+    if (!state.templateId) {
+      throw new Error('Cannot retry: missing template ID');
+    }
+    
+    // Get the text from the message
+    // In a real app, you would retrieve this based on your message storage
+    const text = ""; // Fill this based on your application's data structure
+    
+    // Clear error state and set to loading
+    this.updateAudioState(messageId, {
+      isLoading: true,
+      error: null
+    });
+    
+    // If we have a task ID, use the retry API
+    const taskId = this.findTaskIdByMessageId(messageId);
+    if (this.useRealtimeUpdates && taskId) {
+      try {
+        // Apply TTS enhancer if enabled
+        let enhancedText = null;
+        let enhancedInstruction = null;
+        let requestTask: string | undefined = undefined;
+
+        if (this.enhancerSettings.enabled) {
+          try {
+            const enhancedTTS = await this.enhanceText(text);
+            enhancedText = enhancedTTS.tts_text;
+            enhancedInstruction = enhancedTTS.instruction;
+            
+            // Only set task if we have a valid instruction
+            if (enhancedInstruction && enhancedInstruction.trim()) {
+              requestTask = "Instructed Voice Generation";
+            }
+          } catch (enhancerError) {
+            console.error('[TTSService] Error in TTS enhancer during retry:', enhancerError);
+            // Fallback to original text without instruction or task
+            enhancedText = text;
+            enhancedInstruction = undefined;
+            requestTask = undefined; // Change null to undefined to match expected type
+          }
+        }
+        
+        const result = await ttsServerAdapter.retryAudio(taskId, {
+          templateId: state.templateId,
+          tts_text: enhancedText || text,
+          instruction: enhancedInstruction && enhancedInstruction.trim() ? enhancedInstruction : undefined,
+          task: enhancedInstruction && enhancedInstruction.trim() ? requestTask : undefined
+        });
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to retry audio generation');
+        }
+        
+        // Return current state, which should be loading
+        return this.getAudioState(messageId);
+      } catch (error) {
+        this.updateAudioState(messageId, {
+          isLoading: false,
+          error: error instanceof Error ? error.message : 'Failed to retry'
+        });
+        return this.getAudioState(messageId);
+      }
+    } else {
+      // Fall back to generating from scratch
+      return this.generateTTS(messageId, text, state.templateId);
+    }
+  }
+  
+  // Find task ID by message ID
+  private findTaskIdByMessageId(messageId: string): string | undefined {
+    return this.messageToTaskMap.get(messageId);
   }
   
   // Clean up resources when component unmounts
@@ -749,6 +1135,13 @@ class TTSService {
           status: undefined
         });
       }
+      
+      // Clean up task subscriptions
+      const taskId = this.findTaskIdByMessageId(messageId);
+      if (taskId) {
+        ttsServerAdapter.unsubscribeFromTask(taskId);
+        this.messageToTaskMap.delete(messageId);
+      }
     } else {
       // Clean up all sounds but preserve the state references
       for (const [id, state] of this.audioStates.entries()) {
@@ -761,6 +1154,9 @@ class TTSService {
           });
         }
       }
+      
+      // Clean up all subscriptions
+      this.messageToTaskMap.clear();
     }
     
     // Persist states before cleanup completes

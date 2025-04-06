@@ -1,8 +1,8 @@
-import { NodeST, CirclePostOptions, CircleResponse } from '../NodeST/nodest';
+import { NodeST} from '../NodeST/nodest';
+import {CirclePostOptions, CircleResponse} from '../shared/types/circle-types';
 import { Character, GlobalSettings } from '../shared/types';
 import { CirclePost, CircleComment, CircleLike } from '../shared/types/circle-types';
 import { RelationshipService } from './relationship-service';
-import { applyRelationshipUpdates } from '../utils/relationship-utils';
 import { CircleScheduler } from './circle-scheduler';
 import AsyncStorage from '@react-native-async-storage/async-storage'; // Add this import
 
@@ -508,7 +508,7 @@ export class CircleService {
     }
   }
 
-  // Update a post with character's response (like/comment)
+  // Update post with character's response (like/comment)
   static updatePostWithResponse(
     post: CirclePost, 
     character: Character, 
@@ -534,7 +534,8 @@ export class CircleService {
         userName: character.name,
         userAvatar: character.avatar as string,
         isCharacter: true,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        thoughts: response.thoughts // Add the thoughts to the like
       };
       
       updatedPost.likes = (updatedPost.likes || 0) + 1;
@@ -566,6 +567,7 @@ export class CircleService {
         content: response.action.comment,
         createdAt: new Date().toISOString(),
         type: 'character',
+        thoughts: response.thoughts, // Add the thoughts to the comment
         // Add replyTo information if this is a reply to a specific comment
         ...(replyTo ? { replyTo: { userId: replyTo.userId, userName: replyTo.userName } } : {})
       };

@@ -29,9 +29,10 @@ const FavoriteList: React.FC<FavoriteListProps> = ({ posts, onClose, onUpdatePos
   const [favoritePosts, setFavoritePosts] = useState<CirclePost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Filter favorite posts
+  // Filter favorite posts - update this to respond to props.posts changes
   useEffect(() => {
-    const filtered = posts.filter(post => post.isFavorited);
+    // Make sure we're always showing the latest state of posts
+    const filtered = posts.filter(post => post.isFavorited === true);
     setFavoritePosts(filtered);
     setIsLoading(false);
   }, [posts]);
@@ -43,12 +44,14 @@ const FavoriteList: React.FC<FavoriteListProps> = ({ posts, onClose, onUpdatePos
       const character = characters.find(c => c.id === post.characterId);
       if (!character) return;
       
+      // Remove from local state immediately for responsive UI
+      setFavoritePosts(prevPosts => prevPosts.filter(p => p.id !== post.id));
+      
       // Toggle favorite status
       await toggleFavorite(character.id, post.id);
       
       // Update local state
       const updatedPost = { ...post, isFavorited: false };
-      setFavoritePosts(prevPosts => prevPosts.filter(p => p.id !== post.id));
       
       // Notify parent component
       if (onUpdatePost) {
@@ -56,6 +59,14 @@ const FavoriteList: React.FC<FavoriteListProps> = ({ posts, onClose, onUpdatePos
       }
     } catch (error) {
       console.error('Failed to unfavorite post:', error);
+      
+      // Revert the change in case of error
+      setFavoritePosts(prevPosts => {
+        if (!prevPosts.some(p => p.id === post.id)) {
+          return [...prevPosts, post];
+        }
+        return prevPosts;
+      });
     }
   }, [characters, toggleFavorite, onUpdatePost]);
 

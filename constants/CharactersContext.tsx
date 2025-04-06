@@ -256,7 +256,12 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
       // 更新状态
       console.log('[Context 7] Updating state...');
-      setCharacters(updatedCharacters);
+      setCharacters(prevChars => {
+        // Ensure we're creating a new array reference
+        const newCharactersArray = [...prevChars, character];
+        console.log('[Context] Characters state updated with new array, length:', newCharactersArray.length);
+        return newCharactersArray;
+      });
       
       console.log('[Context 8] Character added successfully');
     

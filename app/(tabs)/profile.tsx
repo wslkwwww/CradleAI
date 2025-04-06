@@ -19,21 +19,20 @@ import ListItem from '@/components/ListItem';
 import EmptyStateView from '@/components/EmptyStateView';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadingIndicator from '@/components/LoadingIndicator';
-import ActionButton from '@/components/ActionButton';
 import { theme } from '@/constants/theme';
 
 const Profile: React.FC = () => {
   const { user, updateAvatar } = useUser();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
 
   const pickImage = useCallback(async () => {
     try {
       setIsLoading(true);
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        setShowConfirmDialog(true);
+        setShowPermissionDialog(true);
         return;
       }
 
@@ -119,13 +118,9 @@ const Profile: React.FC = () => {
         {/* Danger Zone */}
         <View style={styles.dangerSection}>
           <Text style={styles.dangerSectionTitle}>危险区域</Text>
-          <ActionButton 
-            title="清理所有角色数据" 
-            onPress={() => setShowConfirmDialog(true)}
-            color={theme.colors.danger}
-            textColor="#fff"
-            icon="trash-outline"
-            iconPosition="left"
+          <NodeSTCleanupButton 
+            onCleanupComplete={handleCleanupComplete}
+            style={styles.cleanupButton}
           />
           <Text style={styles.dangerSectionDescription}>
             清理所有角色数据将删除所有存储在应用中的角色对话历史和设定数据。此操作无法撤销。
@@ -133,20 +128,16 @@ const Profile: React.FC = () => {
         </View>
       </ScrollView>
 
-      {/* 使用新的ConfirmDialog组件 */}
+      {/* 图片权限确认对话框 */}
       <ConfirmDialog
-        visible={showConfirmDialog}
-        title="确认清理数据"
-        message="此操作将永久删除所有角色数据和对话历史。确定要继续吗？"
-        confirmText="确认删除"
+        visible={showPermissionDialog}
+        title="需要权限"
+        message="请允许访问相册以便选择头像图片"
+        confirmText="确定"
         cancelText="取消"
-        confirmAction={() => {
-          setShowConfirmDialog(false);
-          // 调用清理函数
-          handleCleanupComplete();
-        }}
-        cancelAction={() => setShowConfirmDialog(false)}
-        destructive={true}
+        confirmAction={() => setShowPermissionDialog(false)}
+        cancelAction={() => setShowPermissionDialog(false)}
+        destructive={false}
         icon="alert-circle"
       />
 
@@ -227,6 +218,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 12,
     lineHeight: 18,
+  },
+  cleanupButton: {
+    width: '100%',
   },
 });
 

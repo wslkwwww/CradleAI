@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  Animated,
   ViewStyle,
   Dimensions,
   Platform,
@@ -14,11 +13,18 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { Message,  ChatDialogProps } from '@/shared/types';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+  withDelay,
+} from 'react-native-reanimated';
+import { Message, ChatDialogProps } from '@/shared/types';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { parseHtmlText, containsComplexHtml, extractCodeBlocks, reinsertCodeBlocks, optimizeHtmlForRendering } from '@/utils/textParser';
+import { parseHtmlText, containsComplexHtml, optimizeHtmlForRendering } from '@/utils/textParser';
 import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageManager, { ImageInfo } from '@/utils/ImageManager';
@@ -46,8 +52,11 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   messageMemoryState = {} // Default to empty object
 }) => {
   const scrollViewRef = useRef<ScrollView>(null);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateAnim = useRef(new Animated.Value(20)).current;
+  const fadeAnim = useSharedValue(0);
+  const translateAnim = useSharedValue(20);
+  const dot1Scale = useSharedValue(1);
+  const dot2Scale = useSharedValue(1);
+  const dot3Scale = useSharedValue(1);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [fullscreenImageId, setFullscreenImageId] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState<boolean>(false);
@@ -111,19 +120,57 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
 
   // Animate new messages
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [messages]);
+    fadeAnim.value = withTiming(1, { duration: 300 });
+    translateAnim.value = withTiming(0, { duration: 300 });
+  }, [messages, fadeAnim, translateAnim]);
+
+  const messagesAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: fadeAnim.value,
+      transform: [{ translateY: translateAnim.value }]
+    };
+  });
+
+  const animateDots = () => {
+    const setupDotAnimation = (dotScale: Animated.SharedValue<number>, delay: number) => {
+      dotScale.value = withDelay(
+        delay,
+        withSequence(
+          withTiming(1.5, { duration: 300 }),
+          withTiming(1, { duration: 300 })
+        )
+      );
+    };
+    
+    setupDotAnimation(dot1Scale, 0);
+    setupDotAnimation(dot2Scale, 200);
+    setupDotAnimation(dot3Scale, 400);
+    
+    const interval = setInterval(() => {
+      setupDotAnimation(dot1Scale, 0);
+      setupDotAnimation(dot2Scale, 200);
+      setupDotAnimation(dot3Scale, 400);
+    }, 1200);
+    
+    return () => clearInterval(interval);
+  };
+  
+  useEffect(() => {
+    const cleanup = animateDots();
+    return cleanup;
+  }, []);
+  
+  const dot1Style = useAnimatedStyle(() => ({
+    transform: [{ scale: dot1Scale.value }]
+  }));
+  
+  const dot2Style = useAnimatedStyle(() => ({
+    transform: [{ scale: dot2Scale.value }]
+  }));
+  
+  const dot3Style = useAnimatedStyle(() => ({
+    transform: [{ scale: dot3Scale.value }]
+  }));
 
   // Auto-scroll to bottom when new messages arrive, but only if already at bottom
   useEffect(() => {
@@ -191,21 +238,6 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
 
   // Enhanced rate message handler with animations and persistence
   const handleRateMessage = async (messageId: string, isUpvote: boolean) => {
-    // Create animation for feedback
-    const buttonScale = new Animated.Value(1);
-    Animated.sequence([
-      Animated.timing(buttonScale, {
-        toValue: 1.5,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(buttonScale, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      })
-    ]).start();
-    
     // Update local state
     setRatedMessages(prev => ({
       ...prev,
@@ -634,43 +666,44 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     if (message.sender !== 'bot' || message.isLoading) return null;
     
     const audioState = audioStates[message.id] || ttsService.getAudioState(message.id);
+    const isVisualNovel = mode === 'visual-novel';
     
     return (
-      <View style={styles.ttsButtonContainer}>
+      <View style={isVisualNovel ? styles.visualNovelTTSContainer : styles.ttsButtonContainer}>
         {audioState.isLoading ? (
           // Loading indicator with text showing it's generating
-          <View style={styles.ttsButtonWithLabel}>
-            <View style={styles.ttsButton}>
+          <View style={isVisualNovel ? styles.visualNovelTTSButtonWithLabel : styles.ttsButtonWithLabel}>
+            <View style={isVisualNovel ? styles.visualNovelTTSButton : styles.ttsButton}>
               <ActivityIndicator size="small" color="#fff" />
             </View>
-            <Text style={styles.ttsLoadingText}>生成中...</Text>
+            {!isVisualNovel && <Text style={styles.ttsLoadingText}>生成中...</Text>}
           </View>
         ) : audioState.hasAudio ? (
           // If audio is available, show appropriate button based on playback state
           <TouchableOpacity
             style={[
-              styles.ttsButton, 
-              audioState.isPlaying && styles.ttsButtonActive,
+              isVisualNovel ? styles.visualNovelTTSButton : styles.ttsButton, 
+              audioState.isPlaying && (isVisualNovel ? styles.visualNovelTTSButtonActive : styles.ttsButtonActive),
               // Add special style for enhanced audio
-              ttsEnhancerEnabled && styles.ttsButtonEnhanced
+              ttsEnhancerEnabled && (isVisualNovel ? styles.visualNovelTTSButtonEnhanced : styles.ttsButtonEnhanced)
             ]}
             onPress={() => handlePlayAudio(message.id)}
           >
             {audioState.isPlaying ? (
               // Playing - show pause button
-              <Ionicons name="pause" size={18} color="#fff" />
+              <Ionicons name="pause" size={isVisualNovel ? 22 : 18} color="#fff" />
             ) : audioState.isComplete ? (
               // Completed playing - show replay button
-              <Ionicons name="refresh" size={18} color="#fff" />
+              <Ionicons name="refresh" size={isVisualNovel ? 22 : 18} color="#fff" />
             ) : (
               // Has audio but not playing - show play button
-              <Ionicons name="play" size={18} color="#fff" />
+              <Ionicons name="play" size={isVisualNovel ? 22 : 18} color="#fff" />
             )}
             
             {/* Add indicator for enhanced audio */}
             {ttsEnhancerEnabled && (
-              <View style={styles.ttsEnhancerIndicator}>
-                <Ionicons name="sparkles-outline" size={10} color="#fff" />
+              <View style={isVisualNovel ? styles.visualNovelTTSEnhancerIndicator : styles.ttsEnhancerIndicator}>
+                <Ionicons name="sparkles-outline" size={isVisualNovel ? 12 : 10} color="#fff" />
               </View>
             )}
           </TouchableOpacity>
@@ -678,25 +711,25 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
           // If no audio yet, show generate button
           <TouchableOpacity
             style={[
-              styles.ttsButton,
+              isVisualNovel ? styles.visualNovelTTSButton : styles.ttsButton,
               // Add special style for enhanced mode
-              ttsEnhancerEnabled && styles.ttsButtonEnhanced
+              ttsEnhancerEnabled && (isVisualNovel ? styles.visualNovelTTSButtonEnhanced : styles.ttsButtonEnhanced)
             ]}
             onPress={() => handleTTSButtonPress(message.id, message.text)}
           >
-            <Ionicons name="volume-high" size={18} color="#fff" />
+            <Ionicons name="volume-high" size={isVisualNovel ? 22 : 18} color="#fff" />
             
             {/* Add indicator for enhanced mode */}
             {ttsEnhancerEnabled && (
-              <View style={styles.ttsEnhancerIndicator}>
-                <Ionicons name="sparkles-outline" size={10} color="#fff" />
+              <View style={isVisualNovel ? styles.visualNovelTTSEnhancerIndicator : styles.ttsEnhancerIndicator}>
+                <Ionicons name="sparkles-outline" size={isVisualNovel ? 12 : 10} color="#fff" />
               </View>
             )}
           </TouchableOpacity>
         )}
         
         {/* Show error message if there was an error */}
-        {audioState.error && !audioState.isLoading && !audioState.hasAudio && (
+        {audioState.error && !audioState.isLoading && !audioState.hasAudio && !isVisualNovel && (
           <TouchableOpacity 
             style={styles.ttsRetryButton}
             onPress={() => handleTTSButtonPress(message.id, message.text)}
@@ -704,66 +737,6 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
             <Ionicons name="refresh" size={16} color="#ff6666" />
             <Text style={styles.ttsErrorText}>重试</Text>
           </TouchableOpacity>
-        )}
-      </View>
-    );
-  };
-
-  // Render message actions (rating buttons and regenerate button)
-  const renderMessageActions = (message: Message, index: number) => {
-    if (message.isLoading) return null;
-    
-    const isLastMessage = index === messages.length - 1 || 
-                         (index === messages.length - 2 && messages[messages.length - 1].isLoading);
-    
-    const messageRating = getMessageRating(message.id);
-    
-    return (
-      <View style={styles.messageActions}>
-        {/* Add TTS buttons */}
-        {message.sender === 'bot' && renderTTSButtons(message)}
-        
-        {onRegenerateMessage && (
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => onRegenerateMessage(message.id, getAiMessageIndex(index))}
-          >
-            <Ionicons name="refresh-circle-outline" size={22} color="#ddd" />
-          </TouchableOpacity>
-        )}
-        
-        {onRateMessage && (
-          <>
-            <TouchableOpacity
-              style={[
-                styles.rateButton, 
-                messageRating === true && styles.rateButtonActive
-              ]}
-              onPress={() => handleRateMessage(message.id, true)}
-              activeOpacity={0.7}
-            >
-              <Ionicons 
-                name={messageRating === true ? "thumbs-up" : "thumbs-up-outline"} 
-                size={20} 
-                color={messageRating === true ? theme.colors.primary : "#ddd"} 
-              />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[
-                styles.rateButton, 
-                messageRating === false && styles.rateButtonActive
-              ]}
-              onPress={() => handleRateMessage(message.id, false)}
-              activeOpacity={0.7}
-            >
-              <Ionicons 
-                name={messageRating === false ? "thumbs-down" : "thumbs-down-outline"}
-                size={20} 
-                color={messageRating === false ? "#e74c3c" : "#ddd"} 
-              />
-            </TouchableOpacity>
-          </>
         )}
       </View>
     );
@@ -825,7 +798,6 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     );
   };
 
-  // Update renderMessageContent to include avatar at the top of bot messages
   const renderMessageContent = (message: Message, isUser: boolean, index: number) => {
     return (
       <View style={[
@@ -856,9 +828,9 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
           <View style={styles.botMessageTextContainer}>
             {message.isLoading ? (
               <View style={styles.loadingContainer}>
-                <View style={styles.loadingDot} />
-                <View style={[styles.loadingDot, { animationDelay: '0.2s' }]} />
-                <View style={[styles.loadingDot, { animationDelay: '0.4s' }]} />
+                <Animated.View style={[styles.loadingDot, dot1Style]} />
+                <Animated.View style={[styles.loadingDot, dot2Style]} />
+                <Animated.View style={[styles.loadingDot, dot3Style]} />
               </View>
             ) : (
               processMessageContent(message.text, false)
@@ -866,6 +838,66 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
             }
             {!message.isLoading && !isUser && renderMessageActions(message, index)}
           </View>
+        )}
+      </View>
+    );
+  };
+
+  // Render message actions (rating buttons and regenerate button)
+  const renderMessageActions = (message: Message, index: number) => {
+    if (message.isLoading) return null;
+    
+    const isLastMessage = index === messages.length - 1 || 
+                         (index === messages.length - 2 && messages[messages.length - 1].isLoading);
+    
+    const messageRating = getMessageRating(message.id);
+    
+    return (
+      <View style={styles.messageActions}>
+        {/* Add TTS buttons */}
+        {message.sender === 'bot' && renderTTSButtons(message)}
+        
+        {onRegenerateMessage && (
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => onRegenerateMessage(message.id, getAiMessageIndex(index))}
+          >
+            <Ionicons name="refresh-circle-outline" size={22} color="#ddd" />
+          </TouchableOpacity>
+        )}
+        
+        {onRateMessage && (
+          <>
+            <TouchableOpacity
+              style={[
+                styles.rateButton, 
+                messageRating === true && styles.rateButtonActive
+              ]}
+              onPress={() => handleRateMessage(message.id, true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons 
+                name={messageRating === true ? "thumbs-up" : "thumbs-up-outline"} 
+                size={20} 
+                color={messageRating === true ? theme.colors.primary : "#ddd"} 
+              />
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.rateButton, 
+                messageRating === false && styles.rateButtonActive
+              ]}
+              onPress={() => handleRateMessage(message.id, false)}
+              activeOpacity={0.7}
+            >
+              <Ionicons 
+                name={messageRating === false ? "thumbs-down" : "thumbs-down-outline"}
+                size={20} 
+                color={messageRating === false ? "#e74c3c" : "#ddd"} 
+              />
+            </TouchableOpacity>
+          </>
         )}
       </View>
     );
@@ -969,16 +1001,84 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         </View>
         
         <ScrollView style={styles.visualNovelTextContainer}>
-          <Text style={[
-            styles.visualNovelText,
-            { 
-              fontFamily: visualNovelSettings.fontFamily, 
-              color: visualNovelSettings.textColor 
-            }
-          ]}>
-            {lastAiMessage.text}
-          </Text>
+          {/* Replace the plain text with processed content */}
+          <View style={styles.visualNovelTextWrapper}>
+            {containsComplexHtml(lastAiMessage.text) || /<\/?[a-z][^>]*>/i.test(lastAiMessage.text) ? (
+              <RichTextRenderer 
+                html={optimizeHtmlForRendering(lastAiMessage.text)}
+                baseStyle={{ 
+                  color: visualNovelSettings.textColor,
+                  fontFamily: visualNovelSettings.fontFamily,
+                  fontSize: 16,
+                  lineHeight: 22
+                }}
+                onImagePress={(url) => setFullscreenImage(url)}
+                maxImageHeight={MAX_IMAGE_HEIGHT}
+              />
+            ) : (
+              <Text style={[
+                styles.visualNovelText,
+                { 
+                  fontFamily: visualNovelSettings.fontFamily, 
+                  color: visualNovelSettings.textColor 
+                }
+              ]}>
+                {lastAiMessage.text}
+              </Text>
+            )}
+          </View>
         </ScrollView>
+        
+        {/* Add message action buttons in visual novel style */}
+        <View style={styles.visualNovelActions}>
+          {/* TTS buttons */}
+          {renderTTSButtons(lastAiMessage)}
+          
+          {/* Regenerate button */}
+          {onRegenerateMessage && (
+            <TouchableOpacity
+              style={styles.visualNovelActionButton}
+              onPress={() => onRegenerateMessage(lastAiMessage.id, messages.filter(m => m.sender === 'bot' && !m.isLoading).length - 1)}
+            >
+              <Ionicons name="refresh-circle" size={26} color="rgba(255,255,255,0.9)" />
+            </TouchableOpacity>
+          )}
+          
+          {/* Rating buttons */}
+          {onRateMessage && (
+            <View style={styles.visualNovelRateButtons}>
+              <TouchableOpacity
+                style={[
+                  styles.visualNovelRateButton, 
+                  getMessageRating(lastAiMessage.id) === true && styles.visualNovelRateButtonActive
+                ]}
+                onPress={() => handleRateMessage(lastAiMessage.id, true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons 
+                  name={getMessageRating(lastAiMessage.id) === true ? "thumbs-up" : "thumbs-up-outline"} 
+                  size={22} 
+                  color={getMessageRating(lastAiMessage.id) === true ? "rgb(255, 224, 195)" : "rgba(255,255,255,0.9)"} 
+                />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.visualNovelRateButton, 
+                  getMessageRating(lastAiMessage.id) === false && styles.visualNovelRateButtonActive
+                ]}
+                onPress={() => handleRateMessage(lastAiMessage.id, false)}
+                activeOpacity={0.7}
+              >
+                <Ionicons 
+                  name={getMessageRating(lastAiMessage.id) === false ? "thumbs-down" : "thumbs-down-outline"}
+                  size={22} 
+                  color={getMessageRating(lastAiMessage.id) === false ? "#e74c3c" : "rgba(255,255,255,0.9)"} 
+                />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
     );
   };
@@ -1074,11 +1174,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
             <Animated.View
               style={[
                 styles.messagesContainer,
-                // Use animated values directly in the style array instead of through animatedStyle
-                { 
-                  opacity: fadeAnim, // This is the correct way to use animated values
-                  transform: [{ translateY: translateAnim }] 
-                }
+                messagesAnimatedStyle
               ]}
             >
               {messages.map((message, index) => {
@@ -1590,24 +1686,86 @@ const styles = StyleSheet.create({
   visualNovelTextContainer: {
     maxHeight: 220,
   },
+  visualNovelTextWrapper: {
+    marginBottom: 8, // Add space for buttons
+  },
   visualNovelText: {
     fontSize: 16,
     lineHeight: 22,
   },
-  historyButton: {
+  
+  // Add styles for visual novel action buttons
+  visualNovelActions: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
   },
-  historyButtonText: {
-    color: '#fff',
-    marginLeft: 4,
-    fontSize: 14,
+  visualNovelActionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  visualNovelRateButtons: {
+    flexDirection: 'row',
+    marginLeft: 8,
+  },
+  visualNovelRateButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  visualNovelRateButtonActive: {
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   
+  // Visual novel TTS button styles
+  visualNovelTTSContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 'auto', // Push to the start/left
+  },
+  visualNovelTTSButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(52, 152, 219, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  visualNovelTTSButtonWithLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  visualNovelTTSButtonActive: {
+    backgroundColor: 'rgba(46, 204, 113, 0.7)',
+  },
+  visualNovelTTSButtonEnhanced: {
+    backgroundColor: 'rgba(255, 193, 7, 0.7)',
+  },
+  visualNovelTTSEnhancerIndicator: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: 'rgba(255, 193, 7, 0.9)',
+    borderRadius: 8,
+    width: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   // History modal styles
   historyModalContainer: {
     flex: 1,
@@ -1665,6 +1823,20 @@ const styles = StyleSheet.create({
   },
   historyBotMessageText: {
     color: '#fff',
+  },
+  // Add the missing styles for history button
+  historyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  historyButtonText: {
+    color: '#fff',
+    marginLeft: 4,
+    fontSize: 14,
   },
 });
 

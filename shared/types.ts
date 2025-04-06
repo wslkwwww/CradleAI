@@ -319,6 +319,7 @@ export interface CirclePost {
     likedBy?: CircleLike[];
     hasTriggeredResponse?: boolean;
     isFavorited?: boolean;
+    thoughts?: string;
 }
 
 export interface CircleComment {
@@ -343,6 +344,7 @@ export interface CircleLike {
     userAvatar?: string;
     isCharacter: boolean;
     createdAt: string;
+    thoughts?: string; // Optional field for character's thoughts on the like
   }
 // ============= 功能选项类型 =============
 

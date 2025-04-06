@@ -645,6 +645,9 @@ export class CircleManager {
                 '用户';
         }
         
+        // 获取角色名称 - 添加这一段以确保角色名称传递给提示词
+        const charName = options.responderCharacter?.name || '';
+        
         // 准备场景参数
         const params: ScenePromptParams = {
             contentText,
@@ -652,6 +655,7 @@ export class CircleManager {
             context: options.content.context,
             hasImages,
             charDescription: framework.base.charDescription,
+            charName, // 添加角色名称
             userIdentification,
             // Pass conversation history if available
             conversationHistory: options.content.conversationHistory,
@@ -672,11 +676,7 @@ export class CircleManager {
                 break;
                 
             case 'newPost':
-                if (isOwnPost) {
-                    scenePrompt = CirclePrompts.createNewPost(params);
-                } else {
-                    scenePrompt = CirclePrompts.newPost(params);
-                }
+                scenePrompt = CirclePrompts.createNewPost(params);
                 break;
                 
             case 'replyToPost':

@@ -31,6 +31,7 @@ export interface CircleComment {
     userId: string;
     userName: string;
   };
+  thoughts?: string; // Optional field for character's thoughts on the comment
 }
 
 export interface CircleLike {
@@ -39,6 +40,7 @@ export interface CircleLike {
   userAvatar?: string;
   isCharacter: boolean;
   createdAt: string;
+  thoughts?: string; // Optional field for character's thoughts on the like
 }
 
 export interface CharacterMetadata {

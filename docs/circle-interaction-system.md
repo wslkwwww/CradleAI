@@ -1,10 +1,22 @@
 # 更新日志
 
-## v1.3.0 (最新版本)
-- 增加多轮互动支持，角色可持续参与对话线程
-- 添加上下文连续性机制，确保对话前后一致
-- 强化角色一致性，利用jsonData保持角色设定完整
-- 新增可专为多轮对话优化的提示词模板
+## v1.4.0 (最新版本)
+- 统一了帖子创建方法，仅使用 `createNewPost` 方法创建朋友圈帖子
+- 所有提示词模板中添加了 thoughts 参数，使角色能表达内心想法
+- 优化了互动频率控制，确保严格符合设置要求
+- 增强了角色内心想法的日志记录，便于调试角色行为
+- 改进了多轮对话线程提取，确保角色回复更连贯
+
+## v1.3.0
+新增提示词模板 - 创建了一个专用的 continuedConversation 提示词模板，包含对话历史和角色数据。
+
+扩展 CirclePostOptions - 在选项接口中增加了对对话历史和角色 JSON 数据的支持。
+
+创建上下文提取 - 实现了 extractConversationThread() 函数，用于从帖子评论中提取相关的对话历史。
+
+增强响应处理 - 更新了评论互动和响应处理逻辑，以维护对话上下文并正确跟踪回复关系。
+
+整合角色数据 - 增加了对角色 jsonData 的提取和使用支持，以在互动中保持一致的角色性格。
 
 # 开发规范
 
@@ -35,6 +47,143 @@ const entry = {
   content: "重要信息",
   depth: 1
 };
+```
+
+## 15. 角色内心想法系统
+
+朋友圈系统现已支持角色"内心想法"功能，实现了以下关键功能：
+
+### 15.1 内心想法的实现
+
+每个互动模板现在都包含 `thoughts` 字段，用于捕获角色的内心想法，但这些想法不会展示给其他角色或用户：
+
+```typescript
+// 提示词模板示例
+{
+  "thoughts": "角色的内心想法（不会展示给对方）",
+  "action": {
+    "like": true/false,
+    "comment": "实际发布的评论"
+  }
+}
+```
+
+### 15.2 内心想法的用途
+
+角色内心想法有以下几个关键用途：
+
+1. **开发调试** - 通过日志记录，开发者可以了解角色的决策过程
+2. **角色一致性** - 思考过程帮助AI保持角色的连贯性和深度
+3. **未来扩展** - 为将来可能的心理状态系统奠定基础
+
+### 15.3 内心想法的记录
+
+系统会将角色的内心想法记录到日志中，但不会在UI中显示：
+
+```typescript
+if (response.thoughts) {
+  console.log(`【朋友圈思考】角色 ${character.name} 对帖子的想法: "${
+    response.thoughts.substring(0, 100) + '...'
+  }"`);
+}
+```
+
+## 16. 互动频率控制系统审查
+
+朋友圈互动频率控制系统已经过全面审查，确保严格遵循设置要求：
+
+### 16.1 频率设置明细
+
+每个角色可以设置三种互动频率，系统会严格执行相应的限制：
+
+| 频率设置 | 发布频率 | 对同一角色最大回复次数 | 最大互动不同角色数 | 对同一评论最大回复次数 |
+|---------|---------|-------------------|-----------------|-------------------|
+| 低      | 1次/天   | 1                 | 5               | 1                 |
+| 中      | 3次/天   | 3                 | 5               | 3                 |
+| 高      | 5次/天   | 5                 | 7               | 5                 |
+
+### 16.2 频率控制实现
+
+系统通过以下方式实现频率控制：
+
+```typescript
+// 获取基于角色设置的互动频率限制
+private static getInteractionFrequencyLimit(character: Character): {
+  maxRepliesPerCharacter: number;
+  maxDifferentCharacters: number;
+  maxRepliesPerComment: number;
+} {
+  // 根据角色的circleInteractionFrequency设置确定具体限制值
+  // ...
+}
+```
+
+### 16.3 互动统计跟踪
+
+系统为每个角色维护互动统计数据，用于频率控制：
+
+```typescript
+character.circleStats = {
+  repliedToCharacters: {}, // 记录对各个角色的回复次数
+  repliedToPostsCount: 0,  // 记录回复了多少不同角色的帖子
+  repliedToCommentsCount: {} // 记录对各个评论的回复次数
+};
+```
+
+## 17. 角色-角色互动审查
+
+系统支持角色之间的复杂互动，包括：
+
+### 17.1 回复关系跟踪
+
+评论会正确保存回复关系，确保UI展示连贯对话：
+
+```typescript
+const newComment: CircleComment = {
+  // ...
+  replyTo: { userId: replyTo.userId, userName: replyTo.userName }  // 保存回复指向
+};
+```
+
+### 17.2 上下文连贯性
+
+对话线程提取确保角色回复能保持上下文连贯：
+
+```typescript
+// 提取特定用户相关的对话线程
+const threadComments = post.comments.filter(c => 
+  c.userId === commenterId || 
+  c.replyTo?.userId === commenterId ||
+  // ...其他关联条件
+);
+
+// 转换为有序文本以提供给AI
+const conversationHistory = threadComments
+  .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  .map((comment, index) => {
+    const replyPrefix = comment.replyTo ? `回复${comment.replyTo.userName}: ` : '';
+    return `${index + 1}. ${comment.userName}: ${replyPrefix}${comment.content}`;
+  })
+  .join('\n');
+```
+
+### 17.3 互动统计与关系影响
+
+角色互动不仅受频率控制，还会相应更新关系数据：
+
+```typescript
+// 更新关系数据（如果找到目标角色）
+if (postAuthorCharacter) {
+  updatedTargetCharacter = RelationshipService.processPostInteraction(
+    postAuthorCharacter,
+    character.id,
+    character.name,
+    'comment',
+    response.action.comment,
+    post.id,
+    post.content
+  );
+}
 ```
 
 # 朋友圈互动系统文档
@@ -577,7 +726,7 @@ export const CircleManager = () => {
 
 ## 更新日志
 
-### v1.2.0 (当前版本)
+### v1.2.0
 - 新增 OpenRouter 完整支持，从UI到底层全链路透传API设置
 - 改进 CircleManager 组件实现自动帖子生成
 - 增强 API 设置页面，支持详细 OpenRouter 配置
@@ -671,3 +820,4 @@ const response2 = await CircleService.processCommentInteraction(
 
 // 系统会自动提取这两次互动的内容，形成对话线程
 // 角色的第二次回复会参考完整的对话上下文
+```

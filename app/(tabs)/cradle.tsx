@@ -1342,12 +1342,6 @@ const handleSetAsAvatar = async (imageId: string) => {
                 {character.name}
               </Text>
               
-              {/* Add creation method indicator */}
-              <View style={styles.cardCreationMethodContainer}>
-                <Text style={styles.cardCreationMethodText}>
-                  {isTagGenerated ? 'Tag生成' : '手动创建'}
-                </Text>
-              </View>
             </LinearGradient>
             
             {/* Action buttons overlay - positioned at bottom */}

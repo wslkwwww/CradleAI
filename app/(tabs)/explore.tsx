@@ -137,6 +137,9 @@ const Explore: React.FC = () => {
   // Add a new state to track expanded thought bubbles
   const [expandedThoughts, setExpandedThoughts] = useState<{[key: string]: boolean}>({});
 
+  // Add new state to track when comment input is active
+  const [isCommentInputActive, setIsCommentInputActive] = useState(false);
+
   // Add the image handling function before renderPost
   const handleImagePress = useCallback((images: string[], index: number) => {
     setSelectedImages(images);
@@ -610,6 +613,7 @@ const Explore: React.FC = () => {
       setCommentText('');
       setActivePostId(null);
       setReplyTo(null);
+      setIsCommentInputActive(false);
   
       // Save to AsyncStorage in the background
       try {
@@ -742,89 +746,6 @@ const Explore: React.FC = () => {
     }
   }, [activePostId, commentText, replyTo, characters, user, posts]);
 
-  const toggleThoughtExpansion = useCallback((commentId: string) => {
-    setExpandedThoughts(prev => ({
-      ...prev,
-      [commentId]: !prev[commentId]
-    }));
-  }, []);
-
-  const handleReplyPress = useCallback((comment: CircleComment) => {
-    setReplyTo({
-      userId: comment.userId,
-      userName: comment.userName
-    });
-    setActivePostId(activePostId);
-  }, [activePostId]);
-
-  const handleForward = useCallback(async (characterId: string, additionalMessage: string) => {
-    if (!selectedPost) return;
-  
-    const character = characters.find(c => c.id === characterId);
-    if (!character) return;
-  
-    const forwardMessage = `${additionalMessage ? additionalMessage + '\n\n' : ''}转发自 ${selectedPost.characterName} 的朋友圈：\n${selectedPost.content}`;
-    
-    // Check if the post has images
-    const hasImages = selectedPost.images && selectedPost.images.length > 0;
-    if (hasImages) {
-      console.log(`【朋友圈】转发带有 ${selectedPost.images!.length} 张图片的帖子给 ${character.name}`);
-    }
-  
-    // 创建消息对象
-    const message: Message = {
-      id: String(Date.now()),
-      text: forwardMessage,
-      sender: 'user',
-      timestamp: Date.now(),
-      // Add image reference if available
-      images: selectedPost.images
-    };
-  
-    try {
-      // 获取API Key
-      const apiKey = user?.settings?.chat?.characterApiKey;
-      const apiSettings = {
-        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-        openrouter: user?.settings?.chat?.openrouter
-      };
-      
-      // 使用NodeST处理聊天消息，传递API Key - 增加isForwarded参数
-      const result = await CircleService.processCommentInteraction(
-        character,
-        selectedPost,
-        forwardMessage,
-        apiKey,
-        undefined,
-        apiSettings,
-        true // Indicate this is a forwarded post
-      );
-      
-      // 添加用户的转发消息 - 确保图片数据也被添加到聊天记录中
-      await addMessage(characterId, message);
-      
-      if (result.success && result.action?.comment) {
-        // 添加角色的回复消息
-        const botMessage: Message = {
-          id: String(Date.now() + 1),
-          text: result.action.comment,
-          sender: 'bot',
-          timestamp: Date.now(),
-        };
-        await addMessage(characterId, botMessage);
-      } else {
-        // 处理失败情况
-        console.error('Failed to get character response:', result.error);
-      }
-    } catch (error) {
-      console.error('Error forwarding message:', error);
-      Alert.alert('Error', 'Failed to forward message');
-    }
-  
-    setIsForwardSheetVisible(false);
-    setSelectedPost(null);
-  }, [selectedPost, addMessage, characters, user?.settings?.chat]);
-
   const scrollToPost = useCallback((postId: string) => {
     const postIndex = posts.findIndex(post => post.id === postId);
     if (postIndex !== -1) {
@@ -839,12 +760,47 @@ const Explore: React.FC = () => {
     }
   }, [posts]);
 
+  const toggleThoughtExpansion = useCallback((commentId: string) => {
+    setExpandedThoughts(prev => ({
+      ...prev,
+      [commentId]: !prev[commentId]
+    }));
+  }, []);
+
+  const handleReplyPress = useCallback((comment: CircleComment) => {
+    setReplyTo({
+      userId: comment.userId,
+      userName: comment.userName
+    });
+    
+    // Find the post that contains this comment
+    const postId = posts.find(p => 
+      p.comments?.some(c => c.id === comment.id)
+    )?.id;
+    
+    if (postId) {
+      // Set the active post ID to enable comment input on the correct post
+      setActivePostId(postId);
+      setIsCommentInputActive(true);
+      
+      // Focus on comment area and scroll
+      setTimeout(() => {
+        scrollToPost(postId);
+      }, 200);
+    } else {
+      // If we can't find the post, at least set the active comment state
+      setIsCommentInputActive(true);
+    }
+  }, [posts, scrollToPost]);
+
   const handleCommentPress = useCallback((postId: string) => {
     if (activePostId === postId) {
       setActivePostId(null);
+      setIsCommentInputActive(false);
       Keyboard.dismiss();
     } else {
       setActivePostId(postId);
+      setIsCommentInputActive(true);
     }
   }, [activePostId]);
 
@@ -853,10 +809,26 @@ const Explore: React.FC = () => {
       const character = characters.find(c => c.id === post.characterId);
       if (!character) return;
       
-      // Toggle favorite status
+      // Toggle favorite status first to provide immediate UI feedback
+      const newFavoriteStatus = !post.isFavorited;
+      
+      // Update local posts state immediately for UI feedback
+      setPosts(prevPosts => prevPosts.map(p => {
+        if (p.id === post.id) {
+          return { ...p, isFavorited: newFavoriteStatus };
+        }
+        return p;
+      }));
+      
+      // Then persist the change through the context
       await toggleFavorite(character.id, post.id);
       
-      // Update local posts state
+      // Show feedback
+      const actionText = newFavoriteStatus ? '已加入收藏' : '已取消收藏';
+      console.log(`【朋友圈】${actionText}: ${post.characterName} 的帖子`);
+      
+    } catch (error) {
+      // If error occurs, revert the UI change
       setPosts(prevPosts => prevPosts.map(p => {
         if (p.id === post.id) {
           return { ...p, isFavorited: !p.isFavorited };
@@ -864,11 +836,6 @@ const Explore: React.FC = () => {
         return p;
       }));
       
-      // Show feedback
-      const actionText = post.isFavorited ? '已取消收藏' : '已加入收藏';
-      console.log(`【朋友圈】${actionText}: ${post.characterName} 的帖子`);
-      
-    } catch (error) {
       console.error('【朋友圈】收藏操作失败:', error);
       Alert.alert('操作失败', '无法完成收藏操作');
     }
@@ -994,6 +961,42 @@ const Explore: React.FC = () => {
     );
   }, [handleReplyPress, expandedThoughts, toggleThoughtExpansion]);
 
+  // Listen to keyboard events to update comment input state
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setIsCommentInputActive(true);
+      }
+    );
+    
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        // Add delay to prevent flashing of the FAB
+        setTimeout(() => {
+          if (!activePostId) {
+            setIsCommentInputActive(false);
+          }
+        }, 100);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, [activePostId]);
+  
+  // Add listener for comment input blur
+  const commentInputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    return () => {
+      setIsCommentInputActive(false);
+    };
+  }, []);
+
+  // Update renderCommentInput to add ref and handle blur
   const renderCommentInput = useCallback((post: CirclePost) => {
     return (
       <View style={styles.commentInput}>
@@ -1008,6 +1011,7 @@ const Explore: React.FC = () => {
           </View>
         )}
         <TextInput
+          ref={commentInputRef}
           style={styles.commentTextInput}
           value={commentText}
           onChangeText={setCommentText}
@@ -1016,6 +1020,11 @@ const Explore: React.FC = () => {
           multiline={false}
           autoFocus={true}
           blurOnSubmit={false}
+          onBlur={() => {
+            if (!commentText.trim()) {
+              setIsCommentInputActive(false);
+            }
+          }}
         />
         <TouchableOpacity
           style={styles.sendButton}
@@ -1155,6 +1164,31 @@ const Explore: React.FC = () => {
 
       <Text style={styles.content}>{item.content}</Text>
       
+      {/* Show post thoughts if available */}
+      {item.thoughts && (
+        <View style={styles.thoughtsContainer}>
+          <TouchableOpacity 
+            style={styles.thoughtsHeader}
+            onPress={() => toggleThoughtExpansion(`post-${item.id}`)}
+          >
+            <Text style={styles.thoughtsTitle}>
+              {expandedThoughts[`post-${item.id}`] ? '收起发布想法' : '查看发布想法'}
+            </Text>
+            <AntDesign 
+              name={expandedThoughts[`post-${item.id}`] ? 'caretup' : 'caretdown'} 
+              size={12} 
+              color={theme.colors.textSecondary} 
+            />
+          </TouchableOpacity>
+          
+          {expandedThoughts[`post-${item.id}`] && (
+            <View style={styles.thoughtsBubble}>
+              <Text style={styles.thoughtsText}>{item.thoughts}</Text>
+            </View>
+          )}
+        </View>
+      )}
+      
       {/* Show images if available */}
       {item.images && item.images.length > 0 && (
         <View style={styles.imagesContainer}>
@@ -1218,17 +1252,34 @@ const Explore: React.FC = () => {
           <Ionicons name="heart" size={16} color={theme.colors.primary} style={styles.likeIcon} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.likeAvatars}>
             {item.likedBy?.map((like: CircleLike, index: number) => (
-              <Image
+              <TouchableOpacity 
                 key={`${like.userId}-${index}`}
-                source={
-                  like.userAvatar
-                    ? { uri: like.userAvatar }
-                    : like.isCharacter
-                      ? require('@/assets/images/default-avatar.png')
-                      : require('@/assets/images/default-user-avatar.png')
-                }
-                style={styles.likeAvatar}
-              />
+                onPress={() => {
+                  // Show like thoughts if available
+                  if (like.thoughts) {
+                    const likeId = `like-${like.userId}-${index}`;
+                    toggleThoughtExpansion(likeId);
+                  }
+                }}
+              >
+                <Image
+                  source={
+                    like.userAvatar
+                      ? { uri: like.userAvatar }
+                      : like.isCharacter
+                        ? require('@/assets/images/default-avatar.png')
+                        : require('@/assets/images/default-user-avatar.png')
+                  }
+                  style={styles.likeAvatar}
+                />
+                
+                {/* Display like thoughts in a tooltip/popup if available */}
+                {like.thoughts && expandedThoughts[`like-${like.userId}-${index}`] && (
+                  <View style={styles.likeThoughtsBubble}>
+                    <Text style={styles.thoughtsText}>{like.thoughts}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
@@ -1241,7 +1292,8 @@ const Explore: React.FC = () => {
       {activePostId === item.id && renderCommentInput(item)}
     </TouchableOpacity>
   ), [activePostId, renderComment, renderCommentInput, testModeEnabled, processingCharacters, 
-      handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu, handleImagePress]);
+      handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu, handleImagePress,
+      expandedThoughts, toggleThoughtExpansion]);
 
   const renderCircleHeaderButtons = () => (
     <View style={styles.circleHeaderButtons}>
@@ -1397,6 +1449,10 @@ const Explore: React.FC = () => {
     );
   }
 
+  function handleForward(characterId: string, message: string): Promise<void> {
+    throw new Error('Function not implemented.');
+  }
+
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1447,13 +1503,15 @@ const Explore: React.FC = () => {
           </>
         )}      
 
-        {/* 浮动发布按钮 - 仅使用图标 */}
-        <TouchableOpacity 
-          style={styles.floatingActionButton}
-          onPress={() => setShowUserPostModal(true)}
-        >
-          <Feather name="plus" size={24} color={theme.colors.white} />
-        </TouchableOpacity>
+        {/* 浮动发布按钮 - 仅在评论输入框未激活时显示 */}
+        {!isCommentInputActive && (
+          <TouchableOpacity 
+            style={styles.floatingActionButton}
+            onPress={() => setShowUserPostModal(true)}
+          >
+            <Feather name="plus" size={24} color={theme.colors.white} />
+          </TouchableOpacity>
+        )}
         
         {isForwardSheetVisible && selectedPost && (
           <ForwardSheet
@@ -1966,6 +2024,27 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizes.sm,
     fontStyle: 'italic',
   },
+  
+  // Add styles for like thoughts tooltip
+  likeThoughtsBubble: {
+    position: 'absolute',
+    bottom: 40,
+    left: -50,
+    width: 150,
+    backgroundColor: theme.colors.background,
+    borderRadius: theme.borderRadius.sm,
+    padding: theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    zIndex: 100,
+    elevation: 5,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+  
+  // ...existing code...
 });
 
 export default Explore;

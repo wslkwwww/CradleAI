@@ -1,6 +1,6 @@
 ## Replicate 文本到图像后端服务
 
-一个使用 Replicate API 生成图像并将图像存储在 MinIO 对象存储中的 Node.js 后端服务。
+一个使用 Replicate API 生成图像并将图像存储在 MinIO 对象存储中的 Node.js 后端服务。现在支持实时状态更新和可靠的任务重试机制。
 
 ## 特点
 
@@ -9,6 +9,9 @@
 - 用于图像生成的 RESTful API 端点
 - 参数验证和错误处理
 - 基于环境的配置
+- **实时任务状态更新 (SSE)**
+- **可靠的消息队列处理和任务重试机制 (RabbitMQ)**
+- **支持大量并发请求处理**
 
 ## 设置
 
@@ -17,6 +20,7 @@
 - Node.js v14+
 - MinIO 服务器
 - Replicate API 令牌
+- RabbitMQ 服务器
 
 ### 安装
 
@@ -49,9 +53,15 @@ npm start
 npm run dev
 ```
 
+集群模式（生产环境）：
+
+```bash
+npm run start:cluster
+```
+
 ## API 端点
 
-### POST /generate
+### POST /api/generate
 
 根据文本提示生成图像并将其存储在 MinIO 中。
 
@@ -70,13 +80,102 @@ npm run dev
 
 **响应：**
 
+成功（立即完成）：
 ```json
 {
-  "urls": [
-    "http://minio.example.com/images/replicate_12345678-1234-1234-1234-1234567890ab.png"
-  ]
+  "success": true,
+  "data": {
+    "taskId": "任务ID",
+    "urls": [
+      "http://minio.example.com/images/replicate_12345678-1234-1234-1234-1234567890ab.png"
+    ],
+    "status": "succeeded"
+  }
 }
 ```
+
+成功（后台处理）：
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "任务ID",
+    "message": "Image generation started",
+    "status": "started"
+  }
+}
+```
+
+错误：
+```json
+{
+  "success": false,
+  "error": "错误信息",
+  "taskId": "任务ID（如果已创建）"
+}
+```
+
+### POST /api/generate/retry
+
+重试失败的图像生成任务。
+
+**请求体：**
+
+```json
+{
+  "taskId": "需要重试的任务ID",
+  "prompt": "街景，1个女孩，深紫色短发，紫色眼睛，中等胸部，乳沟，休闲服装，微笑，V",
+  "negative_prompt": "nsfw, 裸体",
+  "width": 1024,
+  "height": 1024,
+  "steps": 28,
+  "batch_size": 1
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "任务ID",
+    "message": "Retry initiated successfully"
+  }
+}
+```
+
+### GET /api/generate/task/:taskId
+
+查询任务状态。
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "任务ID",
+    "status": "当前状态",
+    "prompt": "提示内容",
+    "urls": ["生成图像URL（如果已完成）"],
+    "createdAt": "创建时间",
+    "completedAt": "完成时间（如果已完成）"
+  }
+}
+```
+
+### GET /events
+
+连接到 SSE 事件流以接收实时任务更新。
+
+**查询参数：** 
+- `taskId` (可选) - 指定要监听的任务 ID
+
+**事件类型：**
+- `connected` - 连接建立时发送
+- `task_update` - 任务状态更新时发送
+- `heartbeat` - 定期发送的心跳信号
 
 ## 配置
 
@@ -91,79 +190,85 @@ npm run dev
 | MINIO_SECRET_KEY | MinIO 密钥 | minioadmin |
 | MINIO_BUCKET_NAME | MinIO 存储桶名称 | images |
 | MINIO_USE_SSL | 是否为 MinIO 使用 SSL | false |
+| RABBITMQ_URL | RabbitMQ 服务器 URL | amqp://guest:guest@localhost:5672 |
+| MAX_RETRIES | 最大重试次数 | 3 |
+| RETRY_INITIAL_INTERVAL | 初始重试间隔(毫秒) | 10000 |
 
-## 错误处理
+## 实时状态更新 (SSE)
 
-该服务包括针对各种场景的全面错误处理：
+服务现在支持通过 Server-Sent Events (SSE) 向客户端实时推送任务状态更新。这使客户端可以实时显示任务进度，而不需要轮询。
 
-- 无效的请求参数
-- Replicate API 错误
-- MinIO 存储错误
-- 网络错误
+**连接到 SSE 端点**：
+```javascript
+const eventSource = new EventSource('/events?taskId=your_task_id');
 
-## 部署
-
-### 环境设置
-
-1. 确保您的服务器上已安装 Node.js
-2. 配置 MinIO 服务器并创建所需的存储桶
-3. 使用正确的凭据设置环境变量
-
-### 使用 PM2（进程管理器）
-
-对于生产部署，请考虑使用 PM2：
-
-```bash
-npm install -g pm2
-pm2 start server.js --name replicate-text2img
+eventSource.addEventListener('task_update', (event) => {
+  const data = JSON.parse(event.data);
+  console.log(`Task ${data.taskId} status: ${data.status}`);
+  // 更新 UI
+});
 ```
 
-### 使用 Docker (可选)
+可用的任务状态包括：`started`, `queued`, `processing`, `downloading`, `succeeded`, `failed`, `retrying` 等。
 
-提供了一个 Dockerfile 用于容器化部署：
+## 可靠的重试机制
 
-```bash
-docker build -t replicate-text2img .
-docker run -p 3000:3000 --env-file .env replicate-text2img
-```
+服务现在使用 RabbitMQ 实现了可靠的任务重试机制，具有以下特性：
 
-## 宝塔面板部署说明
+1. **指数退避重试**: 失败的任务会自动以指数递增的时间间隔重试
+2. **可配置的重试参数**: 可以在配置文件中设置最大重试次数、初始重试间隔和最大重试间隔
+3. **手动重试 API**: 提供了手动触发任务重试的 API
+4. **死信队列**: 超过最大重试次数的任务将移至死信队列以便后续分析
 
-如果您要在宝塔面板上部署此应用，请按照以下步骤操作：
+## RabbitMQ 配置
 
-1. 在宝塔面板中创建一个站点，并设置运行目录为项目根目录
+RabbitMQ 用于消息队列和任务重试机制。
 
-2. 在"网站"中找到您的站点，点击"设置"，然后点击"配置文件"
+### 基本配置
 
-3. 添加反向代理配置：
-   ```
-   location / {
-       proxy_pass http://127.0.0.1:3000;
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto $scheme;
-   }
-   ```
+1. 确保 RabbitMQ 服务器正在运行
+2. 服务将使用以下连接URL：`amqp://rabbitmq:hBw8C74RY5GJHRCF@localhost:5672`，其中包含：
+   - 用户名：`rabbitmq`
+   - 密码：`hBw8C74RY5GJHRCF`
+   - 主机：`localhost`
+   - 端口：`5672`
+3. 服务将自动创建所需的队列：
+   - `img_generation_queue`: 用于处理图像生成任务
+   - `img_retry_queue`: 用于重试失败的任务
+   - `img_dead_letter_queue`: 用于存储最终失败的任务
 
-4. 上传项目文件到站点目录中
+### RabbitMQ Web 管理界面配置
 
-5. 通过SSH连接到服务器，进入项目目录
+RabbitMQ 提供了一个 Web 管理界面，可以用于监控和管理队列：
 
-6. 安装依赖：
+1. **启用 RabbitMQ 管理插件**:
    ```bash
-   npm install
+   rabbitmq-plugins enable rabbitmq_management
    ```
 
-7. 创建并编辑 `.env` 文件，设置正确的环境变量
-
-8. 使用 PM2 启动应用：
+2. **访问管理界面**:
+   - 打开浏览器，访问 `http://<rabbitmq-server-ip>:15672/`
+   - 默认用户名和密码为 `guest` / `guest`（仅在localhost访问时有效）
+   
+3. **创建管理员用户**（推荐）:
    ```bash
-   npm install -g pm2
-   pm2 start server.js --name replicate-text2img
+   rabbitmqctl add_user admin your_password
+   rabbitmqctl set_user_tags admin administrator
+   rabbitmqctl set_permissions -p / admin ".*" ".*" ".*"
    ```
 
-9. 确保您的服务器防火墙允许相关端口的访问
+4. **监控队列**:
+   - 在 Web 界面的 "Queues" 标签页中，您可以看到已创建的队列
+   
+## 工作流程
+
+1. 前端发送包含生成图像请求的 POST 请求
+2. 服务创建任务并将其添加到 RabbitMQ 队列
+3. 工作进程消费任务并调用 Replicate API 生成图像
+4. 在生成过程中，服务通过 SSE 向客户端发送实时状态更新
+5. 成功生成的图像保存到 MinIO 存储桶
+6. 服务返回 MinIO 中图像文件的 URL
+7. 如果生成失败，服务会根据配置的重试策略自动重试
 
 ## 测试
 
