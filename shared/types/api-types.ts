@@ -53,6 +53,9 @@ export interface ApiSettings {
     openrouter?: OpenRouterSettings;       // OpenRouter设置
     useCloudService?: boolean;             // 是否使用云服务
     cloudModel?: string;                   // 云服务使用的模型
+    additionalGeminiKeys?: string[];
+    useGeminiModelLoadBalancing?: boolean;
+    useGeminiKeyRotation?: boolean;
 }
 
 // OpenRouter API 请求

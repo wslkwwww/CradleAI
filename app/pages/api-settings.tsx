@@ -36,6 +36,15 @@ const ApiSettings = () => {
 
   // Gemini settings
   const [geminiKey, setGeminiKey] = useState(user?.settings?.chat?.characterApiKey || '');
+  const [additionalGeminiKeys, setAdditionalGeminiKeys] = useState<string[]>(
+    user?.settings?.chat?.additionalGeminiKeys || ['', '']
+  );
+  const [useGeminiModelLoadBalancing, setUseGeminiModelLoadBalancing] = useState(
+    user?.settings?.chat?.useGeminiModelLoadBalancing || false
+  );
+  const [useGeminiKeyRotation, setUseGeminiKeyRotation] = useState(
+    user?.settings?.chat?.useGeminiKeyRotation || false
+  );
 
   // OpenRouter settings
   const [openRouterEnabled, setOpenRouterEnabled] = useState(
@@ -162,7 +171,30 @@ const ApiSettings = () => {
     setOpenRouterEnabled(value);
   };
 
-  // Test connection
+  // Update additional Gemini API key
+  const updateAdditionalGeminiKey = (index: number, value: string) => {
+    const updatedKeys = [...additionalGeminiKeys];
+    updatedKeys[index] = value;
+    setAdditionalGeminiKeys(updatedKeys);
+  };
+
+  // Add a new empty key field
+  const addGeminiKeyField = () => {
+    if (additionalGeminiKeys.length < 5) { // Limit to 5 additional keys
+      setAdditionalGeminiKeys([...additionalGeminiKeys, '']);
+    } else {
+      Alert.alert('提示', '最多可添加5个额外的API密钥');
+    }
+  };
+
+  // Remove a key field
+  const removeGeminiKeyField = (index: number) => {
+    const updatedKeys = [...additionalGeminiKeys];
+    updatedKeys.splice(index, 1);
+    setAdditionalGeminiKeys(updatedKeys);
+  };
+
+  // Test connection with full rotation support
   const testConnection = async () => {
     try {
       setIsTesting(true);
@@ -175,6 +207,10 @@ const ApiSettings = () => {
         return;
       }
 
+      // Validate additional keys for Gemini
+      const validAdditionalKeys = apiProvider === 'gemini' ? 
+        additionalGeminiKeys.filter(key => key && key.trim() !== '') : [];
+      
       // Test connection using ApiServiceProvider
       const testMessage = "This is a test message. Please respond with 'OK' if you receive this.";
       const messages = [{ role: 'user', parts: [{ text: testMessage }] }];
@@ -197,11 +233,25 @@ const ApiSettings = () => {
           }
         );
       } else {
-        response = await ApiServiceProvider.generateContent(messages, apiKey);
+        // Test with the primary key and all additional valid keys
+        response = await ApiServiceProvider.generateContent(
+          messages, 
+          apiKey,
+          {
+            apiProvider: 'gemini',
+            additionalGeminiKeys: validAdditionalKeys,
+            useGeminiModelLoadBalancing,
+            useGeminiKeyRotation
+          }
+        );
       }
 
       if (response) {
-        Alert.alert('连接成功', '成功连接到API服务');
+        if (apiProvider === 'gemini' && validAdditionalKeys.length > 0) {
+          Alert.alert('连接成功', `成功连接到Gemini API服务，已配置${1 + validAdditionalKeys.length}个API密钥`);
+        } else {
+          Alert.alert('连接成功', '成功连接到API服务');
+        }
       } else {
         Alert.alert('连接失败', '未能获得有效响应');
       }
@@ -352,12 +402,18 @@ const ApiSettings = () => {
   // Save settings
   const saveSettings = async () => {
     try {
+      // Filter out empty additional API keys
+      const validAdditionalKeys = additionalGeminiKeys.filter(key => key && key.trim() !== '');
+
       if (useActivationCode && licenseInfo) {
         const apiSettings: Partial<GlobalSettings> = {
           chat: {
             ...user?.settings?.chat,
             serverUrl: user?.settings?.chat?.serverUrl || '',
             characterApiKey: geminiKey,
+            additionalGeminiKeys: validAdditionalKeys,
+            useGeminiModelLoadBalancing,
+            useGeminiKeyRotation,
             xApiKey: user?.settings?.chat?.xApiKey || '',
             apiProvider: openRouterEnabled ? 'openrouter' : 'gemini',
             typingDelay: user?.settings?.chat?.typingDelay || 50,
@@ -462,6 +518,9 @@ const ApiSettings = () => {
             ...user?.settings?.chat,
             serverUrl: user?.settings?.chat?.serverUrl || '',
             characterApiKey: geminiKey,
+            additionalGeminiKeys: validAdditionalKeys,
+            useGeminiModelLoadBalancing,
+            useGeminiKeyRotation,
             xApiKey: user?.settings?.chat?.xApiKey || '',
             apiProvider: openRouterEnabled ? 'openrouter' : 'gemini',
             typingDelay: user?.settings?.chat?.typingDelay || 50,
@@ -712,7 +771,7 @@ const ApiSettings = () => {
 
             {!openRouterEnabled && (
               <View style={styles.contentSection}>
-                <Text style={styles.inputLabel}>Gemini API Key</Text>
+                <Text style={styles.inputLabel}>Gemini API Key (主密钥)</Text>
                 <TextInput
                   style={styles.input}
                   value={geminiKey}
@@ -724,6 +783,84 @@ const ApiSettings = () => {
                 <Text style={styles.helperText}>
                   可从 <Text style={styles.link}>Google AI Studio</Text> 获取免费 API Key
                 </Text>
+                
+                {/* 额外的API密钥 */}
+                <View style={styles.additionalKeysContainer}>
+                  <View style={styles.additionalKeysHeader}>
+                    <Text style={styles.additionalKeysTitle}>额外的API密钥 (可选)</Text>
+                    <TouchableOpacity 
+                      style={styles.addKeyButton}
+                      onPress={addGeminiKeyField}
+                    >
+                      <Ionicons name="add-circle-outline" size={20} color={theme.colors.primary} />
+                      <Text style={styles.addKeyText}>添加</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {additionalGeminiKeys.map((key, index) => (
+                    <View key={`key-${index}`} style={styles.additionalKeyRow}>
+                      <TextInput
+                        style={[styles.input, styles.additionalKeyInput]}
+                        value={key}
+                        onChangeText={(value) => updateAdditionalGeminiKey(index, value)}
+                        placeholder={`额外API密钥 #${index + 1}`}
+                        placeholderTextColor="#999"
+                        secureTextEntry={true}
+                      />
+                      <TouchableOpacity 
+                        style={styles.removeKeyButton}
+                        onPress={() => removeGeminiKeyField(index)}
+                      >
+                        <Ionicons name="close-circle" size={22} color="#f44336" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  
+                  <Text style={styles.helperText}>
+                    添加多个API密钥可以实现负载均衡，提高请求成功率
+                  </Text>
+                </View>
+                
+                {/* 模型负载均衡设置 */}
+                <View style={styles.loadBalancingSection}>
+                  <Text style={styles.loadBalancingTitle}>高级设置</Text>
+                  
+                  <View style={styles.switchContainer}>
+                    <Text style={styles.switchLabel}>
+                      启用模型负载均衡
+                      <Text style={styles.featureTag}> 推荐</Text>
+                    </Text>
+                    <Switch
+                      value={useGeminiModelLoadBalancing}
+                      onValueChange={setUseGeminiModelLoadBalancing}
+                      trackColor={{ false: '#767577', true: 'rgba(100, 210, 255, 0.4)' }}
+                      thumbColor={useGeminiModelLoadBalancing ? '#2196F3' : '#f4f3f4'}
+                    />
+                  </View>
+                  {useGeminiModelLoadBalancing && (
+                    <Text style={styles.featureDescription}>
+                      优先使用 gemini-2.5-pro，如请求失败自动切换到 gemini-2.0-flash-exp
+                    </Text>
+                  )}
+                  
+                  <View style={styles.switchContainer}>
+                    <Text style={styles.switchLabel}>
+                      启用API密钥轮换
+                      <Text style={styles.featureTag}> 推荐</Text>
+                    </Text>
+                    <Switch
+                      value={useGeminiKeyRotation}
+                      onValueChange={setUseGeminiKeyRotation}
+                      trackColor={{ false: '#767577', true: 'rgba(100, 210, 255, 0.4)' }}
+                      thumbColor={useGeminiKeyRotation ? '#2196F3' : '#f4f3f4'}
+                    />
+                  </View>
+                  {useGeminiKeyRotation && (
+                    <Text style={styles.featureDescription}>
+                      当API密钥请求限制(429错误)时，自动切换到下一个可用密钥
+                    </Text>
+                  )}
+                </View>
               </View>
             )}
           </View>
@@ -851,12 +988,12 @@ const ApiSettings = () => {
               <Text style={styles.noteText}>Gemini API 可免费获取，适合基础对话</Text>
             </View>
             <View style={styles.noteItem}>
-              <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
-              <Text style={styles.noteText}>OpenRouter 支持多种高级模型，包括 GPT、Claude 等</Text>
+              <Ionicons name="git-network-outline" size={16} color="#2196F3" style={styles.noteIcon} />
+              <Text style={styles.noteText}>模型负载均衡优先使用更强大的gemini-2.5-pro模型，图片相关任务仍使用gemini-2.0-flash-exp</Text>
             </View>
             <View style={styles.noteItem}>
-              <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
-              <Text style={styles.noteText}>智谱清言嵌入支持高精度的中文向量化，提升记忆检索准确度</Text>
+              <Ionicons name="repeat-outline" size={16} color="#2196F3" style={styles.noteIcon} />
+              <Text style={styles.noteText}>API密钥轮换功能可自动切换API密钥，避免请求频率限制</Text>
             </View>
             <View style={styles.noteItem}>
               <Ionicons name="search-outline" size={16} color="#FB542B" style={styles.noteIcon} />
@@ -1215,6 +1352,71 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     paddingHorizontal: 16,
     borderRadius: 8,
+  },
+  additionalKeysContainer: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  additionalKeysHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  additionalKeysTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ddd',
+  },
+  addKeyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 4,
+  },
+  addKeyText: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    marginLeft: 4,
+  },
+  additionalKeyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  additionalKeyInput: {
+    flex: 1,
+    marginRight: 8,
+  },
+  removeKeyButton: {
+    padding: 4,
+  },
+  loadBalancingSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  loadBalancingTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ddd',
+    marginBottom: 16,
+  },
+  featureTag: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: 'normal',
+  },
+  featureDescription: {
+    fontSize: 12,
+    color: '#aaa',
+    marginBottom: 16,
+    marginTop: 4,
+    paddingLeft: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(33, 150, 243, 0.6)',
   },
 });
 

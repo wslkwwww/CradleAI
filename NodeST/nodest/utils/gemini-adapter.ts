@@ -33,8 +33,14 @@ interface ImageInput {
 
 export class GeminiAdapter {
     private readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-    private readonly apiKey: string;
-    private readonly model = "gemini-2.0-flash-exp";  // Updated to use a more powerful model for characters
+    private apiKeys: string[] = []; // Array to store multiple API keys
+    private currentKeyIndex: number = 0; // Index of the currently used API key
+    
+    // Model configuration
+    private primaryModel = "gemini-2.5-pro-exp-03-25"; // Primary model for text requests
+    private backupModel = "gemini-2.0-flash-exp";      // Backup model for text & primary for images
+    private useModelLoadBalancing: boolean = false;    // Whether to enable model load balancing
+    
     private readonly headers = {
         "Content-Type": "application/json"
     };
@@ -43,11 +49,19 @@ export class GeminiAdapter {
 
     private conversationHistory: ChatMessage[] = [];
 
-    constructor(apiKey: string) {
+    constructor(apiKey: string, additionalKeys: string[] = [], useModelLoadBalancing: boolean = false) {
+        // Initialize with primary key and any additional keys
         if (!apiKey) {
             throw new Error("API key cannot be empty");
         }
-        this.apiKey = apiKey;
+        
+        this.apiKeys = [apiKey, ...additionalKeys.filter(key => key && key.trim() !== '')];
+        this.useModelLoadBalancing = useModelLoadBalancing;
+        
+        console.log(`[Gemini适配器] 初始化完成，配置了 ${this.apiKeys.length} 个API密钥`);
+        if (this.useModelLoadBalancing) {
+            console.log(`[Gemini适配器] 模型负载均衡已启用，首选模型: ${this.primaryModel}, 备用模型: ${this.backupModel}`);
+        }
         
         // Initialize cloud service status from tracker
         this.updateCloudServiceStatus();
@@ -59,6 +73,68 @@ export class GeminiAdapter {
         });
     }
     
+    /**
+     * Gets the current active API key
+     */
+    private get apiKey(): string {
+        return this.apiKeys[this.currentKeyIndex];
+    }
+    
+    /**
+     * Rotates to the next available API key
+     * @returns true if successfully rotated, false if no more keys available
+     */
+    private rotateApiKey(): boolean {
+        const previousKeyIndex = this.currentKeyIndex;
+        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
+        
+        // If we've gone through all keys and are back at the starting point, return false
+        if (this.currentKeyIndex === previousKeyIndex) {
+            console.log(`[Gemini适配器] 已尝试所有可用API密钥`);
+            return false;
+        }
+        
+        console.log(`[Gemini适配器] 已切换到下一个API密钥，当前位置: ${this.currentKeyIndex + 1}/${this.apiKeys.length}`);
+        return true;
+    }
+    
+    /**
+     * Update API keys - useful when settings change
+     */
+    public updateApiKeys(primaryKey: string, additionalKeys: string[] = []) {
+        this.apiKeys = [primaryKey, ...additionalKeys.filter(key => key && key.trim() !== '')];
+        this.currentKeyIndex = 0; // Reset to first key
+        console.log(`[Gemini适配器] API密钥已更新，共 ${this.apiKeys.length} 个密钥`);
+    }
+    
+    /**
+     * Set model load balancing configuration
+     */
+    public setModelLoadBalancing(enabled: boolean) {
+        this.useModelLoadBalancing = enabled;
+        console.log(`[Gemini适配器] 模型负载均衡已${enabled ? '启用' : '禁用'}`);
+    }
+    
+    /**
+     * Determine which model to use based on the request type and load balancing settings
+     * @param isImageTask Whether the request involves image processing
+     * @returns The model ID to use
+     */
+    private getModelForRequest(isImageTask: boolean = false): string {
+        // Always use backup model for image tasks since only it supports multimodal
+        if (isImageTask) {
+            return this.backupModel;
+        }
+        
+        // If load balancing is disabled, just use the backup model (as was default before)
+        if (!this.useModelLoadBalancing) {
+            return this.backupModel;
+        }
+        
+        // Otherwise use the primary model
+        return this.primaryModel;
+    }
+
     /**
      * Check and update cloud service status from the tracker.
      */
@@ -82,135 +158,186 @@ export class GeminiAdapter {
         // Always check cloud service status before making requests
         this.updateCloudServiceStatus();
         
-        const url = `${this.BASE_URL}/models/${this.model}:generateContent?key=${this.apiKey}`;
+        // Select the appropriate model (defaulting to text task)
+        const modelToUse = this.getModelForRequest(false);
+        console.log(`[Gemini适配器] 使用模型: ${modelToUse} 生成内容`);
         
-        // Mask API key in URL for logging
-        const maskedUrl = url.replace(/(\bkey=)([^&]{4})[^&]*/gi, '$1$2****');
-        
-        const data = {
-            contents,
-            generationConfig: {
-                temperature: 0.7,
-                topK: 40,
-                topP: 0.95,
-                maxOutputTokens: 8192,  // Increased token limit for character generation
-            }
-        };
-
+        // Try with the selected model first
         try {
-            console.log(`[Gemini适配器] 发送请求到API: ${this.model}`);
-            console.log(`[Gemini适配器] 请求包含 ${contents.length} 条消息`);
-            console.log(`[Gemini适配器] 当前云服务状态: ${this.useCloudService ? '启用' : '禁用'}`);
-            
-            // Enhanced logging for each message in the request
-            contents.forEach((msg, index) => {
-                const previewText = msg.parts?.[0]?.text || "";
-                console.log(`[Gemini适配器] 消息 #${index + 1} (${msg.role}): ${previewText.substring(0, 100)}...`);
-                
-                // Special handling for messages that might contain VNDB data, appearance tags, or traits
-                if (previewText.includes("VNDB") || 
-                    previewText.includes("角色参考") || 
-                    previewText.includes("外观参考") || 
-                    previewText.includes("标签") || 
-                    previewText.includes("特征")) {
-                    
-                    // Log a more complete version of important data
-                    const importantDataPreview = previewText.substring(0, 300);
-                    console.log(`[Gemini适配器] 重要数据预览 #${index + 1}: ${importantDataPreview}...`);
-                    
-                    // Check for specific sections and log them
-                    if (previewText.includes("正向标签")) {
-                        const positiveTagsMatch = previewText.match(/正向标签[：:]\s*([\s\S]*?)(?=负向标签|$)/);
-                        if (positiveTagsMatch && positiveTagsMatch[1]) {
-                            console.log(`[Gemini适配器] 正向标签: ${positiveTagsMatch[1].trim()}`);
-                        }
-                    }
-                    
-                    if (previewText.includes("负向标签")) {
-                        const negativeTagsMatch = previewText.match(/负向标签[：:]\s*([\s\S]*?)(?=\n\n|$)/);
-                        if (negativeTagsMatch && negativeTagsMatch[1]) {
-                            console.log(`[Gemini适配器] 负向标签: ${negativeTagsMatch[1].trim()}`);
-                        }
-                    }
-                    
-                    if (previewText.includes("特征")) {
-                        const traitsMatch = previewText.match(/特征[：:]\s*([\s\S]*?)(?=\n\n|$)/);
-                        if (traitsMatch && traitsMatch[1]) {
-                            console.log(`[Gemini适配器] 角色特征: ${traitsMatch[1].trim()}`);
-                        }
-                    }
-                    
-                    if (previewText.includes("性别")) {
-                        const genderMatch = previewText.match(/[角色|用户]性别[：:]\s*([\\s\S]*?)(?=\n\n|$)/);
-                        if (genderMatch && genderMatch[1]) {
-                            console.log(`[Gemini适配器] 性别信息: ${genderMatch[1].trim()}`);
-                        }
-                    }
-                }
-            });
-
-            // Log messages before sending to API
-            console.log('[GeminiAdapter] Sending request to Gemini API:');
-            console.log(JSON.stringify(contents, null, 2));
-            
-            // Check if cloud service should be used
-            let response;
-            
-            // Double check with CloudServiceProvider directly as well
-            const providerEnabled = CloudServiceProvider.isEnabled();
-            const isCloudEnabled = this.useCloudService && providerEnabled;
-            
-            if (isCloudEnabled) {
-                console.log('[Gemini适配器] 检测到云服务已启用，使用云服务转发请求');
-                console.log(`[Gemini适配器] 原始请求URL: ${maskedUrl}`);
-                
+            return await this.executeGenerateContent(contents, modelToUse);
+        } catch (error) {
+            // If model load balancing is enabled and we're using the primary model, try the backup
+            if (this.useModelLoadBalancing && modelToUse === this.primaryModel) {
+                console.log(`[Gemini适配器] 主模型请求失败，尝试使用备用模型: ${this.backupModel}`);
                 try {
-                    console.log('[Gemini适配器] 调用CloudServiceProvider.generateChatCompletion...');
-                    const startTime = Date.now();
+                    return await this.executeGenerateContent(contents, this.backupModel);
+                } catch (backupError) {
+                    console.error(`[Gemini适配器] 备用模型也请求失败:`, backupError);
+                    throw backupError;
+                }
+            } else {
+                // If we're already using the backup model or load balancing is disabled, just throw
+                throw error;
+            }
+        }
+    }
+    
+    /**
+     * Core implementation of generateContent with specified model
+     */
+    private async executeGenerateContent(contents: ChatMessage[], modelId: string): Promise<string> {
+        // Initialize for potential API key rotation
+        let hasMoreKeysToTry = true;
+        let attempts = 0;
+        const maxAttempts = this.apiKeys.length * 2; // Allow for multiple attempts per key in case of temp issues
+        
+        while (hasMoreKeysToTry && attempts < maxAttempts) {
+            attempts++;
+            let url = `${this.BASE_URL}/models/${modelId}:generateContent?key=${this.apiKey}`;
+            
+            // Mask API key in URL for logging
+            const maskedUrl = url.replace(/(\bkey=)([^&]{4})[^&]*/gi, '$1$2****');
+            
+            const data = {
+                contents,
+                generationConfig: {
+                    temperature: 0.7,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 8192,  // Increased token limit for character generation
+                }
+            };
+
+            try {
+                console.log(`[Gemini适配器] 发送请求到API: ${modelId}，尝试 #${attempts}`);
+                console.log(`[Gemini适配器] 请求包含 ${contents.length} 条消息`);
+                console.log(`[Gemini适配器] 当前云服务状态: ${this.useCloudService ? '启用' : '禁用'}`);
+                
+                // Enhanced logging for each message in the request
+                contents.forEach((msg, index) => {
+                    const previewText = msg.parts?.[0]?.text || "";
+                    console.log(`[Gemini适配器] 消息 #${index + 1} (${msg.role}): ${previewText.substring(0, 100)}...`);
                     
-                    // Convert Gemini-style messages to standard format expected by CradleAI
-                    const standardMessages = contents.map(msg => {
-                        // Get text from message parts
-                        let contentText = '';
-                        if (msg.parts && Array.isArray(msg.parts)) {
-                            contentText = msg.parts.map(part => {
-                                if (typeof part === 'object' && part.text) {
-                                    return part.text;
-                                }
-                                return '';
-                            }).join(' ').trim();
+                    // Special handling for messages that might contain VNDB data, appearance tags, or traits
+                    if (previewText.includes("VNDB") || 
+                        previewText.includes("角色参考") || 
+                        previewText.includes("外观参考") || 
+                        previewText.includes("标签") || 
+                        previewText.includes("特征")) {
+                        
+                        // Log a more complete version of important data
+                        const importantDataPreview = previewText.substring(0, 300);
+                        console.log(`[Gemini适配器] 重要数据预览 #${index + 1}: ${importantDataPreview}...`);
+                        
+                        // Check for specific sections and log them
+                        if (previewText.includes("正向标签")) {
+                            const positiveTagsMatch = previewText.match(/正向标签[：:]\s*([\s\S]*?)(?=负向标签|$)/);
+                            if (positiveTagsMatch && positiveTagsMatch[1]) {
+                                console.log(`[Gemini适配器] 正向标签: ${positiveTagsMatch[1].trim()}`);
+                            }
                         }
                         
-                        // Map Gemini roles to standard roles
-                        let role = msg.role;
-                        if (role === 'model') role = 'assistant';
-                        
-                        return {
-                            role: role,
-                            content: contentText
-                        };
-                    });
-                    
-                    console.log('[Gemini适配器] 转换后的消息格式:', JSON.stringify(standardMessages, null, 2));
-                    
-                    // Use the generateChatCompletion method for cloud service
-                    response = await CloudServiceProvider.generateChatCompletion(
-                        standardMessages,
-                        {
-                            model: CloudServiceProvider.getPreferredModel(),
-                            temperature: 0.7,
-                            max_tokens: 8192
+                        if (previewText.includes("负向标签")) {
+                            const negativeTagsMatch = previewText.match(/负向标签[：:]\s*([\s\S]*?)(?=\n\n|$)/);
+                            if (negativeTagsMatch && negativeTagsMatch[1]) {
+                                console.log(`[Gemini适配器] 负向标签: ${negativeTagsMatch[1].trim()}`);
+                            }
                         }
-                    );
+                        
+                        if (previewText.includes("特征")) {
+                            const traitsMatch = previewText.match(/特征[：:]\s*([\s\S]*?)(?=\n\n|$)/);
+                            if (traitsMatch && traitsMatch[1]) {
+                                console.log(`[Gemini适配器] 角色特征: ${traitsMatch[1].trim()}`);
+                            }
+                        }
+                        
+                        if (previewText.includes("性别")) {
+                            const genderMatch = previewText.match(/[角色|用户]性别[：:]\s*([\\s\S]*?)(?=\n\n|$)/);
+                            if (genderMatch && genderMatch[1]) {
+                                console.log(`[Gemini适配器] 性别信息: ${genderMatch[1].trim()}`);
+                            }
+                        }
+                    }
+                });
+
+                // Check if cloud service should be used
+                let response;
+                
+                // Double check with CloudServiceProvider directly as well
+                const providerEnabled = CloudServiceProvider.isEnabled();
+                const isCloudEnabled = this.useCloudService && providerEnabled;
+                
+                if (isCloudEnabled) {
+                    console.log('[Gemini适配器] 检测到云服务已启用，使用云服务转发请求');
+                    console.log(`[Gemini适配器] 原始请求URL: ${maskedUrl}`);
                     
-                    const endTime = Date.now();
-                    console.log(`[Gemini适配器] 云服务请求完成，耗时: ${endTime - startTime}ms`);
-                    console.log(`[Gemini适配器] 云服务响应状态: ${response.status} ${response.statusText}`);
-                } catch (cloudError) {
-                    console.error('[Gemini适配器] 云服务请求失败:', cloudError);
-                    console.error('[Gemini适配器] 尝试回退到直接API调用...');
+                    try {
+                        console.log('[Gemini适配器] 调用CloudServiceProvider.generateChatCompletion...');
+                        const startTime = Date.now();
+                        
+                        // Convert Gemini-style messages to standard format expected by CradleAI
+                        const standardMessages = contents.map(msg => {
+                            // Get text from message parts
+                            let contentText = '';
+                            if (msg.parts && Array.isArray(msg.parts)) {
+                                contentText = msg.parts.map(part => {
+                                    if (typeof part === 'object' && part.text) {
+                                        return part.text;
+                                    }
+                                    return '';
+                                }).join(' ').trim();
+                            }
+                            
+                            // Map Gemini roles to standard roles
+                            let role = msg.role;
+                            if (role === 'model') role = 'assistant';
+                            
+                            return {
+                                role: role,
+                                content: contentText
+                            };
+                        });
+                        
+                        console.log('[Gemini适配器] 转换后的消息格式:', JSON.stringify(standardMessages, null, 2));
+                        
+                        // Use the generateChatCompletion method for cloud service
+                        response = await CloudServiceProvider.generateChatCompletion(
+                            standardMessages,
+                            {
+                                model: CloudServiceProvider.getPreferredModel(),
+                                temperature: 0.7,
+                                max_tokens: 8192
+                            }
+                        );
+                        
+                        const endTime = Date.now();
+                        console.log(`[Gemini适配器] 云服务请求完成，耗时: ${endTime - startTime}ms`);
+                        console.log(`[Gemini适配器] 云服务响应状态: ${response.status} ${response.statusText}`);
+                    } catch (cloudError) {
+                        console.error('[Gemini适配器] 云服务请求失败:', cloudError);
+                        console.error('[Gemini适配器] 尝试回退到直接API调用...');
+                        
+                        // Fall back to direct API call
+                        const startTime = Date.now();
+                        response = await fetch(url, {
+                            method: 'POST',
+                            headers: this.headers,
+                            body: JSON.stringify(data)
+                        });
+                        const endTime = Date.now();
+                        
+                        console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
+                        console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
+                    }
+                } else {
+                    if (this.useCloudService) {
+                        console.log('[Gemini适配器] 云服务状态不一致: tracker显示已启用但CloudServiceProvider未启用');
+                    }
                     
-                    // Fall back to direct API call
+                    console.log('[Gemini适配器] 云服务未启用，使用直接API调用');
+                    console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
+                    console.log(`[Gemini适配器] 开始时间: ${new Date().toISOString()}`);
+                    
                     const startTime = Date.now();
                     response = await fetch(url, {
                         method: 'POST',
@@ -222,83 +349,96 @@ export class GeminiAdapter {
                     console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
                     console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
                 }
-            } else {
-                if (this.useCloudService) {
-                    console.log('[Gemini适配器] 云服务状态不一致: tracker显示已启用但CloudServiceProvider未启用');
-                }
-                
-                console.log('[Gemini适配器] 云服务未启用，使用直接API调用');
-                console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
-                console.log(`[Gemini适配器] 开始时间: ${new Date().toISOString()}`);
-                
-                const startTime = Date.now();
-                response = await fetch(url, {
-                    method: 'POST',
-                    headers: this.headers,
-                    body: JSON.stringify(data)
-                });
-                const endTime = Date.now();
-                
-                console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
-                console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
-            }
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`[Gemini适配器] API响应错误 (${response.status}): ${errorText}`);
-                throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
-            }
-
-            console.log(`[Gemini适配器] 成功接收到API响应，开始解析JSON`);
-            const result = await response.json();
-            
-            // Check for the expected format from CradleAI
-            if (result.choices && result.choices.length > 0) {
-                // This is the standard OpenAI/CradleAI format
-                const responseText = result.choices[0].message?.content || "";
-                
-                if (responseText) {
-                    console.log(`[Gemini适配器] 成功接收CradleAI响应，长度: ${responseText.length}`);
-                    console.log(`[Gemini适配器] 响应前100个字符: ${responseText.substring(0, 100)}...`);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[Gemini适配器] API响应错误 (${response.status}): ${errorText}`);
                     
-                    this.conversationHistory.push({
-                        role: "assistant",
-                        parts: [{ text: responseText }]
-                    });
-                    return responseText;
-                }
-            } else if (result.candidates?.[0]?.content) {
-                // This is the Gemini format
-                const responseText = result.candidates[0].content.parts?.[0]?.text || "";
-                if (responseText) {
-                    console.log(`[Gemini适配器] 成功接收响应，长度: ${responseText.length}`);
-                    console.log(`[Gemini适配器] 响应前100个字符: ${responseText.substring(0, 100)}...`);
-                    
-                    // Log potential JSON formatting issues
-                    if (responseText.includes('"') && responseText.includes('\\')) {
-                        console.warn('[Gemini适配器] 警告：响应中可能存在不正确的JSON转义字符');
+                    // Handle rate limiting (429) by rotating API keys
+                    if (response.status === 429) {
+                        console.log(`[Gemini适配器] 检测到请求频率限制 (429)，尝试切换API密钥`);
+                        // Try the next key
+                        hasMoreKeysToTry = this.rotateApiKey();
+                        // If we have more keys to try, continue to the next iteration
+                        if (hasMoreKeysToTry) {
+                            continue;
+                        }
                     }
                     
-                    this.conversationHistory.push({
-                        role: "assistant",
-                        parts: [{ text: responseText }]
-                    });
-                } else {
-                    console.warn(`[Gemini适配器] 接收到空响应`);
+                    throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
                 }
-                return responseText;
+
+                console.log(`[Gemini适配器] 成功接收到API响应，开始解析JSON`);
+                const result = await response.json();
+                
+                // Check for the expected format from CradleAI
+                if (result.choices && result.choices.length > 0) {
+                    // This is the standard OpenAI/CradleAI format
+                    const responseText = result.choices[0].message?.content || "";
+                    
+                    if (responseText) {
+                        console.log(`[Gemini适配器] 成功接收CradleAI响应，长度: ${responseText.length}`);
+                        console.log(`[Gemini适配器] 响应前100个字符: ${responseText.substring(0, 100)}...`);
+                        
+                        this.conversationHistory.push({
+                            role: "assistant",
+                            parts: [{ text: responseText }]
+                        });
+                        return responseText;
+                    }
+                } else if (result.candidates?.[0]?.content) {
+                    // This is the Gemini format
+                    const responseText = result.candidates[0].content.parts?.[0]?.text || "";
+                    if (responseText) {
+                        console.log(`[Gemini适配器] 成功接收响应，长度: ${responseText.length}`);
+                        console.log(`[Gemini适配器] 响应前100个字符: ${responseText.substring(0, 100)}...`);
+                        
+                        // Log potential JSON formatting issues
+                        if (responseText.includes('"') && responseText.includes('\\')) {
+                            console.warn('[Gemini适配器] 警告：响应中可能存在不正确的JSON转义字符');
+                        }
+                        
+                        this.conversationHistory.push({
+                            role: "assistant",
+                            parts: [{ text: responseText }]
+                        });
+                        return responseText;
+                    } else {
+                        console.warn(`[Gemini适配器] 接收到空响应`);
+                    }
+                    return responseText;
+                }
+                
+                console.error(`[Gemini适配器] 无效的响应格式: ${JSON.stringify(result)}`);
+                return "";
+
+            } catch (error) {
+                console.error(`[Gemini适配器] 生成内容时出错 (使用API密钥 ${this.currentKeyIndex + 1}/${this.apiKeys.length}):`, error);
+                
+                // Check if error indicates a potential API key issue (vs network issue)
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const isApiKeyIssue = errorMessage.includes('API key') || 
+                                     errorMessage.includes('authentication') || 
+                                     errorMessage.includes('401') || 
+                                     errorMessage.includes('403');
+                
+                // For API key issues, try to rotate the key
+                if (isApiKeyIssue) {
+                    console.log(`[Gemini适配器] 可能的API密钥问题，尝试下一个密钥`);
+                    hasMoreKeysToTry = this.rotateApiKey();
+                    if (hasMoreKeysToTry) {
+                        continue;
+                    }
+                }
+                
+                // If we've exhausted all keys or it's not an API key issue, throw the error
+                throw error;
             }
-            
-            console.error(`[Gemini适配器] 无效的响应格式: ${JSON.stringify(result)}`);
-            return "";
-
-        } catch (error) {
-            console.error("[Gemini适配器] 生成内容时出错:", error);
-            throw error;
         }
+        
+        // If we got here, we've exhausted all keys without success
+        throw new Error(`[Gemini适配器] 所有可用的API密钥都已尝试但未能成功生成内容`);
     }
-
-
 
     /**
      * 生成包含文本和/或图片的内容
@@ -315,168 +455,208 @@ export class GeminiAdapter {
         this.updateCloudServiceStatus();
         
         // 始终使用gemini-2.0-flash-exp，因为它是唯一支持图像生成的模型
-        const modelToUse = "gemini-2.0-flash-exp";
+        const modelToUse = this.backupModel;
         
-        const url = `${this.BASE_URL}/models/${modelToUse}:generateContent?key=${this.apiKey}`;
+        // Initialize for potential API key rotation
+        let hasMoreKeysToTry = true;
+        let attempts = 0;
+        const maxAttempts = this.apiKeys.length * 2; // Allow for multiple attempts
         
-        // Mask API key in URL for logging
-        const maskedUrl = url.replace(/(\bkey=)([^&]{4})[^&]*/gi, '$1$2****');
-        
-        // 准备请求内容
-        const contents: { role: string; parts: ContentPart[] }[] = [{
-            role: "user",
-            parts: [{ text: prompt }]
-        }];
+        while (hasMoreKeysToTry && attempts < maxAttempts) {
+            attempts++;
+            let url = `${this.BASE_URL}/models/${modelToUse}:generateContent?key=${this.apiKey}`;
+            
+            // Mask API key in URL for logging
+            const maskedUrl = url.replace(/(\bkey=)([^&]{4})[^&]*/gi, '$1$2****');
+            
+            // 准备请求内容
+            const contents: { role: string; parts: ContentPart[] }[] = [{
+                role: "user",
+                parts: [{ text: prompt }]
+            }];
 
-        // 如果提供了图片，需要处理并添加到请求中
-        if (options.images && options.images.length > 0) {
-            try {
-                // 将文本部分移除，我们将在新数组中重新添加
-                contents[0].parts = [];
-                
-                // 添加文本提示作为第一部分
-                if (prompt) {
-                    contents[0].parts.push({ text: prompt });
-                }
-                
-                // 处理每一个图像输入（可能是URL或Base64数据）
-                for (const img of options.images) {
-                    // 通过URL获取图像的情况
-                    if (img.url) {
-                        const imageData = await this.fetchImageAsBase64(img.url);
-                        contents[0].parts.push({
-                            inlineData: {
-                                data: imageData.data,
-                                mimeType: imageData.mimeType || 'image/jpeg'
-                            }
-                        });
-                    } 
-                    // 直接提供Base64数据的情况
-                    else if (img.data && img.mimeType) {
-                        contents[0].parts.push({
-                            inlineData: {
-                                data: img.data,
-                                mimeType: img.mimeType
-                            }
-                        });
+            // 如果提供了图片，需要处理并添加到请求中
+            if (options.images && options.images.length > 0) {
+                try {
+                    // 将文本部分移除，我们将在新数组中重新添加
+                    contents[0].parts = [];
+                    
+                    // 添加文本提示作为第一部分
+                    if (prompt) {
+                        contents[0].parts.push({ text: prompt });
                     }
+                    
+                    // 处理每一个图像输入（可能是URL或Base64数据）
+                    for (const img of options.images) {
+                        // 通过URL获取图像的情况
+                        if (img.url) {
+                            const imageData = await this.fetchImageAsBase64(img.url);
+                            contents[0].parts.push({
+                                inlineData: {
+                                    data: imageData.data,
+                                    mimeType: imageData.mimeType || 'image/jpeg'
+                                }
+                            });
+                        } 
+                        // 直接提供Base64数据的情况
+                        else if (img.data && img.mimeType) {
+                            contents[0].parts.push({
+                                inlineData: {
+                                    data: img.data,
+                                    mimeType: img.mimeType
+                                }
+                            });
+                        }
+                    }
+                    
+                    console.log(`[Gemini适配器] 已处理 ${contents[0].parts.length - 1} 张图片`);
+                } catch (error) {
+                    console.error("[Gemini适配器] 处理图片输入时出错:", error);
+                    throw new Error("处理图片输入失败: " + (error instanceof Error ? error.message : String(error)));
                 }
-                
-                console.log(`[Gemini适配器] 已处理 ${contents[0].parts.length - 1} 张图片`);
-            } catch (error) {
-                console.error("[Gemini适配器] 处理图片输入时出错:", error);
-                throw new Error("处理图片输入失败: " + (error instanceof Error ? error.message : String(error)));
             }
-        }
 
-        // 准备请求数据
-        const data: any = {
-            contents,
-            generationConfig: {
-                temperature: options.temperature || 0.7,
-                topK: 40,
-                topP: 0.95,
-                maxOutputTokens: 8192,
+            // 准备请求数据
+            const data: any = {
+                contents,
+                generationConfig: {
+                    temperature: options.temperature || 0.7,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 8192,
+                }
+            };
+
+            // 如果需要图片输出，添加正确的参数配置
+            if (options.includeImageOutput) {
+                // 根据文档使用正确的responseModalities参数
+                data.generationConfig.responseModalities = ['TEXT', 'IMAGE'];
+                console.log(`[Gemini适配器] 已配置图像生成选项，使用模型: ${modelToUse}`);
+                console.log(`[Gemini适配器] 响应模态: ${JSON.stringify(data.generationConfig.responseModalities)}`);
             }
-        };
 
-        // 如果需要图片输出，添加正确的参数配置
-        if (options.includeImageOutput) {
-            // 根据文档使用正确的responseModalities参数
-            data.generationConfig.responseModalities = ['TEXT', 'IMAGE'];
-            console.log(`[Gemini适配器] 已配置图像生成选项，使用模型: ${modelToUse}`);
-            console.log(`[Gemini适配器] 响应模态: ${JSON.stringify(data.generationConfig.responseModalities)}`);
-        }
-
-        try {
-            console.log(`[Gemini适配器] 发送多模态请求到API: ${modelToUse}`);
-            console.log(`[Gemini适配器] 请求是否包含图片输出: ${options.includeImageOutput ? '是' : '否'}`);
-            console.log(`[Gemini适配器] 当前云服务状态: ${this.useCloudService ? '启用' : '禁用'}`);
-            console.log(`[Gemini适配器] 请求数据:`, JSON.stringify(data, null, 2));
-            
-            // Check if cloud service should be used
-            let response;
-            
-            // Double check with CloudServiceProvider directly as well
-            const providerEnabled = CloudServiceProvider.isEnabled();
-            const isCloudEnabled = this.useCloudService && providerEnabled;
-            
-            if (isCloudEnabled) {
-                console.log('[GeminiAdapter] Using cloud service for multimodal request');
+            try {
+                console.log(`[Gemini适配器] 发送多模态请求到API: ${modelToUse}，尝试 #${attempts}`);
+                console.log(`[Gemini适配器] 请求是否包含图片输出: ${options.includeImageOutput ? '是' : '否'}`);
+                console.log(`[Gemini适配器] 当前云服务状态: ${this.useCloudService ? '启用' : '禁用'}`);
                 
-                // Forward the request through the cloud service
-                response = await CloudServiceProvider.forwardRequest(
-                    url,
-                    {
+                // Check if cloud service should be used
+                let response;
+                
+                // Double check with CloudServiceProvider directly as well
+                const providerEnabled = CloudServiceProvider.isEnabled();
+                const isCloudEnabled = this.useCloudService && providerEnabled;
+                
+                if (isCloudEnabled) {
+                    console.log('[GeminiAdapter] Using cloud service for multimodal request');
+                    
+                    // Forward the request through the cloud service
+                    response = await CloudServiceProvider.forwardRequest(
+                        url,
+                        {
+                            method: 'POST',
+                            headers: this.headers,
+                            body: JSON.stringify(data)
+                        },
+                        'gemini'
+                    );
+                } else {
+                    // Use direct API call if cloud service is not enabled
+                    console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
+                    
+                    const startTime = Date.now();
+                    response = await fetch(url, {
                         method: 'POST',
                         headers: this.headers,
                         body: JSON.stringify(data)
-                    },
-                    'gemini'
-                );
-            } else {
-                // Use direct API call if cloud service is not enabled
-                console.log(`[Gemini适配器] 直接调用URL: ${maskedUrl}`);
-                
-                const startTime = Date.now();
-                response = await fetch(url, {
-                    method: 'POST',
-                    headers: this.headers,
-                    body: JSON.stringify(data)
-                });
-                const endTime = Date.now();
-                
-                console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
-                console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
-            }
+                    });
+                    const endTime = Date.now();
+                    
+                    console.log(`[Gemini适配器] 直接API调用完成，耗时: ${endTime - startTime}ms`);
+                    console.log(`[Gemini适配器] API响应状态: ${response.status} ${response.statusText}`);
+                }
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`[Gemini适配器] 多模态API响应错误 (${response.status}): ${errorText}`);
-                throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
-            }
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[Gemini适配器] 多模态API响应错误 (${response.status}): ${errorText}`);
+                    
+                    // Handle rate limiting (429) by rotating API keys
+                    if (response.status === 429) {
+                        console.log(`[Gemini适配器] 检测到请求频率限制 (429)，尝试切换API密钥`);
+                        // Try the next key
+                        hasMoreKeysToTry = this.rotateApiKey();
+                        // If we have more keys to try, continue to the next iteration
+                        if (hasMoreKeysToTry) {
+                            continue;
+                        }
+                    }
+                    
+                    throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
+                }
 
-            const result = await response.json();
-            
-            // 解析响应
-            if (result.candidates?.[0]?.content) {
-                const parts = result.candidates[0].content.parts || [];
-                const generatedContent: GeneratedContent = {};
-                const images: string[] = [];
+                const result = await response.json();
                 
-                // 处理每个部分（可能是文本或图片）
-                parts.forEach((part: any) => {
-                    if (part.text) {
-                        generatedContent.text = (generatedContent.text || '') + part.text;
+                // 解析响应
+                if (result.candidates?.[0]?.content) {
+                    const parts = result.candidates[0].content.parts || [];
+                    const generatedContent: GeneratedContent = {};
+                    const images: string[] = [];
+                    
+                    // 处理每个部分（可能是文本或图片）
+                    parts.forEach((part: any) => {
+                        if (part.text) {
+                            generatedContent.text = (generatedContent.text || '') + part.text;
+                        }
+                        if (part.inlineData) {
+                            // 这是一个Base64编码的图片
+                            images.push(part.inlineData.data);
+                        }
+                    });
+                    
+                    if (images.length > 0) {
+                        generatedContent.images = images;
                     }
-                    if (part.inlineData) {
-                        // 这是一个Base64编码的图片
-                        images.push(part.inlineData.data);
+                    
+                    console.log(`[Gemini适配器] 成功接收多模态响应`);
+                    if (generatedContent.text) {
+                        console.log(`[Gemini适配器] 响应包含文本，长度: ${generatedContent.text.length}`);
                     }
-                });
-                
-                if (images.length > 0) {
-                    generatedContent.images = images;
+                    if (generatedContent.images) {
+                        console.log(`[Gemini适配器] 响应包含 ${generatedContent.images.length} 个图片`);
+                    }
+                    
+                    return generatedContent;
                 }
                 
-                console.log(`[Gemini适配器] 成功接收多模态响应`);
-                if (generatedContent.text) {
-                    console.log(`[Gemini适配器] 响应包含文本，长度: ${generatedContent.text.length}`);
-                }
-                if (generatedContent.images) {
-                    console.log(`[Gemini适配器] 响应包含 ${generatedContent.images.length} 个图片`);
+                console.error(`[Gemini适配器] 无效的多模态响应格式: ${JSON.stringify(result)}`);
+                return {};
+                
+            } catch (error) {
+                console.error(`[Gemini适配器] 生成多模态内容时出错 (使用API密钥 ${this.currentKeyIndex + 1}/${this.apiKeys.length}):`, error);
+                
+                // Check if error indicates a potential API key issue
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const isApiKeyIssue = errorMessage.includes('API key') || 
+                                     errorMessage.includes('authentication') || 
+                                     errorMessage.includes('401') || 
+                                     errorMessage.includes('403');
+                
+                // For API key issues, try to rotate the key
+                if (isApiKeyIssue || errorMessage.includes('429')) {
+                    console.log(`[Gemini适配器] 可能的API密钥问题，尝试下一个密钥`);
+                    hasMoreKeysToTry = this.rotateApiKey();
+                    if (hasMoreKeysToTry) {
+                        continue;
+                    }
                 }
                 
-                return generatedContent;
+                // If we've exhausted all keys or it's not an API key issue, throw the error
+                throw error;
             }
-            
-            console.error(`[Gemini适配器] 无效的多模态响应格式: ${JSON.stringify(result)}`);
-            return {};
-            
-        } catch (error) {
-            console.error("[Gemini适配器] 生成多模态内容时出错:", error);
-            throw error;
         }
+        
+        // If we got here, we've exhausted all keys without success
+        throw new Error(`[Gemini适配器] 所有可用的API密钥都已尝试但未能成功生成多模态内容`);
     }
 
     /**
@@ -554,55 +734,92 @@ export class GeminiAdapter {
         console.log(`[Gemini适配器] 请求生成图片，提示: ${prompt.substring(0, 50)}...`);
         
         try {
-            // 使用正确的模型和API端点
-            const enhancedPrompt = `我需要一张基于以下描述的图片(请务必生成图像): ${prompt}`;
+            // Always use the backup model (gemini-2.0-flash-exp) for image generation
+            console.log(`[Gemini适配器] 使用${this.backupModel}模型生成图片`);
             
-            console.log(`[Gemini适配器] 使用gemini-2.0-flash-exp模型生成图片`);
+            // Initialize for potential API key rotation
+            let hasMoreKeysToTry = true;
+            let attempts = 0;
+            const maxAttempts = this.apiKeys.length * 2;
             
-            // 直接使用多模态API生成图片
-            const result = await this.generateMultiModalContent(enhancedPrompt, {
-                includeImageOutput: true,
-                temperature: options.temperature || 0.7,
-            });
-            
-            if (result.images && result.images.length > 0) {
-                console.log(`[Gemini适配器] 成功生成 ${result.images.length} 张图片`);
+            while (hasMoreKeysToTry && attempts < maxAttempts) {
+                attempts++;
                 
-                // Convert the images to consistent PNG format
-                const processedImages = result.images.map(img => {
-                    // We return the raw base64 data without data URL prefix
-                    // The caller will handle the proper formatting
-                    return img;
-                });
-                
-                return processedImages;
-            } else {
-                console.log(`[Gemini适配器] 未能生成图片，尝试使用更明确的提示`);
-                
-                // 如果第一次尝试失败，使用更具体的提示再试一次
-                const secondAttemptPrompt = 
-                    `Generate an image of the following (please output an image in your response): ${prompt}`;
-                
-                const result2 = await this.generateMultiModalContent(secondAttemptPrompt, {
-                    includeImageOutput: true,
-                    temperature: options.temperature || 0.9, // 略微提高创造性
-                });
-                
-                if (result2.images && result2.images.length > 0) {
-                    console.log(`[Gemini适配器] 第二次尝试成功生成 ${result2.images.length} 张图片`);
+                try {
+                    // 使用enhancedPrompt确保模型生成图像
+                    const enhancedPrompt = `我需要一张基于以下描述的图片(请务必生成图像): ${prompt}`;
                     
-                    // Convert the images to consistent PNG format
-                    const processedImages = result2.images.map(img => {
-                        // We return the raw base64 data without data URL prefix
-                        return img;
+                    // 直接使用多模态API生成图片
+                    const result = await this.generateMultiModalContent(enhancedPrompt, {
+                        includeImageOutput: true,
+                        temperature: options.temperature || 0.7,
                     });
                     
-                    return processedImages;
+                    if (result.images && result.images.length > 0) {
+                        console.log(`[Gemini适配器] 成功生成 ${result.images.length} 张图片`);
+                        
+                        // Convert the images to consistent PNG format
+                        const processedImages = result.images.map(img => {
+                            // We return the raw base64 data without data URL prefix
+                            // The caller will handle the proper formatting
+                            return img;
+                        });
+                        
+                        return processedImages;
+                    } else {
+                        console.log(`[Gemini适配器] 未能生成图片，尝试使用更明确的提示`);
+                        
+                        // 如果第一次尝试失败，使用更具体的提示再试一次
+                        const secondAttemptPrompt = 
+                            `Generate an image of the following (please output an image in your response): ${prompt}`;
+                        
+                        const result2 = await this.generateMultiModalContent(secondAttemptPrompt, {
+                            includeImageOutput: true,
+                            temperature: options.temperature || 0.9, // 略微提高创造性
+                        });
+                        
+                        if (result2.images && result2.images.length > 0) {
+                            console.log(`[Gemini适配器] 第二次尝试成功生成 ${result2.images.length} 张图片`);
+                            
+                            // Convert the images to consistent PNG format
+                            const processedImages = result2.images.map(img => {
+                                // We return the raw base64 data without data URL prefix
+                                return img;
+                            });
+                            
+                            return processedImages;
+                        }
+                        
+                        // If we're here, both attempts failed with the current key
+                        console.log(`[Gemini适配器] 两次尝试都未能生成图片，尝试下一个API密钥`);
+                        hasMoreKeysToTry = this.rotateApiKey();
+                        if (!hasMoreKeysToTry) {
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.error(`[Gemini适配器] 图像生成尝试 #${attempts} 失败:`, errorMessage);
+                    
+                    // Check if it's a rate limit or API key issue
+                    if (errorMessage.includes('429') || 
+                        errorMessage.includes('API key') || 
+                        errorMessage.includes('authentication')) {
+                        
+                        hasMoreKeysToTry = this.rotateApiKey();
+                        if (hasMoreKeysToTry) {
+                            console.log(`[Gemini适配器] 切换到下一个API密钥后重试`);
+                            continue;
+                        }
+                    }
+                    
+                    // If it's not a key issue or we've exhausted all keys, break the loop
+                    break;
                 }
-                
-                console.log(`[Gemini适配器] 两次尝试都未能生成图片`);
-                return [];
             }
+            
+            console.log(`[Gemini适配器] 所有尝试都未能生成图片`);
+            return [];
         } catch (error) {
             console.error("[Gemini适配器] 图像生成失败:", error);
             return [];

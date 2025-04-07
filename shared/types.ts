@@ -28,6 +28,11 @@ export interface GlobalSettings {
         characterApiKey: string;
         xApiKey: string;
         
+        // Gemini API load balancing settings
+        additionalGeminiKeys?: string[];
+        useGeminiModelLoadBalancing?: boolean;
+        useGeminiKeyRotation?: boolean;
+        
         // New API settings
         apiProvider: 'gemini' | 'openrouter';
         openrouter?: OpenRouterSettings;

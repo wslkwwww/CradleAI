@@ -17,6 +17,7 @@ import {
   ViewStyle,
   TextStyle,
   Modal,
+  ImageStyle,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router'; // Add useFocusEffect import
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
@@ -31,6 +32,7 @@ import CreateChar from '@/app/pages/create_char';
 import CradleCreateForm from '@/components/CradleCreateForm';
 import { theme } from '@/constants/theme';
 import { NodeSTManager } from '@/utils/NodeSTManager';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av'; // Import Video component from expo-av
 
 const VIEW_MODE_SMALL = 'small';
 const VIEW_MODE_LARGE = 'large';
@@ -432,6 +434,12 @@ const CharacterCard: React.FC<{
 }> = React.memo(({ item, isManaging, isSelected, onSelect, onPress, viewMode }) => {
   const isLargeView = viewMode === VIEW_MODE_LARGE;
   const isVerticalView = viewMode === VIEW_MODE_VERTICAL;
+  const videoRef = useRef<Video | null>(null);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+
+  // Remove the view mode condition to allow videos in all view modes
+  const shouldShowVideo = item.dynamicPortraitEnabled && item.dynamicPortraitVideo;
 
   const cardStyle = isLargeView
     ? {
@@ -459,21 +467,89 @@ const CharacterCard: React.FC<{
     }
   };
 
+  // Handle video playback status updates
+  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded) {
+      setIsVideoReady(true);
+      if (videoError) setVideoError(null);
+    } else if (status.error) {
+      console.error('Video playback error:', status.error);
+      setVideoError(status.error);
+    }
+  };
+
+  // Reset video state when component unmounts or item/viewMode changes
+  useEffect(() => {
+    setIsVideoReady(false);
+    setVideoError(null);
+    
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.unloadAsync().catch(err => 
+          console.error('Error unloading video:', err)
+        );
+      }
+    };
+  }, [item.id, viewMode]);
+
   return (
     <TouchableOpacity
       style={[styles.card, cardStyle, isManaging && styles.manageCard]}
       onPress={handleCardPress}
       onLongPress={() => onSelect(item.id)}
     >
-      <Image
-        source={
-          item.backgroundImage
-            ? { uri: item.backgroundImage }
-            : require('@/assets/images/default-avatar.png')
-        }
-        style={styles.cardBackground}
-        defaultSource={require('@/assets/images/default-avatar.png')}
-      />
+      {shouldShowVideo ? (
+        // Render video for all view modes
+        <>
+          <Video
+            ref={videoRef}
+            source={{ uri: item.dynamicPortraitVideo! }}
+            style={styles.videoBackground}
+            resizeMode={ResizeMode.COVER}
+            isLooping
+            shouldPlay
+            isMuted
+            onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+            onError={(error) => {
+              console.error('Video error in character card:', error);
+              setVideoError(error?.toString() || 'Failed to load video');
+            }}
+            useNativeControls={false}
+          />
+          
+          {/* Show loading indicator while video is loading */}
+          {!isVideoReady && !videoError && (
+            <View style={styles.videoLoadingContainer}>
+              <ActivityIndicator size="small" color="#ffffff" />
+            </View>
+          )}
+          
+          {/* Show fallback image if video failed to load */}
+          {videoError && (
+            <Image
+              source={
+                item.backgroundImage
+                  ? { uri: item.backgroundImage }
+                  : require('@/assets/images/default-avatar.png')
+              }
+              style={styles.imageBackground}
+              resizeMode="cover"
+              defaultSource={require('@/assets/images/default-avatar.png')}
+            />
+          )}
+        </>
+      ) : (
+        <Image
+          source={
+            item.backgroundImage
+              ? { uri: item.backgroundImage }
+              : require('@/assets/images/default-avatar.png')
+          }
+          style={styles.imageBackground}
+          resizeMode="cover"
+          defaultSource={require('@/assets/images/default-avatar.png')}
+        />
+      )}
 
       <View style={styles.cardOverlay}>
         <Text style={styles.cardName}>{item.name}</Text>
@@ -490,8 +566,6 @@ const CharacterCard: React.FC<{
   );
 });
 
-import { ImageStyle } from 'react-native';
-
 interface Styles {
   safeArea: ViewStyle;
   header: ViewStyle;
@@ -503,7 +577,8 @@ interface Styles {
   listContainer: ViewStyle;
   card: ViewStyle;
   manageCard: ViewStyle;
-  cardBackground: ImageStyle;
+  videoBackground: ViewStyle; // For Video component
+  imageBackground: ImageStyle; // For Image component
   cardOverlay: ViewStyle;
   cardName: TextStyle;
   checkboxContainer: ViewStyle;
@@ -518,6 +593,8 @@ interface Styles {
   creationModalHeader: ViewStyle;
   creationModalTitle: TextStyle;
   creationModalContent: ViewStyle;
+  videoLoadingContainer: ViewStyle;
+  videoErrorText: TextStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
@@ -579,7 +656,12 @@ const styles = StyleSheet.create<Styles>({
     borderColor: 'rgb(255, 224, 195)',
     borderWidth: 2,
   },
-  cardBackground: {
+  videoBackground: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  imageBackground: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
@@ -689,6 +771,19 @@ const styles = StyleSheet.create<Styles>({
   },
   creationModalContent: {
     flex: 1,
+  },
+  videoLoadingContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  videoErrorText: {
+    color: '#ffffff',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    padding: 6,
+    borderRadius: 4,
+    fontSize: 12,
   },
 });
 

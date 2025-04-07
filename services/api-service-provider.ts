@@ -1,6 +1,22 @@
 import { ApiSettings } from '@/shared/types/api-types';
 import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
 import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
+import { ChatMessage } from '@/shared/types';
+
+interface ServiceOptions {
+  apiProvider?: string;
+  openrouter?: {
+    enabled?: boolean;
+    apiKey?: string;
+    model?: string;
+    autoRoute?: boolean;
+    useBackupModels?: boolean;
+    backupModels?: string[];
+  };
+  additionalGeminiKeys?: string[];
+  useGeminiModelLoadBalancing?: boolean;
+  useGeminiKeyRotation?: boolean;
+}
 
 /**
  * 提供API服务选择和管理的工具类
@@ -11,12 +27,32 @@ export class ApiServiceProvider {
   private static openRouterAdapterInstances: Record<string, OpenRouterAdapter> = {};
   
   /**
+   * Clean up resources associated with API adapters
+   */
+  public static dispose() {
+    // Dispose all Gemini adapters
+    Object.values(this.geminiAdapterInstances).forEach(adapter => {
+      if (adapter && typeof adapter.dispose === 'function') {
+        adapter.dispose();
+      }
+    });
+    
+    this.geminiAdapterInstances = {};
+    this.openRouterAdapterInstances = {};
+  }
+  
+  /**
    * 获取适合当前设置的API适配器
    * @param apiKey API密钥
    * @param apiSettings API设置
    * @returns 适配器实例
    */
-  static getAdapter(apiKey: string, apiSettings?: ApiSettings): GeminiAdapter | OpenRouterAdapter {
+  static getAdapter(
+    apiKey: string, 
+    apiSettings?: ApiSettings, 
+    additionalKeys: string[] = [], 
+    useModelLoadBalancing: boolean = false
+  ): GeminiAdapter | OpenRouterAdapter {
     console.log(`【API服务】获取适配器，提供商=${apiSettings?.apiProvider || 'gemini'}`);
     
     // 如果使用OpenRouter且启用了OpenRouter设置
@@ -40,22 +76,26 @@ export class ApiServiceProvider {
       return this.openRouterAdapterInstances[cacheKey];
     }
     
-    // 默认使用Gemini
-    const cacheKey = `gemini-${apiKey}`;
+    // 生成gemini适配器的缓存键，考虑到负载均衡设置
+    const geminiCacheKey = `gemini-${apiKey}-lb${useModelLoadBalancing ? 1 : 0}-keys${additionalKeys.length}`;
     
     // 检查缓存中是否有实例
-    if (!this.geminiAdapterInstances[cacheKey] && apiKey) {
-      console.log(`【API服务】创建新的Gemini适配器实例`);
-      this.geminiAdapterInstances[cacheKey] = new GeminiAdapter(apiKey);
+    if (!this.geminiAdapterInstances[geminiCacheKey] && apiKey) {
+      console.log(`【API服务】创建新的Gemini适配器实例，启用模型负载均衡: ${useModelLoadBalancing}, 额外密钥数: ${additionalKeys.length}`);
+      this.geminiAdapterInstances[geminiCacheKey] = new GeminiAdapter(apiKey, additionalKeys, useModelLoadBalancing);
+    } else if (this.geminiAdapterInstances[geminiCacheKey]) {
+      console.log(`【API服务】使用现有Gemini适配器实例，更新配置`);
+      // 更新现有实例的配置
+      const adapter = this.geminiAdapterInstances[geminiCacheKey];
+      adapter.updateApiKeys(apiKey, additionalKeys);
+      adapter.setModelLoadBalancing(useModelLoadBalancing);
     } else if (!apiKey) {
       console.error(`【API服务】缺少Gemini API密钥`);
       // 创建一个没有API密钥的适配器，这会在调用时失败，但避免了null异常
-      return new GeminiAdapter('');
-    } else {
-      console.log(`【API服务】使用现有Gemini适配器实例`);
+      return new GeminiAdapter('', [], useModelLoadBalancing);
     }
     
-    return this.geminiAdapterInstances[cacheKey];
+    return this.geminiAdapterInstances[geminiCacheKey];
   }
   
   /**
@@ -75,19 +115,48 @@ export class ApiServiceProvider {
    * 发送生成请求到当前选择的API
    * @param messages 消息数组
    * @param apiKey API密钥
-   * @param apiSettings API设置
+   * @param options 服务选项
    * @returns 生成的文本内容
    */
   static async generateContent(
-    messages: Array<{role: string; parts?: {text: string}[]; content?: string}>,
+    messages: ChatMessage[],
     apiKey: string,
-    apiSettings?: ApiSettings
+    options: ServiceOptions = {}
   ): Promise<string> {
     console.log(`【API服务】发送生成请求，消息数量=${messages.length}`);
     
-    const adapter = this.getAdapter(apiKey, apiSettings);
-    
+    const apiProvider = options.apiProvider || 'gemini';
+
+    if (apiProvider === 'openrouter' && options.openrouter?.enabled) {
+      return await this.generateWithOpenRouter(messages, options.openrouter);
+    } else {
+      return await this.generateWithGemini(
+        messages, 
+        apiKey, 
+        options.additionalGeminiKeys || [], 
+        options.useGeminiModelLoadBalancing || false
+      );
+    }
+  }
+
+  /**
+   * 使用Gemini API生成内容
+   * @param messages 消息数组
+   * @param apiKey 主API密钥
+   * @param additionalKeys 额外API密钥
+   * @param useModelLoadBalancing 是否启用模型负载均衡
+   * @returns 生成的文本
+   */
+  private static async generateWithGemini(
+    messages: ChatMessage[], 
+    apiKey: string,
+    additionalKeys: string[] = [],
+    useModelLoadBalancing: boolean = false
+  ): Promise<string> {
     try {
+      // 获取或创建适配器
+      const adapter = this.getAdapter(apiKey, { apiProvider: 'gemini' }, additionalKeys, useModelLoadBalancing) as GeminiAdapter;
+      
       // 记录请求开始时间
       const startTime = Date.now();
       
@@ -96,11 +165,49 @@ export class ApiServiceProvider {
       
       // 计算请求耗时
       const duration = Date.now() - startTime;
-      console.log(`【API服务】请求完成，耗时=${duration}ms，响应长度=${response.length}`);
+      console.log(`【API服务】Gemini请求完成，耗时=${duration}ms，响应长度=${response.length}`);
       
       return response;
     } catch (error) {
-      console.error('【API服务】生成内容失败:', error);
+      console.error('【API服务】使用Gemini生成内容失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 使用OpenRouter API生成内容
+   * @param messages 消息数组
+   * @param options OpenRouter选项
+   * @returns 生成的文本
+   */
+  private static async generateWithOpenRouter(
+    messages: ChatMessage[],
+    options: ServiceOptions['openrouter'] = {}
+  ): Promise<string> {
+    try {
+      // 获取或创建适配器
+      const adapter = this.getAdapter(options.apiKey || '', {
+        apiProvider: 'openrouter',
+        openrouter: {
+          enabled: true,
+          apiKey: options.apiKey || '',
+          model: options.model || 'openai/gpt-3.5-turbo'
+        }
+      }) as OpenRouterAdapter;
+      
+      // 记录请求开始时间
+      const startTime = Date.now();
+      
+      // 发送请求
+      const response = await adapter.generateContent(messages);
+      
+      // 计算请求耗时
+      const duration = Date.now() - startTime;
+      console.log(`【API服务】OpenRouter请求完成，耗时=${duration}ms，响应长度=${response.length}`);
+      
+      return response;
+    } catch (error) {
+      console.error('【API服务】使用OpenRouter生成内容失败:', error);
       throw error;
     }
   }
