@@ -79,18 +79,18 @@ interface BraveDescriptionResponse {
   }>;
 }
 
-// API key storage key - also use as the actual key since we know it works
-const API_KEY = 'BSAA_LSaI91yDJvNaQniicjLw6bIIqG';
+// API key storage key
 const API_KEY_STORAGE_KEY = 'brave_search_api_key';
+const DEFAULT_API_KEY = ''; // No default key now
 
 // Rate limit settings
 const RATE_LIMIT = {
   perSecond: 1,
-  perMonth: 15000
+  perMonth: 2000 // Updated to match the Free tier limit
 };
 
 export class MCPAdapter {
-  private braveApiKey: string = API_KEY; // Use the working API key directly
+  private braveApiKey: string = DEFAULT_API_KEY;
   private isConnected: boolean = false;
   
   // Rate limiting
@@ -101,41 +101,48 @@ export class MCPAdapter {
   };
 
   constructor() {
-    // Initialize with the known working API key
-    this.isConnected = true;
-    console.log("【BraveAPI适配器】使用内置API密钥初始化");
+    // Initialize by loading the API key from storage
+    this.loadApiKey();
   }
 
   /**
-   * 从存储加载Brave API密钥 - 现在只是做备份使用
+   * 从存储加载Brave API密钥
    */
   private async loadApiKey(): Promise<void> {
     try {
-      // Always use the known working key
-      this.braveApiKey = API_KEY;
-      this.isConnected = true;
-      
-      // Store the key for future reference
-      await AsyncStorage.setItem(API_KEY_STORAGE_KEY, this.braveApiKey);
-      console.log("【BraveAPI适配器】已设置Brave API密钥");
+      const storedKey = await AsyncStorage.getItem(API_KEY_STORAGE_KEY);
+      if (storedKey) {
+        this.braveApiKey = storedKey;
+        this.isConnected = !!storedKey;
+        console.log("【BraveAPI适配器】从存储加载API密钥");
+      } else {
+        console.log("【BraveAPI适配器】未找到存储的API密钥");
+        this.isConnected = false;
+      }
     } catch (error) {
-      // Even if storage fails, we're using the hardcoded key
-      console.warn("【BraveAPI适配器】保存API密钥失败，但仍使用内置密钥:", error);
+      console.error("【BraveAPI适配器】加载API密钥失败:", error);
+      this.isConnected = false;
     }
   }
 
   /**
-   * 设置API密钥 - 现在只做验证新密钥，但不更改使用的密钥
+   * 设置API密钥
    */
   async setApiKey(apiKey: string): Promise<void> {
     try {
-      // Only log but don't change the working key
-      console.log("【BraveAPI适配器】收到新的API密钥请求，但继续使用内置密钥");
-      
-      // Store for reference but don't use
-      await AsyncStorage.setItem(API_KEY_STORAGE_KEY, apiKey.trim());
+      const trimmedKey = apiKey.trim();
+      if (trimmedKey) {
+        this.braveApiKey = trimmedKey;
+        this.isConnected = true;
+        await AsyncStorage.setItem(API_KEY_STORAGE_KEY, trimmedKey);
+        console.log("【BraveAPI适配器】设置并保存了新的API密钥");
+      } else {
+        console.warn("【BraveAPI适配器】收到空API密钥");
+        this.isConnected = false;
+      }
     } catch (error) {
       console.error("【BraveAPI适配器】保存API密钥失败:", error);
+      throw error;
     }
   }
 
@@ -143,9 +150,24 @@ export class MCPAdapter {
    * 连接到Brave API
    */
   async connect(): Promise<void> {
-    // Since we're using the hardcoded key, just mark as connected
+    if (!this.braveApiKey) {
+      try {
+        const storedKey = await AsyncStorage.getItem(API_KEY_STORAGE_KEY);
+        if (storedKey) {
+          this.braveApiKey = storedKey;
+          this.isConnected = true;
+          console.log("【BraveAPI适配器】使用存储的API密钥连接");
+          return;
+        }
+      } catch (error) {
+        console.error("【BraveAPI适配器】检索存储的API密钥失败:", error);
+      }
+      
+      throw new Error('缺少Brave Search API密钥，请在设置中配置');
+    }
+    
     this.isConnected = true;
-    console.log("【BraveAPI适配器】使用内置API密钥连接");
+    console.log("【BraveAPI适配器】已连接");
     return;
   }
 
@@ -181,6 +203,10 @@ export class MCPAdapter {
   private async performWebSearch(params: SearchParams): Promise<BraveSearchResponse> {
     this.checkRateLimit();
     
+    if (!this.braveApiKey) {
+      throw new Error('缺少Brave Search API密钥，请在设置中配置');
+    }
+    
     const url = new URL('https://api.search.brave.com/res/v1/web/search');
     
     // 添加查询参数
@@ -213,7 +239,7 @@ export class MCPAdapter {
         headers: {
           'Accept': 'application/json',
           'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': API_KEY // Always use the known working key
+          'X-Subscription-Token': this.braveApiKey // Use the stored API key
         }
       });
       
@@ -288,6 +314,10 @@ export class MCPAdapter {
   private async getLocationDetails(ids: string[]): Promise<BravePoiResponse> {
     this.checkRateLimit();
     
+    if (!this.braveApiKey) {
+      throw new Error('缺少Brave Search API密钥，请在设置中配置');
+    }
+    
     const url = new URL('https://api.search.brave.com/res/v1/local/pois');
     
     // 添加ID参数
@@ -299,7 +329,7 @@ export class MCPAdapter {
         headers: {
           'Accept': 'application/json',
           'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': API_KEY // Always use the known working key
+          'X-Subscription-Token': this.braveApiKey // Use the stored API key
         }
       });
       
@@ -324,6 +354,10 @@ export class MCPAdapter {
   private async getLocationDescriptions(ids: string[]): Promise<BraveDescriptionResponse> {
     this.checkRateLimit();
     
+    if (!this.braveApiKey) {
+      throw new Error('缺少Brave Search API密钥，请在设置中配置');
+    }
+    
     const url = new URL('https://api.search.brave.com/res/v1/local/descriptions');
     
     // 添加ID参数
@@ -335,7 +369,7 @@ export class MCPAdapter {
         headers: {
           'Accept': 'application/json',
           'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': API_KEY // Always use the known working key
+          'X-Subscription-Token': this.braveApiKey // Use the stored API key
         }
       });
       
@@ -529,8 +563,7 @@ export class MCPAdapter {
    * 检查是否已连接
    */
   isReady(): boolean {
-    // Always return true as we're using the hardcoded key
-    return true;
+    return this.isConnected && !!this.braveApiKey;
   }
 
   /**

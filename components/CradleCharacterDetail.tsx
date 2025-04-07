@@ -16,7 +16,6 @@ import { useRouter } from 'expo-router';
 
 interface CradleCharacterDetailProps {
   character: CradleCharacter;
-  onFeed: () => void;
   onDelete: () => void;
   onEdit: () => void;
   isEditable?: boolean;
@@ -26,7 +25,6 @@ interface CradleCharacterDetailProps {
 
 const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   character,
-  onFeed,
   onDelete,
   onEdit,
   isEditable = false,
@@ -37,9 +35,6 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   
-  // 判断角色是否已生成
-  const isGenerated = character.isCradleGenerated === true;
-
   // 检查角色是否正在生成图像
   const isGeneratingImage = character.imageGenerationStatus === 'pending';
   const hasGeneratingImage = character.imageHistory?.some(img => img.generationStatus === 'pending');
@@ -54,6 +49,9 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   const navigateToChat = () => {
     if (character.generatedCharacterId) {
       router.push(`/?characterId=${character.generatedCharacterId}`);
+    } else {
+      // If no generated character ID exists, navigate using the current character ID
+      router.push(`/?characterId=${character.id}`);
     }
   };
 
@@ -68,7 +66,7 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
   };
 
   // 处理描述文本截断
-  const description = character.description || "这是一个摇篮中的AI角色，等待通过投喂数据塑造个性...";
+  const description = character.description || "这是一个AI角色，点击聊天按钮开始对话...";
   const shouldTruncate = description.length > 100;
   const truncatedDescription = shouldTruncate && !isDescriptionExpanded 
     ? description.substring(0, 100) + '...' 
@@ -118,24 +116,14 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
           
           {/* 角色操作按钮 - 只显示主要操作 */}
           <View style={styles.characterActionButtons}>
-            {/* 主要操作按钮 */}
-            {isGenerated ? (
-              <TouchableOpacity 
-                style={[styles.characterActionButton, styles.primaryButton]}
-                onPress={navigateToChat}
-              >
-                <Ionicons name="chatbubble-outline" size={16} color="#fff" />
-                <Text style={styles.characterActionButtonText}>聊天</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity 
-                style={[styles.characterActionButton, styles.primaryButton]}
-                onPress={onFeed}
-              >
-                <Ionicons name="restaurant-outline" size={16} color="#fff" />
-                <Text style={styles.characterActionButtonText}>投喂</Text>
-              </TouchableOpacity>
-            )}
+            {/* 显示聊天按钮 */}
+            <TouchableOpacity 
+              style={[styles.characterActionButton, styles.primaryButton]}
+              onPress={navigateToChat}
+            >
+              <Ionicons name="chatbubble-outline" size={16} color="#fff" />
+              <Text style={styles.characterActionButtonText}>聊天</Text>
+            </TouchableOpacity>
             
             {/* 生成图片按钮 - 作为第二主要操作 */}
             {onRegenerateImage && !isLoading && (

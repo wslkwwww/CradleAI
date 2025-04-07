@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,12 @@ import {
   TouchableOpacity,
   Linking,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { parseHtmlToReactNative } from '@/utils/htmlParser';
+import ImageManager from '@/utils/ImageManager';
 
 interface RichTextRendererProps {
   html: string;
@@ -27,6 +29,8 @@ const RichTextRenderer: React.FC<RichTextRendererProps> = ({
   onLinkPress,
   maxImageHeight = 300,
 }) => {
+  const [imageLoadErrors, setImageLoadErrors] = useState<Record<string, boolean>>({});
+
   // Add validation for empty content
   if (!html || html.trim() === '') {
     console.warn('Empty HTML content passed to RichTextRenderer');
@@ -59,24 +63,63 @@ const RichTextRenderer: React.FC<RichTextRendererProps> = ({
       .catch((err) => console.error('Error opening URL:', err));
   }, [onLinkPress]);
 
-  // SafeImage handler
+  // SafeImage handler with error handling
   const handleImagePress = useCallback((url: string) => {
+    console.log('Image pressed in RichTextRenderer:', url);
+    
+    // Check if it's a special image:id format
+    if (url.startsWith('image:')) {
+      const imageId = url.substring(6); // Remove "image:" prefix
+      const imageInfo = ImageManager.getImageInfo(imageId);
+      
+      if (imageInfo) {
+        console.log('Found image info for ID:', imageId);
+        // Use thumbnail path for preview and original for full view
+        if (onImagePress) {
+          onImagePress(imageInfo.originalPath);
+        }
+        return;
+      } else {
+        console.error('No image info found for ID:', imageId);
+      }
+    }
+    
     if (onImagePress) {
       onImagePress(url);
     }
   }, [onImagePress]);
 
+  // Image error handler
+  const handleImageError = useCallback((url: string) => {
+    console.error('Failed to load image:', url);
+    setImageLoadErrors(prev => ({
+      ...prev,
+      [url]: true
+    }));
+  }, []);
+
   // Parse HTML and render React Native components
   const renderContent = useCallback(() => {
     try {
-      // Remove excessive logging
-      // console.log("RichTextRenderer rendering HTML:", html.substring(0, 100));
+      // Process special image:id format in the HTML
+      let processedHtml = html;
+      const imageIdRegex = /src="image:([^"]+)"/g;
+      
+      processedHtml = processedHtml.replace(imageIdRegex, (match, imageId) => {
+        const imageInfo = ImageManager.getImageInfo(imageId);
+        if (imageInfo) {
+          return `src="${imageInfo.thumbnailPath}" data-original="${imageInfo.originalPath}" data-image-id="${imageId}"`;
+        }
+        return match; // Keep original if no info found
+      });
       
       // Use the HTML parser utility to convert HTML to React Native components
-      const content = parseHtmlToReactNative(html, {
+      const content = parseHtmlToReactNative(processedHtml, {
         baseStyle,
         handleLinkPress,
         handleImagePress,
+        handleImageError,
+        imageLoadErrors,
         maxImageHeight,
       });
       
@@ -101,7 +144,7 @@ const RichTextRenderer: React.FC<RichTextRendererProps> = ({
         </View>
       );
     }
-  }, [html, baseStyle, handleLinkPress, handleImagePress, maxImageHeight]);
+  }, [html, baseStyle, handleLinkPress, handleImagePress, handleImageError, imageLoadErrors, maxImageHeight]);
 
   return <View style={styles.container}>{renderContent()}</View>;
 };

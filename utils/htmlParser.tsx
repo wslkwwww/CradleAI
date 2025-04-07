@@ -1078,62 +1078,114 @@ export const parseHtmlToReactNative = (
     baseStyle?: any,
     handleLinkPress?: (url: string) => void,
     handleImagePress?: (url: string) => void,
+    handleImageError?: (url: string) => void,
+    imageLoadErrors?: Record<string, boolean>,
     maxImageHeight?: number
   } = {}
 ): React.ReactNode => {
-  // Remove excessive logging
-  // console.log("parseHtmlToReactNative called with:", html ? html.substring(0, 50) + "..." : "empty content");
+  const {
+    baseStyle = {},
+    handleLinkPress,
+    handleImagePress,
+    handleImageError,
+    imageLoadErrors = {},
+    maxImageHeight = 300,
+  } = options;
+
+  // Very basic implementation to handle image tags
+  // In a real implementation, you'd want to use a proper HTML parser
   
-  // Check for empty content
-  if (!html || html.trim() === '') {
-    console.warn("Empty content passed to HTML renderer");
-    return <Text style={options.baseStyle || styles.text}>(Empty content)</Text>;
+  // Handle image tags specifically
+  const imgRegex = /<img[^>]+src="([^"]+)"[^>]*>/g;
+  const components: React.ReactNode[] = [];
+  
+  let lastIndex = 0;
+  let match;
+  
+  // Reset lastIndex to start from the beginning
+  imgRegex.lastIndex = 0;
+  
+  while ((match = imgRegex.exec(html)) !== null) {
+    // Add text before the image
+    if (match.index > lastIndex) {
+      const textSegment = html.substring(lastIndex, match.index);
+      if (textSegment.trim()) {
+        components.push(
+          <Text key={`text-${lastIndex}`} style={baseStyle}>
+            {textSegment}
+          </Text>
+        );
+      }
+    }
+    
+    // Extract image URL
+    const imageUrl = match[1];
+    
+    // Special handling for image:id format
+    const isImageId = imageUrl.startsWith('image:');
+    
+    // Add error handling for image loading
+    if (imageLoadErrors[imageUrl]) {
+      // Show error state for failed images
+      components.push(
+        <View key={`img-error-${match.index}`} style={styles.imageError}>
+          <Ionicons name="alert-circle" size={24} color="#e74c3c" />
+          <Text style={styles.imageErrorText}>图片加载失败</Text>
+        </View>
+      );
+    } else {
+      // Extract alt text if available
+      const altMatch = match[0].match(/alt="([^"]+)"/);
+      const altText = altMatch ? altMatch[1] : '图片';
+      
+      // Wrap image in TouchableOpacity if handleImagePress is provided
+      const imageComponent = (
+        <View key={`img-${match.index}`} style={styles.imageContainer}>
+          <Image
+            source={{ uri: imageUrl }}
+            style={[styles.image, { maxHeight: maxImageHeight }]}
+            resizeMode="contain"
+            onError={() => handleImageError && handleImageError(imageUrl)}
+          />
+          {altText && <Text style={styles.imageCaption}>{altText}</Text>}
+        </View>
+      );
+      
+      if (handleImagePress) {
+        components.push(
+          <TouchableOpacity 
+            key={`img-touch-${match.index}`}
+            onPress={() => handleImagePress(imageUrl)}
+          >
+            {imageComponent}
+          </TouchableOpacity>
+        );
+      } else {
+        components.push(imageComponent);
+      }
+    }
+    
+    lastIndex = match.index + match[0].length;
   }
   
-  try {
-    // First process any markdown-style formatting
-    let processedHtml = html;
-    
-    // Quick check for image Markdown patterns
-    const hasCustomImages = /!\[.*?\]\(image:.*?\)/i.test(processedHtml);
-    const hasRegularImages = /!\[.*?\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/i.test(processedHtml);
-    
-    // If we have image patterns but no other complex HTML, handle them directly
-    if ((hasCustomImages || hasRegularImages) && 
-        !/<\/?[a-z][^>]*>/i.test(processedHtml.replace(/<br\s*\/?>/gi, ''))) {
-      return processImageMarkdown(
-        processedHtml,
-        options.handleImagePress || (() => {}),
-        options.maxImageHeight || 300
+  // Add remaining text after the last image
+  if (lastIndex < html.length) {
+    const remainingText = html.substring(lastIndex);
+    if (remainingText.trim()) {
+      components.push(
+        <Text key={`text-${lastIndex}`} style={baseStyle}>
+          {remainingText}
+        </Text>
       );
     }
-    
-    // Otherwise, continue with normal HTML processing
-    // Use our more comprehensive preprocessing for all content
-    processedHtml = preprocessCustomTags(processedHtml);
-    
-    // Parse HTML to JSON structure
-    const jsonNodes = parseHtmlToJson(processedHtml);
-    
-    // Convert JSON to React Native components
-    const result = jsonToReactNative(jsonNodes, options);
-    
-    if (!result) {
-      console.warn("No result from jsonToReactNative");
-      return <Text style={options.baseStyle || styles.text}>{html}</Text>;
-    }
-    
-    return result;
-  } catch (error) {
-    console.error("Error in parseHtmlToReactNative:", error);
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={[styles.text, options.baseStyle]}>
-          Error rendering content. Original text: {html}
-        </Text>
-      </View>
-    );
   }
+  
+  // If no images found, just return the text
+  if (components.length === 0) {
+    return <Text style={baseStyle}>{html}</Text>;
+  }
+  
+  return <>{components}</>;
 };
 
 // Check if HTML content contains complex structures that need rich rendering
@@ -1421,4 +1473,26 @@ const styles = StyleSheet.create({
     color: '#e74c3c',
     fontSize: 14,
   },
+  imageContainer: {
+    width: '100%',
+    marginVertical: 8,
+  },
+  imageError: {
+    width: '100%',
+    height: 100,
+    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  }
 });

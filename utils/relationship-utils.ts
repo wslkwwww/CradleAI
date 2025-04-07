@@ -1,5 +1,5 @@
 import { Character } from '@/shared/types';
-import { CircleResponse } from '@/NodeST/nodest';
+import { CircleResponse } from '@/shared/types/circle-types';
 import { RelationshipService } from '@/services/relationship-service';
 
 /**

@@ -22,12 +22,12 @@ import { ApiServiceProvider } from '@/services/api-service-provider';
 import ModelSelector from '@/components/settings/ModelSelector';
 import { GlobalSettings, CloudServiceConfig } from '@/shared/types';
 import { theme } from '@/constants/theme';
-import Mem0Service from '@/src/memory/services/Mem0Service';
 import { licenseService, LicenseInfo } from '@/services/license-service';
 import { DeviceUtils } from '@/utils/device-utils';
 import { API_CONFIG } from '@/constants/api-config';
 import { CloudServiceProvider } from '@/services/cloud-service-provider';
 import { updateCloudServiceStatus } from '@/utils/settings-helper';
+import { mcpAdapter } from '@/NodeST/nodest/utils/mcp-adapter';
 
 const ApiSettings = () => {
   const router = useRouter();
@@ -59,6 +59,12 @@ const ApiSettings = () => {
   const [zhipuApiKey, setZhipuApiKey] = useState(
     user?.settings?.chat?.zhipuApiKey || ''
   );
+
+  // Brave Search API settings
+  const [braveSearchApiKey, setBraveSearchApiKey] = useState(
+    user?.settings?.search?.braveSearchApiKey || ''
+  );
+  const [isTestingBraveSearch, setIsTestingBraveSearch] = useState(false);
 
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
 
@@ -256,6 +262,39 @@ const ApiSettings = () => {
     }
   };
 
+  // Test Brave Search API
+  const testBraveSearch = async () => {
+    try {
+      setIsTestingBraveSearch(true);
+
+      if (!braveSearchApiKey) {
+        Alert.alert('错误', '请输入Brave Search API密钥');
+        return;
+      }
+
+      // 设置API密钥并测试连接
+      await mcpAdapter.setApiKey(braveSearchApiKey);
+      
+      // 执行一个简单的测试搜索
+      const testQuery = "test query";
+      const searchResult = await mcpAdapter.search({
+        query: testQuery,
+        count: 1
+      });
+
+      if (searchResult && searchResult.web?.results) {
+        Alert.alert('连接成功', `成功连接到Brave Search API，获取到 ${searchResult.web.results.length} 个搜索结果`);
+      } else {
+        Alert.alert('连接失败', '未能获得有效的搜索结果');
+      }
+    } catch (error) {
+      console.error('Brave Search测试失败:', error);
+      Alert.alert('连接失败', error instanceof Error ? error.message : '未知错误');
+    } finally {
+      setIsTestingBraveSearch(false);
+    }
+  };
+
   // Activate license function
   const activateLicense = async () => {
     if (!activationCode.trim()) {
@@ -337,6 +376,10 @@ const ApiSettings = () => {
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
             }
           },
+          search: {
+            ...user?.settings?.search,
+            braveSearchApiKey: braveSearchApiKey
+          },
           license: {
             enabled: true,
             licenseKey: licenseInfo.licenseKey,
@@ -349,6 +392,16 @@ const ApiSettings = () => {
 
         // First update settings
         await updateSettings(apiSettings);
+
+        // Update the Brave Search API key
+        if (braveSearchApiKey) {
+          try {
+            await mcpAdapter.setApiKey(braveSearchApiKey);
+            console.log('Updated Brave Search API Key');
+          } catch (braveSearchError) {
+            console.error('Failed to update Brave Search API Key:', braveSearchError);
+          }
+        }
 
         // Update zhipuApiKey in Mem0Service directly if embedding is enabled
         if (useZhipuEmbedding && zhipuApiKey) {
@@ -426,12 +479,26 @@ const ApiSettings = () => {
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
             }
           },
+          search: {
+            ...user?.settings?.search,
+            braveSearchApiKey: braveSearchApiKey
+          },
           license: {
             enabled: false
           }
         };
 
         await updateSettings(apiSettings);
+
+        // Update the Brave Search API key
+        if (braveSearchApiKey) {
+          try {
+            await mcpAdapter.setApiKey(braveSearchApiKey);
+            console.log('Updated Brave Search API Key');
+          } catch (braveSearchError) {
+            console.error('Failed to update Brave Search API Key:', braveSearchError);
+          }
+        }
 
         // Update zhipuApiKey in Mem0Service directly if embedding is enabled
         if (useZhipuEmbedding && zhipuApiKey) {
@@ -582,6 +649,54 @@ const ApiSettings = () => {
                 )}
               </View>
             )}
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Brave Search API</Text>
+            </View>
+            <View style={styles.contentSection}>
+              <Text style={styles.inputLabel}>Brave Search API Key</Text>
+              <TextInput
+                style={styles.input}
+                value={braveSearchApiKey}
+                onChangeText={setBraveSearchApiKey}
+                placeholder="输入 Brave Search API Key"
+                placeholderTextColor="#999"
+                secureTextEntry={true}
+              />
+              <Text style={styles.helperText}>
+                可从 <Text style={styles.link}>https://brave.com/search/api/</Text> 获取免费 API Key
+              </Text>
+              
+              <View style={styles.braveInfoContainer}>
+                <Text style={styles.braveInfoTitle}>免费版限制:</Text>
+                <View style={styles.braveInfoItem}>
+                  <Ionicons name="speedometer-outline" size={14} color="#aaa" style={styles.braveInfoIcon} />
+                  <Text style={styles.braveInfoText}>1 次查询/秒</Text>
+                </View>
+                <View style={styles.braveInfoItem}>
+                  <Ionicons name="calendar-outline" size={14} color="#aaa" style={styles.braveInfoIcon} />
+                  <Text style={styles.braveInfoText}>最多 2,000 次查询/月</Text>
+                </View>
+                <View style={styles.braveInfoItem}>
+                  <Ionicons name="checkmark-circle-outline" size={14} color="#4CAF50" style={styles.braveInfoIcon} />
+                  <Text style={styles.braveInfoText}>支持: 网页搜索, 图像, 视频, 新闻</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.testButton, styles.braveTestButton, { marginTop: 16 }]}
+                onPress={testBraveSearch}
+                disabled={isTestingBraveSearch || !braveSearchApiKey}
+              >
+                {isTestingBraveSearch ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>测试 Brave Search</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.section}>
@@ -742,6 +857,10 @@ const ApiSettings = () => {
             <View style={styles.noteItem}>
               <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
               <Text style={styles.noteText}>智谱清言嵌入支持高精度的中文向量化，提升记忆检索准确度</Text>
+            </View>
+            <View style={styles.noteItem}>
+              <Ionicons name="search-outline" size={16} color="#FB542B" style={styles.noteIcon} />
+              <Text style={styles.noteText}>Brave Search API 提供网络搜索能力，免费版每月最多2000次查询</Text>
             </View>
             <View style={styles.noteItem}>
               <Ionicons name="warning-outline" size={16} color="#f0ad4e" style={styles.noteIcon} />
@@ -1064,6 +1183,38 @@ const styles = StyleSheet.create({
   },
   modalHeaderRight: {
     width: 40,
+  },
+  braveInfoContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: 'rgba(30, 30, 30, 0.6)',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FB542B',
+  },
+  braveInfoTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  braveInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  braveInfoIcon: {
+    marginRight: 6,
+  },
+  braveInfoText: {
+    fontSize: 13,
+    color: '#ddd',
+  },
+  braveTestButton: {
+    backgroundColor: '#FB542B',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    borderRadius: 8,
   },
 });
 

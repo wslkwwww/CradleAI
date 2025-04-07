@@ -70,10 +70,6 @@ export interface CharactersContextType {
   generateCharacterFromCradle: (cradleIdOrCharacter: string | CradleCharacter) => Promise<Character>;
 
   // Add these new properties for cradle functionality:
-  addFeedToCradle: (content: string, type: FeedType) => Promise<string>;
-  getFeedHistory: () => FeedData[];
-  processFeedsNow: () => Promise<void>;
-
   // Add these new methods for Cradle API functionality:
   getCradleApiSettings: () => {
     apiProvider: 'gemini' | 'openrouter';

@@ -1228,7 +1228,7 @@ const handleSetAsAvatar = async (imageId: string) => {
       <View style={styles.characterDetailSection}>
         <CradleCharacterDetail
           character={selectedCharacter}
-          onFeed={() => setShowFeedModal(true)}
+
           onDelete={() => handleDeleteCharacter(selectedCharacter)}
           onEdit={() => {
             if (isEditable) {
@@ -1495,11 +1495,8 @@ const handleSetAsAvatar = async (imageId: string) => {
         isVisible={activeTab === 'settings'}
         onClose={() => setActiveTab('main')}
         isCradleEnabled={cradleSettings.enabled}
-        cradleDuration={cradleSettings.duration}
-        feedInterval={cradleSettings.feedInterval}
         onUpdateSettings={updateCradleSettings}
         onCradleToggle={(enabled) => updateCradleSettings({ ...cradleSettings, enabled })}
-        onDurationChange={(duration) => updateCradleSettings({ ...cradleSettings, duration })}
       />
         
     </View>

@@ -2,7 +2,7 @@ import { NodeST } from '@/NodeST/nodest';
 import { Character, GlobalSettings, ChatHistoryEntity } from '@/shared/types';
 import { CirclePostOptions, CircleResponse } from '@/NodeST/nodest/managers/circle-manager';
 import { NodeSTCore } from '@/NodeST/nodest/core/node-st-core'; // Add missing import
-
+import AsyncStorage from '@react-native-async-storage/async-storage'; 
 /**
  * NodeST Manager
  * 管理与 NodeST 系统的通信

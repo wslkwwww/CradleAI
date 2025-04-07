@@ -47,7 +47,13 @@ export interface GlobalSettings {
         notifications?: {
           enabled?: boolean;
         };
-    }
+    };
+    search?: {
+        braveSearchApiKey?: string;
+        braveSearchEnabled?: boolean;
+        braveSearchUsageCount?: number;
+        braveSearchLastReset?: number;
+    };
     license: {
       enabled: boolean;
       licenseKey?: string,
@@ -439,6 +445,7 @@ export interface CradleCharacter extends Character {
       model: string;
     };
   };
+  
   cradle?: {
     startDate?: string;
     progress?: number;

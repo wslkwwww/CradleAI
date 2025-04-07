@@ -5,6 +5,9 @@ import { useUser } from '@/constants/UserContext';
 import { CircleService } from '@/services/circle-service';
 import { CirclePost } from '@/shared/types/circle-types';
 import { Character } from '@/shared/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import { registerForPushNotificationsAsync, listenForNotificationInteractions } from '@/services/notification-service';
 
 // Component for managing automatic circle post generation
 export const CircleManager = () => {
@@ -12,7 +15,54 @@ export const CircleManager = () => {
   const { user } = useUser(); // Get user for API settings
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastPostTimestamp, setLastPostTimestamp] = useState(Date.now());
+  const [scheduledTimes, setScheduledTimes] = useState<Record<string, string[]>>({});
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  
   const INTERVAL_BETWEEN_POSTS = 30 * 60 * 1000; // 30 minutes
+  
+  // Load scheduled times and notification settings
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        // Load scheduled times
+        const storedTimes = await AsyncStorage.getItem('character_scheduled_times');
+        if (storedTimes) {
+          setScheduledTimes(JSON.parse(storedTimes));
+          console.log('【朋友圈管理器】已加载角色定时发布设置');
+        }
+        
+        // Check notifications status
+        const notificationSetting = await AsyncStorage.getItem('circle_notifications_enabled');
+        setNotificationsEnabled(notificationSetting === 'true');
+      } catch (error) {
+        console.error('【朋友圈管理器】加载设置失败:', error);
+      }
+    };
+    
+    loadSettings();
+    
+    // Setup notification handlers
+    const setupNotifications = async () => {
+      if (notificationsEnabled) {
+        await registerForPushNotificationsAsync();
+      }
+    };
+    
+    setupNotifications();
+    
+    // Listen for notification interactions
+    const unsubscribe = listenForNotificationInteractions((notification) => {
+      const data = notification.request.content.data;
+      if (data?.type === 'circle_post') {
+        console.log('【朋友圈管理器】收到朋友圈通知点击:', data);
+        // Here we could navigate to the post or explore page if needed
+      }
+    });
+    
+    return () => {
+      unsubscribe();
+    };
+  }, [notificationsEnabled]);
   
   // Get API settings from user context
   const getApiSettings = () => {
@@ -29,13 +79,6 @@ export const CircleManager = () => {
           }
         : undefined
     };
-    
-    // Log API settings being used
-    console.log(`【朋友圈管理器】获取API设置:`, {
-      apiProvider: apiSettings.apiProvider,
-      hasOpenRouter: !!apiSettings.openrouter,
-      openRouterModel: apiSettings.openrouter?.model
-    });
     
     return { apiKey, apiSettings };
   };
@@ -78,7 +121,6 @@ export const CircleManager = () => {
   const triggerInteractions = async (post: CirclePost, enabledCharacters: Character[]) => {
     try {
       const { apiKey, apiSettings } = getApiSettings();
-      console.log(`【朋友圈管理器】触发角色互动，使用API设置:`, apiSettings);
       
       // Filter out the author of the post
       const respondingCharacters = enabledCharacters.filter(c => 
@@ -99,7 +141,7 @@ export const CircleManager = () => {
           post,
           selectedCharacters,
           apiKey,
-          apiSettings  // Pass the API settings
+          apiSettings
         );
       }
     } catch (error) {
@@ -107,31 +149,85 @@ export const CircleManager = () => {
     }
   };
   
-  // Check if it's time to create a new post
-  const checkSchedule = () => {
+  // Check if it's time to create a new post based on scheduled times
+  const checkScheduledTimes = async () => {
+    if (isProcessing || Object.keys(scheduledTimes).length === 0) return;
+    
+    try {
+      // Get current time
+      const now = new Date();
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      const currentTime = `${hours}:${minutes}`;
+      
+      // Check each character's scheduled times
+      for (const [characterId, times] of Object.entries(scheduledTimes)) {
+        // Find matching time (+/- 1 minute tolerance)
+        const matchingTime = times.find(time => {
+          const [timeHours, timeMinutes] = time.split(':').map(Number);
+          const timeTotalMinutes = timeHours * 60 + timeMinutes;
+          const currentTotalMinutes = parseInt(hours) * 60 + parseInt(minutes);
+          return Math.abs(timeTotalMinutes - currentTotalMinutes) <= 1;
+        });
+        
+        if (matchingTime) {
+          // Find the character
+          const character = characters.find(c => c.id === characterId);
+          if (character && character.circleInteraction) {
+            console.log(`【朋友圈管理器】检测到角色 ${character.name} 的定时发布时间: ${matchingTime}`);
+            
+            // Get API settings
+            const { apiKey, apiSettings } = getApiSettings();
+            
+            // Create scheduled post with high priority
+            const scheduler = await import('@/services/circle-scheduler').then(
+              module => module.CircleScheduler.getInstance()
+            );
+            
+            await scheduler.schedulePost(character, apiKey, apiSettings, true);
+            console.log(`【朋友圈管理器】已安排角色 ${character.name} 的定时发布`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('【朋友圈管理器】检查定时发布失败:', error);
+    }
+  };
+  
+  // Check if it's time to create a random post based on frequency
+  const checkFrequencySchedule = () => {
+    if (isProcessing) return;
+    
     const now = Date.now();
     const timeSinceLastPost = now - lastPostTimestamp;
     
-    if (timeSinceLastPost >= INTERVAL_BETWEEN_POSTS && !isProcessing) {
-      console.log('【朋友圈管理器】时间间隔已到，尝试创建新帖子');
+    if (timeSinceLastPost >= INTERVAL_BETWEEN_POSTS) {
+      console.log('【朋友圈管理器】基于频率间隔，尝试创建新帖子');
       createTestPost();
     }
   };
   
   // Initialize and set up interval checks
   useEffect(() => {
-    // Initial check when component mounts
-    checkSchedule();
+    // Initial check
+    checkScheduledTimes();
+    checkFrequencySchedule();
     
-    // Set up interval to check regularly
-    const intervalId = setInterval(() => {
-      checkSchedule();
-    }, 5 * 60 * 1000); // Check every 5 minutes
+    // Set up intervals for scheduled times (every minute)
+    const scheduledCheckId = setInterval(() => {
+      checkScheduledTimes();
+    }, 60 * 1000); // Every minute
+    
+    // Set up interval for frequency-based posts (every 5 minutes)
+    const frequencyCheckId = setInterval(() => {
+      checkFrequencySchedule();
+    }, 5 * 60 * 1000); // Every 5 minutes
     
     return () => {
-      clearInterval(intervalId);
+      clearInterval(scheduledCheckId);
+      clearInterval(frequencyCheckId);
     };
-  }, [lastPostTimestamp, isProcessing, characters]);
+  }, [lastPostTimestamp, isProcessing, characters, scheduledTimes]);
   
   // Don't render anything visible
   return null;

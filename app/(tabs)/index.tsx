@@ -1505,9 +1505,7 @@ const styles = StyleSheet.create({
   },
   backgroundFocusInputBar: {
     padding: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Add slight darkening for better visibility
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: `transparent`,
   },
 });
 

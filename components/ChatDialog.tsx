@@ -387,8 +387,44 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       );
     }
 
-    // Remove excessive logging
-    // console.log(`Processing ${isUser ? 'user' : 'bot'} message:`, text.substring(0, 50));
+    // Check if text is raw markdown for an image with our special image:id format
+    const rawImageMarkdownRegex = /^!\[(.*?)\]\(image:([a-f0-9]+)\)$/;
+    const rawImageMatch = text.trim().match(rawImageMarkdownRegex);
+    
+    if (rawImageMatch) {
+      // This is a raw image markdown string, extract the parts and render directly
+      const alt = rawImageMatch[1] || "图片";
+      const imageId = rawImageMatch[2];
+
+      
+      const imageInfo = ImageManager.getImageInfo(imageId);
+      if (imageInfo) {
+        return (
+          <View style={styles.imageWrapper}>
+            <TouchableOpacity
+              style={styles.imageContainer}
+              onPress={() => handleOpenFullscreenImage(imageId)}
+            >
+              <Image
+                source={{ uri: imageInfo.thumbnailPath }}
+                style={styles.messageImage}
+                resizeMode="contain"
+                onError={(e) => console.error(`Error loading image: ${e.nativeEvent.error}`, imageInfo.thumbnailPath)}
+              />
+            </TouchableOpacity>
+            <Text style={styles.imageCaption}>{alt}</Text>
+          </View>
+        );
+      } else {
+        console.error(`No image info found for ID: ${imageId}`);
+        return (
+          <View style={styles.imageError}>
+            <Ionicons name="alert-circle" size={36} color="#e74c3c" />
+            <Text style={styles.imageErrorText}>图片无法加载 (ID: {imageId.substring(0, 8)}...)</Text>
+          </View>
+        );
+      }
+    }
 
     // More comprehensive check for custom tags with various formats and spaces
     const hasCustomTags = (
@@ -500,10 +536,15 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     
     // If we found image:id format, render them directly
     if (matches.length > 0) {
+      // Debug image paths
+      console.log(`Found ${matches.length} images with IDs in message`);
+
       return (
         <View>
           {matches.map((img, idx) => {
             const imageInfo = ImageManager.getImageInfo(img.id);
+            console.log(`Image ${idx} ID: ${img.id}, info:`, imageInfo);
+
             if (imageInfo) {
               return (
                 <TouchableOpacity 
@@ -515,11 +556,13 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
                     source={{ uri: imageInfo.thumbnailPath }}
                     style={styles.messageImage}
                     resizeMode="contain"
+                    onError={(e) => console.error(`Error loading image: ${e.nativeEvent.error}`, imageInfo.thumbnailPath)}
                   />
                   <Text style={styles.imageCaption}>{img.alt}</Text>
                 </TouchableOpacity>
               );
             } else {
+              console.error(`No image info found for ID: ${img.id}`);
               return (
                 <View key={idx} style={styles.imageError}>
                   <Ionicons name="alert-circle" size={36} color="#e74c3c" />
@@ -536,6 +579,9 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
     let urlMatches: { alt: string, url: string }[] = [];
     
+    // Reset lastIndex for regex since we're reusing it
+    imageMarkdownRegex.lastIndex = 0;
+    
     while ((match = imageMarkdownRegex.exec(text)) !== null) {
       urlMatches.push({
         alt: match[1] || "图片",
@@ -545,12 +591,16 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     
     // 如果找到图片链接
     if (urlMatches.length > 0) {
+      console.log(`Found ${urlMatches.length} images with URLs in message`);
+      
       return (
         <View>
           {urlMatches.map((img, idx) => {
             // 检查是否为数据 URL 或 HTTP URL
             const isDataUrl = img.url.startsWith('data:');
             const isLargeDataUrl = isDataUrl && img.url.length > 100000;
+            
+            console.log(`Image ${idx} URL type: ${isDataUrl ? 'data URL' : 'HTTP URL'}, large: ${isLargeDataUrl}`);
             
             // 处理大型数据 URL
             if (isLargeDataUrl) {
@@ -580,6 +630,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
                   source={{ uri: img.url }}
                   style={styles.messageImage}
                   resizeMode="contain"
+                  onError={(e) => console.error(`Error loading image URL: ${e.nativeEvent.error}`)}
                 />
                 <Text style={styles.imageCaption}>{img.alt}</Text>
               </TouchableOpacity>
@@ -910,6 +961,10 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       const imageInfo = ImageManager.getImageInfo(imageId);
       
       if (imageInfo) {
+        console.log(`Opening fullscreen image: ${imageId}`);
+        console.log(`Thumbnail path: ${imageInfo.thumbnailPath}`);
+        console.log(`Original path: ${imageInfo.originalPath}`);
+        
         // First set the thumbnail to show immediately while the full one loads
         setFullscreenImage(imageInfo.thumbnailPath);
         setImageLoading(true);
@@ -920,6 +975,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
           setImageLoading(false);
         }, 100);
       } else {
+        console.error(`No image info found for ID: ${imageId}`);
         setFullscreenImage(null);
         Alert.alert('错误', '无法加载图片');
       }
@@ -1837,6 +1893,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginLeft: 4,
     fontSize: 14,
+  },
+  imageContainer: {
+    width: '100%',
   },
 });
 

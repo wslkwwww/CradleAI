@@ -34,12 +34,15 @@ import { NodeSTManager } from '@/utils/NodeSTManager';
 
 const VIEW_MODE_SMALL = 'small';
 const VIEW_MODE_LARGE = 'large';
+const VIEW_MODE_VERTICAL = 'vertical'; // New view mode
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
 const CARD_HEIGHT = CARD_WIDTH * (16 / 9);
 const LARGE_CARD_WIDTH = width - 32;
 const LARGE_CARD_HEIGHT = LARGE_CARD_WIDTH * (16 / 9);
+const VERTICAL_CARD_WIDTH = (width - 48) / 2;
+const VERTICAL_CARD_HEIGHT = VERTICAL_CARD_WIDTH * (9 / 16);
 
 const COLOR_BACKGROUND = '#282828';
 const COLOR_CARD_BG = '#333333';
@@ -51,7 +54,7 @@ const CharactersScreen: React.FC = () => {
   const router = useRouter();
   const [isManaging, setIsManaging] = useState(false);
   const [selectedCharacters, setSelectedCharacters] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<'small' | 'large'>(VIEW_MODE_LARGE);
+  const [viewMode, setViewMode] = useState<'small' | 'large' | 'vertical'>(VIEW_MODE_LARGE);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showCreationModal, setShowCreationModal] = useState(false);
   const [creationType, setCreationType] = useState<'manual' | 'auto' | 'import'>('manual');
@@ -248,6 +251,15 @@ const CharactersScreen: React.FC = () => {
     }, 300);
   };
 
+  const handleViewModeToggle = () => {
+    // Cycle through view modes: large -> small -> vertical -> large
+    setViewMode(prevMode => {
+      if (prevMode === VIEW_MODE_LARGE) return VIEW_MODE_SMALL;
+      if (prevMode === VIEW_MODE_SMALL) return VIEW_MODE_VERTICAL;
+      return VIEW_MODE_LARGE;
+    });
+  };
+
   const renderItem = useMemo(
     () => ({ item }: { item: any }) => (
       <CharacterCard
@@ -365,6 +377,19 @@ const CharactersScreen: React.FC = () => {
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>角色管理</Text>
           <View style={styles.headerButtons}>
+            <TouchableOpacity style={styles.headerButton} onPress={handleViewModeToggle}>
+              <Ionicons 
+                name={
+                  viewMode === VIEW_MODE_LARGE 
+                    ? "grid-outline" 
+                    : viewMode === VIEW_MODE_SMALL 
+                      ? "albums-outline"
+                      : "apps-outline"
+                } 
+                size={22} 
+                color={COLOR_BUTTON} 
+              />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.headerButton} onPress={handleAddPress}>
               <Ionicons name="add" size={24} color={COLOR_BUTTON} />
             </TouchableOpacity>
@@ -384,7 +409,7 @@ const CharactersScreen: React.FC = () => {
         data={characters}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        numColumns={viewMode === VIEW_MODE_SMALL ? 2 : 1}
+        numColumns={viewMode === VIEW_MODE_LARGE ? 1 : 2}
         contentContainerStyle={styles.listContainer}
         key={`${viewMode}-${refreshKey}`}
         extraData={[isManaging, selectedCharacters, refreshKey]}
@@ -403,15 +428,22 @@ const CharacterCard: React.FC<{
   isSelected: boolean;
   onSelect: (id: string) => void;
   onPress: (id: string) => void;
-  viewMode: 'small' | 'large';
+  viewMode: 'small' | 'large' | 'vertical';
 }> = React.memo(({ item, isManaging, isSelected, onSelect, onPress, viewMode }) => {
   const isLargeView = viewMode === VIEW_MODE_LARGE;
+  const isVerticalView = viewMode === VIEW_MODE_VERTICAL;
 
   const cardStyle = isLargeView
     ? {
         width: LARGE_CARD_WIDTH,
         height: LARGE_CARD_HEIGHT,
         marginBottom: 16,
+      }
+    : isVerticalView
+    ? {
+        width: VERTICAL_CARD_WIDTH,
+        height: VERTICAL_CARD_HEIGHT,
+        margin: 8,
       }
     : {
         width: CARD_WIDTH,
@@ -435,8 +467,8 @@ const CharacterCard: React.FC<{
     >
       <Image
         source={
-          item.avatar
-            ? { uri: item.avatar }
+          item.backgroundImage
+            ? { uri: item.backgroundImage }
             : require('@/assets/images/default-avatar.png')
         }
         style={styles.cardBackground}

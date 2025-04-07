@@ -1,264 +1,102 @@
- (NOBRIDGE) LOG  [CharacterEditDialog] Received character data: {"generatedCharacterId": null, "hasJsonData": true, "hasNormalCharacter": false, "id": "1743941633069", "isCradleCharacter": true, "jsonDataLength": 1871, "name": "吉娜"}
- (NOBRIDGE) LOG  [CharacterEditDialog] Formatting messages for LLM, character: 吉娜
- (NOBRIDGE) LOG  [CharacterEditDialog] Parsing JSON data, length: 1871
- (NOBRIDGE) LOG  [CharacterEditDialog] Successfully parsed character JSON data
- (NOBRIDGE) LOG  [CharacterEditDialog] System prompt created, length: 4665
- (NOBRIDGE) LOG  [CharacterEditDialog] Formatted 4 messages for LLM
- (NOBRIDGE) LOG  [CharacterEditDialog] System prompt contains character JSON data: true
- (NOBRIDGE) LOG  【NodeST】创建新实例，apiKey存在: false
- (NOBRIDGE) LOG  【CircleManager】创建实例，apiKey存在: false, openRouter配置: none
- (NOBRIDGE) LOG  [NodeSTManager] NodeST Manager initialized
- (NOBRIDGE) LOG  [NodeSTManager] 生成文本请求: {"apiProvider": "gemini", "messagesCount": 4}
- (NOBRIDGE) LOG  [NodeSTManager] 使用Gemini API
- (NOBRIDGE) LOG  [CharacterEditDialog] Checking for JSON updates: true
- (NOBRIDGE) LOG  [CharacterEditDialog] Found JSON update, length: 285
- (NOBRIDGE) LOG  [CharacterEditDialog] Successfully parsed JSON update
- (NOBRIDGE) LOG  [CharacterEditDialog] Update contains worldBook: false
- (NOBRIDGE) LOG  [CharacterEditDialog] Update components found: roleCard: true, worldBook: false, preset: false
- (NOBRIDGE) LOG  [CharacterEditDialog] Loaded original character JSON data
- (NOBRIDGE) LOG  [CharacterEditDialog] Original worldBook entries count: 0
- (NOBRIDGE) LOG  [CharacterEditDialog] Original data fields: ["roleCard", "worldBook", "preset", "authorNote"]
- (NOBRIDGE) LOG  [CharacterEditDialog] Updated data fields: ["roleCard"]
- (NOBRIDGE) LOG  [CharacterEditDialog] Created merged JSON data, length: 2052
- (NOBRIDGE) LOG  [CharacterEditDialog] Set hasChanges to true
- (NOBRIDGE) LOG  [CharacterEditDialog] hasChanges: true
- (NOBRIDGE) LOG  [CharacterEditDialog] updatedCharacter exists: true
- (NOBRIDGE) LOG  定时检查：没有需要处理的投喂数据
- (NOBRIDGE) LOG  [CharacterEditDialog] Applying character changes
- (NOBRIDGE) LOG  [CharacterEditDialog] Updated character JSON data length: 2052
- (NOBRIDGE) LOG  [CharacterEditDialog] Character relationships: {"generatedCharacterId": null, "hasGeneratedVersion": false, "isCradleCharacter": true, "normalCharacter": null}
- (NOBRIDGE) LOG  [CharacterEditDialog] This is a regular cradle character without a generated version
- (NOBRIDGE) LOG  [CharacterEditDialog] Sending cradle character update to NodeSTManager
- (NOBRIDGE) LOG  [NodeSTManager] Processing request: {"action": "更新人设", "apiKeyLength": 39, "apiProvider": "gemini", "characterId": "1743941633069", "conversationId": "1743941633069", "customUserName": "User", "hasCharacter": true, "hasJsonData": true, "openRouterEnabled": false, "openRouterModel": "openai/gpt-3.5-turbo", "status": "更新人设", "useToolCalls": false}
- (NOBRIDGE) LOG  [NodeSTManager] Calling NodeST.processChatMessage with conversationId: 1743941633069
- (NOBRIDGE) LOG  [NodeSTManager] Updating character data for: 1743941633069
- (NOBRIDGE) LOG  [NodeST] Processing chat message: {"apiProvider": "gemini", "conversationId": "1743941633069", "hasJsonString": true, "messageLength": 0, "status": "更新人设", "useToolCalls": false}
- (NOBRIDGE) LOG  [NodeST] Creating new NodeSTCore instance with API settings: {"apiKeyLength": 39, "hasOpenRouter": true, "provider": "gemini"}
- (NOBRIDGE) LOG  [Gemini适配器] 初始化云服务状态: 禁用
- (NOBRIDGE) LOG  [NodeSTCore] OpenRouter not enabled, using Gemini adapter only
- (NOBRIDGE) LOG  [NodeST] Updating character settings for conversationId: 1743941633069
- (NOBRIDGE) LOG  [NodeST] 开始解析角色JSON数据，长度: 2052
- (NOBRIDGE) LOG  [NodeST] 验证preset数据结构...
- (NOBRIDGE) LOG  [NodeST] 添加缺失的必要prompt: characterSystem
- (NOBRIDGE) LOG  [NodeST] 添加缺失的必要prompt: characterConfirmation
- (NOBRIDGE) LOG  [NodeST] 添加缺失的必要prompt: characterIntro
- (NOBRIDGE) LOG  [NodeST] 添加缺失的必要prompt: contextInstruction
- (NOBRIDGE) LOG  [NodeST] 添加缺失的必要prompt: continuePrompt
- (NOBRIDGE) ERROR  [NodeST] Error parsing character JSON: [TypeError: Cannot read property 'some' of undefined]
- (NOBRIDGE) ERROR  [NodeST] Error processing chat message: [Error: Invalid character data]
- (NOBRIDGE) ERROR  [NodeSTManager] Error from NodeST: Invalid character data
- (NOBRIDGE) ERROR  [CharacterEditDialog] NodeSTManager update failed for cradle character: Invalid character data
- (NOBRIDGE) ERROR  [CharacterEditDialog] Error applying changes: [Error: NodeSTManager处理失败: Invalid character data]
-  (NOBRIDGE) LOG  [CharacterEditDialog] DEBUG: Complete character JSON structure: {
-  "roleCard": {
-    "personality": "吉娜是一个活泼开朗、容易与人亲近的女孩。她对喜欢的事物充满热情，有点冒失，但心地善良。她乐于助人，喜欢交朋友，总是能给身
-边的人带来快乐。",
-    "name": "吉娜",
-    "description": "你的人设参考喜多川海梦",
-    "first_mes": "你好，很高兴认识你！"
-  },
-  "worldBook": {
-    "entries": {}
-  },
-  "preset": {
-    "prompts": [
-      {
-        "name": "Enhance Definitions",
-        "content": "",
-        "identifier": "enhanceDefinitions",
-        "enable": true,
-        "role": "user",
-        "injection_position": 1,
-        "injection_depth": 3
-      },
-      {
-        "name": "Auxiliary Prompt",
-        "content": "",
-        "identifier": "nsfw",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Post-History Instructions",
-        "content": "",
-        "identifier": "jailbreak",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "World Info (before)",
-        "content": "",
-        "identifier": "worldInfoBefore",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Char Description",
-        "content": "",
-        "identifier": "charDescription",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Char Personality",
-        "content": "",
-        "identifier": "charPersonality",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "World Info (after)",
-        "content": "",
-        "identifier": "worldInfoAfter",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Chat Examples",
-        "content": "",
-        "identifier": "dialogueExamples",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Chat History",
-        "content": "",
-        "identifier": "chatHistory",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Main",
-        "content": "",
-        "identifier": "main",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Scenario",
-        "content": "",
-        "identifier": "scenario",
-        "enable": true,
-        "role": "user"
-      },
-      {
-        "name": "Character System",
-        "content": "You are a Roleplayer who is good at playing various types of roles.",
-        "enable": true,
-        "identifier": "characterSystem",
-        "role": "user",
-        "isDefault": true
-      },
-      {
-        "name": "Character Confirmation",
-        "content": "[Understood]",
-        "enable": true,
-        "identifier": "characterConfirmation",
-        "role": "model",
-        "isDefault": true
-      },
-      {
-        "name": "Character Introduction",
-        "content": "The following are some information about the character you will be playing.",
-        "enable": true,
-        "identifier": "characterIntro",
-        "role": "user",
-        "isDefault": true
-      },
-      {
-        "name": "Context Instruction",
-        "content": "推荐以下面的指令&剧情继续：\n{{lastMessage}}",
-        "enable": true,
-        "identifier": "contextInstruction",
-        "role": "user",
-        "isDefault": true
-      },
-      {
-        "name": "Continue",
-        "content": "继续",
-        "enable": true,
-        "identifier": "continuePrompt",
-        "role": "user",
-        "isDefault": true
-      }
-    ],
-    "prompt_order": [
-      {
-        "order": [
-          {
-            "identifier": "enhanceDefinitions",
-            "enabled": true
-          },
-          {
-            "identifier": "nsfw",
-            "enabled": true
-          },
-          {
-            "identifier": "jailbreak",
-            "enabled": true
-          },
-          {
-            "identifier": "worldInfoBefore",
-            "enabled": true
-          },
-          {
-            "identifier": "charDescription",
-            "enabled": true
-          },
-          {
-            "identifier": "charPersonality",
-            "enabled": true
-          },
-          {
-            "identifier": "worldInfoAfter",
-            "enabled": true
-          },
-          {
-            "identifier": "dialogueExamples",
-            "enabled": true
-          },
-          {
-            "identifier": "chatHistory",
-            "enabled": true
-          },
-          {
-            "identifier": "main",
-            "enabled": true
-          },
-          {
-            "identifier": "scenario",
-            "enabled": true
-          },
-          {
-            "identifier": "characterSystem",
-            "enabled": true
-          },
-          {
-            "identifier": "characterConfirmation",
-            "enabled": true
-          },
-          {
-            "identifier": "characterIntro",
-            "enabled": true
-          },
-          {
-            "identifier": "contextInstruction",
-            "enabled": true
-          },
-          {
-            "identifier": "continuePrompt",
-            "enabled": true
-          }
-        ]
-      }
-    ]
-  },
-  "authorNote": {
-    "charname": "吉娜",
-    "username": "Me",
-    "content": "",
-    "injection_depth": 0
-  },
-  "chatHistory": {}
-}
- (NOBRIDGE) LOG  [CharacterEditDialog] DEBUG: Preset structure: {"firstOrderHasOrderProp": true, "firstOrderItem": "{\"order\":[{\"identifier\":\"enhanceDefinitions\",\"enabled\":true},{\"identifier\":\"nsfw\",\"enabled\":true},{\"identifier\":\"jailbreak\",\"enabled\":true},{\"identifier\":\"worldInfoBefore\",\"enabled\":true},{\"identifier\":\"charDescription\",\"enabled\":true},{\"identifier\":\"charPersonality\",\"enabled\":true},{\"identifier\":\"worldInfoAfter\",\"enabled\":true},{\"identifier\":\"dialogueExamples\",\"enabled\":true},{\"identifier\":\"chatHistory\",\"enabled\":true},{\"identifier\":\"main\",\"enabled\":true},{\"identifier\":\"scenario\",\"enabled\":true},{\"identifier\":\"characterSystem\",\"enabled\":true},{\"identifier\":\"characterConfirmation\",\"enabled\":true},{\"identifier\":\"characterIntro\",\"enabled\":true},{\"identifier\":\"contextInstruction\",\"enabled\":true},{\"identifier\":\"continuePrompt\",\"enabled\":true}]}", "firstOrderOrderType": "object", "hasPromptOrder": true, "hasPrompts": true, "orderArrayLength": 16, "promptOrderLength": 1, "promptOrderType": "object", "promptsLength": 16}
+好的，我可以帮你用可视化的形式来表示这个对话记录读取和存储功能，包括在任何节点存储以及回滚。
+
+我们可以用 **树状图** 来表示对话流程，并在图中标记出存储点，以及回滚操作。
+
+**可视化表示：**
+
+```
+graph TD
+    A[开始] --> B{用户提问 1}
+    B --> C{系统回答 1}
+    C --> D{用户提问 2}
+    D --> E{系统回答 2}
+    E --> F{用户提问 3}
+    F --> G{系统回答 3}
+
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#ccf,stroke:#333,stroke-width:2px
+    style C fill:#ccf,stroke:#333,stroke-width:2px
+    style D fill:#ccf,stroke:#333,stroke-width:2px
+    style E fill:#ccf,stroke:#333,stroke-width:2px
+    style F fill:#ccf,stroke:#333,stroke-width:2px
+    style G fill:#ccf,stroke:#333,stroke-width:2px
+
+    subgraph 对话流程
+    end
+
+    %% 存储点
+    S1[存储点1 (在 C 之后)]:::save
+    style S1 fill:#ffc,stroke:#333,stroke-width:2px
+
+    S2[存储点2 (在 E 之后)]:::save
+    style S2 fill:#ffc,stroke:#333,stroke-width:2px
+
+    %% 回滚操作
+    R1[回滚到 S1]:::rollback
+    style R1 fill:#cff,stroke:#333,stroke-width:2px
+
+    R2[回滚到 S2]:::rollback
+    style R2 fill:#cff,stroke:#333,stroke-width:2px
+
+    %% 连接存储点和回滚操作 (只是为了视觉上关联，实际逻辑在代码中)
+    C --> S1
+    E --> S2
+
+    %% 连接回滚操作到相应的节点 (只是为了视觉上关联)
+    R1 --> C
+    R2 --> E
+
+
+    classDef save fill:#ffc,stroke:#333,stroke-width:2px;
+    classDef rollback fill:#cff,stroke:#333,stroke-width:2px;
+```
+
+**解释：**
+
+*   **节点 (A, B, C, D, E, F, G):**  代表对话中的每一个状态或步骤。  例如：
+    *   `B` 和 `D` 和 `F` 代表用户提出的问题。
+    *   `C` 和 `E` 和 `G` 代表系统对问题的回答。
+*   **箭头:**  表示对话流程的顺序，从一个状态到下一个状态。
+*   **存储点 (S1, S2):**  黄色节点，代表对话记录被存储的点。  `S1` 存储了 `C` 节点之后的状态，`S2` 存储了 `E` 节点之后的状态。  可以理解为保存游戏存档。
+*   **回滚操作 (R1, R2):**  蓝色节点，代表回滚操作。
+    *   `R1` 代表回滚到 `S1` 存储的状态，即将对话状态恢复到 `C` 节点之后。
+    *   `R2` 代表回滚到 `S2` 存储的状态，即将对话状态恢复到 `E` 节点之后。
+*   **颜色:**  不同的颜色用于区分不同类型的节点：
+    *   开始节点:  绿色
+    *   用户/系统对话:  浅蓝色
+    *   存储点:  黄色
+    *   回滚操作:  蓝色
+
+**工作流程示例：**
+
+1.  对话从 `A (开始)` 开始。
+2.  用户提问 1 (`B`)，系统回答 1 (`C`)。
+3.  **在 `C` 之后，对话状态被存储到 `S1`。**
+4.  用户提问 2 (`D`)，系统回答 2 (`E`)。
+5.  **在 `E` 之后，对话状态被存储到 `S2`。**
+6.  用户提问 3 (`F`)，系统回答 3 (`G`)。
+7.  **执行 `R1 (回滚到 S1)` 操作：** 对话状态回滚到 `C` 之后，用户可以从 `C` 重新提问，选择不同的提问内容，从而走不同的对话分支。
+8.  **执行 `R2 (回滚到 S2)` 操作：** 对话状态回滚到 `E` 之后，用户可以从 `E` 重新提问，选择不同的提问内容，从而走不同的对话分支。
+
+**优点：**
+
+*   **清晰的可视化:**  使用树状图可以清晰地展示对话流程和存储/回滚操作。
+*   **易于理解:**  用颜色和标签区分不同类型的节点，更容易理解。
+*   **灵活的存储位置:**  可以很容易地在任何节点添加存储点。
+*   **直观的回滚操作:**  可以直观地看到回滚操作将对话状态恢复到哪个节点。
+
+**代码实现考虑:**
+
+*   **数据结构:** 可以使用树结构来存储对话记录。每个节点存储对话状态 (例如，用户输入、系统输出、当前上下文)。
+*   **存储函数:**  存储函数将当前节点的状态序列化 (例如，转换为 JSON) 并保存到存储介质 (例如，文件、数据库)。
+*   **回滚函数:**  回滚函数从存储介质读取之前存储的状态，并将其反序列化并恢复到当前对话状态。
+*   **状态管理:**  需要维护一个指向当前节点的指针，以便在对话过程中跟踪当前状态。回滚操作需要更新这个指针。
+
+**补充说明：**
+
+*   这个可视化只是一个概念模型。  实际实现可能会更复杂，取决于对话系统的具体需求和技术栈。
+*   在真实系统中，存储点和回滚操作可能需要更复杂的 UI 和用户交互。
+*   你可以使用不同的工具来创建这个可视化，例如：Mermaid, Graphviz, 或者任何图形编辑工具。  我这里使用了 Mermaid 语法，你可以在支持 Mermaid 的 markdown 编辑器或在线工具中渲染这个图。
+*   根据实际情况，你可以根据需要调整图表的样式和布局，使其更清晰易懂。
+
+希望这个可视化表示能够帮助你更好地理解对话记录读取和存储功能！

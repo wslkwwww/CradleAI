@@ -16,9 +16,11 @@ import {
 import { Character } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { theme } from '@/constants/theme';
-import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons, AntDesign } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { registerForPushNotificationsAsync } from '@/services/notification-service';
 
 interface CharacterInteractionSettingsProps {
   isVisible: boolean;
@@ -67,6 +69,76 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
   });
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [memoryDeleteLoading, setMemoryDeleteLoading] = useState<string | null>(null);
+
+  // Post scheduling states
+  const [isScheduleModalVisible, setIsScheduleModalVisible] = useState(false);
+  const [selectedCharacterForSchedule, setSelectedCharacterForSchedule] = useState<Character | null>(null);
+  const [scheduledTimes, setScheduledTimes] = useState<Record<string, string[]>>({});
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [selectedTime, setSelectedTime] = useState<Date>(new Date());
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+
+  // Load scheduled times and notification settings when component mounts
+  useEffect(() => {
+    loadScheduledTimes();
+    checkNotificationSettings();
+  }, []);
+
+  // Check if notifications are already enabled
+  const checkNotificationSettings = async () => {
+    try {
+      const notificationSettings = await AsyncStorage.getItem('circle_notifications_enabled');
+      setNotificationsEnabled(notificationSettings === 'true');
+    } catch (error) {
+      console.error('获取通知设置失败:', error);
+    }
+  };
+
+  // Load scheduled times from AsyncStorage
+  const loadScheduledTimes = async () => {
+    try {
+      const storedTimes = await AsyncStorage.getItem('character_scheduled_times');
+      if (storedTimes) {
+        setScheduledTimes(JSON.parse(storedTimes));
+      }
+    } catch (error) {
+      console.error('加载角色发布时间设置失败:', error);
+    }
+  };
+
+  // Save scheduled times to AsyncStorage
+  const saveScheduledTimes = async (newScheduledTimes: Record<string, string[]>) => {
+    try {
+      await AsyncStorage.setItem('character_scheduled_times', JSON.stringify(newScheduledTimes));
+      setScheduledTimes(newScheduledTimes);
+    } catch (error) {
+      console.error('保存角色发布时间设置失败:', error);
+      Alert.alert('错误', '无法保存时间设置');
+    }
+  };
+
+  // Request notification permissions
+  const handleNotificationToggle = async () => {
+    try {
+      const newStatus = !notificationsEnabled;
+      if (newStatus) {
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          setNotificationsEnabled(true);
+          await AsyncStorage.setItem('circle_notifications_enabled', 'true');
+          Alert.alert('通知已启用', '你将收到角色发布朋友圈的通知');
+        } else {
+          Alert.alert('通知权限', '请在设备设置中允许接收通知');
+        }
+      } else {
+        setNotificationsEnabled(false);
+        await AsyncStorage.setItem('circle_notifications_enabled', 'false');
+      }
+    } catch (error) {
+      console.error('切换通知状态失败:', error);
+      Alert.alert('错误', '无法更新通知设置');
+    }
+  };
 
   // Handle circle interaction toggle
   const handleCircleInteractionToggle = async (character: Character) => {
@@ -315,9 +387,158 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
     }
   };
 
+  // Open schedule modal for a character
+  const openScheduleModal = (character: Character) => {
+    setSelectedCharacterForSchedule(character);
+    setIsScheduleModalVisible(true);
+  };
+
+  // Handle adding a new scheduled time
+  const addScheduledTime = () => {
+    if (!selectedCharacterForSchedule) return;
+    
+    setShowTimePicker(true);
+  };
+
+  // Handle time selection
+  const handleTimeChange = (event: any, selectedDate?: Date) => {
+    setShowTimePicker(false);
+    
+    if (selectedDate && selectedCharacterForSchedule) {
+      const hours = selectedDate.getHours().toString().padStart(2, '0');
+      const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
+      const timeString = `${hours}:${minutes}`;
+      
+      // Check if this time already exists for the character
+      const characterTimes = scheduledTimes[selectedCharacterForSchedule.id] || [];
+      if (characterTimes.includes(timeString)) {
+        Alert.alert('时间已存在', '该角色已有此发布时间');
+        return;
+      }
+      
+      // Add the new time to the character's schedule
+      const newScheduledTimes = { 
+        ...scheduledTimes,
+        [selectedCharacterForSchedule.id]: [...characterTimes, timeString].sort()
+      };
+      
+      saveScheduledTimes(newScheduledTimes);
+    }
+  };
+
+  // Remove a scheduled time
+  const removeScheduledTime = (characterId: string, timeToRemove: string) => {
+    const characterTimes = scheduledTimes[characterId] || [];
+    const newTimes = characterTimes.filter(time => time !== timeToRemove);
+    
+    const newScheduledTimes = {
+      ...scheduledTimes,
+      [characterId]: newTimes
+    };
+    
+    saveScheduledTimes(newScheduledTimes);
+  };
+
+  // Format time for display
+  const formatTimeForDisplay = (timeString: string): string => {
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours, 10);
+    
+    if (Platform.OS === 'ios') {
+      // Use 12-hour format with AM/PM for iOS
+      const period = hour >= 12 ? 'PM' : 'AM';
+      const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      return `${displayHour}:${minutes} ${period}`;
+    } else {
+      // Use 24-hour format for Android
+      return timeString;
+    }
+  };
+
+  // Render scheduled times modal
+  const renderScheduleModal = () => {
+    if (!selectedCharacterForSchedule) return null;
+    
+    const characterTimes = scheduledTimes[selectedCharacterForSchedule.id] || [];
+    
+    return (
+      <Modal
+        visible={isScheduleModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsScheduleModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.scheduleModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.scheduleModalTitle}>
+                {selectedCharacterForSchedule.name} 的发布时间
+              </Text>
+              <TouchableOpacity 
+                onPress={() => setIsScheduleModalVisible(false)} 
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <Text style={styles.scheduleDescription}>
+              设置角色每天自动发布朋友圈的固定时间。每天到达设定时间点，角色将自动发布朋友圈内容。
+            </Text>
+            
+            <View style={styles.timesList}>
+              {characterTimes.length > 0 ? (
+                characterTimes.map((time, index) => (
+                  <View key={`${time}-${index}`} style={styles.timeItem}>
+                    <View style={styles.timeDisplay}>
+                      <MaterialCommunityIcons 
+                        name="clock-time-four-outline" 
+                        size={18} 
+                        color={theme.colors.textSecondary} 
+                      />
+                      <Text style={styles.timeText}>{formatTimeForDisplay(time)}</Text>
+                    </View>
+                    <TouchableOpacity 
+                      onPress={() => removeScheduledTime(selectedCharacterForSchedule.id, time)}
+                      style={styles.removeTimeButton}
+                    >
+                      <Ionicons name="close-circle" size={20} color={theme.colors.danger} />
+                    </TouchableOpacity>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.noTimesText}>没有设置定时发布</Text>
+              )}
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.addTimeButton}
+              onPress={addScheduledTime}
+            >
+              <AntDesign name="plus" size={18} color={theme.colors.white} />
+              <Text style={styles.addTimeText}>添加新时间</Text>
+            </TouchableOpacity>
+            
+            {showTimePicker && (
+              <DateTimePicker
+                value={selectedTime}
+                mode="time"
+                is24Hour={Platform.OS === 'android'}
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleTimeChange}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   // Render expanded settings for a character
   const renderExpandedSettings = (character: Character) => {
     if (expandedCharacterId !== character.id) return null;
+    
+    const characterTimes = scheduledTimes[character.id] || [];
     
     return (
       <View style={styles.expandedSettings}>
@@ -352,6 +573,46 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
               </Picker>
             </View>
           )}
+        </View>
+        
+        {/* Scheduled Posts Section */}
+        <View style={styles.scheduledPostsSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>定时发布</Text>
+            <Text style={styles.timesCount}>
+              {characterTimes.length > 0 
+                ? `已设置 ${characterTimes.length} 个时间点` 
+                : '未设置'}
+            </Text>
+          </View>
+          
+          {characterTimes.length > 0 && (
+            <View style={styles.schedulePreview}>
+              {characterTimes.slice(0, 2).map((time, index) => (
+                <View key={`preview-${time}-${index}`} style={styles.previewTime}>
+                  <MaterialCommunityIcons 
+                    name="clock-outline" 
+                    size={14} 
+                    color={theme.colors.textSecondary} 
+                  />
+                  <Text style={styles.previewTimeText}>{formatTimeForDisplay(time)}</Text>
+                </View>
+              ))}
+              {characterTimes.length > 2 && (
+                <Text style={styles.previewMoreTimes}>+{characterTimes.length - 2}个时间</Text>
+              )}
+            </View>
+          )}
+          
+          <TouchableOpacity
+            style={styles.scheduleButton}
+            onPress={() => openScheduleModal(character)}
+          >
+            <MaterialCommunityIcons name="calendar-clock" size={16} color={theme.colors.text} />
+            <Text style={styles.scheduleButtonText}>
+              {characterTimes.length > 0 ? '管理时间' : '设置时间'}
+            </Text>
+          </TouchableOpacity>
         </View>
         
         <View style={styles.settingRow}>
@@ -595,6 +856,31 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
     );
   };
 
+  // Render notification settings section
+  const renderNotificationSettings = () => {
+    return (
+      <View style={styles.notificationSection}>
+        <Text style={styles.sectionTitle}>通知设置</Text>
+        
+        <View style={styles.notificationRow}>
+          <View>
+            <Text style={styles.notificationLabel}>朋友圈更新通知</Text>
+            <Text style={styles.notificationDescription}>
+              当角色发布朋友圈时接收通知
+            </Text>
+          </View>
+          
+          <Switch
+            value={notificationsEnabled}
+            onValueChange={handleNotificationToggle}
+            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+            thumbColor={notificationsEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+          />
+        </View>
+      </View>
+    );
+  };
+
   // Render each character item
   const renderCharacterItem = ({ item }: { item: Character }) => {
     const isExpanded = expandedCharacterId === item.id;
@@ -674,6 +960,9 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
             </TouchableOpacity>
           </View>
           
+          {/* Notifications section */}
+          {renderNotificationSettings()}
+          
           <FlatList
             data={characters}
             renderItem={renderCharacterItem}
@@ -690,6 +979,9 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
       
       {/* Circle Memory Management Modal */}
       {renderMemoryModal()}
+      
+      {/* Post Schedule Management Modal */}
+      {renderScheduleModal()}
     </Modal>
   );
 };
@@ -1021,6 +1313,165 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.text,
     lineHeight: 20,
+  },
+  
+  // Notification section styles
+  notificationSection: {
+    padding: 16,
+    backgroundColor: 'rgba(40, 40, 40, 0.6)',
+    borderRadius: theme.borderRadius.sm,
+    margin: 16,
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  notificationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  notificationLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: theme.colors.text,
+  },
+  notificationDescription: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginTop: 4,
+    maxWidth: '80%',
+  },
+  
+  // Scheduled posts section styles
+  scheduledPostsSection: {
+    marginTop: 16,
+    backgroundColor: 'rgba(60, 60, 60, 0.6)',
+    borderRadius: theme.borderRadius.sm,
+    padding: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: theme.colors.text,
+    marginBottom: 8,
+  },
+  timesCount: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+  },
+  schedulePreview: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+  },
+  previewTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(80, 80, 80, 0.8)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  previewTimeText: {
+    fontSize: 12,
+    color: theme.colors.text,
+    marginLeft: 4,
+  },
+  previewMoreTimes: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginLeft: 4,
+    alignSelf: 'center',
+  },
+  scheduleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(80, 80, 80, 0.8)',
+    padding: 8,
+    borderRadius: theme.borderRadius.sm,
+    marginTop: 6,
+  },
+  scheduleButtonText: {
+    fontSize: 14,
+    color: theme.colors.text,
+    marginLeft: 6,
+  },
+  
+  // Schedule modal styles
+  scheduleModalContent: {
+    width: '95%',
+    maxHeight: '80%',
+    backgroundColor: theme.colors.cardBackground,
+    borderRadius: theme.borderRadius.md,
+    overflow: 'hidden',
+  },
+  scheduleModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  scheduleDescription: {
+    fontSize: 14,
+    color: theme.colors.textSecondary,
+    lineHeight: 20,
+    padding: 16,
+    paddingTop: 0,
+    paddingBottom: 8,
+  },
+  timesList: {
+    padding: 16,
+    paddingTop: 8,
+  },
+  timeItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(60, 60, 60, 0.6)',
+    borderRadius: theme.borderRadius.sm,
+    padding: 12,
+    marginBottom: 8,
+  },
+  timeDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeText: {
+    fontSize: 16,
+    color: theme.colors.text,
+    marginLeft: 8,
+  },
+  removeTimeButton: {
+    padding: 4,
+  },
+  noTimesText: {
+    fontSize: 14,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
+  addTimeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    padding: 12,
+    borderRadius: theme.borderRadius.sm,
+    margin: 16,
+    marginTop: 8,
+  },
+  addTimeText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: theme.colors.white,
+    marginLeft: 8,
   },
 });
 

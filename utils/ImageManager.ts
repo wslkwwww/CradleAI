@@ -208,7 +208,49 @@ export class ImageManager {
    * Get image info by ID
    */
   public getImageInfo(id: string): ImageInfo | undefined {
-    return this.imageRegistry.get(id);
+    // Trim any whitespace from the ID to handle formatting issues
+    const trimmedId = id.trim();
+    
+    const info = this.imageRegistry.get(trimmedId);
+    
+    if (!info) {
+      console.warn(`[ImageManager] getImageInfo: No image found with ID: ${trimmedId}`);
+      
+      // Log the first few registry entries to help debug
+      const entries = Array.from(this.imageRegistry.entries()).slice(0, 5);
+      console.log('[ImageManager] Current registry entries (first 5):', 
+        entries.map(([id]) => id.substring(0, 8) + '...'));
+      
+      return undefined;
+    }
+    
+    // Validate file paths
+    const checkPath = async (path: string): Promise<boolean> => {
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(path);
+        return fileInfo.exists;
+      } catch (error) {
+        console.error(`[ImageManager] Error checking path ${path}:`, error);
+        return false;
+      }
+    };
+    
+    // Check both paths in background, but don't block the return
+    (async () => {
+      const originalExists = await checkPath(info.originalPath);
+      const thumbnailExists = await checkPath(info.thumbnailPath);
+      
+      if (!originalExists || !thumbnailExists) {
+        console.error(`[ImageManager] Image files missing for ID ${trimmedId}:`, {
+          originalExists,
+          thumbnailExists,
+          originalPath: info.originalPath,
+          thumbnailPath: info.thumbnailPath
+        });
+      }
+    })();
+    
+    return info;
   }
   
   /**

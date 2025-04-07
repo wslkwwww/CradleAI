@@ -1522,59 +1522,6 @@ const generateUniqueId = (): string => {
   };
 
   // Add feed to cradle service
-  const addFeedToCradle = async (content: string, type: FeedType): Promise<string> => {
-    console.log('[摇篮系统] 添加投喂内容到摇篮系统', type);
-    
-    try {
-      // Update the cradle service API settings before adding feed
-      if (cradleApiSettings.apiProvider === 'openrouter' && 
-          cradleApiSettings.openrouter?.enabled) {
-        cradleService.updateApiSettings(cradleApiSettings);
-      }
-      
-      // Use the cradle service to add the feed
-      const feedId = cradleService.addFeed(content, type);
-      
-      // Return the feed ID
-      return feedId;
-    } catch (error) {
-      console.error('[摇篮系统] 添加投喂内容失败:', error);
-      throw error;
-    }
-  };
-  
-  // Get feed history from cradle service
-  const getFeedHistory = () => {
-    return cradleService.getAllFeeds();
-  };
-  
-  // Process feeds now (manually triggered)
-  const processFeedsNow = async (): Promise<void> => {
-    console.log('[摇篮系统] 手动处理投喂数据');
-    
-    try {
-      // Update the cradle service API settings before processing
-      if (cradleApiSettings.apiProvider === 'openrouter' && 
-          cradleApiSettings.openrouter?.enabled) {
-        cradleService.updateApiSettings(cradleApiSettings);
-      }
-      
-      const result = await cradleService.processFeeds();
-      if (!result) {
-        console.log('[摇篮系统] 没有需要处理的投喂数据');
-        return;
-      }
-      
-      console.log('[摇篮系统] 处理结果:', result.success ? '成功' : '失败');
-      
-      if (!result.success) {
-        throw new Error(result.errorMessage || '处理投喂数据失败');
-      }
-    } catch (error) {
-      console.error('[摇篮系统] 处理投喂数据时出错:', error);
-      throw error;
-    }
-  };
 
   // Load Cradle API settings
   const loadCradleApiSettings = async () => {
@@ -1875,13 +1822,6 @@ const pollImageGenerationTask = async (characterId: string, taskId: string, maxR
         addFeed,
         markFeedAsProcessed,
         generateCharacterFromCradle,
-        
-        // Add these new methods to the context value:
-        addFeedToCradle,
-        getFeedHistory,
-        processFeedsNow,
-
-
         // Add new methods for Cradle API settings
         getCradleApiSettings,
         updateCradleApiSettings,

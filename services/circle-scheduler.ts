@@ -1,340 +1,484 @@
-import { Character, GlobalSettings } from '../shared/types';
-import { CirclePost, CirclePostOptions } from '../shared/types/circle-types';
 import { CircleService } from './circle-service';
+import { Character, GlobalSettings } from '../shared/types';
+import { CirclePost, CircleResponse } from '../shared/types/circle-types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { scheduleCirclePostNotification } from './notification-service';
 
-/**
- * CircleScheduler manages timing of character post creation and interactions
- * to prevent API rate limit issues
- */
+// Single instance for queue management
+let instance: CircleScheduler | null = null;
+
 export class CircleScheduler {
-  private static instance: CircleScheduler;
-  private isProcessing = false;
+  // Queue for creating posts
   private postQueue: Array<{
     character: Character;
     apiKey?: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
-    resolve: (value: any) => void;
-    reject: (error: any) => void;
+    priority: number;
   }> = [];
+
+  // Queue for interactions
   private interactionQueue: Array<{
     character: Character;
     post: CirclePost;
     apiKey?: string;
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
-    images?: string[]; // Add support for images
-    resolve: (value: any) => void;
-    reject: (error: any) => void;
+    images?: string[];
+    priority: number;
   }> = [];
-  private processingInterval = 3000; // 3 seconds between operations
-  private lastProcessTime = 0;
+
+  // Processing state
+  private isProcessing: boolean = false;
+  private processingInterval: number = 3000; // 3 seconds between requests
+
+  // Last processed timestamp
+  private lastScheduleCheck: number = 0;
+  private scheduledPostsCache: Record<string, string[]> = {};
+  private lastProcessedTimes: Record<string, string> = {};
 
   private constructor() {
-    // Private constructor to enforce singleton
+    console.log('【CircleScheduler】创建调度器实例');
+    // Load scheduled times on startup
+    this.loadScheduledTimes();
+    
+    // Start the scheduled post checking loop
+    this.startScheduledPostsCheck();
   }
 
-  public static getInstance(): CircleScheduler {
-    if (!CircleScheduler.instance) {
-      CircleScheduler.instance = new CircleScheduler();
+  // Get the singleton instance
+  static getInstance(): CircleScheduler {
+    if (!instance) {
+      instance = new CircleScheduler();
     }
-    return CircleScheduler.instance;
+    return instance;
   }
 
-  /**
-   * Schedule a character to create a post
-   */
-  public schedulePost(
+  // Load scheduled times from AsyncStorage
+  private async loadScheduledTimes(): Promise<void> {
+    try {
+      const storedTimes = await AsyncStorage.getItem('character_scheduled_times');
+      const lastProcessed = await AsyncStorage.getItem('last_processed_times');
+      
+      if (storedTimes) {
+        this.scheduledPostsCache = JSON.parse(storedTimes);
+        console.log(`【CircleScheduler】加载了${Object.keys(this.scheduledPostsCache).length}个角色的发布时间设置`);
+      }
+      
+      if (lastProcessed) {
+        this.lastProcessedTimes = JSON.parse(lastProcessed);
+      }
+    } catch (error) {
+      console.error('【CircleScheduler】加载定时发布设置失败:', error);
+    }
+  }
+
+  // Save the last processed time for a character-time pair
+  private async saveLastProcessedTime(characterId: string, timeString: string): Promise<void> {
+    try {
+      // Update in-memory cache
+      this.lastProcessedTimes[`${characterId}_${timeString}`] = this.getTodayDateString();
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('last_processed_times', JSON.stringify(this.lastProcessedTimes));
+    } catch (error) {
+      console.error('【CircleScheduler】保存处理时间记录失败:', error);
+    }
+  }
+
+  // Check if a specific time for a character was already processed today
+  private isTimeProcessedToday(characterId: string, timeString: string): boolean {
+    const key = `${characterId}_${timeString}`;
+    const lastProcessed = this.lastProcessedTimes[key];
+    const today = this.getTodayDateString();
+    
+    return lastProcessed === today;
+  }
+
+  // Get today's date as string in format YYYY-MM-DD
+  private getTodayDateString(): string {
+    const date = new Date();
+    return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+  }
+
+  // Start the periodic check for scheduled posts
+  private startScheduledPostsCheck(): void {
+    // Initial check
+    this.checkForScheduledPosts();
+    
+    // Set up recurring checks
+    setInterval(() => this.checkForScheduledPosts(), 60000); // Check every minute
+  }
+
+  // Check if any posts should be scheduled based on current time
+  private async checkForScheduledPosts(): Promise<void> {
+    try {
+      // Don't check too frequently
+      const now = Date.now();
+      if (now - this.lastScheduleCheck < 55000) { // Minimum 55 seconds between checks
+        return;
+      }
+      this.lastScheduleCheck = now;
+      
+      // Reload the scheduled times in case they were updated
+      await this.loadScheduledTimes();
+      
+      // Get current time as HH:MM
+      const date = new Date();
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const currentTime = `${hours}:${minutes}`;
+      
+      console.log(`【CircleScheduler】检查定时发布任务，当前时间: ${currentTime}`);
+      
+      // Check each character's scheduled times
+      for (const [characterId, times] of Object.entries(this.scheduledPostsCache)) {
+        for (const timeString of times) {
+          // Check if this exact time matches (or is within 1 minute) and wasn't already processed today
+          if (this.isTimeMatching(currentTime, timeString) && !this.isTimeProcessedToday(characterId, timeString)) {
+            console.log(`【CircleScheduler】检测到角色 ${characterId} 的定时发布时间: ${timeString}`);
+            
+            // Get characters list
+            const charactersString = await AsyncStorage.getItem('characters');
+            if (!charactersString) continue;
+            
+            const characters: Character[] = JSON.parse(charactersString);
+            const character = characters.find(c => c.id === characterId);
+            
+            if (character && character.circleInteraction) {
+              console.log(`【CircleScheduler】为角色 ${character.name} 安排发布定时朋友圈`);
+              
+              // Get API settings from AsyncStorage
+              const settingsString = await AsyncStorage.getItem('user_settings');
+              let apiKey = '';
+              let apiSettings = undefined;
+              
+              if (settingsString) {
+                const settings = JSON.parse(settingsString);
+                apiKey = settings?.chat?.characterApiKey || '';
+                apiSettings = {
+                  apiProvider: settings?.chat?.apiProvider || 'gemini',
+                  openrouter: settings?.chat?.apiProvider === 'openrouter' && settings?.chat?.openrouter
+                    ? {
+                        enabled: true,
+                        apiKey: settings?.chat?.openrouter.apiKey,
+                        model: settings?.chat?.openrouter.model
+                      }
+                    : undefined
+                };
+              }
+              
+              // Add to queue with high priority
+              this.schedulePost(character, apiKey, apiSettings, true);
+              
+              // Mark this time as processed for today
+              await this.saveLastProcessedTime(characterId, timeString);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('【CircleScheduler】检查定时发布失败:', error);
+    }
+  }
+
+  // Check if current time matches scheduled time (within 1 minute tolerance)
+  private isTimeMatching(currentTime: string, scheduledTime: string): boolean {
+    const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
+    const [scheduledHours, scheduledMinutes] = scheduledTime.split(':').map(Number);
+    
+    // Direct match
+    if (currentHours === scheduledHours && currentMinutes === scheduledMinutes) {
+      return true;
+    }
+    
+    // Within 1 minute tolerance (to prevent missing due to the exact minute)
+    const currentTotalMinutes = currentHours * 60 + currentMinutes;
+    const scheduledTotalMinutes = scheduledHours * 60 + scheduledMinutes;
+    const diff = Math.abs(currentTotalMinutes - scheduledTotalMinutes);
+    
+    return diff === 1; // 1 minute tolerance
+  }
+
+  // Schedule a post
+  public async schedulePost(
     character: Character,
     apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
-  ): Promise<{post: CirclePost, author: Character}> {
-    return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 的发帖请求添加到队列，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
-      
-      // Add to queue
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    isScheduled: boolean = false // New parameter to track if this is a scheduled post
+  ): Promise<{ success: boolean; error?: string; post?: string }> {
+    return new Promise((resolve) => {
+      // Add to queue with appropriate priority
       this.postQueue.push({
         character,
         apiKey,
         apiSettings,
-        resolve,
-        reject
+        priority: isScheduled ? 2 : 1 // Scheduled posts get higher priority
       });
       
-      // Start processing if not already
+      // Start processing if not already running
       if (!this.isProcessing) {
         this.processQueues();
       }
+      
+      // Always resolve immediately - we're just queuing
+      resolve({ success: true });
     });
   }
 
-  /**
-   * Schedule a character to interact with a post
-   * @param images Optional array of image URLs to analyze with the post
-   */
-  public scheduleInteraction(
+  // Schedule an interaction
+  public async scheduleInteraction(
     character: Character,
     post: CirclePost,
     apiKey?: string,
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
-    images?: string[] // Add images parameter
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 对帖子 ${post.id} 的互动添加到队列${images?.length ? '，包含图片' : ''}，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
-      
-      // Add to queue with images
+    images?: string[]
+  ): Promise<CircleResponse> {
+    return new Promise((resolve) => {
+      // Add to queue
       this.interactionQueue.push({
         character,
         post,
         apiKey,
         apiSettings,
-        images, // Include images array
-        resolve,
-        reject
+        images,
+        priority: 0 // Default priority for regular interactions
       });
       
-      // Start processing if not already
+      // Start processing if not already running
       if (!this.isProcessing) {
         this.processQueues();
       }
+      
+      // Resolve with temporary response - actual response will be processed when queue is processed
+      resolve({
+        success: true,
+        action: {
+          like: false,
+          comment: undefined
+        },
+        error: 'Interaction queued for processing'
+      });
     });
   }
 
-  /**
-   * Schedule a character to interact with a user post
-   * This is a specialized version that prioritizes user post interactions
-   * @param images Optional array of image URLs to analyze with the post
-   */
-  public scheduleUserPostInteraction(
+  // Schedule user post interaction with higher priority
+  public async scheduleUserPostInteraction(
     character: Character,
     userPost: CirclePost,
     apiKey?: string,
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
-    images?: string[] // Add images parameter
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      console.log(`【朋友圈调度器】将角色 ${character.name} 对用户帖子的互动添加到队列（优先级高）${images?.length ? '，包含图片' : ''}，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
-      
-      // Add to the front of the queue to prioritize user posts
-      this.interactionQueue.unshift({
+    images?: string[]
+  ): Promise<CircleResponse> {
+    return new Promise((resolve) => {
+      // Add to queue with higher priority
+      this.interactionQueue.push({
         character,
         post: userPost,
         apiKey,
         apiSettings,
-        images, // Include images array
-        resolve,
-        reject
+        images,
+        priority: 3 // Highest priority for user posts
       });
       
-      // Start processing if not already
+      // Start processing if not already running
       if (!this.isProcessing) {
         this.processQueues();
       }
+      
+      // Resolve with temporary response
+      resolve({
+        success: true,
+        action: {
+          like: false,
+          comment: undefined
+        },
+        error: 'User post interaction queued for priority processing'
+      });
     });
   }
 
-  /**
-   * Process queues with rate limiting
-   */
+  // Process the queues
   private async processQueues(): Promise<void> {
-    // Set processing flag
-    this.isProcessing = true;
-    
-    while (this.postQueue.length > 0 || this.interactionQueue.length > 0) {
-      const now = Date.now();
-      const timeSinceLastProcess = now - this.lastProcessTime;
-      
-      // If we need to wait, do so
-      if (timeSinceLastProcess < this.processingInterval) {
-        const waitTime = this.processingInterval - timeSinceLastProcess;
-        console.log(`【朋友圈调度器】速率限制：等待 ${waitTime}ms 后处理下一个请求`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      }
-      
-      // Prioritize user post interactions first (they're placed at the front of the queue)
-      // Then process character post requests, and finally normal interactions
-      if (this.interactionQueue.length > 0) {
-        // Check if this is a user post interaction (user posts have characterId starting with 'user-')
-        const userPostInteraction = this.interactionQueue.find(
-          item => item.post.characterId.startsWith('user-')
-        );
-        
-        if (userPostInteraction) {
-          // Remove from queue
-          this.interactionQueue = this.interactionQueue.filter(item => item !== userPostInteraction);
-          
-          try {
-            console.log(`【朋友圈调度器】优先处理角色 ${userPostInteraction.character.name} 对用户帖子的互动请求${userPostInteraction.images?.length ? "（包含图片）" : ""}，API Provider: ${userPostInteraction.apiSettings?.apiProvider || 'gemini'}`);
-            
-            // Create post options with image support
-            const postOptions: CirclePostOptions = {
-              type: 'replyToPost' as const,
-              content: {
-                authorId: userPostInteraction.post.characterId,
-                authorName: userPostInteraction.post.characterName,
-                text: userPostInteraction.post.content,
-                context: `这是 ${userPostInteraction.post.characterName} 发布的朋友圈动态`,
-                images: userPostInteraction.images || userPostInteraction.post.images // Use provided images or post images
-              },
-              responderId: userPostInteraction.character.id,
-              responderCharacter: userPostInteraction.character
-            };
-            
-            // Use the created postOptions with images when processing the interaction
-            const result = await CircleService.processCircleInteraction(
-              userPostInteraction.character,
-              userPostInteraction.post,
-              userPostInteraction.apiKey,
-              userPostInteraction.apiSettings,
-              postOptions  // Pass the complete postOptions with images
-            );
-            
-            userPostInteraction.resolve(result);
-          } catch (error) {
-            console.error(`【朋友圈调度器】处理对用户帖子的互动请求失败:`, error);
-            userPostInteraction.reject(error);
-          }
-        } else if (this.postQueue.length > 0) {
-          // Process character post creation next
-          const postRequest = this.postQueue.shift();
-          if (postRequest) {
-            try {
-              console.log(`【朋友圈调度器】处理角色 ${postRequest.character.name} 的发帖请求，API Provider: ${postRequest.apiSettings?.apiProvider || 'gemini'}`);
-              const result = await CircleService.createNewPost(
-                postRequest.character,
-                this.generatePostContent(postRequest.character),
-                postRequest.apiKey,
-                postRequest.apiSettings
-              );
-              
-              // Construct a post object for the result
-              if (result.success && result.action?.comment) {
-                const post: CirclePost = {
-                  id: `post-${Date.now()}-${postRequest.character.id}`,
-                  characterId: postRequest.character.id,
-                  characterName: postRequest.character.name,
-                  characterAvatar: postRequest.character.avatar as string,
-                  content: result.action.comment,
-                  createdAt: new Date().toISOString(),
-                  comments: [],
-                  likes: 0,
-                  likedBy: [],
-                  hasLiked: false
-                };
-                
-                postRequest.resolve({
-                  post,
-                  author: postRequest.character
-                });
-              } else {
-                throw new Error(result.error || "Failed to create post");
-              }
-            } catch (error) {
-              console.error(`【朋友圈调度器】处理发帖请求失败:`, error);
-              postRequest.reject(error);
-            }
-          }
-        } else {
-          // Process regular interaction
-          const interactionRequest = this.interactionQueue.shift();
-          if (interactionRequest) {
-            try {
-              console.log(`【朋友圈调度器】处理角色 ${interactionRequest.character.name} 的普通互动请求${interactionRequest.images?.length ? "（包含图片）" : ""}，API Provider: ${interactionRequest.apiSettings?.apiProvider || 'gemini'}`);
-              
-              // Create post options with image support
-              const postOptions: CirclePostOptions = {
-                type: 'replyToPost' as const,
-                content: {
-                  authorId: interactionRequest.post.characterId,
-                  authorName: interactionRequest.post.characterName,
-                  text: interactionRequest.post.content,
-                  context: `这是 ${interactionRequest.post.characterName} 发布的朋友圈动态`,
-                  images: interactionRequest.images || interactionRequest.post.images // Use provided images or post images
-                },
-                responderId: interactionRequest.character.id,
-                responderCharacter: interactionRequest.character
-              };
-              
-              // Pass the options with images to the service
-              const result = await CircleService.processCircleInteraction(
-                interactionRequest.character,
-                interactionRequest.post,
-                interactionRequest.apiKey,
-                interactionRequest.apiSettings,
-                postOptions  // Pass the complete postOptions with images
-              );
-              
-              interactionRequest.resolve(result);
-            } catch (error) {
-              console.error(`【朋友圈调度器】处理互动请求失败:`, error);
-              interactionRequest.reject(error);
-            }
-          }
-        }
-      } else if (this.postQueue.length > 0) {
-        // If no interactions, process a post
-        const request = this.postQueue.shift();
-        if (request) {
-          try {
-            console.log(`【朋友圈调度器】处理角色 ${request.character.name} 的发帖请求，API Provider: ${request.apiSettings?.apiProvider || 'gemini'}`);
-            const result = await CircleService.createNewPost(
-              request.character,
-              this.generatePostContent(request.character),
-              request.apiKey,
-              request.apiSettings
-            );
-            
-            // Construct a post object for the result
-            if (result.success) {
-              // Get content from action.comment which contains post content
-              const postContent = result.action?.comment || this.generatePostContent(request.character);
-              
-              console.log(`【朋友圈调度器】角色 ${request.character.name} 生成的帖子内容: "${postContent.substring(0, 50)}${postContent.length > 50 ? '...' : ''}"`);
-              
-              const post: CirclePost = {
-                id: `post-${Date.now()}-${request.character.id}`,
-                characterId: request.character.id,
-                characterName: request.character.name,
-                characterAvatar: request.character.avatar as string,
-                content: postContent, // Use the actual generated content here
-                createdAt: new Date().toISOString(),
-                comments: [],
-                likes: 0,
-                likedBy: [],
-                hasLiked: false
-              };
-              
-              request.resolve({
-                post,
-                author: request.character
-              });
-            } else {
-              throw new Error(result.error || "Failed to create post");
-            }
-          } catch (error) {
-            console.error(`【朋友圈调度器】处理发帖请求失败:`, error);
-            request.reject(error);
-          }
-        }
-      }
-      
-      // Update last process time
-      this.lastProcessTime = Date.now();
+    // If already processing, don't start a new process
+    if (this.isProcessing) {
+      return;
     }
     
-    // Clear processing flag
-    this.isProcessing = false;
+    this.isProcessing = true;
+    
+    try {
+      while (this.postQueue.length > 0 || this.interactionQueue.length > 0) {
+        // Delay between processing items to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, this.processingInterval));
+        
+        // Prioritize interactions by user posts - highest priority (3)
+        const userPostInteraction = this.interactionQueue.find(item => item.priority === 3);
+        if (userPostInteraction) {
+          console.log('【CircleScheduler】处理用户帖子互动（最高优先级）');
+          this.interactionQueue = this.interactionQueue.filter(item => item !== userPostInteraction);
+          await this.processInteraction(userPostInteraction);
+          continue;
+        }
+        
+        // Next prioritize scheduled posts - priority 2
+        const scheduledPost = this.postQueue.find(item => item.priority === 2);
+        if (scheduledPost) {
+          console.log('【CircleScheduler】处理已排期的角色定时发布（高优先级）');
+          this.postQueue = this.postQueue.filter(item => item !== scheduledPost);
+          await this.processPost(scheduledPost, true); // Pass true to indicate scheduled post
+          continue;
+        }
+        
+        // Then regular posts - priority 1
+        if (this.postQueue.length > 0) {
+          console.log('【CircleScheduler】处理常规帖子发布请求');
+          const post = this.postQueue.shift();
+          if (post) {
+            await this.processPost(post);
+          }
+          continue;
+        }
+        
+        // Finally, regular interactions - priority 0
+        if (this.interactionQueue.length > 0) {
+          console.log('【CircleScheduler】处理常规互动请求');
+          const interaction = this.interactionQueue.shift();
+          if (interaction) {
+            await this.processInteraction(interaction);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('【CircleScheduler】处理队列时出错:', error);
+    } finally {
+      this.isProcessing = false;
+    }
   }
 
-  /**
-   * Generate a post content based on character
-   */
-  private generatePostContent(character: Character): string {
-    const templates = [
-      `今天的心情很不错，${character.name === '老师' ? '和学生们度过了愉快的一天' : '希望大家也有美好的一天'}。`,
-      `${character.name === '厨师' ? '今天尝试了一个新菜谱，味道超赞！' : '今天发现了一家不错的餐厅，推荐给大家。'}`,
-      `${character.name === '作家' ? '写作的过程总是充满挑战和乐趣' : '读了一本很棒的书，让我思考良多'}。`,
-      `${character.name === '医生' ? '提醒大家最近天气变化大，注意保暖' : '健康真的很重要，希望大家都能保持良好的生活习惯'}。`
+  // Process a post request
+  private async processPost(
+    item: {
+      character: Character;
+      apiKey?: string;
+      apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+    },
+    isScheduled: boolean = false
+  ): Promise<void> {
+    try {
+      console.log(`【CircleScheduler】处理${isScheduled ? '定时' : ''}帖子请求，角色: ${item.character.name}`);
+      
+      // Create a new post
+      const response = await CircleService.createNewPost(
+        item.character,
+        isScheduled ? this.getScheduledPostPrompt(item.character) : this.getRandomPostPrompt(item.character),
+        item.apiKey,
+        item.apiSettings
+      );
+      
+      if (response.success) {
+        console.log(`【CircleScheduler】角色 ${item.character.name} 成功发布了${isScheduled ? '定时' : ''}朋友圈`);
+        
+        // Extract post content from response
+        let postContent = '';
+        if (response.post) {
+          postContent = response.post;
+        } else if (response.action?.comment) {
+          postContent = response.action.comment;
+        }
+        
+        // If this is a scheduled post, send notification
+        if (isScheduled && postContent) {
+          await scheduleCirclePostNotification(
+            item.character.name,
+            item.character.id,
+            postContent
+          );
+        }
+      } else {
+        console.error(`【CircleScheduler】角色 ${item.character.name} 发布${isScheduled ? '定时' : ''}朋友圈失败:`, response.error);
+      }
+    } catch (error) {
+      console.error(`【CircleScheduler】处理帖子时出错:`, error);
+    }
+  }
+
+  // Process an interaction request
+  private async processInteraction(
+    item: {
+      character: Character;
+      post: CirclePost;
+      apiKey?: string;
+      apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+      images?: string[];
+    }
+  ): Promise<void> {
+    try {
+      console.log(`【CircleScheduler】处理互动请求，角色: ${item.character.name}，帖子作者: ${item.post.characterName}`);
+      
+      // Process interaction
+      const response = await CircleService.processCircleInteraction(
+        item.character,
+        item.post,
+        item.apiKey,
+        item.apiSettings
+      );
+      
+      if (response.success) {
+        console.log(`【CircleScheduler】角色 ${item.character.name} 成功与 ${item.post.characterName} 的帖子互动`);
+      } else {
+        console.error(`【CircleScheduler】角色 ${item.character.name} 互动失败:`, response.error);
+      }
+    } catch (error) {
+      console.error(`【CircleScheduler】处理互动时出错:`, error);
+    }
+  }
+
+  // Generate a prompt for scheduled posts
+  private getScheduledPostPrompt(character: Character): string {
+    // Generate a prompt appropriate for the character
+    const timeOfDay = this.getTimeOfDay();
+    const characterSpecificPrompts: Record<string, string[]> = {
+      default: [
+        `分享一下我在${timeOfDay}的近况和想法`,
+        `最近发生了一些有趣的事情，想和大家分享`,
+        `${timeOfDay}好！简单分享一下我的感受`,
+        `今天是怎样的一天呢？我来说说我的${timeOfDay}`,
+      ]
+    };
+    
+    // Get specific prompts for this character type if available
+    const prompts = characterSpecificPrompts[character.id] || characterSpecificPrompts.default;
+    
+    // Choose a random prompt
+    return prompts[Math.floor(Math.random() * prompts.length)];
+  }
+
+  // Get the current time of day description
+  private getTimeOfDay(): string {
+    const hour = new Date().getHours();
+    
+    if (hour >= 5 && hour < 12) {
+      return "上午";
+    } else if (hour >= 12 && hour < 14) {
+      return "中午";
+    } else if (hour >= 14 && hour < 18) {
+      return "下午";
+    } else if (hour >= 18 && hour < 22) {
+      return "傍晚";
+    } else {
+      return "晚上";
+    }
+  }
+
+  // Generate a random post prompt
+  private getRandomPostPrompt(character: Character): string {
+    const generalPrompts = [
+      "分享一个最近的想法或心情",
+      "今天发生了什么有趣的事情",
+      "有什么想和朋友们分享的吗？",
+      "随意聊聊近况",
+      "谈谈最近的感受"
     ];
     
-    return templates[Math.floor(Math.random() * templates.length)];
+    return generalPrompts[Math.floor(Math.random() * generalPrompts.length)];
   }
 }

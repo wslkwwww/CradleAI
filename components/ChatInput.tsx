@@ -58,6 +58,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onShowMemoryPanel,
 }) => {
   const [text, setText] = useState('');
+  const [inputHeight, setInputHeight] = useState(40); // Initial height
   const [isLoading, setIsLoading] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const { user } = useUser();
@@ -610,6 +611,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
       '请选择如何添加图片',
       [
         {
+          text: '拍摄照片',
+          onPress: captureImage
+        },
+        {
           text: '从相册选择',
           onPress: pickImage
         },
@@ -623,6 +628,41 @@ const ChatInput: React.FC<ChatInputProps> = ({
         }
       ]
     );
+  };
+
+  const captureImage = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('需要权限', '需要相机访问权限才能拍摄照片。');
+      return;
+    }
+    
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+        base64: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedAsset = result.assets[0];
+        
+        const manipResult = await manipulateAsync(
+          selectedAsset.uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.8, format: SaveFormat.JPEG, base64: true }
+        );
+        
+        setSelectedImage(`data:image/jpeg;base64,${manipResult.base64}`);
+        setSelectedImageType('image/jpeg');
+        setShowImagePreviewModal(true);
+      }
+    } catch (error) {
+      console.error('Error capturing image:', error);
+      Alert.alert('错误', '拍摄照片时出现错误，请重试。');
+    }
   };
 
   const pickImage = async () => {
@@ -760,6 +800,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (onShowMemoryPanel) {
       onShowMemoryPanel();
     }
+  };
+
+  // Add function to handle content size change
+  const handleContentSizeChange = (event: any) => {
+    const { height } = event.nativeEvent.contentSize;
+    // Calculate the new height, capped at approximately 5 lines of text
+    // Line height is roughly 20-24px, so 5 lines would be ~100-120px
+    const newHeight = Math.min(Math.max(40, height), 120);
+    setInputHeight(newHeight);
   };
 
   return (
@@ -921,14 +970,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
         <TextInput
           ref={inputRef}
-          style={styles.input}
+          style={[
+            styles.input, 
+            { height: inputHeight } // Dynamic height based on content
+          ]}
           placeholder="输入消息..."
           placeholderTextColor="#999"
           value={text}
           onChangeText={setText}
           multiline
           maxLength={1000}
-          numberOfLines={1}
+          onContentSizeChange={handleContentSizeChange} // Add this handler
           onFocus={() => setShowActions(false)}
         />
 
@@ -1160,7 +1212,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     paddingHorizontal: 8,
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    maxHeight: 100,
+    textAlignVertical: 'center', // Helps with alignment in multi-line mode
   },
   button: {
     width: 40,

@@ -10,17 +10,13 @@ import {
   SafeAreaView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Slider from '@react-native-community/slider';
 
 interface CradleSettingsProps {
   isVisible: boolean;
   embedded?: boolean;
   onClose: () => void;
   isCradleEnabled: boolean;
-  cradleDuration: number;
   onCradleToggle: (enabled: boolean) => void;
-  onDurationChange: (duration: number) => void;
-  feedInterval: number;
   onUpdateSettings: (settings: any) => void;
 }
 
@@ -29,13 +25,10 @@ export default function CradleSettings({
   embedded = false,
   onClose,
   isCradleEnabled,
-  cradleDuration,
   onCradleToggle,
-  onDurationChange,
-  feedInterval
+  onUpdateSettings
 }: CradleSettingsProps) {
   const [localEnabled, setLocalEnabled] = useState(isCradleEnabled);
-  const [localDuration, setLocalDuration] = useState(cradleDuration);
   const [isDirty, setIsDirty] = useState(false);
 
   // Handle toggle
@@ -44,17 +37,9 @@ export default function CradleSettings({
     setIsDirty(true);
   };
 
-  // Handle duration change
-  const handleDurationChange = (value: number) => {
-    const roundedValue = Math.round(value);
-    setLocalDuration(roundedValue);
-    setIsDirty(true);
-  };
-
   // Handle save
   const handleSave = () => {
     onCradleToggle(localEnabled);
-    onDurationChange(localDuration);
     onClose();
   };
 
@@ -62,10 +47,9 @@ export default function CradleSettings({
   React.useEffect(() => {
     if (isVisible || embedded) {
       setLocalEnabled(isCradleEnabled);
-      setLocalDuration(cradleDuration);
       setIsDirty(false);
     }
-  }, [isVisible, embedded, isCradleEnabled, cradleDuration]);
+  }, [isVisible, embedded, isCradleEnabled]);
 
   const content = (
     <>
@@ -75,7 +59,7 @@ export default function CradleSettings({
           <View style={styles.settingDescription}>
             <Text style={styles.settingTitle}>启用摇篮系统</Text>
             <Text style={styles.settingSubtitle}>
-              启用后，摇篮系统将开始培育过程
+              启用后，摇篮系统将激活
             </Text>
           </View>
           <Switch
@@ -86,60 +70,31 @@ export default function CradleSettings({
           />
         </View>
 
-        {/* Duration Setting */}
-        <View style={styles.settingItem}>
-          <View style={styles.settingDescription}>
-            <Text style={styles.settingTitle}>培育周期</Text>
-            <Text style={styles.settingSubtitle}>
-              设置角色培育所需的天数
-            </Text>
-          </View>
-          <Text style={styles.durationText}>{localDuration} 天</Text>
-        </View>
-
-        <View style={styles.sliderContainer}>
-          <Slider
-            style={styles.slider}
-            minimumValue={1}
-            maximumValue={30}
-            step={1}
-            value={localDuration}
-            onValueChange={handleDurationChange}
-            minimumTrackTintColor="#4A90E2"
-            maximumTrackTintColor="#555"
-            thumbTintColor="#4A90E2"
-          />
-          <View style={styles.sliderLabels}>
-            <Text style={styles.sliderLabel}>1天</Text>
-            <Text style={styles.sliderLabel}>30天</Text>
-          </View>
-        </View>
-
         {/* Information Section */}
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>关于摇篮系统</Text>
           <Text style={styles.infoText}>
-            摇篮系统通过让用户在一段时间内"投喂"数据（文本、图片等）给未成熟的角色，来塑造和生成具有独特个性的AI角色。这种方式比直接创建角色更能形成有深度和个性的角色设定。
+            摇篮系统提供了一种管理和与AI角色互动的方式。在这里您可以与创建的角色进行对话，生成图片，并通过对话修改角色设定。
           </Text>
           
           <View style={styles.infoListItem}>
-            <Ionicons name="time-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
+            <Ionicons name="chatbubble-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
             <Text style={styles.infoListText}>
-              培育周期越长，角色个性越丰富
+              与所有角色自由对话
             </Text>
           </View>
           
           <View style={styles.infoListItem}>
-            <Ionicons name="document-text-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
+            <Ionicons name="image-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
             <Text style={styles.infoListText}>
-              投喂内容包括"关于我"、"素材"和"知识"三种类型
+              生成更多角色图片和头像
             </Text>
           </View>
           
           <View style={styles.infoListItem}>
-            <Ionicons name="information-circle-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
+            <Ionicons name="create-outline" size={18} color="#4A90E2" style={styles.infoIcon} />
             <Text style={styles.infoListText}>
-              投喂数据将定期批量处理，而不是每次投喂都即时处理
+              通过对话方式修改角色设定
             </Text>
           </View>
         </View>
@@ -254,26 +209,6 @@ const styles = StyleSheet.create({
   settingSubtitle: {
     fontSize: 14,
     color: '#aaa',
-  },
-  durationText: {
-    fontSize: 16,
-    color: '#4A90E2',
-    fontWeight: 'bold',
-  },
-  sliderContainer: {
-    marginBottom: 20,
-  },
-  slider: {
-    height: 40,
-  },
-  sliderLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: -8,
-  },
-  sliderLabel: {
-    color: '#999',
-    fontSize: 12,
   },
   infoSection: {
     backgroundColor: '#333',
