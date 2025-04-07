@@ -18,6 +18,7 @@ export const theme = {
     input: '#444444',
     disabled: '#666666',
     accent: '#4A90E2',
+    buttonText:  'rgb(255, 224, 195)', // Add this line for button text/icons on light backgrounds
   },
   fontSizes: {
     xs: 10,

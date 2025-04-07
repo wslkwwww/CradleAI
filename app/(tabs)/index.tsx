@@ -12,7 +12,9 @@ import {
   Alert,
   KeyboardAvoidingView,
   AppState,
+  ActivityIndicator,
 } from 'react-native';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av'; // Import Video component
 import ChatDialog from '@/components/ChatDialog';
 import ChatInput from '@/components/ChatInput';
 import Sidebar from '@/components/Sidebar';
@@ -182,6 +184,11 @@ const App = () => {
 
   // Get dialog mode
   const { mode } = useDialogMode();
+
+  // Add new ref for video component
+  const videoRef = useRef<Video | null>(null);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   // Toggle brave search function
   const toggleBraveSearch = () => {
@@ -1199,6 +1206,27 @@ const App = () => {
     setIsTtsEnhancerModalVisible(true);
   };
 
+  // Add function to handle video playback status updates
+  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded) {
+      setIsVideoReady(true);
+      // Reset error state when video loads successfully
+      if (videoError) setVideoError(null);
+    } else {
+      // Handle video loading error
+      if (status.error) {
+        console.error('Video playback error:', status.error);
+        setVideoError(status.error);
+      }
+    }
+  };
+
+  // Reset video state when character changes
+  useEffect(() => {
+    setIsVideoReady(false);
+    setVideoError(null);
+  }, [selectedCharacter?.id]);
+
   return (
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
@@ -1206,16 +1234,64 @@ const App = () => {
       <MemoryProvider config={memoryConfig}>
         <Mem0Initializer />
         
-        {/* Modified backgroundImage container to prevent keyboard resizing */}
+        {/* Modified backgroundImage container to conditionally render Video or ImageBackground */}
         <View style={styles.backgroundContainer}>
-          <ImageBackground
-            source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
-            style={styles.backgroundImage}
-            resizeMode="cover"
-          >
-            {/* This empty View ensures the ImageBackground fills the container */}
-            <View style={{flex: 1}} />
-          </ImageBackground>
+          {selectedCharacter?.dynamicPortraitEnabled && selectedCharacter?.dynamicPortraitVideo ? (
+            // Render video background if enabled and video exists
+            <>
+              <Video
+                ref={videoRef}
+                source={{ uri: selectedCharacter.dynamicPortraitVideo }}
+                style={styles.backgroundVideo}
+                resizeMode={ResizeMode.COVER}
+                isLooping
+                shouldPlay
+                isMuted
+                onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                onError={(error) => {
+                  console.error('Video error:', error);
+                  setVideoError(error?.toString() || 'Failed to load video');
+                }}
+                useNativeControls={false}
+              />
+              
+              {/* Show loading indicator while video is loading */}
+              {!isVideoReady && !videoError && (
+                <View style={styles.videoLoadingContainer}>
+                  <ActivityIndicator size="large" color="#ffffff" />
+                  <Text style={styles.videoLoadingText}>加载动态立绘中...</Text>
+                </View>
+              )}
+              
+              {/* Show error message if video failed to load */}
+              {videoError && (
+                <View style={styles.videoErrorContainer}>
+                  <ImageBackground
+                    source={selectedCharacter.backgroundImage 
+                      ? { uri: selectedCharacter.backgroundImage } 
+                      : require('@/assets/images/default-background.jpg')}
+                    style={styles.backgroundImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.videoErrorOverlay}>
+                    <Text style={styles.videoErrorText}>
+                      无法加载动态立绘视频，已显示静态背景
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </>
+          ) : (
+            // Render static background image if dynamic portrait is disabled or no video
+            <ImageBackground
+              source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
+              style={styles.backgroundImage}
+              resizeMode="cover"
+            >
+              {/* This empty View ensures the ImageBackground fills the container */}
+              <View style={{flex: 1}} />
+            </ImageBackground>
+          )}
         </View>
         
         {/* Content container placed on top of background */}
@@ -1398,6 +1474,41 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
+  },
+  // Add new styles for video background
+  backgroundVideo: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  videoLoadingContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  videoLoadingText: {
+    color: '#ffffff',
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  videoErrorContainer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  videoErrorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingBottom: 50,
+  },
+  videoErrorText: {
+    color: '#ffffff',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    padding: 10,
+    borderRadius: 5,
+    fontSize: 14,
   },
   contentMainContainer: {
     position: 'absolute',

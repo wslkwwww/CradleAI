@@ -1296,23 +1296,32 @@ const Explore: React.FC = () => {
       expandedThoughts, toggleThoughtExpansion]);
 
   const renderCircleHeaderButtons = () => (
-    <View style={styles.circleHeaderButtons}>
+    <View style={styles.headerButtons}>
       {/* Add Character Interaction Settings button */}
       <TouchableOpacity 
-        style={styles.iconButton}
+        style={styles.headerButton}
         onPress={() => setShowInteractionSettings(true)}
       >
-        <Ionicons name="settings-outline" size={24} color={theme.colors.text} />
+        <Ionicons name="settings-outline" size={22} color={theme.colors.buttonText} />
       </TouchableOpacity>
 
       {/* Add Favorite List button */}
       <TouchableOpacity 
-        style={styles.iconButton}
+        style={styles.headerButton}
         onPress={() => setShowFavoriteList(true)}
       >
-        <MaterialCommunityIcons name="bookmark-outline" size={24} color={theme.colors.text} />
+        <MaterialCommunityIcons name="bookmark-outline" size={22} color={theme.colors.buttonText} />
       </TouchableOpacity>
 
+      {/* Add User Post button - moved from floating button */}
+      <TouchableOpacity 
+        style={styles.headerButton}
+        onPress={() => setShowUserPostModal(true)}
+      >
+        <Feather name="plus" size={24} color={theme.colors.buttonText} />
+      </TouchableOpacity>
+
+      {/* Modified: Remove text from "角色发布" button */}
       <TouchableOpacity 
         style={[
           styles.headerButton,
@@ -1322,12 +1331,9 @@ const Explore: React.FC = () => {
         disabled={publishingPost}
       >
         {publishingPost ? (
-          <ActivityIndicator size="small" color={theme.colors.white} />
+          <ActivityIndicator size="small" color={theme.colors.text} />
         ) : (
-          <View style={styles.headerButtonContent}>
-            <MaterialIcons name="auto-awesome" size={16} color={theme.colors.white} />
-            <Text style={styles.headerButtonText}>角色发布</Text>
-          </View>
+          <MaterialIcons name="auto-awesome" size={22} color={theme.colors.buttonText} />
         )}
       </TouchableOpacity>
     </View>
@@ -1465,13 +1471,12 @@ const Explore: React.FC = () => {
         source={require('@/assets/images/default-background.jpeg')}
         style={styles.backgroundImage}
       >
-        {/* 新设计的社交媒体样式顶部栏 */}
-        <View style={styles.socialHeader}>
-          <View style={styles.headerTitle}>
-            <Text style={styles.headerTitleText}>朋友圈</Text>
+        {/* 更新顶部栏样式与Character页面一致 */}
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>朋友圈</Text>
+            {renderCircleHeaderButtons()}
           </View>
-          
-          {renderCircleHeaderButtons()}
         </View>
 
         {/* Circle Tab Content */}
@@ -1503,16 +1508,6 @@ const Explore: React.FC = () => {
           </>
         )}      
 
-        {/* 浮动发布按钮 - 仅在评论输入框未激活时显示 */}
-        {!isCommentInputActive && (
-          <TouchableOpacity 
-            style={styles.floatingActionButton}
-            onPress={() => setShowUserPostModal(true)}
-          >
-            <Feather name="plus" size={24} color={theme.colors.white} />
-          </TouchableOpacity>
-        )}
-        
         {isForwardSheetVisible && selectedPost && (
           <ForwardSheet
             isVisible={isForwardSheetVisible}
@@ -1582,46 +1577,56 @@ const Explore: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  // Social media style header
-  socialHeader: {
-    backgroundColor: theme.colors.background,
-    paddingTop: Platform.OS === 'ios' ? 47 : StatusBar.currentHeight,
-    paddingBottom: 10,
+  // Header styles matched with Character page
+  header: {
+    backgroundColor: '#333333',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: 'rgba(255, 224, 195, 0.2)',
+    zIndex: 10,
+  },
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    height: Platform.OS === 'ios' ? 90 : 90,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   headerTitle: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  headerTitleText: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: theme.colors.text,
+    color: 'rgb(255, 224, 195)',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
-  
-  // Floating action button style
-  floatingActionButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
-    elevation: 5,
-    shadowColor: theme.colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
+  headerButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Define button color to match Character page
+  // Add this at the beginning of the theme definition or extend the theme
+  // ...existing code...
+  
+  // Remove old socialHeader styles that are no longer needed
+  // socialHeader: { ... },
+  // headerTitle: { ... },
+  // headerTitleText: { ... },
+  // circleHeaderButtons: { ... },
+  // iconButton: { ... },
   
   // Post and card styles
   card: {
@@ -1669,42 +1674,6 @@ const styles = StyleSheet.create({
   },
   actionText: {
     color: theme.colors.text,
-    marginLeft: 4,
-  },
-  
-  // Header button styles
-  circleHeaderButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    gap: theme.spacing.sm, // Add gap between buttons
-  },
-  
-  // Add new style for icon button
-  iconButton: {
-    padding: theme.spacing.xs,
-    marginRight: theme.spacing.xs,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: 'transparent',
-  },
-
-  headerButton: {
-    backgroundColor: theme.colors.accent,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.full,
-  },
-  headerButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerButtonDisabled: {
-    backgroundColor: theme.colors.disabled,
-  },
-  headerButtonText: {
-    color: theme.colors.white,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: '500',
     marginLeft: 4,
   },
   
@@ -1973,11 +1942,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontSize: theme.fontSizes.md,
   },
-  // Add post menu button style
-  postMenuButton: {
-    padding: theme.spacing.sm,
-    marginLeft: theme.spacing.sm,
-  },
   
   // Images container style
   imagesContainer: {
@@ -2044,7 +2008,11 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
   },
   
-  // ...existing code...
+  // Post menu button style
+  postMenuButton: {
+    padding: theme.spacing.xs,
+    marginLeft: theme.spacing.sm,
+  },
 });
 
 export default Explore;

@@ -29,6 +29,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mem0Service from '@/src/memory/services/Mem0Service';
 import { useDialogMode, DialogMode } from '@/constants/DialogModeContext';
 import * as Font from 'expo-font';
+import * as DocumentPicker from 'expo-document-picker';
 
 const SIDEBAR_WIDTH_EXPANDED = 280;
 const SWIPE_THRESHOLD = 50; // 向下滑动超过这个距离时关闭侧边栏
@@ -90,6 +91,11 @@ export default function SettingsSidebar({
   );
   const [isRelationshipEnabled, setIsRelationshipEnabled] = useState(
     selectedCharacter?.relationshipEnabled === true
+  );
+
+  // Add new state for dynamic portrait video
+  const [isDynamicPortraitEnabled, setIsDynamicPortraitEnabled] = useState(
+    selectedCharacter?.dynamicPortraitEnabled === true
   );
 
   // Add new state for auto message timing
@@ -165,6 +171,8 @@ export default function SettingsSidebar({
     setAutoMessageInterval(selectedCharacter?.autoMessageInterval || 5);
     // Add the custom user name sync
     setCustomUserName(selectedCharacter?.customUserName || '');
+    // Add sync for dynamic portrait enabled state
+    setIsDynamicPortraitEnabled(selectedCharacter?.dynamicPortraitEnabled === true);
   }, [selectedCharacter]);
 
   // When user name or character changes, update Mem0Service
@@ -415,6 +423,55 @@ export default function SettingsSidebar({
     }
     
     Alert.alert('已切换对话模式', modeDescription);
+  };
+
+  // Add handler for dynamic portrait toggle
+  const handleDynamicPortraitToggle = async () => {
+    if (selectedCharacter) {
+      const updatedCharacter = {
+        ...selectedCharacter,
+        dynamicPortraitEnabled: !isDynamicPortraitEnabled
+      };
+      
+      // If enabling but no video is set, prompt to select a video
+      if (!isDynamicPortraitEnabled && !selectedCharacter.dynamicPortraitVideo) {
+        handleSelectDynamicPortrait();
+      } else {
+        await updateCharacter(updatedCharacter);
+        setIsDynamicPortraitEnabled(!isDynamicPortraitEnabled);
+      }
+    }
+  };
+
+  // Add handler to select dynamic portrait video
+  const handleSelectDynamicPortrait = async () => {
+    if (!selectedCharacter) return;
+
+    try {
+      // Use DocumentPicker to select video files
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'video/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled === false) {
+        const videoUri = result.assets[0].uri;
+        
+        // Update the character with the selected video
+        const updatedCharacter = {
+          ...selectedCharacter,
+          dynamicPortraitVideo: videoUri,
+          dynamicPortraitEnabled: true,
+        };
+        
+        await updateCharacter(updatedCharacter);
+        setIsDynamicPortraitEnabled(true);
+        Alert.alert('成功', '动态立绘视频已设置');
+      }
+    } catch (error) {
+      console.error("Dynamic portrait selection error:", error);
+      Alert.alert('错误', '无法选择动态立绘视频');
+    }
   };
 
   // Memory Summary Settings Component
@@ -683,6 +740,45 @@ export default function SettingsSidebar({
           </View>
         </View>
 
+        {/* Add dynamic portrait video settings */}
+        <View style={styles.settingSection}>
+          <Text style={styles.settingSectionTitle}>视觉设置</Text>
+          
+          <View style={styles.settingItem}>
+            <Text style={styles.settingLabel}>动态立绘</Text>
+            <Switch
+              value={isDynamicPortraitEnabled}
+              onValueChange={handleDynamicPortraitToggle}
+              trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+              thumbColor={isDynamicPortraitEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+            />
+          </View>
+          
+          {isDynamicPortraitEnabled && (
+            <TouchableOpacity
+              style={styles.backgroundButton}
+              onPress={handleSelectDynamicPortrait}
+            >
+              <MaterialIcons name="videocam" size={24} color="#fff" />
+              <Text style={styles.backgroundButtonText}>
+                {selectedCharacter?.dynamicPortraitVideo ? '更换动态立绘' : '选择动态立绘'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          
+          <Text style={styles.settingDescription}>
+            动态立绘使用视频文件代替静态背景图，为角色提供更生动的表现。
+          </Text>
+          
+          <TouchableOpacity
+            style={styles.backgroundButton}
+            onPress={handleBackgroundChange}
+          >
+            <MaterialIcons name="image" size={24} color="#fff" />
+            <Text style={styles.backgroundButtonText}>更换聊天背景</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Replace Permanent Memory with Memory Summary */}
         <View style={styles.settingItem}>
           <Text style={styles.settingLabel}>记忆总结</Text>
@@ -746,14 +842,6 @@ export default function SettingsSidebar({
             thumbColor={isCircleInteractionEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
           />
         </View>
-
-        <TouchableOpacity
-          style={styles.backgroundButton}
-          onPress={handleBackgroundChange}
-        >
-          <MaterialIcons name="image" size={24} color="#fff" />
-          <Text style={styles.backgroundButtonText}>更换聊天背景</Text>
-        </TouchableOpacity>
 
         {selectedCharacter && isMemorySummaryEnabled && (
           <MemorySummarySettings character={selectedCharacter} updateCharacter={updateCharacter} />

@@ -222,6 +222,10 @@ export interface Character {
   // Custom user name that the character will use to address the user
   customUserName?: string;
   
+  // New properties for dynamic portrait video
+  dynamicPortraitVideo?: string | null; // Path to video file (local or remote)
+  dynamicPortraitEnabled?: boolean; // Whether to use dynamic portrait video
+  
   // Circle-related fields (existing)
   conversationId?: string;
   jsonData?: string;
