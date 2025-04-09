@@ -25,14 +25,15 @@ class TaskService {
       height: params.height,
       steps: params.steps,
       batch_size: params.batch_size,
+      email: params.email, // Add email to the task
       status: 'created',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      retryCount: 0
+      retryCount: params.retryCount || 0
     };
     
     this.tasks.set(taskId, task);
-    logger.info(`Task created: ${taskId}`);
+    logger.info(`Task created: ${taskId} for email: ${params.email || 'unknown'}`);
     
     return task;
   }
@@ -106,7 +107,9 @@ class TaskService {
       predictionId,
       createdAt, 
       completedAt,
-      error
+      error,
+      cost, // Include cost in the safe task
+      predictTime // Include prediction time
     } = task;
     
     return {
@@ -120,7 +123,9 @@ class TaskService {
       predictionId,
       createdAt,
       completedAt: completedAt || null,
-      error: error || null
+      error: error || null,
+      cost: cost || null,
+      predictTime: predictTime || null
     };
   }
 }

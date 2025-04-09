@@ -656,6 +656,11 @@ const ApiSettings = () => {
                     <Text style={styles.licenseInfoText}>
                       有效期至: {licenseInfo.expiryDate || '永久'}
                     </Text>
+                    {licenseInfo.email && (
+                      <Text style={styles.licenseInfoText}>
+                        邮箱: {licenseInfo.email}
+                      </Text>
+                    )}
                     <Text style={styles.licenseInfoText}>
                       已绑定设备数: {licenseInfo.deviceCount || 1}/3
                     </Text>

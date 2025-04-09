@@ -546,48 +546,50 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     customUserName?: string;
   }): Promise<Message> {
     try {
-      console.log('[NodeSTManager] 从消息索引重新生成:', params.messageIndex);
+        console.log('[NodeSTManager] 从消息索引重新生成:', params.messageIndex);
 
-      if (!params.apiKey) {
-        console.error('[NodeSTManager] 重新生成失败: 缺少API密钥');
-        throw new Error('重新生成需要API密钥');
-      }
+        if (!params.apiKey) {
+            console.error('[NodeSTManager] 重新生成失败: 缺少API密钥');
+            throw new Error('重新生成需要API密钥');
+        }
 
-      // 更新API设置
-      this.updateApiSettings(params.apiKey, params.apiSettings);
+        // 更新API设置
+        this.updateApiSettings(params.apiKey, params.apiSettings);
 
-      // 记录调用参数
-      console.log('[NodeSTManager] 重新生成参数:', {
-        conversationId: params.conversationId,
-        messageIndex: params.messageIndex,
-        apiProvider: params.apiSettings?.apiProvider || 'gemini',
-        characterId: params.character?.id
-      });
+        // 记录调用参数
+        console.log('[NodeSTManager] 重新生成参数:', {
+            conversationId: params.conversationId,
+            messageIndex: params.messageIndex,
+            apiProvider: params.apiSettings?.apiProvider || 'gemini',
+            characterId: params.character?.id,
+            customUserName: params.character?.customUserName || 'User'
+        });
 
-      // 确保NodeST实例存在
-      if (!this.nodeST) {
-        console.error('[NodeSTManager] NodeST实例未初始化');
-        throw new Error('NodeST实例未初始化');
-      }
+        // 确保NodeST实例存在
+        if (!this.nodeST) {
+            console.error('[NodeSTManager] NodeST实例未初始化');
+            throw new Error('NodeST实例未初始化');
+        }
 
-      // 调用NodeST的regenerateFromMessage方法
-      const response = await this.nodeST.regenerateFromMessage(
-        params.conversationId,
-        params.messageIndex,
-        params.apiKey,
-        params.character?.id // 传递角色ID用于记忆服务
-      );
+        // 调用NodeST的regenerateFromMessage方法
+        const response = await this.nodeST.regenerateFromMessage(
+            params.conversationId,
+            params.messageIndex,
+            params.apiKey,
+            params.character?.id, // 传递角色ID用于记忆服务
+            params.character?.customUserName // 传递自定义用户名
+        );
 
-      console.log('[NodeSTManager] 重新生成成功');
-      return {
-        success: true,
-        text: response || '抱歉，重新生成没有返回有效内容。'
-      };
+        console.log('[NodeSTManager] 重新生成成功');
+        return {
+            success: true,
+            text: response || '抱歉，重新生成没有返回有效内容。'
+        };
     } catch (error) {
-      console.error('[NodeSTManager] 重新生成消息时出错:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '未知错误'
+        console.error('[NodeSTManager] 重新生成消息时出错:', error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : '未知错误'
         };
     }
   }

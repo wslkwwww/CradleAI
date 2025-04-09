@@ -2,13 +2,30 @@
  * Validate the request body for the generate endpoint
  */
 function validateGenerateRequest(req, res, next) {
-  const { prompt, width, height, steps, batch_size } = req.body;
+  const { prompt, width, height, steps, batch_size, email } = req.body;
 
   // Validate required fields
   if (!prompt) {
     return res.status(400).json({
       success: false,
       error: "prompt is required"
+    });
+  }
+
+  // Validate email
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      error: "email is required"
+    });
+  }
+  
+  // Basic email format validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({
+      success: false,
+      error: "invalid email format"
     });
   }
 
@@ -48,13 +65,30 @@ function validateGenerateRequest(req, res, next) {
  * Validate the request body for the retry endpoint
  */
 function validateRetryRequest(req, res, next) {
-  const { taskId } = req.body;
+  const { taskId, email } = req.body;
 
   // Validate required fields
   if (!taskId) {
     return res.status(400).json({
       success: false,
       error: "taskId is required"
+    });
+  }
+  
+  // Validate email for retry
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      error: "email is required"
+    });
+  }
+
+  // Basic email format validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({
+      success: false,
+      error: "invalid email format"
     });
   }
 

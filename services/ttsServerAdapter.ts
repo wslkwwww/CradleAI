@@ -13,6 +13,7 @@ interface TTSRequestParams {
   tts_text: string;
   instruction?: string;
   task?: string;
+  email: string;
 }
 
 interface TTSResponse {

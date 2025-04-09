@@ -13,6 +13,7 @@ export interface LicenseInfo {
   planId: string;
   expiryDate: string;
   customerEmail?: string;
+  email?: string; // Add email field
   deviceCount?: number;
   isValid: boolean;
   validationDate?: string; // 新增：上次验证日期，用于判断是否需要重新验证
@@ -295,6 +296,7 @@ class LicenseService {
           planId: data.license_info.plan_id || 'standard',
           expiryDate: data.license_info.expiry_date || 'permanent',
           customerEmail: data.license_info.customer_email,
+          email: data.license_info.email, // Store email from response
           deviceCount: data.license_info.device_count || 1
         };
         

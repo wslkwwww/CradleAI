@@ -42,6 +42,15 @@ class ReplicateService {
     
     // 初始化重试消费者
     this.initializeRetryConsumer();
+
+    // 创建 axios 实例用于调用许可证服务
+    this.licenseAxios = axios.create({
+      timeout: 5000, // 5秒超时
+      maxRedirects: 3,
+    });
+    
+    this.licenseBaseUrl = process.env.LICENSE_API_URL || 'https://license.cradleintro.top';
+    this.creditPerSecond = 0.01; // 每秒花费的信用点数
   }
 
   // 初始化重试队列消费者
@@ -66,7 +75,7 @@ class ReplicateService {
           );
           
           // 执行实际的任务重试
-          const result = await this._executeReplicateRequest(task.payload, task.taskId);
+          const result = await this._executeReplicateRequest(task.payload, task.taskId, task.userEmail);
           
           // 如果成功，发送成功更新
           sseService.sendTaskUpdate(task.taskId, 'succeeded', { 
@@ -126,10 +135,10 @@ class ReplicateService {
     }
   }
 
-  async generateAudio(sourceAudioUrl, sourceTranscript, ttsText, instruction, task, clientId = null) {
+  async generateAudio(sourceAudioUrl, sourceTranscript, ttsText, instruction, task, clientId = null, taskId = null, userEmail = null) {
     try {
-      // 生成唯一的任务ID
-      const taskId = uuidv4();
+      // 如果没有提供任务ID，生成一个新的
+      taskId = taskId || uuidv4();
       
       // 创建请求唯一键
       const requestKey = this._createRequestKey(sourceAudioUrl, sourceTranscript, ttsText, instruction, task);
@@ -172,7 +181,7 @@ class ReplicateService {
       });
 
       // 创建此请求的 Promise 并存储在活动请求中
-      const requestPromise = this._executeReplicateRequestWithQueue(payload, requestKey, taskId);
+      const requestPromise = this._executeReplicateRequestWithQueue(payload, requestKey, taskId, userEmail);
       this.activeRequests.set(requestKey, requestPromise);
       
       // 完成后从活动请求中移除
@@ -185,8 +194,7 @@ class ReplicateService {
       logger.error('Error calling Replicate API:', error.response?.data || error.message);
       
       // 如果有任务ID，发送失败状态
-      if (arguments[6] && typeof arguments[6] === 'string') {
-        const taskId = arguments[6];
+      if (taskId) {
         sseService.sendTaskUpdate(taskId, 'failed', { 
           error: error.message || 'Unknown error',
           message: 'Failed to start task'
@@ -198,7 +206,7 @@ class ReplicateService {
   }
   
   // 执行 Replicate 请求，带队列系统
-  async _executeReplicateRequestWithQueue(payload, requestKey, taskId) {
+  async _executeReplicateRequestWithQueue(payload, requestKey, taskId, userEmail) {
     // 如果已达到 Replicate API 并发限制，则排队等待
     if (this.currentReplicate >= this.maxConcurrentReplicate) {
       sseService.sendTaskUpdate(taskId, 'queued', { 
@@ -218,7 +226,7 @@ class ReplicateService {
     this.currentReplicate++;
     
     try {
-      return await this._executeReplicateRequestWithRetry(payload, requestKey, taskId);
+      return await this._executeReplicateRequestWithRetry(payload, requestKey, taskId, 0, userEmail);
     } finally {
       this.currentReplicate--;
       
@@ -231,9 +239,9 @@ class ReplicateService {
   }
   
   // 执行 Replicate 请求，带重试机制
-  async _executeReplicateRequestWithRetry(payload, requestKey, taskId, retryCount = 0) {
+  async _executeReplicateRequestWithRetry(payload, requestKey, taskId, retryCount = 0, userEmail) {
     try {
-      return await this._executeReplicateRequest(payload, taskId);
+      return await this._executeReplicateRequest(payload, taskId, userEmail);
     } catch (error) {
       // 检查是否应该重试
       if (retryCount < MAX_RETRIES && this._isRetryableError(error)) {
@@ -247,7 +255,7 @@ class ReplicateService {
         });
         
         await sleep(RETRY_DELAY * Math.pow(2, retryCount)); // 指数退避策略
-        return this._executeReplicateRequestWithRetry(payload, requestKey, taskId, retryCount + 1);
+        return this._executeReplicateRequestWithRetry(payload, requestKey, taskId, retryCount + 1, userEmail);
       }
       
       // 如果内部重试失败，添加到重试队列进行后台重试
@@ -256,7 +264,8 @@ class ReplicateService {
         payload,
         requestKey,
         retryCount: 0,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        userEmail // 添加用户邮箱以便后台重试时使用
       };
       
       // 记录最终错误
@@ -285,7 +294,7 @@ class ReplicateService {
   }
   
   // 执行实际的 Replicate 请求
-  async _executeReplicateRequest(payload, taskId) {
+  async _executeReplicateRequest(payload, taskId, userEmail) {
     logger.info(`Executing Replicate request for task: ${taskId}`);
     
     // 发送状态更新：处理中
@@ -307,10 +316,10 @@ class ReplicateService {
     });
     
     // 轮询获取预测结果
-    return await this.pollPredictionResult(predictionId, taskId);
+    return await this.pollPredictionResult(predictionId, taskId, userEmail);
   }
 
-  async pollPredictionResult(predictionId, taskId) {
+  async pollPredictionResult(predictionId, taskId, userEmail) {
     // Increase the maximum attempts to allow for longer processing time
     const maxAttempts = 180;  // 6 minutes at 2-second intervals
     const pollingInterval = 2000;
@@ -327,12 +336,40 @@ class ReplicateService {
         if (prediction.status === 'succeeded') {
           logger.info(`Prediction ${predictionId} succeeded for task ${taskId}`);
           
-          // 发送状态更新：成功
-          sseService.sendTaskUpdate(taskId, 'succeeded', { 
-            predictionId,
-            output: prediction.output,
-            message: 'Audio generation completed successfully'
-          });
+          // 在成功后获取详细信息并计算费用
+          try {
+            const details = await this.getPredictionDetails(predictionId);
+            const predictTime = details?.metrics?.predict_time || 0;
+            const cost = predictTime * this.creditPerSecond;
+            
+            logger.info(`Task ${taskId} used ${predictTime} seconds, cost: ${cost} credits`);
+            
+            // 如果有用户邮箱，扣除相应费用
+            if (userEmail && cost > 0) {
+              await this.deductCredits(userEmail, cost, predictionId, taskId);
+            }
+            
+            // 将花费信息添加到状态更新中
+            sseService.sendTaskUpdate(taskId, 'succeeded', { 
+              predictionId,
+              output: prediction.output,
+              message: 'Audio generation completed successfully',
+              metrics: {
+                predictTime,
+                cost
+              }
+            });
+          } catch (costError) {
+            logger.error(`Error processing costs for task ${taskId}:`, costError);
+            
+            // 即使费用处理失败，也继续返回成功生成的音频
+            sseService.sendTaskUpdate(taskId, 'succeeded', { 
+              predictionId,
+              output: prediction.output,
+              message: 'Audio generation completed successfully, but cost processing failed',
+              error: costError.message
+            });
+          }
           
           // 下载生成的音频文件
           const audioUrl = prediction.output;
@@ -396,12 +433,40 @@ class ReplicateService {
         if (prediction.status === 'succeeded') {
           logger.info(`Prediction ${predictionId} finally succeeded for task ${taskId} after extended polling`);
           
-          // 发送状态更新：成功
-          sseService.sendTaskUpdate(taskId, 'succeeded', { 
-            predictionId,
-            output: prediction.output,
-            message: 'Audio generation completed successfully after extended processing'
-          });
+          // 在成功后获取详细信息并计算费用
+          try {
+            const details = await this.getPredictionDetails(predictionId);
+            const predictTime = details?.metrics?.predict_time || 0;
+            const cost = predictTime * this.creditPerSecond;
+            
+            logger.info(`Task ${taskId} used ${predictTime} seconds after extended polling, cost: ${cost} credits`);
+            
+            // 如果有用户邮箱，扣除相应费用
+            if (userEmail && cost > 0) {
+              await this.deductCredits(userEmail, cost, predictionId, taskId);
+            }
+            
+            // 将花费信息添加到状态更新中
+            sseService.sendTaskUpdate(taskId, 'succeeded', { 
+              predictionId,
+              output: prediction.output,
+              message: 'Audio generation completed successfully after extended processing',
+              metrics: {
+                predictTime,
+                cost
+              }
+            });
+          } catch (costError) {
+            logger.error(`Error processing costs for task ${taskId} after extended polling:`, costError);
+            
+            // 即使费用处理失败，也继续返回成功生成的音频
+            sseService.sendTaskUpdate(taskId, 'succeeded', { 
+              predictionId,
+              output: prediction.output,
+              message: 'Audio generation completed successfully after extended processing, but cost processing failed',
+              error: costError.message
+            });
+          }
           
           // 下载生成的音频文件
           const audioUrl = prediction.output;
@@ -438,6 +503,56 @@ class ReplicateService {
         logger.warn(`Error during extended polling for task ${taskId}, will retry:`, error.message);
         await sleep(pollingInterval);
       }
+    }
+  }
+
+  // 获取预测任务的详细信息
+  async getPredictionDetails(predictionId) {
+    try {
+      const response = await replicateAxios.get(
+        `${this.apiUrl}/${predictionId}`,
+        { headers: this.headers }
+      );
+      return response.data;
+    } catch (error) {
+      logger.error(`Error getting prediction details for ${predictionId}:`, error);
+      throw error;
+    }
+  }
+
+  // 扣除用户余额
+  async deductCredits(email, amount, predictionId, taskId) {
+    try {
+      logger.info(`Deducting ${amount} credits from user ${email} for task ${taskId}`);
+      
+      const response = await this.licenseAxios.post(
+        `${this.licenseBaseUrl}/api/v1/license/deduct`,
+        {
+          email: email,
+          amount: amount
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Admin-Token': config.license.adminToken // 添加管理员令牌
+          }
+        }
+      );
+      
+      if (response.status === 200 && response.data.success) {
+        logger.info(`Successfully deducted ${amount} credits from ${email}, new balance: ${response.data.newBalance}`);
+        return {
+          success: true,
+          newBalance: response.data.newBalance
+        };
+      } else {
+        logger.warn(`Unexpected response deducting credits from ${email}:`, response.data);
+        throw new Error(response.data?.message || 'Unexpected response from license server');
+      }
+    } catch (error) {
+      logger.error(`Error deducting credits for ${email}:`, error.response?.data || error.message);
+      throw error;
     }
   }
 
@@ -488,7 +603,7 @@ class ReplicateService {
   }
   
   // 手动触发重试
-  async retryTask(taskId, payload) {
+  async retryTask(taskId, payload, userEmail) {
     try {
       logger.info(`Manual retry requested for task: ${taskId}`);
       
@@ -503,7 +618,8 @@ class ReplicateService {
         payload,
         retryCount: 0,
         createdAt: Date.now(),
-        manualRetry: true
+        manualRetry: true,
+        userEmail // 添加用户邮箱以便重试时使用
       };
       
       // 添加到重试队列，立即执行（delay=0）

@@ -1,6 +1,7 @@
+
 ## Replicate 文本到图像后端服务
 
-一个使用 Replicate API 生成图像并将图像存储在 MinIO 对象存储中的 Node.js 后端服务。现在支持实时状态更新和可靠的任务重试机制。
+一个使用 Replicate API 生成图像并将图像存储在 MinIO 对象存储中的 Node.js 后端服务。现在支持实时状态更新、可靠的任务重试机制和基于用户余额的计费功能。
 
 ## 特点
 
@@ -12,6 +13,7 @@
 - **实时任务状态更新 (SSE)**
 - **可靠的消息队列处理和任务重试机制 (RabbitMQ)**
 - **支持大量并发请求处理**
+- **基于用户余额的计费功能**
 
 ## 设置
 
@@ -21,6 +23,7 @@
 - MinIO 服务器
 - Replicate API 令牌
 - RabbitMQ 服务器
+- 计费授权服务API
 
 ### 安装
 
@@ -74,7 +77,8 @@ npm run start:cluster
   "width": 1024,
   "height": 1024,
   "steps": 28,
-  "batch_size": 1
+  "batch_size": 1,
+  "email": "user@example.com"
 }
 ```
 
@@ -115,6 +119,14 @@ npm run start:cluster
 }
 ```
 
+余额不足：
+```json
+{
+  "success": false,
+  "error": "Insufficient credits. Please add more credits to your account."
+}
+```
+
 ### POST /api/generate/retry
 
 重试失败的图像生成任务。
@@ -129,7 +141,8 @@ npm run start:cluster
   "width": 1024,
   "height": 1024,
   "steps": 28,
-  "batch_size": 1
+  "batch_size": 1,
+  "email": "user@example.com"
 }
 ```
 
@@ -160,7 +173,9 @@ npm run start:cluster
     "prompt": "提示内容",
     "urls": ["生成图像URL（如果已完成）"],
     "createdAt": "创建时间",
-    "completedAt": "完成时间（如果已完成）"
+    "completedAt": "完成时间（如果已完成）",
+    "cost": "生成该图像的费用（如果已完成）",
+    "predictTime": "图像生成所用的时间（秒）"
   }
 }
 ```
@@ -193,6 +208,38 @@ npm run start:cluster
 | RABBITMQ_URL | RabbitMQ 服务器 URL | amqp://guest:guest@localhost:5672 |
 | MAX_RETRIES | 最大重试次数 | 3 |
 | RETRY_INITIAL_INTERVAL | 初始重试间隔(毫秒) | 10000 |
+| LICENSE_API_ENDPOINT | 计费授权服务API地址 | https://license.cradleintro.top/api/v1/license |
+
+## 计费功能
+
+服务现在支持基于用户邮箱地址的计费功能，按照使用的计算时间收费。
+
+### 计费流程
+
+1. 用户在生成请求中提供邮箱地址
+2. 服务在处理任务前检查用户余额是否充足
+3. 如果余额不足，服务会拒绝任务并返回相应的错误信息
+4. 成功生成图像后，系统会根据Replicate API使用时间计算费用
+5. 系统会自动从用户账户扣除相应费用
+6. 生成结果会包含实际花费的信息
+
+### 计费配置
+
+计费相关的配置位于环境变量或配置文件中：
+
+```
+LICENSE_API_ENDPOINT=https://license.cradleintro.top/api/v1/license
+```
+
+在 `config.js` 中的计费设置：
+
+```javascript
+license: {
+  apiEndpoint: process.env.LICENSE_API_ENDPOINT || 'https://license.cradleintro.top/api/v1/license',
+  costPerSecond: 0.01, // 每秒成本
+  minCredits: 1.0 // 最小所需余额
+}
+```
 
 ## 实时状态更新 (SSE)
 
@@ -262,13 +309,15 @@ RabbitMQ 提供了一个 Web 管理界面，可以用于监控和管理队列：
    
 ## 工作流程
 
-1. 前端发送包含生成图像请求的 POST 请求
-2. 服务创建任务并将其添加到 RabbitMQ 队列
-3. 工作进程消费任务并调用 Replicate API 生成图像
-4. 在生成过程中，服务通过 SSE 向客户端发送实时状态更新
-5. 成功生成的图像保存到 MinIO 存储桶
-6. 服务返回 MinIO 中图像文件的 URL
-7. 如果生成失败，服务会根据配置的重试策略自动重试
+1. 前端发送包含生成图像请求和用户邮箱的 POST 请求
+2. 系统检查用户余额是否充足
+3. 服务创建任务并将其添加到 RabbitMQ 队列
+4. 工作进程消费任务并调用 Replicate API 生成图像
+5. 在生成过程中，服务通过 SSE 向客户端发送实时状态更新
+6. 成功生成的图像保存到 MinIO 存储桶
+7. 系统计算任务花费并从用户余额中扣除相应费用
+8. 服务返回 MinIO 中图像文件的 URL 及相关费用信息
+9. 如果生成失败，服务会根据配置的重试策略自动重试
 
 ## 测试
 
@@ -314,7 +363,8 @@ TEST_SERVER_URL=http://yourserver.com:3000
   "width": 1024,
   "height": 1024,
   "steps": 28,
-  "batch_size": 1
+  "batch_size": 1,
+  "email": "test@example.com"
 }
 [2023-11-30 15:30:45] 📢 信息: 正在向 http://localhost:3000/generate 发送 POST 请求...
 [2023-11-30 15:31:45] ✅ 成功: 请求成功完成！耗时: 60.00 秒
@@ -322,6 +372,8 @@ TEST_SERVER_URL=http://yourserver.com:3000
 [
   "http://localhost:9000/images/replicate_a1b2c3d4-1234-1234-1234-1234567890ab.png"
 ]
+[2023-11-30 15:31:45] 📢 信息: 任务费用: 0.60 元
+[2023-11-30 15:31:45] 📢 信息: 预测时间: 60.12 秒
 [2023-11-30 15:31:45] 📢 信息: 开始下载生成的图片...
 [2023-11-30 15:31:45] 📢 信息: 开始下载图片: http://localhost:9000/images/replicate_a1b2c3d4-1234-1234-1234-1234567890ab.png
 [2023-11-30 15:31:46] ✅ 成功: 图片已保存到: f:\my-app\replicate-text2img\tests\output\test_a1b2c3d4_image_1.png
@@ -429,6 +481,28 @@ npm install node-fetch@2
    npm install replicate@0.12.0
    ```
 
+### 4. "余额不足"错误
+
+如果您收到以下错误：
+
+```
+Insufficient credits. Please add more credits to your account.
+```
+
+这表明用户账户余额不足。请执行以下操作：
+
+1. 确认用户邮箱是否正确
+2. 访问授权服务网站为用户充值
+3. 检查 LICENSE_API_ENDPOINT 配置是否正确
+
+### 5. 计费API连接问题
+
+如果计费API连接失败，系统会记录警告日志，但仍会允许任务继续处理，稍后可以手动对账。如需解决此问题：
+
+1. 检查网络连接
+2. 验证授权服务API地址是否正确
+3. 确保授权服务正常运行
+
 ### 故障排除
 
 如果测试脚本报错：
@@ -448,7 +522,14 @@ npm install node-fetch@2
    - 确保您的 `.env` 文件中有正确的 Replicate API Token
    - 验证 token 是否有效
 
-4. **MinIO 问题**：
+4. **授权服务问题**：
+   - 确保计费服务API地址配置正确
+   - 验证用户邮箱格式是否正确
+
+5. **MinIO 问题**：
    - 确保 MinIO 服务器正在运行
    - 验证 MinIO 凭据是否正确
    - 检查是否创建了正确的存储桶
+```
+
+Made changes.

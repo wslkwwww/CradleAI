@@ -38,5 +38,12 @@ module.exports = {
     initialInterval: 30000, // 初始重试间隔 (30秒)
     multiplier: 2, // 指数退避倍率
     maxInterval: 600000 // 最大重试间隔 (10分钟)
+  },
+  // 许可证 API 配置
+  license: {
+    apiUrl: process.env.LICENSE_API_URL || 'https://license.cradleintro.top',
+    creditPerSecond: process.env.CREDIT_PER_SECOND ? parseFloat(process.env.CREDIT_PER_SECOND) : 0.01, // 每秒费用
+    minRequiredBalance: process.env.MIN_REQUIRED_BALANCE ? parseFloat(process.env.MIN_REQUIRED_BALANCE) : 1.0, // 最低所需余额
+    adminToken: process.env.LICENSE_ADMIN_TOKEN || 'test2' // 管理员令牌，用于扣除余额等操作
   }
 };

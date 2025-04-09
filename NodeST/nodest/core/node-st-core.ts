@@ -1579,24 +1579,29 @@ export class NodeSTCore {
         messageIndex: number,
         apiKey: string,
         characterId?: string,
-        customUserName?: string // Add customUserName parameter
+        customUserName?: string // Add parameter for customUserName
     ): Promise<string | null> {
         try {
-            console.log('[NodeSTCore] Starting regeneration from message index:', messageIndex);
+            console.log('[NodeSTCore] Starting regenerateFromMessage:', {
+                conversationId,
+                messageIndex,
+                hasCharacterId: !!characterId,
+                hasCustomUserName: !!customUserName
+            });
 
-            // Ensure Adapter is initialized
+            // 确保Adapter已初始化
             if ((!this.geminiAdapter || !this.openRouterAdapter) && apiKey) {
                 this.initAdapters(apiKey, this.apiSettings);
             }
 
-            // Get the correct adapter
+            // 获取正确的 adapter
             const adapter = this.getActiveAdapter();
             
             if (!adapter) {
                 throw new Error("API adapter not initialized - missing API key");
             }
 
-            // Load character data
+            // 确保加载最新的角色数据
             const roleCard = await this.loadJson<RoleCardJson>(
                 this.getStorageKey(conversationId, '_role')
             );
@@ -1636,54 +1641,113 @@ export class NodeSTCore {
                 return null;
             }
 
-            // Critical fix: Get all real messages (not D-entries) and pair them up correctly
+            // Get all real messages (not D-entries)
             const realMessages = chatHistory.parts.filter(msg => !msg.is_d_entry);
-            
             console.log(`[NodeSTCore] Total real messages: ${realMessages.length}`);
             
-            // Build user-AI message pairs to correctly identify which user message corresponds to which AI message
-            const messagePairs: {userMessage: ChatMessage, aiMessage: ChatMessage}[] = [];
-            let currentUserMessage: ChatMessage | null = null;
+            // Check if we're trying to regenerate the AI's first message (first_mes)
+            const firstAiMessage = realMessages.find(msg => msg.is_first_mes && 
+                (msg.role === "model" || msg.role === "assistant"));
             
-            for (const msg of realMessages) {
-                // If it's a user message, store it as the current user message
-                if (msg.role === "user") {
-                    currentUserMessage = msg;
-                }
-                // If it's an AI message and we have a user message before it, create a pair
-                else if ((msg.role === "model" || msg.role === "assistant") && currentUserMessage) {
-                    messagePairs.push({
-                        userMessage: currentUserMessage,
-                        aiMessage: msg
-                    });
-                    // Don't reset currentUserMessage here, as multiple AI messages might correspond to one user message
+            if (messageIndex === 0 && firstAiMessage) {
+                console.log('[NodeSTCore] Detected request to regenerate first_mes');
+                
+                // For first_mes regeneration, just use the existing roleCard.first_mes
+                if (roleCard.first_mes) {
+                    console.log('[NodeSTCore] Reusing existing first_mes from roleCard');
+                    
+                    // Replace the first_mes in the history
+                    const updatedHistory = {
+                        ...chatHistory,
+                        parts: chatHistory.parts.map(msg => {
+                            if (msg.is_first_mes) {
+                                return {
+                                    ...msg,
+                                    parts: [{ text: roleCard.first_mes }]
+                                };
+                            }
+                            return msg;
+                        })
+                    };
+                    
+                    // Save the updated history
+                    await this.saveJson(
+                        this.getStorageKey(conversationId, '_history'),
+                        updatedHistory
+                    );
+                    
+                    console.log('[NodeSTCore] First message regenerated successfully using original first_mes');
+                    return roleCard.first_mes;
+                } else {
+                    console.warn('[NodeSTCore] Cannot regenerate first_mes: roleCard.first_mes is missing');
+                    return null;
                 }
             }
             
-            console.log(`[NodeSTCore] Found ${messagePairs.length} user-AI message pairs`);
+            // FIX: Completely revamp the message index calculation logic to properly handle short conversations
             
-            // Validate messageIndex
-            if (messageIndex < 0 || messageIndex >= messagePairs.length) {
-                console.error(`[NodeSTCore] Invalid message index: ${messageIndex}. Available pairs: ${messagePairs.length}`);
+            // First, collect all actual AI and user messages (excluding first_mes and D-entries)
+            const aiMessages = realMessages.filter(msg => 
+                (msg.role === "model" || msg.role === "assistant") && !msg.is_first_mes
+            );
+            
+            console.log('[NodeSTCore] Found AI messages (excluding first_mes):', aiMessages.length);
+            
+            // Check if the requested index is valid
+            if (messageIndex <= 0 || messageIndex > aiMessages.length) {
+                console.error(`[NodeSTCore] Invalid message index: ${messageIndex}. Available AI messages: ${aiMessages.length}`);
                 return null;
             }
             
-            // Get the specific pair we want to regenerate
-            const targetPair = messagePairs[messageIndex];
+            // Get the target AI message (1-based index for messageIndex)
+            const targetAiMessage = aiMessages[messageIndex - 1];
             
-            if (!targetPair) {
-                console.error(`[NodeSTCore] Could not find message pair at index ${messageIndex}`);
+            if (!targetAiMessage) {
+                console.error(`[NodeSTCore] Could not find AI message at index ${messageIndex}`);
                 return null;
             }
             
-            // Extract the user message text we need to regenerate from
-            const userMessageText = targetPair.userMessage.parts[0]?.text || "";
+            console.log('[NodeSTCore] Target AI message to regenerate:', {
+                role: targetAiMessage.role,
+                preview: targetAiMessage.parts[0]?.text?.substring(0, 50) + '...',
+            });
+            
+            // Now find the user message that came before this AI message
+            // We need to search through the complete history to maintain the correct order
+            let userMessageForRegeneration: ChatMessage | undefined;
+            let userMessageIndex = -1;
+            
+            for (let i = 0; i < realMessages.length; i++) {
+                if (realMessages[i] === targetAiMessage && i > 0) {
+                    // Look backwards for the closest user message
+                    for (let j = i - 1; j >= 0; j--) {
+                        if (realMessages[j].role === "user") {
+                            userMessageForRegeneration = realMessages[j];
+                            userMessageIndex = j;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+            
+            if (!userMessageForRegeneration) {
+                console.error('[NodeSTCore] Could not find user message before target AI message');
+                return null;
+            }
             
             console.log('[NodeSTCore] Found user message for regeneration:', {
-                userMessageText: userMessageText.substring(0, 50) + '...',
-                aiMessageText: targetPair.aiMessage.parts[0]?.text?.substring(0, 50) + '...',
-                pairIndex: messageIndex
+                index: userMessageIndex,
+                preview: userMessageForRegeneration.parts[0]?.text?.substring(0, 50) + '...'
             });
+            
+            // Extract the user message text
+            const userMessageText = userMessageForRegeneration.parts[0]?.text || "";
+            
+            if (!userMessageText) {
+                console.error('[NodeSTCore] User message text is empty');
+                return null;
+            }
             
             // Create a truncated history that includes all messages up to and including our target user message
             const truncatedHistory: ChatHistoryEntity = {
@@ -1691,26 +1755,29 @@ export class NodeSTCore {
                 parts: []
             };
             
-            // Find the index of the target user message in the full history
-            const targetUserMessageIndex = chatHistory.parts.findIndex(msg => 
-                !msg.is_d_entry && 
-                msg.role === targetPair.userMessage.role && 
-                msg.parts[0]?.text === userMessageText
-            );
+            // Find all messages up to and including the user message in the full history
+            let foundUserMessage = false;
             
-            if (targetUserMessageIndex === -1) {
-                console.error('[NodeSTCore] Could not find target user message in full history');
+            // First add all messages including first_mes and D-entries up to the user message
+            for (const msg of chatHistory.parts) {
+                truncatedHistory.parts.push(msg);
+                
+                // If we've reached the user message we want to regenerate from, stop
+                if (!msg.is_d_entry && msg === userMessageForRegeneration) {
+                    foundUserMessage = true;
+                    break;
+                }
+            }
+            
+            if (!foundUserMessage) {
+                console.error('[NodeSTCore] Could not locate user message in full history');
                 return null;
             }
             
-            console.log(`[NodeSTCore] Target user message found at index ${targetUserMessageIndex} in full history`);
-            
-            // Include all messages up to and including the target user message
-            truncatedHistory.parts = chatHistory.parts.slice(0, targetUserMessageIndex + 1);
-            
-            console.log('[NodeSTCore] Truncated history:', {
+            console.log('[NodeSTCore] Truncated history built:', {
                 originalLength: chatHistory.parts.length,
-                truncatedLength: truncatedHistory.parts.length
+                truncatedLength: truncatedHistory.parts.length,
+                hasDEntries: truncatedHistory.parts.some(msg => msg.is_d_entry)
             });
             
             // Save the truncated history
@@ -1790,7 +1857,6 @@ export class NodeSTCore {
         }
     }
 
-    // Add this method to the NodeSTCore class
     async restoreChatHistory(
         conversationId: string,
         chatHistory: ChatHistoryEntity

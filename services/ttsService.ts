@@ -19,6 +19,7 @@ interface TTSRequest {
   tts_text: string;
   instruction?: string; // Optional instruction for voice generation
   task?: string; // Optional task parameter to identify request type
+  email?: string; // Optional email parameter
 }
 
 // Interface for TTS response
@@ -352,6 +353,19 @@ class TTSService {
         return {};
       }
 
+      // 获取许可证信息以获取用户邮箱
+      const licenseInfo = await licenseService.getLicenseInfo();
+      if (licenseInfo && (licenseInfo.email || licenseInfo.customerEmail)) {
+        // 添加用户邮箱到请求头
+        const userEmail = licenseInfo.email || licenseInfo.customerEmail;
+        if (userEmail) {
+          licenseHeaders['X-User-Email'] = userEmail;
+        }
+        console.log(`[TTSService] 使用用户邮箱: ${licenseHeaders['X-User-Email']}`);
+      } else {
+        console.warn(`[TTSService] 未找到用户邮箱信息`);
+      }
+
       console.log(`[TTSService] 使用许可证密钥: ${licenseHeaders['X-License-Key'].substring(0, 4)}****`);
       console.log(`[TTSService] 使用设备ID: ${licenseHeaders['X-Device-ID'].substring(0, 4)}****`);
       
@@ -429,7 +443,8 @@ class TTSService {
           templateId,
           tts_text: enhancedText || text,
           instruction: enhancedInstruction && enhancedInstruction.trim() ? enhancedInstruction : undefined,
-          task: enhancedInstruction && enhancedInstruction.trim() ? requestTask : undefined
+          task: enhancedInstruction && enhancedInstruction.trim() ? requestTask : undefined,
+          email: licenseHeaders['X-User-Email'] // Add email from license headers
         });
         
         if (!result.success) {
@@ -485,7 +500,8 @@ class TTSService {
                 templateId,
                 tts_text: enhancedTTS.tts_text,
                 instruction: enhancedTTS.instruction,
-                task: "Instructed Voice Generation" // Add task parameter for enhanced TTS
+                task: "Instructed Voice Generation", // Add task parameter for enhanced TTS
+                email: licenseHeaders['X-User-Email'] // Add email from license headers
               };
               
               console.log(`[TTSService] Enhanced text: ${enhancedTTS.tts_text.substring(0, 50)}...`);
@@ -496,7 +512,8 @@ class TTSService {
               console.log('[TTSService] No valid instruction from enhancer, using standard TTS');
               requestData = {
                 templateId,
-                tts_text: enhancedTTS.tts_text
+                tts_text: enhancedTTS.tts_text,
+                email: licenseHeaders['X-User-Email'] // Add email from license headers
               };
             }
           } catch (enhancerError) {
@@ -505,14 +522,16 @@ class TTSService {
             console.log('[TTSService] Falling back to original text');
             requestData = {
               templateId,
-              tts_text: text
+              tts_text: text,
+              email: licenseHeaders['X-User-Email'] // Add email from license headers
             };
           }
         } else {
           // Use original text if enhancer is disabled
           requestData = {
             templateId,
-            tts_text: text
+            tts_text: text,
+            email: licenseHeaders['X-User-Email'] // Add email from license headers
           };
         }
         
@@ -668,7 +687,8 @@ class TTSService {
       // Determine if we need to include task parameter for enhanced TTS
       let requestBody: TTSRequest = {
         templateId,
-        tts_text: text
+        tts_text: text,
+        email: licenseHeaders['X-User-Email'] // Add email from license headers
       };
       
       // Add task parameter if enhancer is enabled and we have instruction
@@ -682,12 +702,14 @@ class TTSService {
               templateId,
               tts_text: enhancedTTS.tts_text,
               instruction: enhancedTTS.instruction,
-              task: "Instructed Voice Generation"
+              task: "Instructed Voice Generation",
+              email: licenseHeaders['X-User-Email'] // Add email from license headers
             };
           } else {
             requestBody = {
               templateId,
-              tts_text: enhancedTTS.tts_text
+              tts_text: enhancedTTS.tts_text,
+              email: licenseHeaders['X-User-Email'] // Add email from license headers
             };
           }
         } catch (error) {
@@ -1089,11 +1111,15 @@ class TTSService {
           }
         }
         
+        // Get license headers
+        const licenseHeaders = await this.getLicenseHeaders();
+        
         const result = await ttsServerAdapter.retryAudio(taskId, {
           templateId: state.templateId,
           tts_text: enhancedText || text,
           instruction: enhancedInstruction && enhancedInstruction.trim() ? enhancedInstruction : undefined,
-          task: enhancedInstruction && enhancedInstruction.trim() ? requestTask : undefined
+          task: enhancedInstruction && enhancedInstruction.trim() ? requestTask : undefined,
+          email: licenseHeaders['X-User-Email'] // Add email from license headers
         });
         
         if (!result.success) {

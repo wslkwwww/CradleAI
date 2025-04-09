@@ -1,6 +1,7 @@
 const rabbitmqService = require('./rabbitmqService');
 const replicateService = require('./replicateService');
 const taskService = require('./taskService');
+const licenseService = require('./licenseService');
 const config = require('../config');
 const logger = require('../utils/logger');
 
@@ -28,10 +29,28 @@ class WorkerService {
    * @param {Object} task - The task to process
    */
   async processGenerationTask(task) {
-    const { taskId } = task;
-    logger.info(`Processing generation task: ${taskId}`);
+    const { taskId, email } = task;
+    logger.info(`Processing generation task: ${taskId} for user: ${email}`);
     
     try {
+      // Check user balance before proceeding
+      if (email) {
+        try {
+          const hasSufficientBalance = await licenseService.hasSufficientBalance(email);
+          
+          if (!hasSufficientBalance) {
+            throw new Error(`Insufficient credits for user: ${email}`);
+          }
+          
+          logger.info(`User ${email} has sufficient credits for task ${taskId}`);
+        } catch (balanceError) {
+          logger.error(`Balance check failed for task ${taskId}:`, balanceError);
+          throw new Error(`Balance check failed: ${balanceError.message}`);
+        }
+      } else {
+        logger.warn(`No email provided for task ${taskId}, skipping balance check`);
+      }
+      
       // Update task status to processing
       taskService.updateTask(taskId, 'processing');
       
@@ -100,6 +119,45 @@ class WorkerService {
       if (!Array.isArray(completedPrediction.output)) {
         logger.warn(`Prediction output is not an array for task ${taskId}. Converting single item to array.`);
         completedPrediction.output = [completedPrediction.output];
+      }
+      
+      // Get detailed prediction info for metrics
+      let detailedPrediction;
+      try {
+        detailedPrediction = await replicateService.getPrediction(prediction.id);
+      } catch (detailsError) {
+        logger.warn(`Error getting detailed prediction for ${taskId}:`, detailsError);
+        // Continue even if we can't get detailed metrics - non-critical
+      }
+      
+      // Process billing if email is present and we have detailed prediction
+      if (email && detailedPrediction && detailedPrediction.metrics) {
+        try {
+          // Calculate cost based on prediction time
+          const cost = licenseService.calculateCost(detailedPrediction.metrics);
+          
+          // Deduct credits from user account
+          const deductionSuccess = await licenseService.deductCredits(email, cost);
+          
+          if (deductionSuccess) {
+            logger.info(`Successfully deducted ${cost} credits from ${email} for task ${taskId}`);
+          } else {
+            logger.warn(`Failed to deduct ${cost} credits from ${email} for task ${taskId}`);
+          }
+          
+          // Store cost information with task
+          taskService.updateTask(taskId, 'billing_processed', {
+            cost: cost,
+            billingStatus: deductionSuccess ? 'succeeded' : 'failed',
+            predictTime: detailedPrediction.metrics.predict_time
+          });
+        } catch (billingError) {
+          logger.error(`Billing error for task ${taskId}:`, billingError);
+          // Continue even if billing fails - we can reconcile later
+          taskService.updateTask(taskId, 'billing_error', {
+            billingError: billingError.message
+          });
+        }
       }
       
       // Update task with URLs

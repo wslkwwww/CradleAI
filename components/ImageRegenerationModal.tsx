@@ -341,6 +341,10 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         throw new Error('需要有效的许可证才能生成图像，请先在API设置中激活您的许可证');
       }
 
+      // 获取许可证信息，以获取email
+      const licenseInfo = await licenseService.getLicenseInfo();
+      const userEmail = licenseInfo?.email || licenseInfo?.customerEmail || '';
+      
       // 构建请求参数，按照要求的格式
       const requestData = {
         prompt: positivePrompt,
@@ -348,7 +352,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         width: 576,  // 默认宽度
         height: 1024, // 默认高度
         steps: 28,    // 默认步数
-        batch_size: 1 // 默认批量大小
+        batch_size: 1, // 默认批量大小
+        email: userEmail // 添加用户邮箱
       };
 
       // 获取许可证头信息
@@ -363,6 +368,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 
       console.log(`[图片重生成] 使用许可证密钥: ${licenseHeaders['X-License-Key'].substring(0, 4)}****`);
       console.log(`[图片重生成] 使用设备ID: ${licenseHeaders['X-Device-ID'].substring(0, 4)}****`);
+      if (userEmail) console.log(`[图片重生成] 使用用户邮箱: ${userEmail}`);
 
       // 发送请求到图片生成服务，并携带许可证信息
       console.log(`[图片重生成] 正在向服务器发送请求...`);

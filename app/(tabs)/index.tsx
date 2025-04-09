@@ -473,63 +473,31 @@ const App = () => {
       
       // Find all AI messages and their corresponding user messages
       const currentMessages = [...messages];
-      const aiMessages: Message[] = [];
-      const userMessages: Message[] = [];
-      const messagePairs: { aiMessage: Message, userMessage: Message }[] = [];
       
-      // First, collect all messages by type
-      for (const msg of currentMessages) {
-        if (msg.sender === 'bot' && !msg.isLoading) {
-          aiMessages.push(msg);
-        } else if (msg.sender === 'user') {
-          userMessages.push(msg);
-        }
-      }
+      // First, count the number of actual bot messages (excluding loading messages)
+      const botMessages = currentMessages.filter(msg => 
+        msg.sender === 'bot' && !msg.isLoading
+      );
       
-      // Now build the pairs by looking at the sequence
-      let currentUserMessage: Message | null = null;
+      console.log(`Found ${botMessages.length} bot messages for regeneration`);
       
-      for (const msg of currentMessages) {
-        if (msg.sender === 'user') {
-          currentUserMessage = msg;
-        } else if (msg.sender === 'bot' && !msg.isLoading && currentUserMessage) {
-          messagePairs.push({
-            userMessage: currentUserMessage,
-            aiMessage: msg
-          });
-        }
-      }
-      
-      console.log(`Found ${messagePairs.length} user-AI message pairs`);
-      
-      // Find the target message pair
-      if (messageIndex < 0 || messageIndex >= messagePairs.length) {
-        console.warn('Invalid message index for regeneration:', messageIndex);
+      // Check if the message with the given ID exists and is a bot message
+      const targetMessageIndex = currentMessages.findIndex(msg => msg.id === messageId);
+      if (targetMessageIndex === -1) {
+        console.warn('Target message not found by ID:', messageId);
         return;
       }
       
-      const targetPair = messagePairs[messageIndex];
+      const targetMessage = currentMessages[targetMessageIndex];
       
-      if (!targetPair) {
-        console.warn('Target message pair not found for regeneration');
+      // Verify this is a bot message we can regenerate
+      if (targetMessage.sender !== 'bot' || targetMessage.isLoading) {
+        console.warn('Cannot regenerate message - invalid message type:', {
+          sender: targetMessage.sender,
+          isLoading: targetMessage.isLoading
+        });
         return;
       }
-      
-      console.log('Target user message:', targetPair.userMessage.text.substring(0, 30) + '...');
-      console.log('Target AI message:', targetPair.aiMessage.text.substring(0, 30) + '...');
-      
-      // Find the index of the AI message to regenerate
-      const targetAiIndex = currentMessages.findIndex(m => m.id === targetPair.aiMessage.id);
-      
-      if (targetAiIndex === -1) {
-        console.warn('Target AI message not found in current messages');
-        return;
-      }
-      
-      // Mark all messages after and including the AI message for removal
-      const messagesToRemove = currentMessages
-        .slice(targetAiIndex)
-        .map(msg => msg.id);
       
       // Add a loading message
       const loadingMessageId = `loading-${Date.now()}`;
@@ -541,9 +509,9 @@ const App = () => {
         timestamp: Date.now(),
       });
       
-      // Call NodeSTManager to handle the regeneration
+      // Call NodeSTManager to handle the regeneration with the provided index
       const result = await NodeSTManager.regenerateFromMessage({
-        messageIndex: messageIndex,
+        messageIndex: messageIndex, // Use the index as provided, NodeSTCore will handle the adjustment
         conversationId: selectedConversationId,
         apiKey: user?.settings?.chat?.characterApiKey || '',
         apiSettings: {
@@ -555,29 +523,33 @@ const App = () => {
       
       // Completely replace the context's messages with the updated messages from NodeST
       if (result.success) {
-        // First, remove all messages after and including the regenerated one
-        await Promise.all(messagesToRemove.map(id => {
-          return Promise.resolve();
-        }));
-        
-        // Now remove the loading message and build the updated message list
-        const currentMessagesAfterLoading = getMessages(selectedConversationId).filter(
-          msg => msg.id !== loadingMessageId && !messagesToRemove.includes(msg.id)
+        // Filter out the loading message
+        const updatedMessages = getMessages(selectedConversationId).filter(
+          msg => msg.id !== loadingMessageId
         );
         
-        // Then add the regenerated message
-        const regeneratedMessage: Message = {
-          id: `regenerated-${Date.now()}`,
-          text: result.text || 'No response generated',
-          sender: 'bot',
-          isLoading: false,
-          timestamp: Date.now(),
-        };
+        // Find the index where we need to update/insert the regenerated message
+        const insertIndex = updatedMessages.findIndex(msg => msg.id === messageId);
         
-        // Build new message list
-        const updatedMessages = [...currentMessagesAfterLoading, regeneratedMessage];
+        if (insertIndex !== -1) {
+          // Replace the old message with the regenerated one
+          updatedMessages[insertIndex] = {
+            ...updatedMessages[insertIndex],
+            text: result.text || 'No response generated',
+            isLoading: false,
+          };
+        } else {
+          // If we couldn't find the original message (unlikely), append the regenerated message
+          updatedMessages.push({
+            id: `regenerated-${Date.now()}`,
+            text: result.text || 'No response generated',
+            sender: 'bot',
+            isLoading: false,
+            timestamp: Date.now(),
+          });
+        }
         
-        // Save this to the context (this will replace all messages for this conversation)
+        // Save this to the context
         await clearMessages(selectedConversationId);
         
         // Add the updated messages one by one
@@ -815,6 +787,13 @@ const App = () => {
         const characterMessages = getMessages(characterId);
         console.log('[Index] Loaded messages count:', characterMessages.length);
         setMessages(characterMessages);
+        
+        // If conversation has messages, mark first message as sent
+        // This prevents duplicate first messages when switching characters
+        if (characterMessages.length > 0) {
+          firstMessageSentRef.current[characterId] = true;
+          console.log(`[Index] Marking first message as sent for conversation ${characterId} with existing messages`);
+        }
       } else {
         console.warn('[Index] Character not found in characters array:', characterId);
       }
@@ -831,36 +810,25 @@ const App = () => {
     }
   }, [selectedConversationId]);
 
-  function getCharacterConversationId(selectedConversationId: string): string | undefined {
-    // Since we're already using the character ID as the conversation ID throughout the app,
-    // we can simply return the selectedConversationId if it exists
-    return selectedConversationId || undefined;
-  }
-
-  // 获取角色的背景图片
-  const getBackgroundImage = () => {
-    if (selectedCharacter?.backgroundImage) {
-      return { uri: selectedCharacter.backgroundImage };
-    } else if (selectedCharacter?.backgroundImage) {
-      // 如果没有专门的聊天背景图，则使用普通背景图
-      return { uri: selectedCharacter.backgroundImage };
-    }
-    return require('@/assets/images/default-background.jpg');
-  };
-
   // Add functionality to send first message when conversation starts
   useEffect(() => {
     const sendFirstMessage = async () => {
       // Only proceed if we have a selected conversation and character
       if (!selectedConversationId || !selectedCharacter?.id) return;
       
+      console.log(`[App] Checking if first message should be sent for ${selectedCharacter.name} (${selectedCharacter.id})`);
+      
       // Check if we've already sent a first message for this conversation
-      if (firstMessageSentRef.current[selectedConversationId]) return;
+      if (firstMessageSentRef.current[selectedConversationId]) {
+        console.log(`[App] First message already sent for this conversation`);
+        return;
+      }
 
       // Check if the conversation is empty (no messages yet)
       const currentMessages = getMessages(selectedConversationId);
       if (currentMessages.length > 0) {
         // Mark as sent since conversation already has messages
+        console.log(`[App] Conversation already has ${currentMessages.length} messages, marking first message as sent`);
         firstMessageSentRef.current[selectedConversationId] = true;
         return;
       }
@@ -881,6 +849,7 @@ const App = () => {
             
             // Mark as sent for this conversation
             firstMessageSentRef.current[selectedConversationId] = true;
+            console.log(`[App] First message sent and marked for conversation ${selectedConversationId}`);
           }
         }
       } catch (error) {
@@ -888,8 +857,30 @@ const App = () => {
       }
     };
 
-    sendFirstMessage();
-  }, [selectedConversationId, selectedCharacter]);
+    // Delay the first message check slightly to avoid race conditions
+    const timer = setTimeout(() => {
+      sendFirstMessage();
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [selectedConversationId, selectedCharacter, getMessages, addMessage]);
+
+  function getCharacterConversationId(selectedConversationId: string): string | undefined {
+    // Since we're already using the character ID as the conversation ID throughout the app,
+    // we can simply return the selectedConversationId if it exists
+    return selectedConversationId || undefined;
+  }
+
+  // 获取角色的背景图片
+  const getBackgroundImage = () => {
+    if (selectedCharacter?.backgroundImage) {
+      return { uri: selectedCharacter.backgroundImage };
+    } else if (selectedCharacter?.backgroundImage) {
+      // 如果没有专门的聊天背景图，则使用普通背景图
+      return { uri: selectedCharacter.backgroundImage };
+    }
+    return require('@/assets/images/default-background.jpg');
+  };
 
   // Update handleResetConversation to send first_mes after reset
   const handleResetConversation = async () => {

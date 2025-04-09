@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const validator = require('../middleware/validator');
 const taskService = require('../services/taskService');
 const rabbitmqService = require('../services/rabbitmqService');
+const licenseService = require('../services/licenseService');
 const config = require('../config');
 const logger = require('../utils/logger');
 
@@ -20,7 +21,23 @@ router.post('/', validator.validateGenerateRequest, async (req, res, next) => {
       width = 1024,
       height = 1024,
       batch_size = 1,
+      email,
     } = req.body;
+
+    // Check user balance before proceeding
+    try {
+      const hasSufficientBalance = await licenseService.hasSufficientBalance(email);
+      
+      if (!hasSufficientBalance) {
+        return res.status(402).json({
+          success: false,
+          error: "Insufficient credits. Please add more credits to your account."
+        });
+      }
+    } catch (balanceError) {
+      logger.error(`Balance check failed for ${email}:`, balanceError);
+      // Continue with generation if balance check fails (implementation choice)
+    }
 
     // Create a new task
     const taskId = uuidv4();
@@ -32,6 +49,7 @@ router.post('/', validator.validateGenerateRequest, async (req, res, next) => {
       width,
       height,
       batch_size,
+      email, // Store email with the task
     });
 
     // Publish task to RabbitMQ queue
@@ -50,7 +68,7 @@ router.post('/', validator.validateGenerateRequest, async (req, res, next) => {
       }
     });
     
-    logger.info(`Task ${taskId} queued for processing`);
+    logger.info(`Task ${taskId} queued for processing with email ${email}`);
   } catch (error) {
     logger.error('Error in generate endpoint:', error);
     next(error);
@@ -63,7 +81,7 @@ router.post('/', validator.validateGenerateRequest, async (req, res, next) => {
  */
 router.post('/retry', validator.validateRetryRequest, async (req, res, next) => {
   try {
-    const { taskId, prompt, negative_prompt, width, height, steps, batch_size } = req.body;
+    const { taskId, email, prompt, negative_prompt, width, height, steps, batch_size } = req.body;
     
     // Check if task exists
     const existingTask = taskService.getTask(taskId);
@@ -75,6 +93,21 @@ router.post('/retry', validator.validateRetryRequest, async (req, res, next) => 
       });
     }
     
+    // Check user balance before proceeding
+    try {
+      const hasSufficientBalance = await licenseService.hasSufficientBalance(email);
+      
+      if (!hasSufficientBalance) {
+        return res.status(402).json({
+          success: false,
+          error: "Insufficient credits. Please add more credits to your account."
+        });
+      }
+    } catch (balanceError) {
+      logger.error(`Balance check failed for ${email}:`, balanceError);
+      // Continue with generation if balance check fails (implementation choice)
+    }
+    
     // Create retry task (keeping taskId for tracking)
     const retryTask = taskService.createTask({
       taskId,
@@ -84,6 +117,7 @@ router.post('/retry', validator.validateRetryRequest, async (req, res, next) => 
       height: height || existingTask.height,
       steps: steps || existingTask.steps,
       batch_size: batch_size || existingTask.batch_size,
+      email: email, // Always use the email from the retry request
       retryCount: existingTask.retryCount || 0
     });
     
@@ -92,7 +126,8 @@ router.post('/retry', validator.validateRetryRequest, async (req, res, next) => 
     
     // Update status
     taskService.updateTask(taskId, 'queued', { 
-      retryInitiated: true 
+      retryInitiated: true,
+      email: email // Update email in case it changed
     });
     
     res.status(202).json({
@@ -103,7 +138,7 @@ router.post('/retry', validator.validateRetryRequest, async (req, res, next) => 
       }
     });
     
-    logger.info(`Task ${taskId} retry initiated`);
+    logger.info(`Task ${taskId} retry initiated with email ${email}`);
   } catch (error) {
     logger.error('Error in retry endpoint:', error);
     next(error);

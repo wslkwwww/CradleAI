@@ -36,5 +36,11 @@ module.exports = {
   logging: {
     level: process.env.LOG_LEVEL || 'info',
     directory: 'logs'
+  },
+  license: {
+    apiEndpoint: process.env.LICENSE_API_ENDPOINT || 'https://license.cradleintro.top/api/v1/license',
+    adminToken: process.env.LICENSE_ADMIN_TOKEN || 'test2', // 添加管理员令牌
+    costPerSecond: 0.01, // 每秒成本
+    minCredits: 1.0 // 最小所需余额
   }
 };
