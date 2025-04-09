@@ -6,13 +6,12 @@ import {
   TouchableOpacity,
   Image,
   FlatList,
-  Modal,
   Platform,
   Dimensions,
+  SafeAreaView,
 } from 'react-native';
 import artistData from '@/app/data/v4-artist.json';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
 import { getArtistImageSource } from '@/utils/artistImageMapper';
 
 // Get screen dimensions for responsive layout
@@ -38,8 +37,6 @@ const ArtistReferenceSelector: React.FC<ArtistReferenceSelectorProps> = ({
   onSelectArtist,
   selectedArtistPrompt
 }) => {
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<ArtistImage | null>(null);
   const [showAllGenders, setShowAllGenders] = useState(false);
 
   // Filter artist data by gender - MODIFIED to use showAllGenders flag
@@ -47,27 +44,12 @@ const ArtistReferenceSelector: React.FC<ArtistReferenceSelectorProps> = ({
     ? artistData 
     : artistData.filter(artist => selectedGender === 'other' || artist.gender === selectedGender);
 
-  // Find the currently selected artist image based on prompt
-  React.useEffect(() => {
-    if (selectedArtistPrompt) {
-      const selected = artistData.find(artist => artist.artist_prompt === selectedArtistPrompt);
-      if (selected) {
-        setSelectedImage(selected);
-      }
-    } else {
-      setSelectedImage(null);
-    }
-  }, [selectedArtistPrompt]);
-
   const handleSelectArtist = (artist: ArtistImage) => {
-    setSelectedImage(artist);
     onSelectArtist(artist.artist_prompt);
-    setModalVisible(false);
     console.log(`[摇篮角色创建] 选择画师风格: ${artist.artist_prompt}`);
   };
 
   const clearSelection = () => {
-    setSelectedImage(null);
     onSelectArtist('');
     console.log(`[摇篮角色创建] 清除画师风格选择`);
   };
@@ -102,137 +84,152 @@ const ArtistReferenceSelector: React.FC<ArtistReferenceSelectorProps> = ({
     return "自定义画师风格";
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>画风参考</Text>
-      
-      {selectedImage ? (
-        <View style={styles.selectedImageContainer}>
-          <Image 
-            source={getArtistImageSource(selectedImage.image_filename)} 
-            style={styles.selectedImage}
-            defaultSource={require('@/assets/images/image-placeholder.png')}
-            resizeMode="contain"
-          />
-          <View style={styles.selectedImageInfo}>
-            <Text style={styles.selectedImageText}>已选择画风参考</Text>
-            <TouchableOpacity 
-              onPress={clearSelection}
-              style={styles.clearButton}
-            >
-              <Ionicons name="close-circle" size={20} color="#ff4444" />
-              <Text style={styles.clearButtonText}>清除选择</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <TouchableOpacity 
-          style={styles.selectButton}
-          onPress={() => setModalVisible(true)}
-        >
-          <Ionicons name="image-outline" size={24} color="#aaa" />
-          <Text style={styles.selectButtonText}>选择画风参考</Text>
-        </TouchableOpacity>
-      )}
+  // Check if an artist is currently selected
+  const isSelected = (artist: ArtistImage): boolean => {
+    return artist.artist_prompt === selectedArtistPrompt;
+  };
 
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>选择画风参考</Text>
-              <TouchableOpacity 
-                style={styles.modalCloseButton}
-                onPress={() => setModalVisible(false)}
-              >
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            
-            {/* Add a filter toggle for all genders */}
-            <View style={styles.filterToggleContainer}>
-              <TouchableOpacity 
-                style={[
-                  styles.filterButton, 
-                  !showAllGenders && styles.activeFilterButton
-                ]}
-                onPress={() => setShowAllGenders(false)}
-              >
-                <Text style={[
-                  styles.filterButtonText,
-                  !showAllGenders && styles.activeFilterText
-                ]}>
-                  {selectedGender === 'female' ? '女性画风' : '男性画风'}
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.filterButton, 
-                  showAllGenders && styles.activeFilterButton
-                ]}
-                onPress={() => setShowAllGenders(true)}
-              >
-                <Text style={[
-                  styles.filterButtonText,
-                  showAllGenders && styles.activeFilterText
-                ]}>
-                  全部画风
-                </Text>
-              </TouchableOpacity>
-            </View>
-            
-            {/* Display how many images are available */}
-            <Text style={styles.resultCountText}>
-              共 {filteredArtists.length} 个画风参考
-            </Text>
-            
-            <FlatList
-              data={filteredArtists}
-              numColumns={2}
-              keyExtractor={(item) => item.image_filename}
-              renderItem={({ item }) => (
-                <TouchableOpacity 
-                  style={styles.artistImageContainer}
-                  onPress={() => handleSelectArtist(item)}
-                >
-                  <View style={styles.imageWrapper}>
-                    <Image 
-                      source={getArtistImageSource(item.image_filename)}
-                      style={styles.artistImage}
-                      defaultSource={require('@/assets/images/image-placeholder.png')}
-                      resizeMode="cover"
-                    />
-                    {renderGenderBadge(item.gender)}
-                  </View>
-                  <View style={styles.artistPromptLabel}>
-                    <Text style={styles.artistPromptText} numberOfLines={1}>
-                      {getArtistDisplayName(item.artist_prompt)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-              contentContainerStyle={styles.artistList}
-              ListEmptyComponent={
-                <View style={styles.noImagesContainer}>
-                  <Text style={styles.noImagesText}>
-                    没有找到匹配当前性别的参考图片
-                  </Text>
-                </View>
-              }
-            />
-          </View>
+  return (
+    <SafeAreaView style={styles.modalOverlay}>
+      <View style={styles.modalContent}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>选择画风参考</Text>
+          <TouchableOpacity 
+            style={styles.modalCloseButton}
+            onPress={() => onSelectArtist(selectedArtistPrompt || '')}
+          >
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
         </View>
-      </Modal>
-    </View>
+        
+        {/* Add a filter toggle for all genders */}
+        <View style={styles.filterToggleContainer}>
+          <TouchableOpacity 
+            style={[
+              styles.filterButton, 
+              !showAllGenders && styles.activeFilterButton
+            ]}
+            onPress={() => setShowAllGenders(false)}
+          >
+            <Text style={[
+              styles.filterButtonText,
+              !showAllGenders && styles.activeFilterText
+            ]}>
+              {selectedGender === 'female' ? '女性画风' : '男性画风'}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.filterButton, 
+              showAllGenders && styles.activeFilterButton
+            ]}
+            onPress={() => setShowAllGenders(true)}
+          >
+            <Text style={[
+              styles.filterButtonText,
+              showAllGenders && styles.activeFilterText
+            ]}>
+              全部画风
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.clearSelectionContainer}>
+          <TouchableOpacity 
+            style={styles.clearSelectionButton}
+            onPress={clearSelection}
+          >
+            <Ionicons name="close-circle-outline" size={16} color="#ff4444" />
+            <Text style={styles.clearSelectionText}>清除选择</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {/* Display how many images are available */}
+        <Text style={styles.resultCountText}>
+          共 {filteredArtists.length} 个画风参考
+        </Text>
+        
+        <FlatList
+          data={filteredArtists}
+          numColumns={2}
+          keyExtractor={(item) => item.image_filename}
+          renderItem={({ item }) => (
+            <TouchableOpacity 
+              style={[
+                styles.artistImageContainer,
+                isSelected(item) && styles.selectedArtistContainer
+              ]}
+              onPress={() => handleSelectArtist(item)}
+            >
+              <View style={styles.imageWrapper}>
+                <Image 
+                  source={getArtistImageSource(item.image_filename)}
+                  style={styles.artistImage}
+                  defaultSource={require('@/assets/images/image-placeholder.png')}
+                  resizeMode="cover"
+                />
+                {renderGenderBadge(item.gender)}
+                {isSelected(item) && (
+                  <View style={styles.selectedOverlay}>
+                    <Ionicons name="checkmark-circle" size={32} color="#4CAF50" />
+                  </View>
+                )}
+              </View>
+              <View style={styles.artistPromptLabel}>
+                <Text style={styles.artistPromptText} numberOfLines={1}>
+                  {getArtistDisplayName(item.artist_prompt)}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          contentContainerStyle={styles.artistList}
+          ListEmptyComponent={
+            <View style={styles.noImagesContainer}>
+              <Text style={styles.noImagesText}>
+                没有找到匹配当前性别的参考图片
+              </Text>
+            </View>
+          }
+        />
+      </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  // Selected artist styles
+  selectedArtistContainer: {
+    borderColor: '#4CAF50',
+    borderWidth: 2,
+  },
+  selectedOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    padding: 4,
+    borderBottomLeftRadius: 8,
+  },
+  clearSelectionContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    padding: 8,
+  },
+  clearSelectionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    borderRadius: 16,
+  },
+  clearSelectionText: {
+    color: '#ff4444',
+    marginLeft: 4,
+    fontSize: 12,
+  },
+  
   // Add new styles
   noImagesContainer: {
     flex: 1,
@@ -316,71 +313,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   
-  // Existing styles with updated dimensions
-  container: {
-    marginVertical: 16,
-  },
-  title: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  selectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(60, 60, 60, 0.8)',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderStyle: 'dashed',
-  },
-  selectButtonText: {
-    color: '#aaa',
-    marginLeft: 8,
-  },
-  selectedImageContainer: {
-    backgroundColor: 'rgba(60, 60, 60, 0.8)',
-    borderRadius: 8,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  selectedImage: {
-    width: '100%',
-    height: 180,
-    backgroundColor: '#222',
-  },
-  selectedImageInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-  },
-  selectedImageText: {
-    color: '#fff',
-  },
-  clearButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  clearButtonText: {
-    color: '#ff4444',
-    marginLeft: 4,
-  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
   },
   modalContent: {
-    width: '90%',
-    height: '80%',
+    flex: 1,
     backgroundColor: '#282828',
-    borderRadius: 16,
-    overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -391,6 +330,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
     position: 'relative',
+    paddingTop: Platform.OS === 'ios' ? 16 : 16,
   },
   modalTitle: {
     color: '#fff',
@@ -400,6 +340,7 @@ const styles = StyleSheet.create({
   modalCloseButton: {
     position: 'absolute',
     right: 16,
+    padding: 4,
   },
   artistList: {
     padding: 8,

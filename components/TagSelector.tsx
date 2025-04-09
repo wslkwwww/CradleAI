@@ -8,9 +8,8 @@ import {
   TextInput,
   FlatList,
   SafeAreaView,
-  Dimensions
 } from 'react-native';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import tagData from '@/app/data/tag.json';
 import { theme } from '@/constants/theme';
 

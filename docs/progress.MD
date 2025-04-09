@@ -1,3 +1,31 @@
+**目标：** 构建发送给服务端的 `positive_prompt` 和 `negative_prompt`，优化标签排序，移除用户自定义标签顺序功能。
+
+**Positive Prompt 构建顺序：**
+
+依次是：
+
+1.  **性别标签：**
+    性别标签由 `Tａｇｓｅｌｅｃｔｏｒ` 选出，标签的路径： `general_categories`为性别，`sub_categories`为女性/男性，在这个`sub_categories`下的所有标签，都是性别标签。
+2.  **角色与作品标签：** 从 `ｃｈａｒａｃｔｅｒTａｇｓｅｌｅｃｔｏｒ` 中选中的标签。
+3.  **画风标签：** 从 `ArtistReferenceSelector.tsx` 中选中的标签。
+4.  **分级标签：** 强制设置为 `safe`。
+5.  **普通标签：** `Tａｇｓｅｌｅｃｔｏｒ` 中除性别标签外的所有标签 + 用户自定义提示词。
+6.  **质量词：** 使用 `defaultPrompt.ts` 中的默认正面提示词。
+
+**Negative Prompt：**
+
+*   使用 `defaultPrompt.ts` 中的默认负面提示词。
+
+
+
+
+
+
+
+
+
+
+
 
 优先问题
 
@@ -25,7 +53,6 @@ ST聊天记录
 
 
 5.退出app后memoryfact是否丢失？
-
 
 6.app打包问题：prebuild打包，瘦身
 

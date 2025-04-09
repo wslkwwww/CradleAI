@@ -400,6 +400,7 @@ export interface ImageGenerationConfig {
   artistPrompt: string | null;
   customPrompt: string;
   useCustomPrompt: boolean;
+  characterTags: string[];
 }
 
 export interface CharacterImage {

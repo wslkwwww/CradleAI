@@ -1,3 +1,11 @@
+// Define default positive prompts for image generation
+export const DEFAULT_POSITIVE_PROMPTS = [
+  "masterpiece", 
+  "high score", 
+  "great score", 
+  "absurdres"
+];
+
 // Define default negative prompts for image generation
 export const DEFAULT_NEGATIVE_PROMPTS = [
   "blurry", 
@@ -20,6 +28,7 @@ export const DEFAULT_NEGATIVE_PROMPTS = [
   "nsfw", 
   "Bad hands", 
   "bad eyes", 
+  "bad scores", 
   "extra fingers", 
   "fewer fingers", 
   "ugly", 
@@ -28,8 +37,15 @@ export const DEFAULT_NEGATIVE_PROMPTS = [
   "displeasing"
 ];
 
+// Function to get default positive prompts as a string WITHOUT SPACES after commas
+export const getDefaultPositivePromptsString = (): string => {
+  // Use join with just ',' - no space after comma
+  return DEFAULT_POSITIVE_PROMPTS.join(',');
+};
 // Function to get default negative prompts as a string WITHOUT SPACES after commas
 export const getDefaultNegativePromptsString = (): string => {
   // Use join with just ',' - no space after comma
   return DEFAULT_NEGATIVE_PROMPTS.join(',');
 };
+
+

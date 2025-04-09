@@ -20,12 +20,20 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { CradleCharacter, CharacterImage } from '@/shared/types';
 import TagSelector from './TagSelector';
+import CharacterTagSelector from './CharacterTagSelector';
 import ArtistReferenceSelector from './ArtistReferenceSelector';
-import { DEFAULT_NEGATIVE_PROMPTS } from '@/constants/defaultPrompts';
-import { licenseService } from '@/services/license-service'; // 导入许可证服务
+import { DEFAULT_NEGATIVE_PROMPTS, DEFAULT_POSITIVE_PROMPTS } from '@/constants/defaultPrompts';
+import { licenseService } from '@/services/license-service';
+import tagData from '@/app/data/tag.json';
 
-// 更新图片生成服务的基础URL常量
 const IMAGE_SERVICE_BASE_URL = 'https://image.cradleintro.top';
+
+const DEFAULT_GENERATION_SETTINGS = {
+  width: 576,
+  height: 1024,
+  steps: 28,
+  batch_size: 1
+};
 
 interface ImageRegenerationModalProps {
   visible: boolean;
@@ -38,103 +46,32 @@ interface ImageRegenerationModalProps {
     artistPrompt: string | null;
     customPrompt: string;
     useCustomPrompt: boolean;
+    characterTags?: string[];
   };
 }
 
-// Add a component for draggable tag items
-interface DraggableTagProps {
+interface TagItem {
   tag: string;
-  index: number;
-  moveTag: (dragIndex: number, hoverIndex: number) => void;
-  onRemove: () => void;
-  isPositive: boolean;
+  type: 'positive' | 'negative';
 }
 
-const DraggableTag: React.FC<DraggableTagProps> = ({
-  tag,
-  index,
-  moveTag,
-  onRemove,
-  isPositive
-}) => {
-  const pan = useRef(new Animated.ValueXY()).current;
-  const [isDragging, setIsDragging] = useState(false);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        setIsDragging(true);
-        // Start the drag animation - make it more pronounced
-        Animated.timing(pan, {
-          toValue: { x: 0, y: -5 },
-          duration: 100,
-          useNativeDriver: true,
-        }).start();
-      },
-      onPanResponderMove: (_, gestureState) => {
-        // Update animated values
-        pan.setValue({ x: gestureState.dx, y: gestureState.dy });
-
-        // Lower the threshold for movement to make it more responsive
-        const moveDistance = 20; // Reduced from 30
-        if (Math.abs(gestureState.dy) > moveDistance) {
-          // Calculate target index based on direction of movement
-          const direction = gestureState.dy > 0 ? 1 : -1;
-          const targetIndex = index + direction;
-
-          // Perform the move if it's within bounds
-          moveTag(index, targetIndex);
-
-          // Reset pan values after move
-          pan.setValue({ x: 0, y: 0 });
-        }
-      },
-      onPanResponderRelease: () => {
-        setIsDragging(false);
-        // Reset position with a smoother animation
-        Animated.spring(pan, {
-          toValue: { x: 0, y: 0 },
-          friction: 5,
-          useNativeDriver: true,
-        }).start();
-      },
-    })
-  ).current;
-
-  // Make the tag more visually responsive when dragging
-  return (
-    <Animated.View
-      {...panResponder.panHandlers}
-      style={[
-        isPositive ? styles.selectedPositiveTag : styles.selectedNegativeTag,
-        {
-          transform: [{ translateX: pan.x }, { translateY: pan.y }],
-          elevation: isDragging ? 8 : 0, // Increased elevation for better visual feedback
-          zIndex: isDragging ? 1000 : 1,
-          shadowColor: "#000",
-          shadowOffset: isDragging ? { width: 0, height: 3 } : { width: 0, height: 0 },
-          shadowOpacity: isDragging ? 0.4 : 0,
-          shadowRadius: isDragging ? 5 : 0,
-          // Add scale effect when dragging
-          scaleX: isDragging ? 1.05 : 1,
-          scaleY: isDragging ? 1.05 : 1,
-        },
-        styles.draggableTag
-      ]}
-    >
-      <MaterialIcons name="drag-indicator" size={16} color={isPositive ? "#333" : "#ddd"} style={styles.dragHandle} />
-      <Text style={isPositive ? styles.tagText : styles.negativeTagText}>{tag}</Text>
-      <TouchableOpacity onPress={onRemove} style={styles.tagRemoveButton}>
-        <Ionicons
-          name="close-circle"
-          size={16}
-          color={isPositive ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
-        />
-      </TouchableOpacity>
-    </Animated.View>
+// Helper function to identify gender tags
+const getGenderTagsFromTagData = () => {
+  const genderCategory = tagData.general_categories.find(
+    (category: any) => category.name === "性别"
   );
+  
+  if (!genderCategory || !genderCategory.sub_categories) {
+    return { maleGenderTags: [], femaleGenderTags: [] };
+  }
+  
+  const maleGenderTags = genderCategory.sub_categories['男性'] || [];
+  const femaleGenderTags = genderCategory.sub_categories['女性'] || [];
+  
+  return { maleGenderTags, femaleGenderTags };
 };
+
+const { maleGenderTags, femaleGenderTags } = getGenderTagsFromTagData();
 
 const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   visible,
@@ -151,76 +88,61 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const [replaceAvatar, setReplaceAvatar] = useState(false);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // Add state for artist reference
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
   const [useExistingArtistPrompt, setUseExistingArtistPrompt] = useState(true);
-
-  // Add state for custom prompt
   const [customPrompt, setCustomPrompt] = useState('');
-  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
-
-  // Add state for tag reordering
-  const [reorderingPositive, setReorderingPositive] = useState(false);
-  const [reorderingNegative, setReorderingNegative] = useState(false);
-
-  // 添加许可证信息状态
+  const [customPromptModalVisible, setCustomPromptModalVisible] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState<any>(null);
   const [licenseLoaded, setLicenseLoaded] = useState(false);
+  const [characterTagSelectorVisible, setCharacterTagSelectorVisible] = useState(false);
+  const [characterTags, setCharacterTags] = useState<string[]>([]);
+  const [artistReferenceSelectorVisible, setArtistReferenceSelectorVisible] = useState(false);
+  const [generationSettingsVisible, setGenerationSettingsVisible] = useState(false);
+  const [generationSettings, setGenerationSettings] = useState({ ...DEFAULT_GENERATION_SETTINGS });
 
-  // 组件挂载时加载许可证信息
   useEffect(() => {
     const loadLicense = async () => {
       try {
-        // 先初始化许可证服务，使用公开方法检查初始化状态
         if (!licenseService.isInitialized()) {
           await licenseService.initialize();
         }
-
-        // 获取许可证信息
         const info = await licenseService.getLicenseInfo();
         setLicenseInfo(info);
         setLicenseLoaded(true);
-
         console.log('[图片重生成] 许可证信息加载完成:', info ? '成功' : '未找到许可证');
       } catch (error) {
         console.error('[图片重生成] 加载许可证信息失败:', error);
         setLicenseLoaded(true);
       }
     };
-
     loadLicense();
   }, []);
 
-  // Reset state when modal opens
   useEffect(() => {
     if (visible) {
-      // First check if we have existing config passed in
       if (existingImageConfig) {
         setPositiveTags(existingImageConfig.positiveTags || []);
         setNegativeTags(existingImageConfig.negativeTags || []);
         setSelectedArtistPrompt(existingImageConfig.artistPrompt);
         setUseExistingArtistPrompt(!!existingImageConfig.artistPrompt);
         setCustomPrompt(existingImageConfig.customPrompt || '');
-        setUseCustomPrompt(existingImageConfig.useCustomPrompt || false);
-      }
-      // Otherwise use character generation data if available
-      else if (character.generationData?.appearanceTags) {
+        setCharacterTags(existingImageConfig.characterTags || []);
+      } else if (character.generationData?.appearanceTags) {
         setPositiveTags(character.generationData.appearanceTags.positive || []);
         setNegativeTags(character.generationData.appearanceTags.negative || []);
-
         if (character.generationData.appearanceTags.artistPrompt) {
           setSelectedArtistPrompt(character.generationData.appearanceTags.artistPrompt);
           setUseExistingArtistPrompt(true);
         } else {
           setSelectedArtistPrompt(null);
         }
+        setCharacterTags([]);
       } else {
         setPositiveTags([]);
         setNegativeTags([]);
         setSelectedArtistPrompt(null);
+        setCharacterTags([]);
       }
-
       setGeneratedImageUrl(null);
       setError(null);
       setIsLoading(false);
@@ -228,139 +150,135 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       setReplaceAvatar(false);
       if (!existingImageConfig) {
         setCustomPrompt('');
-        setUseCustomPrompt(false);
       }
-
-      // Reset reordering state
-      setReorderingPositive(false);
-      setReorderingNegative(false);
+      setGenerationSettings({ ...DEFAULT_GENERATION_SETTINGS });
     }
   }, [visible, character, existingImageConfig]);
 
-  // Function to move tags in the array (reordering)
-  const movePositiveTag = (fromIndex: number, toIndex: number) => {
-    // Prevent out of bounds moves
-    if (toIndex < 0 || toIndex >= positiveTags.length) return;
-
-    // Create a copy of the array and move the item
-    const updatedTags = [...positiveTags];
-    const [movedItem] = updatedTags.splice(fromIndex, 1);
-    updatedTags.splice(toIndex, 0, movedItem);
-
-    // Update state
-    setPositiveTags(updatedTags);
+  const handleAddCharacterTag = (tagString: string) => {
+    if (!characterTags.includes(tagString)) {
+      setCharacterTags(prev => [...prev, tagString]);
+    }
   };
 
-  const moveNegativeTag = (fromIndex: number, toIndex: number) => {
-    // Prevent out of bounds moves
-    if (toIndex < 0 || toIndex >= negativeTags.length) return;
-
-    // Create a copy of the array and move the item
-    const updatedTags = [...negativeTags];
-    const [movedItem] = updatedTags.splice(fromIndex, 1);
-    updatedTags.splice(toIndex, 0, movedItem);
-
-    // Update state
-    setNegativeTags(updatedTags);
+  const removeCharacterTag = (tagToRemove: string) => {
+    setCharacterTags(prev => prev.filter(tag => tag !== tagToRemove));
   };
 
-  // Toggle reordering mode
-  const toggleReorderingPositive = () => {
-    setReorderingPositive(!reorderingPositive);
-    if (reorderingNegative) setReorderingNegative(false);
+  const handleAddCustomPrompt = () => {
+    if (customPrompt.trim()) {
+      const customTag = customPrompt.trim();
+      if (!positiveTags.includes(customTag)) {
+        setPositiveTags(prev => [...prev, customTag]);
+      }
+      setCustomPrompt('');
+      setCustomPromptModalVisible(false);
+    }
   };
 
-  const toggleReorderingNegative = () => {
-    setReorderingNegative(!reorderingNegative);
-    if (reorderingPositive) setReorderingPositive(false);
+  // Helper function to organize tags for prompt building
+  const organizeTagsForPrompt = () => {
+    // 1. Extract gender tags
+    const genderTags = positiveTags.filter(tag => 
+      maleGenderTags.includes(tag) || femaleGenderTags.includes(tag)
+    );
+    
+    // 2. Character tags are already separate in characterTags state
+    
+    // 3. Artist tag is in selectedArtistPrompt state
+    
+    // 4. Rating tag - always "safe"
+    const ratingTag = "safe";
+    
+    // 5. Normal tags - all positive tags that are not gender tags
+    const normalTags = positiveTags.filter(tag => 
+      !maleGenderTags.includes(tag) && !femaleGenderTags.includes(tag)
+    );
+
+    // 6. Quality tags from DEFAULT_POSITIVE_PROMPTS
+    const qualityTags = DEFAULT_POSITIVE_PROMPTS;
+    
+    return {
+      genderTags,
+      characterTags,
+      artistTag: selectedArtistPrompt && useExistingArtistPrompt ? selectedArtistPrompt : null,
+      ratingTag,
+      normalTags,
+      qualityTags
+    };
   };
 
-  // Submit image generation request with updated config saving
+  // Build the final prompt in the specified order
+  const buildFinalPrompt = () => {
+    const {
+      genderTags,
+      characterTags,
+      artistTag,
+      ratingTag,
+      normalTags,
+      qualityTags
+    } = organizeTagsForPrompt();
+    
+    // Build the prompt in the specified order
+    const promptParts = [
+      ...genderTags,               // 1. Gender tags
+      ...characterTags,            // 2. Character and work tags
+      artistTag,                   // 3. Artist style tag
+      ratingTag,                   // 4. Rating tag (always "safe")
+      ...normalTags,               // 5. Normal tags + custom prompts
+      ...qualityTags               // 6. Quality tags
+    ].filter(Boolean); // Remove any null/undefined values
+    
+    return promptParts.join(',');
+  };
+
   const submitImageGeneration = async () => {
-    if (positiveTags.length === 0 && !useCustomPrompt) {
-      Alert.alert('无法生成', '请至少添加一个正面标签来描述角色外观，或使用自定义提示词');
+    if ((positiveTags.length === 0 && characterTags.length === 0)) {
+      Alert.alert('无法生成', '请至少添加一个正面标签或角色标签来描述角色外观');
       return;
     }
 
-    if (useCustomPrompt && !customPrompt.trim()) {
-      Alert.alert('无法生成', '启用了自定义提示词功能，但没有输入任何提示词');
-      return;
-    }
-
-    // Set loading state just for UI feedback
     setIsLoading(true);
     setError(null);
 
     try {
-      let positivePrompt = '';
-
-      // If using custom prompt, use it directly
-      if (useCustomPrompt) {
-        // Process custom prompt to remove spaces after commas
-        positivePrompt = customPrompt.trim().replace(/, /g, ',');
-        console.log(`[图片重生成] 使用自定义提示词: ${positivePrompt}`);
-      } else {
-        // Prepare final positive tags list with artist prompt if selected
-        let finalPositiveTags = [...positiveTags];
-
-        // Only add artist prompt if one is selected and we're using it
-        if (selectedArtistPrompt && useExistingArtistPrompt) {
-          console.log(`[图片重生成] 使用画师风格提示词: ${selectedArtistPrompt}`);
-          // Check if the artist prompt is already in the tags to avoid duplication
-          if (!finalPositiveTags.includes(selectedArtistPrompt)) {
-            finalPositiveTags.push(selectedArtistPrompt);
-          }
-        }
-
-        // Join with commas but NO spaces after commas
-        positivePrompt = finalPositiveTags.join(',');
-      }
-
-      // Combine negative tags with default negative prompts
-      const finalNegativeTags = [...negativeTags, ...DEFAULT_NEGATIVE_PROMPTS];
-      // Join with commas but NO spaces after commas
-      const negativePrompt = finalNegativeTags.join(',');
+      // Use the new prompt building function to create properly ordered prompt
+      const positivePrompt = buildFinalPrompt();
+      
+      // Always use default negative prompts
+      const negativePrompt = DEFAULT_NEGATIVE_PROMPTS.join(',');
 
       console.log(`[图片重生成] 正在为角色 "${character.name}" 生成新图像`);
       console.log(`[图片重生成] 正向提示词: ${positivePrompt}`);
-      console.log(`[图片重生成] 负向提示词: ${negativePrompt} (包含默认负向提示词)`);
+      console.log(`[图片重生成] 负向提示词: ${negativePrompt} (使用默认负向提示词)`);
+      console.log(`[图片重生成] 图像生成设置:`, generationSettings);
 
-      // 验证许可证
-      console.log(`[图片重生成] 验证许可证...`);
-
-      // 确保许可证服务已初始化
       if (!licenseService.isInitialized()) {
         console.log(`[图片重生成] 初始化许可证服务...`);
         await licenseService.initialize();
       }
 
-      // 检查许可证是否有效
       const isLicenseValid = await licenseService.hasValidLicense();
       if (!isLicenseValid) {
         console.error(`[图片重生成] 许可证验证失败: 无效的许可证`);
         throw new Error('需要有效的许可证才能生成图像，请先在API设置中激活您的许可证');
       }
 
-      // 获取许可证信息，以获取email
       const licenseInfo = await licenseService.getLicenseInfo();
       const userEmail = licenseInfo?.email || licenseInfo?.customerEmail || '';
-      
-      // 构建请求参数，按照要求的格式
+
       const requestData = {
         prompt: positivePrompt,
         negative_prompt: negativePrompt,
-        width: 576,  // 默认宽度
-        height: 1024, // 默认高度
-        steps: 28,    // 默认步数
-        batch_size: 1, // 默认批量大小
-        email: userEmail // 添加用户邮箱
+        width: generationSettings.width,
+        height: generationSettings.height,
+        steps: generationSettings.steps,
+        batch_size: generationSettings.batch_size,
+        email: userEmail
       };
 
-      // 获取许可证头信息
-      console.log(`[图片重生成] 获取许可证头信息...`);
       const licenseHeaders = await licenseService.getLicenseHeaders();
 
-      // 检查许可证头是否完整
       if (!licenseHeaders || !licenseHeaders['X-License-Key'] || !licenseHeaders['X-Device-ID']) {
         console.error(`[图片重生成] 许可证头信息不完整`);
         throw new Error('许可证信息不完整，请在API设置中重新激活您的许可证');
@@ -370,27 +288,23 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       console.log(`[图片重生成] 使用设备ID: ${licenseHeaders['X-Device-ID'].substring(0, 4)}****`);
       if (userEmail) console.log(`[图片重生成] 使用用户邮箱: ${userEmail}`);
 
-      // 发送请求到图片生成服务，并携带许可证信息
-      console.log(`[图片重生成] 正在向服务器发送请求...`);
       const response = await fetch(`${IMAGE_SERVICE_BASE_URL}/api/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          ...licenseHeaders  // 添加许可证头信息
+          ...licenseHeaders
         },
         body: JSON.stringify(requestData),
       });
 
       console.log(`[图片重生成] 服务器响应状态: ${response.status}`);
 
-      // 获取原始响应文本进行详细诊断
       const responseText = await response.text();
       console.log(`[图片重生成] 原始响应内容: ${responseText}`);
-      
+
       let data;
       try {
-        // 尝试解析JSON
         data = JSON.parse(responseText);
         console.log(`[图片重生成] 解析的响应数据:`, data);
       } catch (parseError) {
@@ -412,14 +326,11 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         throw new Error(`服务器响应错误: ${response.status} - ${errorDetail || '未知错误'}`);
       }
 
-      // 检查数据格式 - 更灵活的成功条件判断
       let taskId = '';
       let isSuccess = false;
 
-      // 判断响应是否成功的条件 - 更加宽松和适应不同格式
       if (data.success === true) {
         isSuccess = true;
-        // 修复: 确保正确从data.data中获取taskId
         taskId = data.data?.taskId || '';
         console.log(`[图片重生成] 任务提交成功，ID: ${taskId}`);
       } else if (data.error) {
@@ -433,8 +344,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           characterId: character.id,
           createdAt: Date.now(),
           tags: {
-            positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
-            negative: negativeTags,
+            positive: [...characterTags, ...positiveTags],
+            negative: DEFAULT_NEGATIVE_PROMPTS,
           },
           isFavorite: false,
           generationStatus: 'success',
@@ -444,8 +355,9 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             positiveTags: positiveTags,
             negativeTags: negativeTags,
             artistPrompt: selectedArtistPrompt,
-            customPrompt: customPrompt.trim().replace(/, /g, ','),
-            useCustomPrompt: useCustomPrompt
+            customPrompt: '',
+            useCustomPrompt: false,
+            characterTags: characterTags
           }
         };
         onSuccess(completedImage);
@@ -453,14 +365,14 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         return;
       }
 
-      // 检查taskId是否存在
       if (isSuccess && taskId) {
         const generationConfig = {
           positiveTags: positiveTags,
           negativeTags: negativeTags,
           artistPrompt: selectedArtistPrompt,
-          customPrompt: customPrompt.trim().replace(/, /g, ','),
-          useCustomPrompt: useCustomPrompt
+          customPrompt: '',
+          useCustomPrompt: false,
+          characterTags: characterTags
         };
 
         const placeholderImage: CharacterImage = {
@@ -469,8 +381,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           characterId: character.id,
           createdAt: Date.now(),
           tags: {
-            positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
-            negative: negativeTags,
+            positive: [...characterTags, ...positiveTags],
+            negative: DEFAULT_NEGATIVE_PROMPTS,
           },
           isFavorite: false,
           generationTaskId: taskId,
@@ -480,18 +392,16 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           isAvatar: false,
           generationConfig: generationConfig,
         };
-        
-        // Gracefully close the modal first and then trigger onSuccess
+
         onClose();
         setTimeout(() => {
           onSuccess(placeholderImage);
-          
           console.log(`[图片重生成] 等待3秒后开始检查任务状态...`);
           setTimeout(() => {
             checkImageGenerationStatus(character.id, taskId, placeholderImage.id);
           }, 3000);
         }, 300);
-        
+
         return;
       } else {
         throw new Error('未能获取有效的任务ID，服务器返回的数据格式不正确');
@@ -509,28 +419,27 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 
   const checkImageGenerationStatus = async (characterId: string, taskId: string, imageId: string) => {
     console.log(`[图片重生成] 开始检查任务状态: ${taskId}`);
-    
+
     const MAX_RETRIES = 60;
     let retries = 0;
-    
+
     const poll = async () => {
       try {
-        console.log(`[图片重生成] 检查 #${retries+1}, 任务: ${taskId}`);
-        
+        console.log(`[图片重生成] 检查 #${retries + 1}, 任务: ${taskId}`);
+
         const licenseHeaders = await licenseService.getLicenseHeaders();
-        
+
         const headers = {
           'Accept': 'application/json',
           ...(licenseHeaders || {})
         };
-        
-        // 更新API端点路径适应新的后端
+
         let response;
         try {
           response = await fetch(`${IMAGE_SERVICE_BASE_URL}/api/generate/task/${taskId}`, {
             headers: headers
           });
-          
+
           console.log(`[图片重生成] 状态检查响应: ${response.status}`);
         } catch (fetchError) {
           console.error(`[图片重生成] 状态检查请求失败:`, fetchError);
@@ -541,10 +450,10 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             throw fetchError;
           }
         }
-        
+
         const responseText = await response.text();
         console.log(`[图片重生成] 状态检查原始响应: ${responseText}`);
-        
+
         let data;
         try {
           data = JSON.parse(responseText);
@@ -558,29 +467,27 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             throw new Error(`无法解析服务器响应: ${responseText.substring(0, 100)}...`);
           }
         }
-        
-        // 适应新的API响应格式
+
         const taskData = data.data || {};
         const status = taskData.status || '';
-        
-        // 判断任务是否完成
+
         const isDone = status === 'succeeded' || status === 'failed' || taskData.completedAt;
         const isSuccess = status === 'succeeded';
         const imageUrls = taskData.urls || [];
         const imageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
         const errorMessage = taskData.error || null;
-        
+
         if (isDone) {
           if (isSuccess && imageUrl) {
             console.log(`[图片重生成] 图像生成成功: ${imageUrl}`);
-            
+
             const completedImage: CharacterImage = {
               id: imageId,
               url: imageUrl,
               characterId: characterId,
               createdAt: Date.now(),
               tags: {
-                positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
+                positive: [...characterTags, ...positiveTags],
                 negative: negativeTags,
               },
               isFavorite: false,
@@ -592,23 +499,24 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 positiveTags: positiveTags,
                 negativeTags: negativeTags,
                 artistPrompt: selectedArtistPrompt,
-                customPrompt: customPrompt.trim().replace(/, /g, ','),
-                useCustomPrompt: useCustomPrompt
+                customPrompt: '',
+                useCustomPrompt: false,
+                characterTags: characterTags
               }
             };
-            
+
             onSuccess(completedImage);
             return;
           } else if (errorMessage) {
             console.error(`[图片重生成] 任务失败: ${errorMessage}`);
-            
+
             const failedImage: CharacterImage = {
               id: imageId,
               url: '',
               characterId: characterId,
               createdAt: Date.now(),
               tags: {
-                positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
+                positive: [...characterTags, ...positiveTags],
                 negative: negativeTags,
               },
               isFavorite: false,
@@ -618,31 +526,30 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               setAsBackground: false,
               isAvatar: false
             };
-            
+
             onSuccess(failedImage);
             return;
           } else {
             console.warn(`[图片重生成] 任务标记为完成，但未返回图片URL或错误信息`);
           }
         } else {
-          // 任务仍在处理中，显示状态
           console.log(`[图片重生成] 任务状态: ${status}`);
         }
-        
+
         retries++;
         if (retries < MAX_RETRIES) {
           console.log(`[图片重生成] 将在10秒后再次检查`);
           setTimeout(poll, 10000);
         } else {
           console.log(`[图片重生成] 达到最大检查次数 (${MAX_RETRIES})，但任务仍未完成`);
-          
+
           const timedOutImage: CharacterImage = {
             id: imageId,
             url: '',
             characterId: characterId,
             createdAt: Date.now(),
             tags: {
-              positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
+              positive: [...characterTags, ...positiveTags],
               negative: negativeTags,
             },
             isFavorite: false,
@@ -652,7 +559,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             setAsBackground: false,
             isAvatar: false
           };
-          
+
           onSuccess(timedOutImage);
         }
       } catch (error) {
@@ -663,14 +570,14 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           setTimeout(poll, 15000);
         } else {
           console.error(`[图片重生成] 达到最大重试次数 (${MAX_RETRIES})，停止检查`);
-          
+
           const errorImage: CharacterImage = {
             id: imageId,
             url: '',
             characterId: characterId,
             createdAt: Date.now(),
             tags: {
-              positive: useCustomPrompt ? [customPrompt.trim().replace(/, /g, ',')] : positiveTags,
+              positive: [...characterTags, ...positiveTags],
               negative: negativeTags,
             },
             isFavorite: false,
@@ -680,72 +587,106 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             setAsBackground: false,
             isAvatar: false
           };
-          
+
           onSuccess(errorImage);
         }
       }
     };
-    
+
     poll();
   };
 
-  const handleConfirm = () => {
-    onClose();
-  };
-  
-  const toggleArtistPromptUsage = (value: boolean) => {
-    setUseExistingArtistPrompt(value);
-    console.log(`[图片重生成] ${value ? '启用' : '禁用'}画师风格提示词`);
-  };
-  
-  const toggleCustomPromptMode = (value: boolean) => {
-    setUseCustomPrompt(value);
-  };
-
-  const renderTagList = (tags: string[], isPositive: boolean, isReordering: boolean) => {
-    if (tags.length === 0) {
-      return <Text style={styles.noTagsText}>未选择{isPositive ? '正面' : '负面'}标签</Text>;
+  const renderCharacterTags = () => {
+    if (characterTags.length === 0) {
+      return (
+        <Text style={styles.noTagsText}>未选择角色标签</Text>
+      );
     }
-    
+
     return (
       <View style={styles.tagsContainer}>
-        {tags.map((tag, index) => (
-          isReordering ? (
-            <DraggableTag
-              key={`${isPositive ? 'pos' : 'neg'}-${index}`}
-              tag={tag}
-              index={index}
-              moveTag={isPositive ? movePositiveTag : moveNegativeTag}
-              onRemove={() => {
-                if (isPositive) {
-                  setPositiveTags(currentTags => currentTags.filter((_, i) => i !== index));
-                } else {
-                  setNegativeTags(currentTags => currentTags.filter((_, i) => i !== index));
-                }
-              }}
-              isPositive={isPositive}
+        {characterTags.map((tag, index) => (
+          <TouchableOpacity
+            key={`char-tag-${index}`}
+            style={styles.characterTag}
+            onPress={() => removeCharacterTag(tag)}
+          >
+            <Text style={styles.characterTagText}>{tag}</Text>
+            <Ionicons 
+              name="close-circle" 
+              size={14} 
+              color="rgba(255,255,255,0.7)" 
             />
-          ) : (
-            <TouchableOpacity
-              key={`${isPositive ? 'pos' : 'neg'}-${index}`}
-              style={isPositive ? styles.selectedPositiveTag : styles.selectedNegativeTag}
-              onPress={() => {
-                if (isPositive) {
-                  setPositiveTags(tags => tags.filter(t => t !== tag));
-                } else {
-                  setNegativeTags(tags => tags.filter(t => t !== tag));
-                }
-              }}
-            >
-              <Text style={isPositive ? styles.tagText : styles.negativeTagText}>{tag}</Text>
-              <Ionicons 
-                name="close-circle" 
-                size={14} 
-                color={isPositive ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"} 
-              />
-            </TouchableOpacity>
-          )
+          </TouchableOpacity>
         ))}
+      </View>
+    );
+  };
+
+  const renderUnifiedTagDisplay = () => {
+    if (positiveTags.length === 0 && negativeTags.length === 0) {
+      return (
+        <Text style={styles.noTagsText}>未添加任何标签</Text>
+      );
+    }
+
+    return (
+      <View style={styles.unifiedTagsContainer}>
+        {positiveTags.map((tag, index) => (
+          <TouchableOpacity
+            key={`pos-tag-${index}`}
+            style={styles.selectedPositiveTag}
+            onPress={() => {
+              setPositiveTags(tags => tags.filter(t => t !== tag));
+            }}
+          >
+            <Text style={styles.tagText}>{tag}</Text>
+            <Ionicons name="close-circle" size={14} color="rgba(0,0,0,0.5)" />
+          </TouchableOpacity>
+        ))}
+        
+        {negativeTags.map((tag, index) => (
+          <TouchableOpacity
+            key={`neg-tag-${index}`}
+            style={styles.selectedNegativeTag}
+            onPress={() => {
+              setNegativeTags(tags => tags.filter(t => t !== tag));
+            }}
+          >
+            <Text style={styles.negativeTagText}>{tag}</Text>
+            <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.5)" />
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  const renderActionButtonsBar = () => {
+    return (
+      <View style={styles.actionButtonsBar}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => setTagSelectorVisible(true)}
+        >
+          <Ionicons name="pricetag-outline" size={20} color="#fff" />
+          <Text style={styles.actionButtonText}>浏览标签</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => setCharacterTagSelectorVisible(true)}
+        >
+          <Ionicons name="person-add-outline" size={20} color="#fff" />
+          <Text style={styles.actionButtonText}>角色标签</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => setArtistReferenceSelectorVisible(true)}
+        >
+          <Ionicons name="color-palette-outline" size={20} color="#fff" />
+          <Text style={styles.actionButtonText}>画风参考</Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -809,7 +750,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 
                 <TouchableOpacity 
                   style={styles.confirmButton}
-                  onPress={handleConfirm}
+                  onPress={onClose}
                 >
                   <Text style={styles.confirmButtonText}>确认</Text>
                 </TouchableOpacity>
@@ -821,146 +762,57 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 <View style={styles.tagSelectionSection}>
                   <Text style={styles.sectionTitle}>图像生成选项</Text>
                   
-                  <View style={styles.customPromptContainer}>
-                    <View style={styles.customPromptHeader}>
-                      <Text style={styles.customPromptTitle}>自定义提示词</Text>
-                      <Switch
-                        value={useCustomPrompt}
-                        onValueChange={toggleCustomPromptMode}
-                        trackColor={{ false: '#767577', true: '#bfe8ff' }}
-                        thumbColor={useCustomPrompt ? '#007bff' : '#f4f3f4'}
-                      />
-                    </View>
-                    
-                    {useCustomPrompt && (
-                      <View style={styles.customPromptInputContainer}>
-                        <TextInput
-                          style={styles.customPromptInput}
-                          value={customPrompt}
-                          onChangeText={setCustomPrompt}
-                          placeholder="输入详细的生成提示词（英文效果更好）"
-                          placeholderTextColor="#888"
-                          multiline={true}
-                          numberOfLines={3}
-                        />
+                  <View style={styles.tagSection}>
+                    <View style={styles.unifiedTagSummaryContainer}>
+                      <View style={styles.tagSectionHeader}>
+                        <Text style={styles.tagSectionTitle}>标签</Text>
                       </View>
-                    )}
-                  </View>
-                  
-                  <View style={[styles.artistReferenceContainer, {opacity: useCustomPrompt ? 0.5 : 1}]}>
-                    {selectedArtistPrompt && !useCustomPrompt && (
-                      <View style={styles.artistPromptContainer}>
-                        <View style={styles.artistPromptHeader}>
-                          <Text style={styles.artistPromptTitle}>使用原有画风</Text>
-                          <Switch
-                            value={useExistingArtistPrompt}
-                            onValueChange={toggleArtistPromptUsage}
-                            trackColor={{ false: '#767577', true: '#bfe8ff' }}
-                            thumbColor={useExistingArtistPrompt ? '#007bff' : '#f4f3f4'}
-                            disabled={useCustomPrompt}
-                          />
-                        </View>
+                      
+                      <View style={styles.expandedTagDisplayContainer}>
+                        {renderUnifiedTagDisplay()}
+                        
+                        <View style={styles.tagActionButtonsContainer}>
+                          <TouchableOpacity
+                            style={styles.tagActionButton}
+                            onPress={() => setGenerationSettingsVisible(true)}
+                          >
+                            <Ionicons name="options-outline" size={16} color="#ddd" />
+                            <Text style={styles.tagActionButtonText}>生成设置</Text>
+                          </TouchableOpacity>
 
-                        {useExistingArtistPrompt && (
-                          <View style={styles.artistPromptContent}>
-                            <Text style={styles.artistPromptNote}>
-                              保留原有画风: {selectedArtistPrompt}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                    
-                    {(!selectedArtistPrompt || !useExistingArtistPrompt) && !useCustomPrompt && (
-                      <ArtistReferenceSelector 
-                        selectedGender={(character.gender === 'male' || character.gender === 'female' || character.gender === 'other' ? character.gender : 'female')}
-                        onSelectArtist={setSelectedArtistPrompt}
-                        selectedArtistPrompt={selectedArtistPrompt}
-                      />
-                    )}
-                  </View>
-                  
-                  {!useCustomPrompt && (
-                    <View style={styles.tagSection}>
-                      <View style={styles.tagSummaryContainer}>
-                        <View style={styles.tagSectionHeader}>
-                          <Text style={styles.tagSectionTitle}>正面标签</Text>
-                          {positiveTags.length > 1 && (
-                            <TouchableOpacity 
-                              style={styles.reorderButton} 
-                              onPress={toggleReorderingPositive}
-                            >
-                              <Ionicons 
-                                name={reorderingPositive ? "checkmark-outline" : "reorder-three-outline"} 
-                                size={18} 
-                                color="#FFF" 
-                              />
-                              <Text style={styles.reorderButtonText}>
-                                {reorderingPositive ? "完成排序" : "重新排序"}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                        
-                        <View style={[
-                          styles.tagsContainer, 
-                          reorderingPositive && styles.tagsContainerReordering
-                        ]}>
-                          {renderTagList(positiveTags, true, reorderingPositive)}
-                        </View>
-                        
-                        <View style={styles.tagSectionHeader}>
-                          <Text style={styles.tagSectionTitle}>负面标签</Text>
-                          {negativeTags.length > 1 && (
-                            <TouchableOpacity 
-                              style={styles.reorderButton} 
-                              onPress={toggleReorderingNegative}
-                            >
-                              <Ionicons 
-                                name={reorderingNegative ? "checkmark-outline" : "reorder-three-outline"} 
-                                size={18} 
-                                color="#FFF" 
-                              />
-                              <Text style={styles.reorderButtonText}>
-                                {reorderingNegative ? "完成排序" : "重新排序"}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                        
-                        <View style={[
-                          styles.tagsContainer,
-                          reorderingNegative && styles.tagsContainerReordering
-                        ]}>
-                          {renderTagList(negativeTags, false, reorderingNegative)}
+                          <TouchableOpacity
+                            style={styles.tagActionButton}
+                            onPress={() => setCustomPromptModalVisible(true)}
+                          >
+                            <Ionicons name="pencil-outline" size={16} color="#ddd" />
+                            <Text style={styles.tagActionButtonText}>自定义提示词</Text>
+                          </TouchableOpacity>
                         </View>
                       </View>
                     </View>
-                  )}
+                  </View>
                 </View>
                 
-                {/* Button container for horizontally aligned buttons */}
+                {characterTags.length > 0 && (
+                  <View style={styles.selectedCharacterTagsContainer}>
+                    <Text style={styles.tagSectionTitle}>已选角色</Text>
+                    {renderCharacterTags()}
+                  </View>
+                )}
+                
+                {renderActionButtonsBar()}
+                
+                <View style={styles.infoContainer}>
+                  <Text style={styles.infoText}>
+                    注意：提示词优先级已固定为：性别 → 角色 → 画风 → 安全级别 → 普通标签 → 质量词
+                  </Text>
+                </View>
+                
                 <View style={styles.buttonContainer}>
-                  <TouchableOpacity 
-                    style={[
-                      styles.openTagSelectorButton,
-                      (reorderingPositive || reorderingNegative) && styles.disabledButton
-                    ]}
-                    onPress={() => setTagSelectorVisible(true)}
-                    disabled={reorderingPositive || reorderingNegative}
-                  >
-                    <Ionicons name="pricetag-outline" size={20} color="#fff" />
-                    <Text style={styles.openTagSelectorText}>浏览标签</Text>
-                  </TouchableOpacity>
-
                   {!isLoading ? (
                     <TouchableOpacity 
-                      style={[
-                        styles.generateButton,
-                        (reorderingPositive || reorderingNegative) && styles.disabledButton
-                      ]}
+                      style={styles.generateButton}
                       onPress={submitImageGeneration}
-                      disabled={reorderingPositive || reorderingNegative}
                     >
                       <Ionicons name="image" size={20} color="#fff" />
                       <Text style={styles.generateButtonText}>生成图像</Text>
@@ -983,6 +835,27 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             )}
           </ScrollView>
           
+          {/* Artist Reference Selector Modal */}
+          <Modal
+            visible={artistReferenceSelectorVisible}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setArtistReferenceSelectorVisible(false)}
+          >
+            <ArtistReferenceSelector 
+              selectedGender={(character.gender === 'male' || character.gender === 'female' || character.gender === 'other' ? character.gender : 'female')}
+              onSelectArtist={(artistPrompt) => {
+                if (artistPrompt) {
+                  setSelectedArtistPrompt(artistPrompt);
+                  setUseExistingArtistPrompt(true);
+                }
+                setArtistReferenceSelectorVisible(false);
+              }}
+              selectedArtistPrompt={selectedArtistPrompt}
+            />
+          </Modal>
+          
+          {/* Tag Selector Modal */}
           <Modal
             visible={tagSelectorVisible}
             transparent={false}
@@ -1030,6 +903,166 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               </View>
             </View>
           </Modal>
+          
+          {/* Character Tag Selector Modal */}
+          <CharacterTagSelector
+            visible={characterTagSelectorVisible}
+            onClose={() => setCharacterTagSelectorVisible(false)}
+            onAddCharacter={handleAddCharacterTag}
+          />
+
+          {/* Custom Prompt Modal */}
+          <Modal
+            visible={customPromptModalVisible}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => setCustomPromptModalVisible(false)}
+          >
+            <View style={styles.customPromptModalOverlay}>
+              <View style={styles.customPromptModalContent}>
+                <View style={styles.customPromptModalHeader}>
+                  <Text style={styles.customPromptModalTitle}>自定义提示词</Text>
+                </View>
+                
+                <View style={styles.customPromptInputContainer}>
+                  <TextInput
+                    style={styles.customPromptInput}
+                    value={customPrompt}
+                    onChangeText={setCustomPrompt}
+                    placeholder="输入详细的生成提示词（英文效果更好）"
+                    placeholderTextColor="#888"
+                    multiline={true}
+                    numberOfLines={4}
+                  />
+                </View>
+                
+                <View style={styles.customPromptModalActions}>
+                  <TouchableOpacity
+                    style={styles.customPromptCancelButton}
+                    onPress={() => setCustomPromptModalVisible(false)}
+                  >
+                    <Text style={styles.customPromptCancelButtonText}>取消</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.customPromptConfirmButton,
+                      !customPrompt.trim() && styles.disabledButton
+                    ]}
+                    onPress={handleAddCustomPrompt}
+                    disabled={!customPrompt.trim()}
+                  >
+                    <Text style={styles.customPromptConfirmButtonText}>确认</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Generation Settings Modal */}
+          <Modal
+            visible={generationSettingsVisible}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => setGenerationSettingsVisible(false)}
+          >
+            <View style={styles.customPromptModalOverlay}>
+              <View style={styles.customPromptModalContent}>
+                <View style={styles.customPromptModalHeader}>
+                  <Text style={styles.customPromptModalTitle}>图像生成设置</Text>
+                </View>
+                
+                <View style={styles.generationSettingsContainer}>
+                  <View style={styles.settingRow}>
+                    <Text style={styles.settingLabel}>宽度:</Text>
+                    <TextInput
+                      style={styles.settingInput}
+                      value={String(generationSettings.width)}
+                      onChangeText={(text) => {
+                        const width = parseInt(text);
+                        if (!isNaN(width)) {
+                          setGenerationSettings(prev => ({ ...prev, width }));
+                        }
+                      }}
+                      keyboardType="numeric"
+                      maxLength={4}
+                    />
+                  </View>
+                  
+                  <View style={styles.settingRow}>
+                    <Text style={styles.settingLabel}>高度:</Text>
+                    <TextInput
+                      style={styles.settingInput}
+                      value={String(generationSettings.height)}
+                      onChangeText={(text) => {
+                        const height = parseInt(text);
+                        if (!isNaN(height)) {
+                          setGenerationSettings(prev => ({ ...prev, height }));
+                        }
+                      }}
+                      keyboardType="numeric"
+                      maxLength={4}
+                    />
+                  </View>
+                  
+                  <View style={styles.settingRow}>
+                    <Text style={styles.settingLabel}>步数:</Text>
+                    <TextInput
+                      style={styles.settingInput}
+                      value={String(generationSettings.steps)}
+                      onChangeText={(text) => {
+                        const steps = parseInt(text);
+                        if (!isNaN(steps)) {
+                          setGenerationSettings(prev => ({ ...prev, steps }));
+                        }
+                      }}
+                      keyboardType="numeric"
+                      maxLength={3}
+                    />
+                  </View>
+                  
+                  <View style={styles.settingRow}>
+                    <Text style={styles.settingLabel}>批次:</Text>
+                    <TextInput
+                      style={styles.settingInput}
+                      value={String(generationSettings.batch_size)}
+                      onChangeText={(text) => {
+                        const batch_size = parseInt(text);
+                        if (!isNaN(batch_size) && batch_size > 0 && batch_size <= 4) {
+                          setGenerationSettings(prev => ({ ...prev, batch_size }));
+                        }
+                      }}
+                      keyboardType="numeric"
+                      maxLength={1}
+                    />
+                  </View>
+
+                  <Text style={styles.settingNote}>
+                    注意: 过高的参数会消耗更多积分，步数推荐20~30，批次最高为4
+                  </Text>
+                </View>
+                
+                <View style={styles.customPromptModalActions}>
+                  <TouchableOpacity
+                    style={styles.customPromptCancelButton}
+                    onPress={() => {
+                      setGenerationSettings({ ...DEFAULT_GENERATION_SETTINGS });
+                      setGenerationSettingsVisible(false);
+                    }}
+                  >
+                    <Text style={styles.customPromptCancelButtonText}>重置</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.customPromptConfirmButton}
+                    onPress={() => setGenerationSettingsVisible(false)}
+                  >
+                    <Text style={styles.customPromptConfirmButtonText}>确认</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </View>
       </SafeAreaView>
     </Modal>
@@ -1037,6 +1070,19 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  infoContainer: {
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 12,
+  },
+  infoText: {
+    color: '#70A1FF',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  
+  // Add all the other styles
   safeArea: {
     flex: 1,
     backgroundColor: '#222',
@@ -1126,7 +1172,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   tagsContainerReordering: {
-    minHeight: 80,
+    minHeight: 120,
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
     borderRadius: 8,
     paddingVertical: 10,
@@ -1169,6 +1215,7 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontStyle: 'italic',
     padding: 8,
+    textAlign: 'center',
   },
   defaultTagsInfo: {
     color: '#888',
@@ -1421,6 +1468,215 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  characterTagsContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  characterTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(100, 149, 237, 0.8)',
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  characterTagText: {
+    color: '#fff',
+    fontSize: 14,
+    marginRight: 6,
+  },
+  addTagButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(100, 149, 237, 0.3)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  addTagButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  disabledModeText: {
+    color: '#888',
+    fontStyle: 'italic',
+    padding: 8,
+  },
+  unifiedTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    minHeight: 30,
+    marginBottom: 8,
+  },
+  unifiedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  unifiedTagSummaryContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  actionButtonsBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4A90E2',
+    borderRadius: 8,
+    padding: 12,
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  actionButtonText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontWeight: '500',
+    fontSize: 13,
+  },
+  tagTypeLabel: {
+    color: '#ddd',
+    fontSize: 13,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  selectedCharacterTagsContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  expandedTagDisplayContainer: {
+    minHeight: 150,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 12,
+  },
+  tagActionButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    paddingTop: 10,
+  },
+  tagActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(60, 60, 60, 0.6)',
+    borderRadius: 16,
+  },
+  tagActionButtonText: {
+    color: '#ddd',
+    marginLeft: 6,
+    fontSize: 12,
+  },
+  customPromptModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  customPromptModalContent: {
+    width: '100%',
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 16,
+    maxWidth: 500,
+  },
+  customPromptModalHeader: {
+    marginBottom: 16,
+  },
+  customPromptModalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  customPromptModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  customPromptCancelButton: {
+    flex: 1,
+    backgroundColor: 'rgba(80, 80, 80, 0.8)',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  customPromptCancelButtonText: {
+    color: '#ddd',
+    fontWeight: '500',
+  },
+  customPromptConfirmButton: {
+    flex: 1,
+    backgroundColor: '#4A90E2',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginLeft: 8,
+    alignItems: 'center',
+  },
+  customPromptConfirmButtonText: {
+    color: '#fff',
+    fontWeight: '500',
+  },
+  generationSettingsContainer: {
+    marginTop: 8,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  settingLabel: {
+    color: '#fff',
+    fontSize: 16,
+    flex: 1,
+  },
+  settingInput: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    color: '#fff',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 15,
+    width: '60%',
+    textAlign: 'center',
+  },
+  settingNote: {
+    color: '#aaa',
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 
