@@ -573,19 +573,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
               
               if (success) {
                 console.log('[ChatInput] Chat history reset successful');
+                // Call parent's reset function to handle message cleanup
                 onResetConversation();
-                if (selectedCharacter?.jsonData) {
-                  try {
-                    const jsonData = JSON.parse(selectedCharacter.jsonData);
-                    if (jsonData.roleCard?.first_mes) {
-                      setTimeout(() => {
-                        onSendMessage(jsonData.roleCard.first_mes, 'bot');
-                      }, 100);
-                    }
-                  } catch (e) {
-                    console.error('[ChatInput] Error parsing character JSON after reset:', e);
-                  }
-                }
               } else {
                 console.error('[ChatInput] Failed to reset chat history');
                 Alert.alert('错误', '重置对话失败，请重试');

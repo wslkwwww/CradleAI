@@ -96,7 +96,7 @@ export interface RoleCardJson {
     background?: string;
     data?: {
         extensions?: {
-            regex_scripts?: RegexScript[];
+            regex_scripts?: RegexScript[]; 
         };
     };
 }
@@ -298,7 +298,12 @@ export interface Message {
     metadata?: {
         senderId?: string;
         type?: 'relationship_request' | 'invitation' | 'alert' | 'message';
-      };
+        aiIndex?: number;  // Index in the AI message sequence
+        regenerated?: boolean;  // Whether this message was regenerated
+        regenerationTime?: number;  // When the message was regenerated
+        error?: string;  // Error information if regeneration failed
+        [key: string]: any;  
+    };
     read?: boolean;
     images?: string [];
 }

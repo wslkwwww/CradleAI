@@ -398,7 +398,17 @@ const App = () => {
         ]
       );
     } else {
+      // Don't capture scroll position before sending a message
+      // This avoids interfering with natural message flow
+      
       const messageId = await sendMessageInternal(newMessage, sender, isLoading);
+      
+      // When message is sent, update messages state but don't manipulate scroll
+      if (selectedConversationId) {
+        const updatedMessages = getMessages(selectedConversationId);
+        // Create new array reference to ensure state update
+        setMessages([...updatedMessages]); 
+      }
       
       // If it's a user message, update memory state to "processing"
       if (sender === 'user' && !isLoading && messageId) {
@@ -449,12 +459,25 @@ const App = () => {
     }
 
     const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+    
+    // Calculate aiIndex for bot messages
+    let metadata = undefined;
+    if (sender === 'bot' && !isLoading) {
+      // Count existing bot messages to calculate the index
+      const existingBotMessages = messages.filter(m => m.sender === 'bot' && !m.isLoading);
+      const aiIndex = existingBotMessages.length;
+      
+      metadata = { aiIndex };
+      console.log(`[App] Assigning aiIndex ${aiIndex} to new bot message`);
+    }
+
     const newMessageObj: Message = {
-      id: messageId, // 使用预生成的唯一ID
+      id: messageId,
       text: newMessage,
       sender: sender,
       isLoading: isLoading,
-      timestamp: Date.now(), // Make sure timestamp is included
+      timestamp: Date.now(),
+      metadata // Add metadata with aiIndex for bot messages
     };
 
     // 只在Context中更新消息，本地状态通过useEffect自动更新
@@ -469,7 +492,11 @@ const App = () => {
     }
     
     try {
-      console.log('Regenerating message at index:', messageIndex);
+      // Record current scroll position
+      const currentScrollPosition = selectedConversationId ? 
+        chatScrollPositions[selectedConversationId] : undefined;
+      
+      console.log('Regenerating message with aiIndex:', messageIndex);
       
       // Find all AI messages and their corresponding user messages
       const currentMessages = [...messages];
@@ -499,7 +526,7 @@ const App = () => {
         return;
       }
       
-      // Add a loading message
+      // Create a loading message
       const loadingMessageId = `loading-${Date.now()}`;
       await addMessage(selectedConversationId, {
         id: loadingMessageId,
@@ -509,9 +536,12 @@ const App = () => {
         timestamp: Date.now(),
       });
       
-      // Call NodeSTManager to handle the regeneration with the provided index
+      // Update local state to show loading indicator
+      setMessages(getMessages(selectedConversationId));
+      
+      // Call NodeSTManager to handle the regeneration with the provided aiIndex
       const result = await NodeSTManager.regenerateFromMessage({
-        messageIndex: messageIndex, // Use the index as provided, NodeSTCore will handle the adjustment
+        messageIndex: messageIndex, // Use the aiIndex explicitly
         conversationId: selectedConversationId,
         apiKey: user?.settings?.chat?.characterApiKey || '',
         apiSettings: {
@@ -521,22 +551,29 @@ const App = () => {
         character: selectedCharacter || undefined
       });
       
-      // Completely replace the context's messages with the updated messages from NodeST
+      // Handle the regeneration result
       if (result.success) {
-        // Filter out the loading message
+        // Get current messages without the loading message
         const updatedMessages = getMessages(selectedConversationId).filter(
           msg => msg.id !== loadingMessageId
         );
         
-        // Find the index where we need to update/insert the regenerated message
+        // Find the message to replace
         const insertIndex = updatedMessages.findIndex(msg => msg.id === messageId);
         
         if (insertIndex !== -1) {
-          // Replace the old message with the regenerated one
+          // Replace the old message with the regenerated one, maintaining the aiIndex
           updatedMessages[insertIndex] = {
             ...updatedMessages[insertIndex],
             text: result.text || 'No response generated',
             isLoading: false,
+            // Store metadata including aiIndex for future regenerations
+            metadata: {
+              ...(updatedMessages[insertIndex].metadata || {}),
+              aiIndex: messageIndex,
+              regenerated: true,
+              regenerationTime: Date.now()
+            }
           };
         } else {
           // If we couldn't find the original message (unlikely), append the regenerated message
@@ -546,10 +583,16 @@ const App = () => {
             sender: 'bot',
             isLoading: false,
             timestamp: Date.now(),
+            // Include metadata for future reference
+            metadata: {
+              aiIndex: messageIndex,
+              regenerated: true,
+              regenerationTime: Date.now()
+            }
           });
         }
         
-        // Save this to the context
+        // Clear messages and rebuild with updated ones
         await clearMessages(selectedConversationId);
         
         // Add the updated messages one by one
@@ -557,25 +600,30 @@ const App = () => {
           await addMessage(selectedConversationId, msg);
         }
         
-        // Update local state
-        setMessages(getMessages(selectedConversationId));
+        // Update local state to reflect changes
+        setMessages([...getMessages(selectedConversationId)]);
       } else {
-        // In case of error, just remove the loading indicator and add error message
+        // In case of error, remove the loading indicator and add error message
         const currentMessagesAfterLoading = getMessages(selectedConversationId).filter(
           msg => msg.id !== loadingMessageId
         );
         
-        // Add error message instead
+        // Add error message
         await addMessage(selectedConversationId, {
           id: `error-${Date.now()}`,
           text: '抱歉，无法重新生成回复。请稍后再试。',
           sender: 'bot',
           isLoading: false,
           timestamp: Date.now(),
+          metadata: {
+            error: result.error || 'Unknown error during regeneration',
+            regenerationAttempt: true,
+            aiIndex: messageIndex
+          }
         });
         
         // Update local state
-        setMessages(getMessages(selectedConversationId));
+        setMessages([...getMessages(selectedConversationId)]);
       }
     } catch (error) {
       console.error('Error regenerating message:', error);
@@ -588,6 +636,10 @@ const App = () => {
         sender: 'bot',
         isLoading: false,
         timestamp: Date.now(),
+        metadata: {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          regenerationAttempt: true
+        }
       }]);
     }
   };
@@ -595,8 +647,12 @@ const App = () => {
   // 监听 messagesMap 的变化, 移除多余的本地状态更新
   useEffect(() => {
     if (selectedConversationId) {
+      // 添加一个调试日志，确认确实在更新消息
       const currentMessages = getMessages(selectedConversationId);
-      setMessages(currentMessages);
+      console.log(`[Index] Updating messages for conversation ${selectedConversationId}: ${currentMessages.length} messages`);
+      
+      // 确保总是创建新的数组引用，强制触发依赖项变化
+      setMessages([...currentMessages]);
     }
   }, [selectedConversationId, getMessages]);
 
@@ -1117,10 +1173,17 @@ const App = () => {
 
   // Update ChatDialog props to include scroll position handling
   const handleScrollPositionChange = (characterId: string, position: number) => {
-    setChatScrollPositions(prev => ({
-      ...prev,
-      [characterId]: position
-    }));
+    // 记录之前的位置
+    const previousPosition = chatScrollPositions[characterId];
+    
+    // 更新位置（只在变化超过一定阈值时更新，避免频繁更新）
+    if (Math.abs((previousPosition || 0) - position) > 10) {
+      setChatScrollPositions(prev => ({
+        ...prev,
+        [characterId]: position
+      }));
+      console.log(`[App] Scroll position updated for ${characterId}: ${position}`);
+    }
   };
 
   // Add function to toggle memory panel visibility
@@ -1217,6 +1280,24 @@ const App = () => {
     setIsVideoReady(false);
     setVideoError(null);
   }, [selectedCharacter?.id]);
+
+  // Add a new function to handle scrolling and loading more messages when needed
+  const handleMessagePagination = useCallback((conversationId: string, page: number, pageSize: number) => {
+    // This function would normally query a database or API for paginated messages
+    // In our case, we're just working with local messages array
+    
+    // For now we're handling pagination in the ChatDialog component directly,
+    // but this is where you'd add server-side pagination if needed in the future
+    
+    console.log(`[App] Message pagination requested: conversation=${conversationId}, page=${page}, pageSize=${pageSize}`);
+    
+    // Return all messages for now - the ChatDialog will handle the virtualization
+    return Promise.resolve({
+      messages: getMessages(conversationId),
+      totalCount: getMessages(conversationId).length,
+      hasMore: false
+    });
+  }, [getMessages]);
 
   return (
     <View style={styles.outerContainer}>
@@ -1353,7 +1434,8 @@ const App = () => {
                     onRegenerateMessage={handleRegenerateMessage}
                     savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
                     onScrollPositionChange={handleScrollPositionChange}
-                    messageMemoryState={messageMemoryState} // Pass memory state to ChatDialog
+                    messageMemoryState={messageMemoryState}
+                    // Note: We're not passing allMessages separately as ChatDialog now handles virtualization internally
                   />
                 </View>
 

@@ -3,14 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
-  TouchableOpacity,
   Linking,
-  Platform,
-  ActivityIndicator,
+  Alert,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
 import { parseHtmlToReactNative } from '@/utils/htmlParser';
 import ImageManager from '@/utils/ImageManager';
 
@@ -33,7 +28,6 @@ const RichTextRenderer: React.FC<RichTextRendererProps> = ({
 
   // Add validation for empty content
   if (!html || html.trim() === '') {
-    console.warn('Empty HTML content passed to RichTextRenderer');
     return <Text style={[styles.emptyText, baseStyle]}>(No content)</Text>;
   }
 
@@ -98,55 +92,29 @@ const RichTextRenderer: React.FC<RichTextRendererProps> = ({
     }));
   }, []);
 
-  // Parse HTML and render React Native components
-  const renderContent = useCallback(() => {
-    try {
-      // Process special image:id format in the HTML
-      let processedHtml = html;
-      const imageIdRegex = /src="image:([^"]+)"/g;
-      
-      processedHtml = processedHtml.replace(imageIdRegex, (match, imageId) => {
-        const imageInfo = ImageManager.getImageInfo(imageId);
-        if (imageInfo) {
-          return `src="${imageInfo.thumbnailPath}" data-original="${imageInfo.originalPath}" data-image-id="${imageId}"`;
-        }
-        return match; // Keep original if no info found
-      });
-      
-      // Use the HTML parser utility to convert HTML to React Native components
-      const content = parseHtmlToReactNative(processedHtml, {
-        baseStyle,
-        handleLinkPress,
-        handleImagePress,
-        handleImageError,
-        imageLoadErrors,
-        maxImageHeight,
-      });
-      
-      // If parseHtmlToReactNative returns null or undefined
-      if (!content) {
-        throw new Error('Failed to parse HTML content');
-      }
-      
-      return content;
-    } catch (error) {
-      console.error('Error rendering HTML content:', error);
-      // Fallback rendering for error cases
-      return (
-        <View style={styles.errorContainer}>
-          <View style={styles.errorHeader}>
-            <Ionicons name="alert-circle" size={20} color="#e74c3c" />
-            <Text style={styles.errorText}>Error rendering content</Text>
-          </View>
-          <Text style={[styles.rawText, baseStyle]}>
-            {html.length > 300 ? html.substring(0, 300) + '...' : html}
-          </Text>
-        </View>
-      );
-    }
-  }, [html, baseStyle, handleLinkPress, handleImagePress, handleImageError, imageLoadErrors, maxImageHeight]);
-
-  return <View style={styles.container}>{renderContent()}</View>;
+  // Simply use the parseHtmlToReactNative function from our updated htmlParser
+  try {
+    return (
+      <View style={styles.container}>
+        {parseHtmlToReactNative(html, {
+          baseStyle,
+          handleLinkPress,
+          handleImagePress,
+          maxImageHeight,
+        })}
+      </View>
+    );
+  } catch (error) {
+    console.error('Error rendering HTML content:', error);
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Error rendering content</Text>
+        <Text style={[styles.rawText, baseStyle]}>
+          {html.length > 300 ? html.substring(0, 300) + '...' : html}
+        </Text>
+      </View>
+    );
+  }
 };
 
 const styles = StyleSheet.create({
@@ -159,15 +127,10 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginVertical: 5,
   },
-  errorHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
   errorText: {
     color: '#e74c3c',
     fontSize: 14,
-    marginLeft: 8,
+    marginBottom: 8,
   },
   rawText: {
     color: '#999',
