@@ -21,23 +21,11 @@
 *   **向后兼容:** 注意向后兼容，不修改原有的业务代码，只新增消息条懒加载的功能。
 
 
-
-
-
-优先问题
-
-新增消息后，立刻滚动到最底部
-
+=
 0.朋友圈的错误
 
 --角色对角色的朋友圈回复在刷新后消失
 
---(NOBRIDGE) ERROR  保存数据失败，键名: nodest_1743958020698snbe8eg_character_data: [Error: database or disk is full (code 13 SQLITE_FULL)]  
- (NOBRIDGE) ERROR  【朋友圈】初始化朋友圈失败: [Error: database or disk is full (code 13 SQLITE_FULL)]
-
-需要清空现有角色的R框架，角色的circle数据应该在删除角色的同时一并删除
-
-0.5 xml标签润色问题
 
 1.中文语音调音量大小
 
@@ -420,3 +408,184 @@ replicate后端：
 *   可以考虑使用 few-shot learning 的方式，提供更多高质量的日记示例供 LLM 参考。
 
 希望这份新的提示词能够帮助你更好地实现基于多维度反思和行动的日记机制。记住，迭代开发，逐步完善！
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+为了条理清晰地完成新增“动态立绘”角色类型的功能，并优化现有角色图库的图片上传功能，请按照以下步骤和结构化的方式进行开发：
+
+**一、功能概述：**
+
+1.  **新增角色类型：** 动态立绘
+2.  **优化现有功能：** 静态图片上传（从手机相册）
+
+**二、前端开发任务（摇篮页面）：**
+
+1.  **角色图库页面改造：**
+    *   增加选项卡，区分“静态立绘”和“动态立绘”。
+    *   “动态立绘”选项卡下，允许添加动态立绘。
+2.  **动态立绘添加功能：**
+    *   **图片来源选择：** 提供两种图片来源：
+        *   **手机相册：** 允许用户从手机相册选择图片。
+        *   **当前图库：** 允许用户从现有静态立绘图库中选择图片。
+    *   **图片上传流程 (重点):**
+        *   **步骤 1：上传到 R2 存储桶:**
+            *   研究并理解 Cloudflare R2 存储桶的上传规则（例如：认证、大小限制、MIME 类型等）。
+            *   编写代码，实现将用户选择的图片（无论是手机相册还是现有图库）上传到 R2 存储桶。
+        *   **步骤 2：发送 R2 URL 给后端:**
+            *   成功上传图片后，获取该图片在 R2 存储桶中的 URL。
+            *   将该 URL 发送给 Replicate 后端的“图生视频”接口。
+        *   **步骤 3：接收并下载视频:**
+            *   等待 Replicate 后端返回生成的视频 URL。
+            *   编写代码，从 Replicate 后端返回的 URL 下载视频到本地（前端缓存或临时存储）。
+3.  **静态图片上传优化：**
+    *   允许用户从手机相册上传静态图片到现有角色图库。
+
+**三、后端开发任务（Replicate 后端）：**
+```
+1.  **新增“图生视频”接口：**
+    *   **接口功能：** 接收前端发送的 R2 存储桶中的图片 URL，并生成视频。
+    *   **接收参数：**
+        *   `image_url`:  R2 存储桶中图片的 URL (重点: 只接收首帧图片 URL)。
+        *   `prompt`:  可选，文字描述（Prompt），用于影响视频生成效果。
+        *   `seconds`:  视频的生成秒数 (时长)。
+    *   **处理流程：**
+        *   **调用 Luma AI 模型 API：**
+
+```
+INPUT:
+{
+  "type": "object",
+  "title": "Input",
+  "required": [
+    "prompt"
+  ],
+  "properties": {
+    "loop": {
+      "type": "boolean",
+      "title": "Loop",
+      "default": false,
+      "x-order": 5,
+      "description": "Whether the video should loop, with the last frame matching the first frame for smooth, continuous playback."
+    },
+    "prompt": {
+      "type": "string",
+      "title": "Prompt",
+      "x-order": 0,
+      "description": "Text prompt for video generation"
+    },
+    "duration": {
+      "enum": [
+        5,
+        9
+      ],
+      "type": "integer",
+      "title": "duration",
+      "description": "Duration of the video in seconds",
+      "default": 5,
+      "x-order": 3
+    },
+    "aspect_ratio": {
+      "enum": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "9:21",
+        "21:9"
+      ],
+      "type": "string",
+      "title": "aspect_ratio",
+      "description": "Aspect ratio of the generated video",
+      "default": "16:9",
+      "x-order": 4
+    },
+    "end_image_url": {
+      "type": "string",
+      "title": "End Image Url",
+      "x-order": 2,
+      "description": "URL of an image to use as the ending frame"
+    },
+    "start_image_url": {
+      "type": "string",
+      "title": "Start Image Url",
+      "x-order": 1,
+      "description": "URL of an image to use as the starting frame"
+    }
+  }
+}
+
+OUTPUT:
+{
+  "type": "string",
+  "title": "Output",
+  "format": "uri"
+}
+```
+
+
+
+        *   **返回视频 URL：**
+2.  **测试脚本：**
+    *   编写测试脚本，用于测试“图生视频”服务是否可用，包括：
+        *   模拟前端发送 R2 图片 URL。
+        *   验证后端是否成功调用 Luma AI 模型 API。
+        *   验证后端是否正确返回视频 URL。
+
+**四、开发规范与注意事项：**
+
+1.  **错误处理：** 在前端和后端代码中，务必添加完善的错误处理机制，例如：
+    *   R2 上传失败
+    *   Replicate 后端接口调用失败
+    *   Luma AI 模型 API 调用失败
+    *   网络请求超时
+2.  **安全性：**  R2 存储桶的权限配置，防止未授权访问。后端接口做好安全验证。
+3.  **性能优化：**  考虑大文件上传、视频下载等可能存在的性能问题，进行优化。  可以考虑断点续传、异步处理等方法。
+4.  **代码注释：** 编写清晰、完整的代码注释，方便维护和调试。
+
+**五、时间规划：**
+
+*   **阶段一 (X 天):** 前端角色图库改造、静态图片上传功能优化
+*   **阶段二 (Y 天):** 前端 R2 上传逻辑、后端“图生视频”接口开发
+*   **阶段三 (Z 天):** 测试与Bug修复、性能优化
+
+**提示词优点：**
+
+*   **结构化：** 将任务分解为前端和后端，并细分了每个部分的子任务。
+*   **详细：** 包含了具体的步骤和注意事项，例如错误处理、安全性、性能优化和代码注释。
+*   **可操作性强：** 步骤清晰，便于开发者理解和执行。
+*   **重点突出：** 使用 "重点" 标记了需要特别关注的步骤。
+*   **明确的目标：**  明确了最终要实现的功能和需要达成的目标。
+
+这个结构化的提示词更易于理解和执行，有助于确保开发过程条理清晰，避免遗漏关键步骤。  可以根据实际情况调整时间规划。

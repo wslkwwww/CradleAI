@@ -731,7 +731,7 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
     }
 
     /**
-     * 改进的响应解析方法，从文本中提取并解析JSON
+     * 改进的响应解析方法，确保 thoughts 字段被正确保存
      */
     private parseCircleResponse(response: string): CircleResponse {
         try {
@@ -744,12 +744,21 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
 
             console.log('【朋友圈】成功提取JSON:', extractedJson);
             
+            // 存储内心想法，如果存在
+            const thoughts = extractedJson.thoughts || '';
+            if (thoughts) {
+                console.log(`【朋友圈思考】角色的想法: "${
+                    thoughts.substring(0, 100) + (thoughts.length > 100 ? '...' : '')
+                }"`);
+            }
+            
             // Handle different response formats based on what fields exist in the JSON
             if (extractedJson.post) {
                 // 处理新帖子创建的返回格式
                 return {
                     success: true,
                     post: extractedJson.post,
+                    thoughts: thoughts, // 保存思考内容
                     action: {
                         like: false, // No like for own post
                         comment: extractedJson.post // Use post content as comment
@@ -772,6 +781,7 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                 // 处理标准的互动响应格式
                 return {
                     success: true,
+                    thoughts: thoughts, // 保存思考内容
                     action: {
                         like: Boolean(extractedJson.action.like),
                         comment: extractedJson.action.comment
@@ -782,6 +792,7 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                 // 处理反思格式
                 return {
                     success: true,
+                    thoughts: thoughts, // 保存思考内容
                     action: {
                         like: false, // Can't like own post
                         comment: extractedJson.reflection // Use reflection as comment
@@ -801,6 +812,7 @@ ${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
                     
                 return {
                     success: true,
+                    thoughts: thoughts, // 保存思考内容
                     action: {
                         like: Boolean(extractedJson.like || false),
                         comment: typeof possibleComment === 'string' ? possibleComment : undefined

@@ -1423,7 +1423,7 @@ const App = () => {
                   mode === 'visual-novel' && styles.visualNovelContentContainer,
                   mode === 'background-focus' && styles.backgroundFocusContentContainer
                 ]}>
-                  <ChatDialog
+                  {/* <ChatDialog
                     messages={messages}
                     style={StyleSheet.flatten([
                       styles.chatDialog,
@@ -1436,7 +1436,7 @@ const App = () => {
                     onScrollPositionChange={handleScrollPositionChange}
                     messageMemoryState={messageMemoryState}
                     // Note: We're not passing allMessages separately as ChatDialog now handles virtualization internally
-                  />
+                  /> */}
                 </View>
 
                 {/* Adjust input bar position for different modes */}

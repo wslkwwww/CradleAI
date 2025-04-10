@@ -11,9 +11,17 @@ import {
   Platform,
   Image,
   Alert,
+  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { decode as atob, encode as btoa } from 'base-64';
+import JSZip from 'jszip';
+import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
+
+const NOVELAI_API_SUBSCRIPTION = 'https://api.novelai.net/user/subscription';
+const NOVELAI_API_GENERATE = 'https://image.novelai.net/ai/generate-image';
 
 interface NovelAITestModalProps {
   visible: boolean;
@@ -25,7 +33,7 @@ interface GenerationResult {
   success: boolean;
   message: string;
   imageUrl?: string;
-  image_urls?: string[];  // 添加对多图像URL的支持
+  image_urls?: string[];
 }
 
 interface QueueInfo {
@@ -34,33 +42,32 @@ interface QueueInfo {
   estimated_wait?: number;
 }
 
+interface TokenCache {
+  token: string;
+  expiry: number;
+  timestamp: number;
+}
+
 const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   visible,
   onClose,
   onImageGenerated,
 }) => {
-  // 身份验证配置
-  const [authType, setAuthType] = useState<'token' | 'login'>('token');
   const [token, setToken] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [apiServer, setApiServer] = useState('http://152.69.219.182:5000'); // 设置为你的服务器地址P和端口
-  
-  // 生成配置
+  const [apiServer, setApiServer] = useState('https://image.novelai.net');
+
   const [model, setModel] = useState('nai-v3');
   const [sampler, setSampler] = useState('k_euler_ancestral');
   const [steps, setSteps] = useState('28');
   const [scale, setScale] = useState('11');
   const [prompt, setPrompt] = useState('一只可爱的猫咪，高清照片');
   const [negativePrompt, setNegativePrompt] = useState('模糊，低质量，变形');
-  
-  // 高级配置
+
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [strength, setStrength] = useState('0.7');
   const [noise, setNoise] = useState('0.2');
   const [resolution, setResolution] = useState<'portrait' | 'landscape' | 'square'>('portrait');
-  
-  // 状态管理
+
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<GenerationResult>();
   const [logs, setLogs] = useState<string[]>([]);
@@ -68,22 +75,21 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const [processedTaskIds, setProcessedTaskIds] = useState<Set<string>>(new Set());
 
-  // 添加角色提示词输入字段和噪声调度选项
   const [showV4Settings, setShowV4Settings] = useState(false);
   const [characterPrompt, setCharacterPrompt] = useState('');
   const [noiseSchedule, setNoiseSchedule] = useState('karras');
 
-  // 添加队列状态信息
   const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
 
-  // 添加令牌缓存状态
   const [tokenStatus, setTokenStatus] = useState<{
-    isCached: boolean;
-    daysRemaining?: number;
-    email?: string;
+    isValid: boolean;
+    message?: string;
   } | null>(null);
 
-  // 监听模型变化，显示或隐藏V4特有设置
+  const [tokenCache, setTokenCache] = useState<TokenCache | null>(null);
+
+  const [savedImagePaths, setSavedImagePaths] = useState<string[]>([]);
+
   useEffect(() => {
     if (model.includes('nai-v4')) {
       setShowV4Settings(true);
@@ -92,22 +98,39 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     }
   }, [model]);
 
-  // 从存储中加载设置
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const savedSettings = await AsyncStorage.getItem('novelai_test_settings');
         if (savedSettings) {
           const settings = JSON.parse(savedSettings);
-          setAuthType(settings.authType || 'token');
           setToken(settings.token || '');
-          setEmail(settings.email || '');
-          setApiServer(settings.apiServer || 'https://your-api-server.com');
+          setApiServer(settings.apiServer || 'https://image.novelai.net');
           setModel(settings.model || 'nai-v3');
           setSampler(settings.sampler || 'k_euler_ancestral');
           setSteps(settings.steps || '28');
           setScale(settings.scale || '11');
           setResolution(settings.resolution || 'portrait');
+        }
+
+        const savedToken = await AsyncStorage.getItem('novelai_token_data');
+        if (savedToken) {
+          try {
+            const tokenData = JSON.parse(savedToken) as TokenCache;
+            setTokenCache(tokenData);
+
+            if (tokenData.token === token.trim() && tokenData.expiry > Date.now()) {
+              const daysRemaining = (tokenData.expiry - Date.now()) / (24 * 3600 * 1000);
+              setTokenStatus({
+                isValid: true,
+                message: `Token有效，剩余约 ${daysRemaining.toFixed(1)} 天`,
+              });
+            }
+
+            addLog('已加载Token缓存');
+          } catch (e) {
+            console.error('解析token缓存失败:', e);
+          }
         }
       } catch (error) {
         console.error('加载设置失败:', error);
@@ -116,14 +139,12 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
 
     if (visible) {
       loadSettings();
-      // 清除之前的日志和结果
       setLogs([]);
       setResult(undefined);
       setTaskId(null);
     }
   }, [visible]);
 
-  // 清理轮询定时器
   useEffect(() => {
     return () => {
       if (pollingInterval) {
@@ -132,64 +153,38 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     };
   }, [pollingInterval]);
 
-  // 当模态窗口关闭时，重置状态
   useEffect(() => {
     if (!visible) {
       setProcessedTaskIds(new Set());
     }
   }, [visible]);
 
-  // 检查令牌缓存状态
-  const checkTokenStatus = async () => {
-    try {
-      const response = await axios.get(`${apiServer}/token_status`, {
-        headers: authType === 'token' ? {
-          Authorization: `Bearer ${token.trim()}`
-        } : undefined,
-        params: authType === 'login' ? {
-          email: email
-        } : undefined
-      });
-      
-      if (response.data.success) {
-        setTokenStatus({
-          isCached: response.data.isCached,
-          daysRemaining: response.data.daysRemaining,
-          email: response.data.email
-        });
-        
-        if (response.data.isCached) {
-          addLog(`令牌缓存状态: ${response.data.email ? `用户 ${response.data.email}` : '默认用户'} 的令牌有效，剩余约 ${response.data.daysRemaining.toFixed(1)} 天`);
-        } else {
-          addLog(`未找到缓存的令牌，将需要重新验证`);
-        }
-      }
-    } catch (error) {
-      console.error('获取令牌状态失败:', error);
-    }
-  };
-
-  // 监听认证设置变化，获取令牌状态
   useEffect(() => {
-    if (!visible) return;
-    
-    const timer = setTimeout(() => {
-      if ((authType === 'token' && token.trim().length > 10) || 
-          (authType === 'login' && email.trim().length > 5)) {
-        checkTokenStatus();
-      }
-    }, 500);
-    
-    return () => clearTimeout(timer);
-  }, [visible, authType, token, email]);
+    if (!visible || !token.trim()) return;
 
-  // 保存设置
+    if (tokenCache && tokenCache.token === token.trim()) {
+      const now = Date.now();
+      if (tokenCache.expiry > now) {
+        const daysRemaining = (tokenCache.expiry - now) / (24 * 3600 * 1000);
+        setTokenStatus({
+          isValid: true,
+          message: `Token有效，剩余约 ${daysRemaining.toFixed(1)} 天`,
+        });
+      } else {
+        setTokenStatus({
+          isValid: false,
+          message: `Token已过期，需要重新验证`,
+        });
+      }
+    } else {
+      setTokenStatus(null);
+    }
+  }, [visible, token, tokenCache]);
+
   const saveSettings = async () => {
     try {
       const settings = {
-        authType,
         token,
-        email,
         apiServer,
         model,
         sampler,
@@ -205,372 +200,601 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     }
   };
 
-  // 添加日志
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, `[${timestamp}] ${message}`]);
+    setLogs((prev) => [...prev, `[${timestamp}] ${message}`]);
   };
 
-  // 修改查询任务状态的函数
-  const checkTaskStatus = async (taskId: string) => {
+  const cacheToken = async (verifiedToken: string) => {
     try {
-      addLog(`正在查询任务状态: ${taskId}`);
-      const response = await axios.get(`${apiServer}/task_status/${taskId}`);
-      
-      // 更新队列信息
-      if (response.data.queue_info) {
-        const newQueueInfo = response.data.queue_info;
-        setQueueInfo(newQueueInfo);
-        
-        // 如果队列位置发生变化，记录日志
-        if (!queueInfo || queueInfo.position !== newQueueInfo.position) {
-          if (newQueueInfo.position > 1) {
-            addLog(`队列位置: ${newQueueInfo.position}，预计等待时间: ${Math.round(newQueueInfo.estimated_wait / 60)} 分钟`);
-          } else if (newQueueInfo.position === 1) {
-            addLog(`你的任务正在处理中，马上就好！`);
-          }
-        }
-      } else {
-        // 如果不再有队列信息，说明任务正在处理中
-        if (queueInfo) {
-          setQueueInfo(null);
-          addLog(`任务已从队列移出，正在处理...`);
-        }
-      }
+      const now = Date.now();
+      const expiry = now + 30 * 24 * 60 * 60 * 1000;
 
-      if (response.data.done) {
-        // 立即停止轮询，避免多次调用
-        if (pollingInterval) {
-          clearInterval(pollingInterval);
-          setPollingInterval(null);
-        }
-        
-        // 如果任务成功且尚未处理过
-        if (response.data.success && !processedTaskIds.has(taskId)) {
-          addLog('图像生成成功!');
-          
-          // 首选图像 URL 数组
-          const imageUrls = response.data.image_urls || [];
-          // 向后兼容的单个图像 URL
-          const mainImageUrl = response.data.image_url;
-          
-          // 确保我们有至少一个 URL
-          if (imageUrls.length > 0 || mainImageUrl) {
-            const resultMessage = imageUrls.length > 1 
-              ? `成功生成了 ${imageUrls.length} 张图像!` 
-              : '图像生成成功!';
-              
-            setResult({
-              success: true,
-              message: resultMessage,
-              imageUrl: mainImageUrl || imageUrls[0],
-              image_urls: imageUrls.length > 0 ? imageUrls : (mainImageUrl ? [mainImageUrl] : [])
-            });
-            
-            // 更改：将第一张图片和任务ID传递给父组件，只传一次
-            const imageToPass = mainImageUrl || imageUrls[0];
-            if (imageToPass) {
-              // 立即标记任务已处理，防止后续再次调用
-              setProcessedTaskIds(prev => new Set([...prev, taskId]));
-              
-              // 传递任务ID给父组件，允许进一步的重复检测
-              onImageGenerated(imageToPass, taskId);
-              
-              // 停止轮询
-              setIsLoading(false);
-            }
-            return true; // 返回true表示任务已完成并处理
-          } else {
-            addLog('图像生成成功但未返回图像URL');
-            setResult({
-              success: true,
-              message: '图像生成成功但未返回图像URL'
-            });
-            
-            // 停止轮询
-            setIsLoading(false);
-            return true;
-          }
-        } else if (!response.data.success) {
-          // 任务失败
-          addLog(`图像生成失败: ${response.data.error}`);
-          setResult({
-            success: false,
-            message: `生成失败: ${response.data.error}`,
-          });
-          
-          // 停止轮询
-          setIsLoading(false);
-          return true;
-        } else if (processedTaskIds.has(taskId)) {
-          // 任务成功但已处理过
-          addLog('该任务已经处理过，不再重复处理');
-          setIsLoading(false);
-          return true;
-        }
-      } else {
-        // 任务仍在进行中
-        addLog(`任务状态: ${response.data.status}`);
-        return false;
-      }
-      
-      return response.data.done;
+      const tokenData: TokenCache = {
+        token: verifiedToken,
+        expiry: expiry,
+        timestamp: now,
+      };
+
+      setTokenCache(tokenData);
+      await AsyncStorage.setItem('novelai_token_data', JSON.stringify(tokenData));
+
+      const expiryDate = new Date(expiry).toLocaleDateString();
+      addLog(`令牌已缓存，有效期至: ${expiryDate}`);
+
+      setTokenStatus({
+        isValid: true,
+        message: `Token有效，剩余约 30 天`,
+      });
+
+      return verifiedToken;
     } catch (error) {
-      addLog(`查询任务状态失败: ${error instanceof Error ? error.message : String(error)}`);
-      // 不停止轮询，继续尝试
-      return false;
+      console.error('缓存令牌失败:', error);
+      addLog(`缓存令牌失败: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
   };
 
-  // 生成图像
+  const verifyToken = async (inputToken: string): Promise<string> => {
+    try {
+      if (tokenCache && tokenCache.token === inputToken) {
+        const now = Date.now();
+        if (tokenCache.expiry > now) {
+          const daysRemaining = (tokenCache.expiry - now) / (24 * 3600 * 1000);
+          addLog(`使用缓存的令牌，剩余有效期约 ${daysRemaining.toFixed(1)} 天`);
+          return inputToken;
+        } else {
+          addLog(`缓存的令牌已过期，将重新验证`);
+        }
+      }
+
+      const cleanToken = inputToken.trim();
+      addLog(`验证令牌中...`);
+
+      const response = await axios.get(NOVELAI_API_SUBSCRIPTION, {
+        headers: {
+          Authorization: `Bearer ${cleanToken}`,
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        },
+      });
+
+      if (response.status === 200) {
+        addLog(`令牌验证成功！`);
+
+        await cacheToken(cleanToken);
+
+        return cleanToken;
+      } else {
+        throw new Error('令牌验证失败');
+      }
+    } catch (error) {
+      console.error('验证令牌失败:', error);
+      let errorMessage = '令牌验证失败';
+
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          errorMessage = `令牌验证失败 (${error.response.status}): ${error.response.data?.message || error.message}`;
+        } else if (error.request) {
+          errorMessage = `无法连接到服务器: ${error.message}`;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
+      addLog(`令牌验证失败: ${errorMessage}`);
+      throw new Error(errorMessage);
+    }
+  };
+
+  const resolutionToDimensions = (resolution: string): { width: number; height: number } => {
+    if (resolution === 'portrait') {
+      return { width: 832, height: 1216 };
+    } else if (resolution === 'landscape') {
+      return { width: 1216, height: 832 };
+    } else if (resolution === 'square') {
+      return { width: 1024, height: 1024 };
+    } else {
+      return { width: 832, height: 1216 };
+    }
+  };
+
+  const saveBase64ImageToPNG = async (base64Data: string, filename: string): Promise<string> => {
+    try {
+      let base64Content = base64Data;
+      if (base64Content.startsWith('data:')) {
+        base64Content = base64Content.split(',')[1];
+      }
+
+      const imageFilename = filename || `novelai_${Date.now()}.png`;
+      const imagePath = `${FileSystem.documentDirectory}images/${imageFilename}`;
+      const dirPath = `${FileSystem.documentDirectory}images`;
+      const dirInfo = await FileSystem.getInfoAsync(dirPath);
+
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
+        addLog(`创建图像目录: ${dirPath}`);
+      }
+
+      await FileSystem.writeAsStringAsync(imagePath, base64Content, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      addLog(`图像已保存到: ${imagePath}`);
+
+      const manipResult = await ImageManipulator.manipulateAsync(
+        imagePath,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.PNG }
+      );
+
+      addLog(`图像已优化: ${manipResult.uri}`);
+
+      return manipResult.uri;
+    } catch (error) {
+      addLog(`保存图像失败: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  };
+
+  const extractImagesFromZip = async (blobData: Blob): Promise<string[]> => {
+    try {
+      addLog('开始处理ZIP响应数据...');
+
+      const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const fileReader = new FileReader();
+        fileReader.onload = () => {
+          if (fileReader.result instanceof ArrayBuffer) {
+            resolve(fileReader.result);
+          } else {
+            reject(new Error('Failed to convert blob to ArrayBuffer'));
+          }
+        };
+        fileReader.onerror = () => reject(fileReader.error || new Error('Unknown FileReader error'));
+        fileReader.readAsArrayBuffer(blobData);
+      });
+
+      addLog(`成功转换为ArrayBuffer，大小: ${Math.round(arrayBuffer.byteLength / 1024)} KB`);
+
+      try {
+        const zip = new JSZip();
+        const zipContent = await zip.loadAsync(arrayBuffer);
+
+        addLog(`ZIP文件加载成功，开始提取图像文件...`);
+
+        const imageFiles: string[] = [];
+        const filePromises: Promise<void>[] = [];
+
+        const fileCount = Object.keys(zipContent.files).length;
+        addLog(`ZIP包含 ${fileCount} 个文件`);
+
+        if (fileCount === 0) {
+          addLog('ZIP文件为空，尝试将内容直接作为图像处理');
+          return await handleDirectImageData(blobData);
+        }
+
+        Object.keys(zipContent.files).forEach((filename) => {
+          if (!zipContent.files[filename].dir) {
+            addLog(`发现文件: ${filename}`);
+
+            if (/\.(png|jpg|jpeg|webp)$/i.test(filename) || !filename.includes('.')) {
+              const filePromise = zipContent.files[filename]
+                .async('base64')
+                .then(async (base64Data) => {
+                  const extension = filename.includes('.')
+                    ? filename.split('.').pop()?.toLowerCase() || 'png'
+                    : 'png';
+
+                  const mimeType = extension === 'jpg' || extension === 'jpeg'
+                    ? 'image/jpeg'
+                    : extension === 'webp'
+                      ? 'image/webp'
+                      : 'image/png';
+
+                  const dataUrl = `data:${mimeType};base64,${base64Data}`;
+                  imageFiles.push(dataUrl);
+
+                  try {
+                    const savedPath = await saveBase64ImageToPNG(
+                      base64Data,
+                      `novelai_${Date.now()}_${imageFiles.length}.${extension}`
+                    );
+                    addLog(`已保存图像文件: ${savedPath}`);
+                    setSavedImagePaths(prev => [...prev, savedPath]);
+                  } catch (saveError) {
+                    addLog(`保存图像到文件系统失败: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+                  }
+
+                  addLog(`成功提取图像: ${filename}, 数据长度: ${Math.round(base64Data.length / 1024)} KB`);
+                })
+                .catch((err) => {
+                  addLog(`提取图像 ${filename} 失败: ${err}`);
+                });
+
+              filePromises.push(filePromise);
+            } else {
+              addLog(`跳过非图像文件: ${filename}`);
+            }
+          }
+        });
+
+        if (filePromises.length === 0) {
+          addLog('ZIP中没有找到图像文件，尝试将内容直接作为图像处理');
+          return await handleDirectImageData(blobData);
+        } else {
+          await Promise.all(filePromises);
+        }
+
+        addLog(`成功提取 ${imageFiles.length} 张图像`);
+        return imageFiles;
+      } catch (zipError) {
+        addLog(`JSZip处理失败: ${zipError}, 尝试直接作为图像处理...`);
+        return await handleDirectImageData(blobData);
+      }
+    } catch (error) {
+      addLog(`解压失败: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`无法从ZIP中提取图像: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleDirectImageData = async (blobData: Blob): Promise<string[]> => {
+    try {
+      addLog('尝试将内容直接作为图像处理...');
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error || new Error('Failed to read blob as data URL'));
+        reader.readAsDataURL(blobData);
+      });
+
+      if (!dataUrl) {
+        throw new Error('无法将数据转换为图像');
+      }
+
+      let base64Content: string;
+      if (dataUrl.includes('base64,')) {
+        base64Content = dataUrl.split('base64,')[1];
+        const mimeType = dataUrl.split(';')[0].split(':')[1];
+        addLog(`检测到MIME类型: ${mimeType}`);
+      } else {
+        addLog('无法从数据URL中提取base64内容，尝试直接使用');
+        base64Content = dataUrl;
+      }
+
+      try {
+        const filename = `novelai_direct_${Date.now()}.png`;
+        const savedPath = await saveBase64ImageToPNG(base64Content, filename);
+        addLog(`已保存直接处理的图像: ${savedPath}`);
+        setSavedImagePaths(prev => [...prev, savedPath]);
+      } catch (saveError) {
+        addLog(`保存直接处理的图像失败: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+      }
+
+      addLog('成功将响应处理为单个图像');
+      return [dataUrl];
+    } catch (error) {
+      addLog(`直接处理图像失败: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`无法处理图像数据: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const generateImage = async () => {
     setIsLoading(true);
     setResult(undefined);
     setLogs([]);
-    // 清空已处理任务集合
+    setSavedImagePaths([]);
     setProcessedTaskIds(new Set());
     addLog('开始生成图像...');
-    addLog(`认证类型: ${authType}`);
-    addLog(`API服务器: ${apiServer}`);
     addLog(`模型: ${model}, 采样器: ${sampler}, 步数: ${steps}`);
-    
-    try {
-      // 清理token，移除可能的空格或换行符
-      const cleanToken = token.trim();
-      if (authType === 'token' && (!cleanToken || cleanToken.length < 10)) {
-        addLog('错误: Token为空或长度不足，请检查输入');
-        setResult({
-          success: false,
-          message: 'Token为空或长度不足，请检查输入',
-        });
-        setIsLoading(false);
-        return;
-      }
-      
-      // 准备请求参数
-      const requestData = {
-        auth_type: authType,
-        token: authType === 'token' ? cleanToken : undefined,
-        email: authType === 'login' ? email : undefined,
-        password: authType === 'login' ? password : undefined,
-        model,
-        sampler,
-        steps: parseInt(steps),
-        scale: parseFloat(scale),
-        resolution,
-        prompt,
-        negative_prompt: negativePrompt,
-      };
-      
-      // 如果是V4模型，添加V4特有参数
-      if (model.includes('nai-v4')) {
-        Object.assign(requestData, {
-          character_prompt: characterPrompt,
-          noise_schedule: noiseSchedule,
-        });
-      }
-      
-      addLog('正在发送请求到服务器...');
-      addLog(`请求数据: ${JSON.stringify({
-        ...requestData,
-        token: authType === 'token' ? `${cleanToken.substring(0, 5)}...${cleanToken.substring(cleanToken.length - 5)}` : undefined,
-        password: authType === 'login' ? '******' : undefined,
-      })}`);
-      
-      const response = await axios.post(`${apiServer}/generate`, requestData, {
-        timeout: 30000, // 30秒超时
-      });
-      
-      if (response.data.success) {
-        const newTaskId = response.data.task_id;
-        setTaskId(newTaskId);
-        addLog(`任务已提交，ID: ${newTaskId}`);
-        addLog('开始轮询任务状态...');
-        
-        // 获取队列信息
-        if (response.data.queue_info) {
-          setQueueInfo(response.data.queue_info);
-          const position = response.data.queue_info.position;
-          if (position > 1) {
-            addLog(`你的任务在队列中的位置: ${position}，前面有 ${position-1} 个任务`);
-          } else {
-            addLog(`你的任务正在处理中`);
-          }
-        }
 
-        // 修改轮询实现，使用显式的轮询控制标志
-        let isPolling = true;
-        const interval = setInterval(async () => {
-          if (!isPolling) {
-            clearInterval(interval);
-            return;
-          }
-          
+    try {
+      const newTaskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+      setTaskId(newTaskId);
+
+      const cleanToken = token.trim();
+      if (!cleanToken || cleanToken.length < 10) {
+        throw new Error('Token为空或长度不足，请检查输入');
+      }
+
+      const accessToken = await verifyToken(cleanToken);
+
+      if (!accessToken) {
+        throw new Error('无法获取有效的访问令牌');
+      }
+
+      const modelMap: { [key: string]: string } = {
+        nai: 'nai-diffusion',
+        'nai-v1': 'nai-diffusion',
+        'nai-v2': 'nai-diffusion-2',
+        'nai-v3': 'nai-diffusion-3',
+        'nai-v4-preview': 'nai-diffusion-4-curated-preview',
+        'nai-v4-full': 'nai-diffusion-4-full',
+        safe: 'safe-diffusion',
+        furry: 'nai-diffusion-furry',
+      };
+
+      const officialModel = modelMap[model] || model;
+
+      const isV4Model = officialModel.includes('nai-diffusion-4');
+
+      const dimensions = resolutionToDimensions(resolution);
+
+      const requestData: any = {
+        action: 'generate',
+        input: prompt,
+        model: officialModel,
+        parameters: {
+          width: dimensions.width,
+          height: dimensions.height,
+          scale: parseFloat(scale),
+          sampler: sampler,
+          steps: parseInt(steps),
+          n_samples: 1,
+          ucPreset: 0,
+          seed: Math.floor(Math.random() * 2 ** 32),
+          sm: false,
+          sm_dyn: false,
+          add_original_image: true,
+          legacy: false,
+        },
+      };
+
+      if (isV4Model) {
+        requestData.parameters.params_version = 3;
+        requestData.parameters.qualityToggle = true;
+        requestData.parameters.prefer_brownian = true;
+        requestData.parameters.autoSmea = false;
+        requestData.parameters.dynamic_thresholding = false;
+        requestData.parameters.controlnet_strength = 1;
+        requestData.parameters.legacy_v3_extend = false;
+        requestData.parameters.deliberate_euler_ancestral_bug = false;
+
+        requestData.parameters.noise_schedule = noiseSchedule;
+
+        const charPrompt = characterPrompt;
+
+        requestData.parameters.v4_prompt = {
+          caption: {
+            base_caption: prompt,
+            char_captions: [
+              {
+                char_caption: charPrompt,
+                centers: [
+                  {
+                    x: 0,
+                    y: 0,
+                  },
+                ],
+              },
+            ],
+          },
+          use_coords: false,
+          use_order: true,
+        };
+
+        requestData.parameters.v4_negative_prompt = {
+          caption: {
+            base_caption:
+              negativePrompt ||
+              'blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, multiple views, logo, too many watermarks, white blank page, blank page',
+            char_captions: [
+              {
+                char_caption: '',
+                centers: [
+                  {
+                    x: 0,
+                    y: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        };
+
+        if (charPrompt) {
+          requestData.parameters.characterPrompts = [
+            {
+              prompt: charPrompt,
+              uc: '',
+              center: {
+                x: 0,
+                y: 0,
+              },
+            },
+          ];
+        }
+      }
+
+      if (!isV4Model && negativePrompt) {
+        requestData.parameters.negative_prompt = negativePrompt;
+      }
+
+      if (negativePrompt) {
+        requestData.parameters.negative_prompt = negativePrompt;
+      }
+
+      addLog(`已构建请求数据，开始发送请求...`);
+
+      addLog(`发送请求到 ${NOVELAI_API_GENERATE}`);
+
+      const response = await axios({
+        method: 'post',
+        url: NOVELAI_API_GENERATE,
+        data: requestData,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/x-zip-compressed, image/png, image/jpeg, image/webp',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          Referer: 'https://novelai.net/image',
+          Origin: 'https://novelai.net',
+        },
+        responseType: 'blob',
+      });
+
+      if (response.status === 200) {
+        const contentType = response.headers['content-type'] || '';
+        const contentLength = response.headers['content-length'] || 'unknown';
+        addLog(`响应成功，Content-Type: ${contentType}, Content-Length: ${contentLength}, 数据大小: ${Math.round(response.data.size / 1024)} KB`);
+
+        try {
+          const responseBlob = response.data;
+          addLog(`获取到响应Blob，大小: ${Math.round(responseBlob.size / 1024)} KB, 类型: ${responseBlob.type}`);
+
           try {
-            const isDone = await checkTaskStatus(newTaskId);
-            if (isDone) {
-              isPolling = false;
-              clearInterval(interval);
-              setPollingInterval(null);
+            const imageDataUrls = await extractImagesFromZip(responseBlob);
+
+            if (imageDataUrls.length > 0) {
+              addLog(`成功提取 ${imageDataUrls.length} 张图像`);
+
+              setResult({
+                success: true,
+                message: `成功生成了 ${imageDataUrls.length} 张图像!`,
+                imageUrl: imageDataUrls[0],
+                image_urls: imageDataUrls,
+              });
+
+              const imageToReturn = savedImagePaths.length > 0 ? savedImagePaths[0] : imageDataUrls[0];
+              onImageGenerated(imageToReturn, newTaskId);
+            } else {
+              throw new Error('未能提取任何图像');
             }
-          } catch (err) {
-            addLog(`轮询过程中出错: ${err instanceof Error ? err.message : String(err)}`);
+          } catch (error) {
+            throw new Error(`处理响应失败: ${error instanceof Error ? error.message : String(error)}`);
           }
-        }, 2000); // 每2秒检查一次
-        
-        setPollingInterval(interval);
+        } catch (processingError) {
+          addLog(`处理响应数据时出错: ${processingError instanceof Error ? processingError.message : String(processingError)}`);
+          throw processingError;
+        }
       } else {
-        addLog(`提交任务失败: ${response.data.error}`);
-        setResult({
-          success: false,
-          message: `提交失败: ${response.data.error}`,
-        });
-        setIsLoading(false);
+        throw new Error(`请求失败，状态码: ${response.status}`);
       }
     } catch (error) {
       console.error('生成图像过程中发生错误:', error);
       let errorMessage = '未知错误';
-      
+
       if (axios.isAxiosError(error)) {
         if (error.response) {
-          errorMessage = `服务器错误 (${error.response.status}): ${error.response.data?.error || error.message}`;
+          try {
+            const errorData = error.response.data;
+            if (typeof errorData === 'string') {
+              errorMessage = errorData;
+            } else if (errorData && typeof errorData === 'object') {
+              errorMessage = errorData.message || JSON.stringify(errorData);
+            } else {
+              errorMessage = `服务器错误 (${error.response.status})`;
+            }
+          } catch (e) {
+            errorMessage = `服务器错误 (${error.response.status}): ${error.message}`;
+          }
         } else if (error.request) {
           errorMessage = `无法连接到服务器: ${error.message}`;
         } else {
           errorMessage = `请求配置错误: ${error.message}`;
         }
-        
-        // 针对常见错误提供建议
-        if (error.response?.status === 401) {
-          addLog('建议: 如果使用token认证失败，请尝试切换到login认证后再切换回token认证');
-          errorMessage += '\n建议: 切换到login认证后再切换回token认证可能解决此问题';
-        }
-      } else {
-        errorMessage = error instanceof Error ? error.message : String(error);
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
       }
-      
+
       addLog('生成图像过程中发生错误: ' + errorMessage);
       setResult({
         success: false,
         message: '生成图像过程中发生错误: ' + errorMessage,
       });
+    } finally {
       setIsLoading(false);
     }
   };
 
-  // 添加取消任务的函数
-  const cancelTask = async () => {
-    if (!taskId) return;
-    
-    try {
-      addLog(`正在取消任务: ${taskId}...`);
-      const response = await axios.post(`${apiServer}/cancel_task/${taskId}`);
-      
-      if (response.data.success) {
-        addLog(`任务已成功取消`);
-        setIsLoading(false);
-        setTaskId(null);
-        setQueueInfo(null);
-        if (pollingInterval) {
-          clearInterval(pollingInterval);
-          setPollingInterval(null);
-        }
-      } else {
-        addLog(`任务取消失败: ${response.data.error}`);
+  const openImageInNewWindow = (imageUrl: string) => {
+    if (Platform.OS === 'web') {
+      try {
+        window.open(imageUrl, '_blank');
+      } catch (error) {
+        addLog(`无法在新窗口中打开图像: ${error}`);
+        Alert.alert('错误', '无法在新窗口中打开图像');
       }
-    } catch (error) {
-      addLog(`取消任务时发生错误: ${error instanceof Error ? error.message : String(error)}`);
+    } else {
+      Linking.canOpenURL(imageUrl)
+        .then((supported) => {
+          if (supported) {
+            Linking.openURL(imageUrl);
+          } else {
+            addLog(`设备无法打开此URL: ${imageUrl}`);
+            Alert.alert('错误', '设备无法打开此图像链接');
+          }
+        })
+        .catch((error) => {
+          addLog(`打开URL时出错: ${error}`);
+          Alert.alert('错误', '打开图像链接时出错');
+        });
     }
   };
 
-  // 渲染图像结果
   const renderImages = () => {
     if (!result?.success) return null;
-    
-    // 检查是否有多张图片
-    const hasMultipleImages = result.image_urls && result.image_urls.length > 1;
-    
+
+    const hasMultipleImages =
+      savedImagePaths.length > 1 ||
+      (savedImagePaths.length === 0 && result.image_urls && result.image_urls.length > 1);
+    const imagesToRender = savedImagePaths.length > 0 ? savedImagePaths : result.image_urls || [];
+
     if (hasMultipleImages) {
       return (
         <ScrollView horizontal style={styles.imageScrollView}>
-          {result.image_urls!.map((url, index) => (
+          {imagesToRender.map((url, index) => (
             <View key={index} style={styles.imageContainer}>
-              <Image
-                source={{ uri: url }}
-                style={styles.resultImage}
-                resizeMode="contain"
-              />
+              <Image source={{ uri: url }} style={styles.resultImage} resizeMode="contain" />
               <Text style={styles.imageIndexText}>图像 {index + 1}</Text>
             </View>
           ))}
         </ScrollView>
       );
     }
-    
-    // 单张图片情况
-    const imageUrl = result.imageUrl;
+
+    const imageUrl = savedImagePaths[0] || result.imageUrl;
     if (!imageUrl) return null;
-    
-    // 检查URL大小，避免显示过大的base64数据
+
     const isDataUrl = imageUrl.startsWith('data:');
     const isLargeDataUrl = isDataUrl && imageUrl.length > 100000;
-    
+
     if (isLargeDataUrl) {
-      // 对于大型Data URL，提供查看选项而不是直接显示
       return (
         <View style={styles.imageContainer}>
           <Text style={styles.warningText}>* 图像较大，直接显示可能影响性能 *</Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.viewImageButton}
-            onPress={() => {
-              // 打开新窗口查看图像
-              if (typeof window !== 'undefined') {
-                window.open(imageUrl, '_blank');
-              }
-            }}
+            onPress={() => openImageInNewWindow(imageUrl)}
           >
-            <Text style={styles.viewImageButtonText}>在新窗口中查看完整图像</Text>
+            <Text style={styles.viewImageButtonText}>查看完整图像</Text>
           </TouchableOpacity>
         </View>
       );
     }
-    
-    // 对于普通URL，直接显示
-    return (
-      <Image
-        source={{ uri: imageUrl }}
-        style={styles.resultImage}
-        resizeMode="contain"
-      />
-    );
+
+    return <Image source={{ uri: imageUrl }} style={styles.resultImage} resizeMode="contain" />;
   };
 
-  // 令牌状态显示组件
   const renderTokenStatus = () => {
     if (!tokenStatus) return null;
-    
+
     return (
       <View style={styles.tokenStatusContainer}>
-        {tokenStatus.isCached ? (
+        {tokenStatus.isValid ? (
           <View style={styles.tokenStatusContent}>
             <Text style={styles.tokenStatusText}>
-              令牌状态: <Text style={styles.tokenCached}>已缓存</Text>
+              令牌状态: <Text style={styles.tokenValid}>有效</Text>
             </Text>
-            {tokenStatus.daysRemaining !== undefined && (
-              <Text style={styles.tokenDetailText}>
-                剩余有效期: {tokenStatus.daysRemaining.toFixed(1)} 天
-                {tokenStatus.daysRemaining < 10 && (
-                  <Text style={styles.tokenWarning}> (即将过期，将自动刷新)</Text>
-                )}
-              </Text>
-            )}
-            {tokenStatus.email && (
-              <Text style={styles.tokenDetailText}>用户: {tokenStatus.email}</Text>
+            {tokenStatus.message && (
+              <Text style={styles.tokenDetailText}>{tokenStatus.message}</Text>
             )}
           </View>
         ) : (
           <Text style={styles.tokenStatusText}>
-            令牌状态: <Text style={styles.tokenNotCached}>未缓存</Text> (将进行验证)
+            令牌状态: <Text style={styles.tokenInvalid}>无效</Text>
+            {tokenStatus.message && ` - ${tokenStatus.message}`}
           </Text>
         )}
       </View>
@@ -592,83 +816,24 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* 认证设置 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>认证设置</Text>
-          
-          <Text style={styles.label}>认证类型</Text>
-          <View style={styles.pickerContainer}>
-            {(['token', 'login'] as const).map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={[
-                  styles.authTypeButton,
-                  authType === type && styles.selectedAuthType,
-                ]}
-                onPress={() => setAuthType(type)}
-              >
-                <Text style={[
-                  styles.authTypeText,
-                  authType === type && styles.selectedAuthTypeText,
-                ]}>
-                  {type}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
 
-          {authType === 'token' && (
-            <View>
-              <Text style={styles.label}>Token</Text>
-              <TextInput
-                style={styles.input}
-                value={token}
-                onChangeText={setToken}
-                placeholder="输入你的NovelAI Token"
-                secureTextEntry
-              />
-            </View>
-          )}
-
-          {authType === 'login' && (
-            <View>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="输入NovelAI账号邮箱"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              <Text style={styles.label}>密码</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="输入密码"
-                secureTextEntry
-              />
-            </View>
-          )}
-
-          <Text style={styles.label}>API服务器</Text>
+          <Text style={styles.label}>Token</Text>
           <TextInput
             style={styles.input}
-            value={apiServer}
-            onChangeText={setApiServer}
-            placeholder="API服务器URL"
-            autoCapitalize="none"
+            value={token}
+            onChangeText={setToken}
+            placeholder="输入你的NovelAI Token"
+            secureTextEntry
           />
 
-          {/* 显示令牌缓存状态 */}
           {renderTokenStatus()}
         </View>
 
-        {/* 生成设置 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>生成设置</Text>
-          
+
           <Text style={styles.label}>模型</Text>
           <View style={styles.pickerContainer}>
             {([
@@ -678,7 +843,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
               { id: 'safe', name: '安全扩散' },
               { id: 'nai', name: 'NAI动漫v1' },
               { id: 'nai-v2', name: 'NAI动漫v2' },
-              { id: 'furry', name: '兽人扩散' }
+              { id: 'furry', name: '兽人扩散' },
             ]).map((modelOption) => (
               <TouchableOpacity
                 key={modelOption.id}
@@ -743,7 +908,6 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
             ))}
           </View>
 
-          {/* 高级设置切换按钮 */}
           <TouchableOpacity
             style={styles.advancedButton}
             onPress={() => setShowAdvancedSettings(!showAdvancedSettings)}
@@ -753,7 +917,6 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
             </Text>
           </TouchableOpacity>
 
-          {/* 高级设置 */}
           {showAdvancedSettings && (
             <View>
               <Text style={styles.label}>强度 (仅用于图像到图像)</Text>
@@ -776,11 +939,10 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
             </View>
           )}
 
-          {/* V4特有设置 */}
           {showV4Settings && (
             <View style={styles.v4SettingsContainer}>
               <Text style={styles.v4SettingsTitle}>V4 模型特有设置</Text>
-              
+
               <Text style={styles.label}>角色提示词</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
@@ -790,7 +952,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
                 multiline
                 numberOfLines={3}
               />
-              
+
               <Text style={styles.label}>噪声调度</Text>
               <View style={styles.pickerContainer}>
                 {(['karras', 'exponential', 'polyexponential'] as const).map((scheduleOption) => (
@@ -830,17 +992,16 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
           />
         </View>
 
-        {/* 操作按钮 */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity 
-            style={[styles.button, styles.saveButton]} 
+          <TouchableOpacity
+            style={[styles.button, styles.saveButton]}
             onPress={saveSettings}
           >
             <Text style={styles.buttonText}>保存设置</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.button, styles.generateButton, isLoading && styles.disabledButton]} 
+
+          <TouchableOpacity
+            style={[styles.button, styles.generateButton, isLoading && styles.disabledButton]}
             onPress={generateImage}
             disabled={isLoading}
           >
@@ -850,14 +1011,12 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* 加载指示器 */}
         {isLoading && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#3498db" />
             <Text style={styles.loadingText}>正在生成图像，请稍候...</Text>
             {taskId && <Text style={styles.taskIdText}>任务ID: {taskId}</Text>}
-            
-            {/* 显示队列位置信息 */}
+
             {queueInfo && queueInfo.position > 0 && (
               <View style={styles.queueInfoContainer}>
                 <Text style={styles.queuePositionText}>
@@ -869,16 +1028,17 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
                   </Text>
                 )}
                 <View style={styles.progressBarContainer}>
-                  <View style={[
-                    styles.progressBar, 
-                    { width: `${Math.max(5, 100 - (queueInfo.position / queueInfo.total_pending * 100))}%` }
-                  ]} />
+                  <View
+                    style={[
+                      styles.progressBar,
+                      { width: `${Math.max(5, 100 - (queueInfo.position / queueInfo.total_pending) * 100)}%` },
+                    ]}
+                  />
                 </View>
-                
-                {/* 取消任务按钮 */}
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   style={styles.cancelTaskButton}
-                  onPress={cancelTask}
+                  onPress={() => setIsLoading(false)}
                 >
                   <Text style={styles.cancelTaskButtonText}>取消任务</Text>
                 </TouchableOpacity>
@@ -887,26 +1047,29 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
           </View>
         )}
 
-        {/* 结果展示 */}
         {result && (
-          <View style={[styles.resultContainer, 
-            result.success ? styles.successResult : styles.errorResult]}>
+          <View
+            style={[
+              styles.resultContainer,
+              result.success ? styles.successResult : styles.errorResult,
+            ]}
+          >
             <Text style={styles.resultText}>{result.message}</Text>
             {result.success && renderImages()}
           </View>
         )}
 
-        {/* 日志输出 */}
         <View style={styles.logsContainer}>
           <Text style={styles.logsTitle}>执行日志:</Text>
           <ScrollView style={styles.logs}>
             {logs.map((log, index) => (
-              <Text key={index} style={styles.logEntry}>{log}</Text>
+              <Text key={index} style={styles.logEntry}>
+                {log}
+              </Text>
             ))}
           </ScrollView>
         </View>
 
-        {/* 底部间距 */}
         <View style={styles.bottomSpacer} />
       </ScrollView>
     </Modal>
@@ -978,27 +1141,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginBottom: 15,
-  },
-  authTypeButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    marginRight: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  selectedAuthType: {
-    backgroundColor: '#3498db',
-    borderColor: '#2980b9',
-  },
-  authTypeText: {
-    color: '#555',
-  },
-  selectedAuthTypeText: {
-    color: '#fff',
-    fontWeight: 'bold',
   },
   optionButton: {
     paddingVertical: 6,
@@ -1225,18 +1367,15 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
-  tokenCached: {
+  tokenValid: {
     color: '#27ae60',
     fontWeight: 'bold',
   },
-  tokenNotCached: {
+  tokenInvalid: {
     color: '#e74c3c',
     fontWeight: 'bold',
-  },
-  tokenWarning: {
-    color: '#e67e22',
-    fontStyle: 'italic',
   },
 });
 
 export default NovelAITestModal;
+

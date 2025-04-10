@@ -101,6 +101,34 @@ export class CircleService {
       
       const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(postOptions);
       
+      // 新增代码：持久化保存新帖子
+      if (response.success && response.action?.comment) {
+        try {
+          // 创建新帖子对象
+          const newPost: CirclePost = {
+            id: `post-${Date.now()}-${character.id}`,
+            characterId: character.id,
+            characterName: character.name,
+            characterAvatar: character.avatar as string,
+            content: response.action.comment,
+            createdAt: new Date().toISOString(),
+            comments: [],
+            likes: 0,
+            likedBy: [],
+            hasLiked: false
+          };
+          
+          // 保存新帖子
+          await this.saveUpdatedPost(newPost);
+          console.log(`【朋友圈服务】已保存角色 ${character.name} 创建的新帖子`);
+          
+          // 添加帖子到响应中
+          response.post = response.action.comment;
+        } catch (saveError) {
+          console.error(`【朋友圈服务】保存新帖子失败:`, saveError);
+        }
+      }
+      
       // Log the complete response for debugging
       console.log(`【朋友圈服务】${character.name} 创建帖子的原始响应:`, JSON.stringify(response));
       
@@ -179,6 +207,20 @@ export class CircleService {
       // 如果互动成功，更新角色互动统计
       if (response.success) {
         this.updateInteractionStats(character, post.characterId, 'post');
+        
+        // 新增代码：保存评论到持久化存储
+        if (response.action && (response.action.comment || response.action.like)) {
+          try {
+            // 使用 updatePostWithResponse 更新帖子
+            const { updatedPost } = this.updatePostWithResponse(post, character, response);
+            
+            // 保存更新后的帖子
+            await this.saveUpdatedPost(updatedPost);
+            console.log(`【朋友圈服务】已保存角色 ${character.name} 对帖子 ${post.id} 的互动`);
+          } catch (saveError) {
+            console.error(`【朋友圈服务】保存角色互动失败:`, saveError);
+          }
+        }
       }
       
       return response;
@@ -332,6 +374,20 @@ export class CircleService {
 
       // Process the interaction through NodeST with apiKey
       const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(commentOptions);
+      
+      // 新增代码：保存评论到持久化存储
+      if (response.success && response.action) {
+        try {
+          // 使用 updatePostWithResponse 更新帖子，同时传递 replyTo 信息
+          const { updatedPost } = this.updatePostWithResponse(post, character, response, replyTo);
+          
+          // 保存更新后的帖子
+          await this.saveUpdatedPost(updatedPost);
+          console.log(`【朋友圈服务】已保存角色 ${character.name} 对评论的回复`);
+        } catch (saveError) {
+          console.error(`【朋友圈服务】保存评论回复失败:`, saveError);
+        }
+      }
       
       // Log detailed response for debugging if it contains thoughts
       if (response.success && response.thoughts) {
@@ -496,6 +552,23 @@ export class CircleService {
       // 如果互动成功，更新角色互动统计
       if (response.success) {
         this.updateInteractionStats(character, comment.id, 'comment');
+        
+        // 新增代码：保存评论回复
+        if (response.action && response.action.comment) {
+          try {
+            // 创建回复评论对象
+            const replyTo = { userId: comment.userId, userName: comment.userName };
+            
+            // 使用 updatePostWithResponse 更新帖子
+            const { updatedPost } = this.updatePostWithResponse(post, character, response, replyTo);
+            
+            // 保存更新后的帖子
+            await this.saveUpdatedPost(updatedPost);
+            console.log(`【朋友圈服务】已保存角色 ${character.name} 对评论 ${comment.id} 的回复`);
+          } catch (saveError) {
+            console.error(`【朋友圈服务】保存评论回复失败:`, saveError);
+          }
+        }
       }
       
       return response;
@@ -625,6 +698,32 @@ export class CircleService {
     return characters.find(c => c.id === characterId);
   }
   
+  // 新增方法：保存更新后的帖子到存储
+  private static async saveUpdatedPost(updatedPost: CirclePost): Promise<boolean> {
+    try {
+      // 加载所有现有帖子
+      const allPosts = await this.loadSavedPosts();
+      
+      // 查找并更新特定帖子
+      const updatedPosts = allPosts.map(post => 
+        post.id === updatedPost.id ? updatedPost : post
+      );
+      
+      // 如果找不到帖子，添加它
+      if (!allPosts.some(post => post.id === updatedPost.id)) {
+        updatedPosts.push(updatedPost);
+      }
+      
+      // 保存更新后的帖子列表
+      await this.savePosts(updatedPosts);
+      console.log(`【朋友圈服务】成功更新帖子 ${updatedPost.id} 到存储`);
+      return true;
+    } catch (error) {
+      console.error(`【朋友圈服务】保存更新后的帖子失败:`, error);
+      return false;
+    }
+  }
+
   // Process test interaction for all enabled characters with relationship updates
   static async processTestInteraction(
     testPost: CirclePost,
@@ -1088,34 +1187,68 @@ export class CircleService {
     try {
       console.log(`【朋友圈服务】刷新帖子，当前有 ${savedPosts.length} 条已保存的帖子`);
       
-      // 1. Look for new character posts that aren't in the saved posts
-      const allCharacterPosts: CirclePost[] = [];
+      // 1. 先从AsyncStorage加载所有已保存的帖子，确保不会丢失评论
+      const storedPosts = await this.loadSavedPosts();
+      console.log(`【朋友圈服务】从存储中加载了 ${storedPosts.length} 条帖子`);
       
-      for (const character of characters) {
+      // 2. 创建一个帖子ID映射来避免重复，优先使用存储的版本（因为它们包含评论）
+      const postMap = new Map<string, CirclePost>();
+      
+      // 先添加存储的帖子
+      storedPosts.forEach(post => {
+        postMap.set(post.id, post);
+      });
+      
+      // 然后添加内存中的帖子（如果存储中不存在）
+      savedPosts.forEach(post => {
+        if (!postMap.has(post.id)) {
+          postMap.set(post.id, post);
+        }
+      });
+      
+      // 3. 查找角色中的新帖子
+      characters.forEach(character => {
         if (character.circlePosts && Array.isArray(character.circlePosts)) {
           character.circlePosts.forEach(post => {
-            if (post && post.id && !savedPosts.some(p => p.id === post.id)) {
-              allCharacterPosts.push({
-                ...post,
-                characterAvatar: character.avatar || post.characterAvatar
-              });
+            if (post && post.id) {
+              // 如果帖子已经存在，使用评论数最多的版本
+              if (postMap.has(post.id)) {
+                const existingPost = postMap.get(post.id)!;
+                const existingCommentCount = existingPost.comments?.length || 0;
+                const newCommentCount = post.comments?.length || 0;
+                
+                if (newCommentCount > existingCommentCount) {
+                  // 如果新帖子有更多评论，使用它但保留现有评论
+                  const mergedPost = {
+                    ...post,
+                    comments: [...(existingPost.comments || []), ...(post.comments || [])].filter(
+                      // 去重处理
+                      (comment, index, self) => index === self.findIndex(c => c.id === comment.id)
+                    ),
+                    characterAvatar: character.avatar || post.characterAvatar
+                  };
+                  postMap.set(post.id, mergedPost);
+                }
+              } else {
+                // 如果是新帖子，添加到映射
+                postMap.set(post.id, {
+                  ...post,
+                  characterAvatar: character.avatar || post.characterAvatar
+                });
+              }
             }
           });
         }
-      }
+      });
       
-      if (allCharacterPosts.length > 0) {
-        console.log(`【朋友圈服务】发现 ${allCharacterPosts.length} 条新的角色帖子`);
-      }
-      
-      // 2. Merge with saved posts and sort
-      const mergedPosts = [...savedPosts, ...allCharacterPosts].sort((a, b) =>
+      // 4. 转换回数组并排序
+      const mergedPosts = Array.from(postMap.values()).sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       
-      // 3. Update post avatars with fresh character data
+      // 5. 更新头像和其他信息
       const updatedPosts = mergedPosts.map(post => {
-        // Update avatar for character posts
+        // 更新角色帖子的头像
         if (post.characterId !== 'user-1') {
           const character = characters.find(c => c.id === post.characterId);
           if (character) {
@@ -1123,7 +1256,7 @@ export class CircleService {
           }
         }
         
-        // Update avatars in likes and comments
+        // 更新点赞和评论中的头像
         if (post.likedBy) {
           post.likedBy = post.likedBy.map(like => {
             if (like.isCharacter) {
@@ -1157,8 +1290,9 @@ export class CircleService {
         return post;
       });
       
-      // 4. Save the merged and updated posts
+      // 6. 保存更新后的帖子
       await this.savePosts(updatedPosts);
+      console.log(`【朋友圈服务】更新并保存了 ${updatedPosts.length} 条帖子`);
       
       return updatedPosts;
     } catch (error) {

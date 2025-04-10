@@ -43,8 +43,8 @@ const MAX_WIDTH = width * 0.88; // Decreased from 0.9 to 0.88 to add more margin
 const MAX_IMAGE_HEIGHT = 300; // Maximum height for images in chat
 
 // Constants for virtualization
-const INITIAL_LOAD_COUNT = 10; // Initial messages to show
-const BATCH_SIZE = 10; // How many messages to load per batch when scrolling up
+const INITIAL_LOAD_COUNT = 5; // Initial messages to show
+const BATCH_SIZE = 5; // How many messages to load per batch when scrolling up
 
 const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   messages,
@@ -96,6 +96,9 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   // Add state to track user scroll behavior
   const [userHasScrolled, setUserHasScrolled] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
+
+  // Add a ref to track if we're programmatically scrolling
+  const isAutoScrollingRef = useRef(false);
   
   // Check TTS enhancer status when component mounts
   useEffect(() => {
@@ -280,7 +283,8 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   const handleUserScroll = (event: any) => {
     const yOffset = event.nativeEvent.contentOffset.y;
     
-    if (!userHasScrolled) {
+    // Only register as user scroll if it's not from our programmatic scrolling
+    if (!isAutoScrollingRef.current) {
       setUserHasScrolled(true);
     }
     
@@ -372,39 +376,28 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     transform: [{ scale: dot3Scale.value }]
   }));
 
-  // Optimize Auto-scroll logic to ensure new messages are always visible
+  // Completely replace the auto-scroll logic with a much simpler version
   useEffect(() => {
-    if (virtualizedMessages.length > 0 && !isLoadingMore) {
-      // Only auto-scroll in these specific cases:
-      // 1. Initial render (before user has scrolled)
-      // 2. User is already at the bottom AND the last message is from the bot or loading
-      // 3. The user just sent a message (last message sender is 'user')
+    // Only scroll to bottom on initial load or when a new message arrives
+    // and the user hasn't scrolled up yet
+    if (virtualizedMessages.length > 0 && !isLoadingMore && !userHasScrolled) {
+      console.log('[ChatDialog] Initial load or new message while at bottom - scrolling to bottom');
       
-      const lastMessage = virtualizedMessages[virtualizedMessages.length - 1];
-      const isLastMessageFromUser = lastMessage && lastMessage.sender === 'user';
-      const isLastMessageLoading = lastMessage && lastMessage.isLoading;
+      // Set the auto-scrolling flag to avoid interference with user scrolling
+      isAutoScrollingRef.current = true;
       
-      const shouldScrollToBottom = 
-        !userHasScrolled || // Case 1: Initial render
-        (isNearBottom && (isLastMessageFromUser || isLastMessageLoading)); // Case 2 & 3: At bottom + conditions
-      
-      // Log conditions for debugging
-      console.log(
-        `[ChatDialog] Scroll decision: shouldScroll=${shouldScrollToBottom}, ` +
-        `conditions: !userHasScrolled=${!userHasScrolled}, isNearBottom=${isNearBottom}, ` +
-        `isLastFromUser=${isLastMessageFromUser}, isLastLoading=${isLastMessageLoading}`
-      );
-      
-      if (shouldScrollToBottom) {
-        console.log('[ChatDialog] Scrolling to bottom due to qualifying condition');
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: false });
+        }
+        
+        // Reset the flag after scrolling
         setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: false }); // Changed to non-animated for smoother experience
+          isAutoScrollingRef.current = false;
         }, 100);
-      } else {
-        console.log('[ChatDialog] Preserving user scroll position');
-      }
+      }, 50);
     }
-  }, [virtualizedMessages, isLoadingMore, userHasScrolled, isNearBottom]);
+  }, [virtualizedMessages.length, isLoadingMore, userHasScrolled]);
 
   // Update audio states when they change in the service
   const updateAudioState = (messageId: string) => {
@@ -1455,22 +1448,12 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
               initialNumToRender={20}
               maxToRenderPerBatch={10}
               windowSize={21} // Buffer size (visible + rendered ahead/behind)
-              maintainVisibleContentPosition={{
-                minIndexForVisible: 0,
-                autoscrollToTopThreshold: 10
-              }}
               onScrollToIndexFailed={handleScrollToIndexFailed}
               onViewableItemsChanged={handleViewableItemsChanged}
               onStartReached={hasMoreMessagesToLoad ? loadMoreMessages : undefined}
               onStartReachedThreshold={0.1}
-              removeClippedSubviews={true} // 优化性能
-              getItemLayout={(data, index) => ({  // 优化滚动性能
-                length: 100, // 估计每个项目的高度 (像素)
-                offset: 100 * index,
-                index,
-              })}
+              removeClippedSubviews={Platform.OS !== 'web'} // Disable on web to fix issues
               automaticallyAdjustContentInsets={false}
-              disableScrollViewPanResponder={false}
               keyboardShouldPersistTaps="handled"
             />
           )}
