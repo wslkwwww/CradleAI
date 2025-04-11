@@ -108,7 +108,7 @@ const INSERT_TYPE_OPTIONS = {
 
 interface CreateCharProps {
   activeTab?: 'basic' | 'advanced' | 'voice';
-  creationMode?: 'manual' | 'auto';
+  creationMode?: 'manual' | 'auto' | 'import';
   allowTagImageGeneration?: boolean;
   onClose?: () => void;
 }
@@ -522,6 +522,9 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     const characterId = String(Date.now());
     
     try {
+      // Log that we're saving the character
+      console.log('[CreateChar] Saving character:', characterId, 'Mode:', creationMode);
+      
       // 构建角色数据
       const jsonData = {
         roleCard: {
@@ -723,49 +726,51 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
 
   // Add component initialization effect to clear data on mount
   useEffect(() => {
-    // Clear any previously stored data on component mount
+    // Only clear previous data if not in import mode
     const clearPreviousData = async () => {
       try {
-        await AsyncStorage.removeItem('temp_import_data');
+        // Don't clear imported data here
         
-        // Reset all state to default values
-        setRoleCard({
-          name: '',
-          first_mes: '',
-          description: '',
-          personality: '',
-          scenario: '',
-          mes_example: '',
-          data: {
-            extensions: {
-              regex_scripts: []
+        // Reset all state to default values if not in import mode
+        if (creationMode !== 'import') {
+          setRoleCard({
+            name: '',
+            first_mes: '',
+            description: '',
+            personality: '',
+            scenario: '',
+            mes_example: '',
+            data: {
+              extensions: {
+                regex_scripts: []
+              }
             }
-          }
-        });
-        
-        setCharacter({
-          id: '',
-          name: '',
-          avatar: null,
-          backgroundImage: null,
-          conversationId: '',
-          description: '',
-          personality: '',
-          interests: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          inCradleSystem: true,
-          cradleStatus: 'growing',
-          feedHistory: [],
-          cradleCreatedAt: Date.now(),
-          cradleUpdatedAt: Date.now(),
-          voiceType: undefined
-        });
-        
-        setWorldBookEntries([]);
-        setPositiveTags([]);
-        setNegativeTags([]);
-        setSelectedArtistPrompt(null);
+          });
+          
+          setCharacter({
+            id: '',
+            name: '',
+            avatar: null,
+            backgroundImage: null,
+            conversationId: '',
+            description: '',
+            personality: '',
+            interests: [],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            inCradleSystem: true,
+            cradleStatus: 'growing',
+            feedHistory: [],
+            cradleCreatedAt: Date.now(),
+            cradleUpdatedAt: Date.now(),
+            voiceType: undefined
+          });
+          
+          setWorldBookEntries([]);
+          setPositiveTags([]);
+          setNegativeTags([]);
+          setSelectedArtistPrompt(null);
+        }
       } catch (error) {
         console.error('[Init] Failed to clear previous data:', error);
       }
@@ -782,28 +787,40 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       setIsSaving(false);
       setHasUnsavedChanges(false);
     };
-  }, []);
+  }, [creationMode]);
 
   // Load imported data if available
   useEffect(() => {
     const loadImportedData = async () => {
       try {
+        console.log('[CreateChar] Attempting to load imported data...');
         const importData = await AsyncStorage.getItem('temp_import_data');
+        
         if (importData) {
+          console.log('[CreateChar] Found imported data, parsing...');
           const data = JSON.parse(importData);
           
           // Fill character data
           if (data.roleCard) {
+            console.log('[CreateChar] Loading role card data:', data.roleCard.name);
             setRoleCard(data.roleCard);
             setCharacter(prev => ({
               ...prev,
               name: data.roleCard.name,
-              avatar: data.avatar || null
+              avatar: data.avatar || null,
+              backgroundImage: data.backgroundImage || null
+            }));
+            
+            // Also update author note with character name
+            setAuthorNote(prev => ({
+              ...prev,
+              charname: data.roleCard.name
             }));
           }
 
           // Handle world book entries
           if (data.worldBook?.entries) {
+            console.log('[CreateChar] Loading world book entries');
             setWorldBook(data.worldBook);
             
             const entries = Object.entries(data.worldBook.entries).map(([key, entry]: [string, any]) => {
@@ -832,7 +849,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
           }
 
           // Handle preset entries - COMPLETELY REPLACE default presets
-          if (data.preset?.prompts && data.replaceDefaultPreset) {
+          if (data.preset?.prompts) {
+            console.log('[CreateChar] Loading preset entries:', data.preset.prompts.length);
             const importedEntries = data.preset.prompts.map((prompt: any, index: number) => ({
               id: `imported_${index}`,
               name: prompt.name || '',
@@ -849,24 +867,41 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
               depth: prompt.injection_depth || 0
             }));
             
-            // Completely replace all preset entries
-            setPresetEntries(importedEntries);
+            // Only completely replace presets if replaceDefaultPreset is true
+            if (data.replaceDefaultPreset) {
+              setPresetEntries(importedEntries);
+            } else {
+              // Merge with existing presets logic could go here if needed
+              setPresetEntries(importedEntries);
+            }
           }
 
           // Handle author note
           if (data.authorNote) {
+            console.log('[CreateChar] Loading author note');
             setAuthorNote(data.authorNote);
           }
 
-          // Clear temporarily stored import data
-          await AsyncStorage.removeItem('temp_import_data');
+          // Only clear temporarily stored import data after successful load
+          // Wait a bit before clearing to ensure all state updates have processed
+          setTimeout(() => {
+            AsyncStorage.removeItem('temp_import_data')
+              .then(() => console.log('[CreateChar] Cleared temporary import data'))
+              .catch(err => console.error('[CreateChar] Error clearing temp data:', err));
+          }, 1000);
+          
+          // Flag that we have unsaved changes
+          setHasUnsavedChanges(true);
+        } else {
+          console.log('[CreateChar] No imported data found');
         }
       } catch (error) {
-        console.error('[创建角色] 加载导入数据失败:', error);
+        console.error('[CreateChar] 加载导入数据失败:', error);
         Alert.alert('导入失败', '无法加载导入的数据');
       }
     };
 
+    // Load imported data when the component mounts or when creation mode changes
     loadImportedData();
   }, []);
 

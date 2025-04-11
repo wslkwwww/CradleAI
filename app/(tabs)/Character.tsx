@@ -156,6 +156,8 @@ const CharactersScreen: React.FC = () => {
           throw new Error('未选择预设文件');
         }
 
+        setIsLoading(true); // Show loading indicator while processing
+
         const importedData = await CharacterImporter.importFromPNG(result.assets[0].uri);
         const fileUri = presetResult.assets[0].uri;
         const cacheUri = `${FileSystem.cacheDirectory}${presetResult.assets[0].name}`;
@@ -175,16 +177,22 @@ const CharactersScreen: React.FC = () => {
           replaceDefaultPreset: true,
         };
 
+        // Store the import data and ensure it's saved before continuing
         await AsyncStorage.setItem('temp_import_data', JSON.stringify(completeData));
-
+        console.log('[Character] Import data stored successfully, opening creation form');
+        
+        setIsLoading(false);
+        
+        // Add a short delay to ensure the data is properly stored
         setTimeout(() => {
-          setCreationType('manual');
+          setCreationType('import'); // Change to 'import' type to signal this is an import
           setShowCreationModal(true);
-        }, 100);
+        }, 300);
       }
     } catch (error) {
       console.error('[Character Import] Error:', error);
       Alert.alert('导入失败', error instanceof Error ? error.message : '未知错误');
+      setIsLoading(false);
     }
   };
 
@@ -326,10 +334,11 @@ const CharactersScreen: React.FC = () => {
           </View>
 
           <View style={styles.creationModalContent}>
-            {creationType === 'manual' && (
+            {/* Update condition to include 'import' type */}
+            {(creationType === 'manual' || creationType === 'import') && (
               <CreateChar
-                activeTab={'basic'}
-                creationMode="manual"
+                activeTab={creationType === 'import' ? 'advanced' : 'basic'}
+                creationMode={creationType}
                 allowTagImageGeneration={true}
                 onClose={handleCreationModalClose}
               />
