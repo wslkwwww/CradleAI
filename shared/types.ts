@@ -45,7 +45,16 @@ export interface GlobalSettings {
         // Cloud service setting
         useCloudService?: boolean;
         cloudModel?: string; // Add cloud model preference
-    };
+        novelai?: {
+          enabled: boolean;
+          token: string;
+          model?: string;  
+          sampler:  string;
+          steps:  number;
+          scale:  number; 
+          noiseSchedule: string
+        };
+    }
     app?: {
         darkMode?: boolean;
         autoSave?: boolean;
@@ -255,7 +264,7 @@ export interface Character {
     };
   }>;
   generationData?: {
-    appearanceTags?: { positive: string[]; negative: string[];artistPrompt?: string;   };
+    appearanceTags?: { positive: string[]; negative: string[];artistPrompt?: string;characterTags?: string[]   };
     traits?: string[];
     vndbResults?: any;
     description?: string;
@@ -441,6 +450,7 @@ export interface CharacterImage {
   };
   // Add this property to store generation configuration for future regeneration
   generationConfig?: ImageGenerationConfig;
+  seed?: number; // Optional seed for image generation
 }
 
 // Fix the CradleCharacter interface by making it extend Character

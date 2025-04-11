@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, ActivityIndicator } from 'react-native';
-import { Message, MessageItemProps } from '@/constants/types';
+import { Message, MessageItemProps } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
 import { Ionicons } from '@expo/vector-icons';
 

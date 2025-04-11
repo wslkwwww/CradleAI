@@ -3,8 +3,6 @@ import {
   View, 
   StyleSheet, 
   Animated, 
-  PanResponder, 
-  LayoutChangeEvent,
   TouchableOpacity
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';

@@ -288,6 +288,7 @@ const ApiProviderSettings: React.FC<ApiProviderSettingsProps> = ({ settings, onU
                 selectedModelId={openRouterSettings.model}
                 onSelectModel={handleModelSelect}
                 isLoading={loadingModels}
+                apiKey={openRouterSettings.apiKey}
               />
 
               {/* Advanced Settings Toggle */}

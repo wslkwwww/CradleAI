@@ -10,27 +10,62 @@ import {
   ActivityIndicator,
   Image,
   Alert,
-  Dimensions,
   Platform,
   SafeAreaView,
   TextInput,
-  PanResponder,
-  Animated
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { CradleCharacter, CharacterImage } from '@/shared/types';
 import TagSelector from './TagSelector';
 import CharacterTagSelector from './CharacterTagSelector';
 import ArtistReferenceSelector from './ArtistReferenceSelector';
+import CharacterPosition, { CharacterPrompt } from './CharacterPosition';
 import { DEFAULT_NEGATIVE_PROMPTS, DEFAULT_POSITIVE_PROMPTS } from '@/constants/defaultPrompts';
 import { licenseService } from '@/services/license-service';
 import tagData from '@/app/data/tag.json';
+import NovelAIService, { 
+  NOVELAI_MODELS, 
+  NOVELAI_SAMPLERS, 
+  NOVELAI_NOISE_SCHEDULES,
+  CharacterPromptData
+} from './NovelAIService';
+import { useUser } from '@/constants/UserContext';
 
 const IMAGE_SERVICE_BASE_URL = 'https://image.cradleintro.top';
 
 const DEFAULT_GENERATION_SETTINGS = {
   width: 576,
   height: 1024,
+  steps: 28,
+  batch_size: 1
+};
+
+export const IMAGE_SIZE_PRESETS = [
+  { id: 'portrait', name: 'Portrait', width: 832, height: 1216, supportedProviders: ['animagine4', 'novelai'] },
+  { id: 'landscape', name: 'Landscape', width: 1216, height: 832, supportedProviders: ['animagine4', 'novelai'] },
+  { id: 'square', name: 'Square', width: 1024, height: 1024, supportedProviders: ['animagine4', 'novelai'] },
+  { id: 'large_portrait', name: 'LARGE Portrait', width: 1024, height: 1536, supportedProviders: ['animagine4', 'novelai'] },
+  { id: 'large_landscape', name: 'LARGE Landscape', width: 1536, height: 1024, supportedProviders: ['animagine4', 'novelai'] }
+];
+
+// Default colors for character markers in position control
+const DEFAULT_COLORS = [
+  '#FF5733', '#33FF57', '#3357FF', '#F3FF33', '#FF33F3',
+  '#33FFF3', '#FF9933', '#9933FF', '#33FF99', '#FF3366'
+];
+
+const DEFAULT_NOVELAI_SETTINGS = {
+  model: 'NAI Diffusion V4 Curated',
+  sampler: 'k_euler_ancestral',
+  steps: 28,
+  scale: 5,
+  noiseSchedule: 'karras',
+  seed: '',
+  useCoords: true,
+  useOrder: true
+};
+
+const DEFAULT_ANIMAGINE4_SETTINGS = {
   steps: 28,
   batch_size: 1
 };
@@ -55,7 +90,6 @@ interface TagItem {
   type: 'positive' | 'negative';
 }
 
-// Helper function to identify gender tags
 const getGenderTagsFromTagData = () => {
   const genderCategory = tagData.general_categories.find(
     (category: any) => category.name === "性别"
@@ -80,6 +114,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   onSuccess,
   existingImageConfig
 }) => {
+  const { user } = useUser();
   const [isLoading, setIsLoading] = useState(false);
   const [positiveTags, setPositiveTags] = useState<string[]>([]);
   const [negativeTags, setNegativeTags] = useState<string[]>([]);
@@ -99,6 +134,74 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const [artistReferenceSelectorVisible, setArtistReferenceSelectorVisible] = useState(false);
   const [generationSettingsVisible, setGenerationSettingsVisible] = useState(false);
   const [generationSettings, setGenerationSettings] = useState({ ...DEFAULT_GENERATION_SETTINGS });
+  
+  const [imageProvider, setImageProvider] = useState<'animagine4' | 'novelai'>('animagine4');
+  const [sizePresetId, setSizePresetId] = useState<string>('portrait');
+  const [novelaiSettings, setNovelaiSettings] = useState({ ...DEFAULT_NOVELAI_SETTINGS });
+  const [animagine4Settings, setAnimagine4Settings] = useState({ ...DEFAULT_ANIMAGINE4_SETTINGS });
+  const [novelaiToken, setNovelaiToken] = useState<string>('');
+  const [novelaiSettingsVisible, setNovelaiSettingsVisible] = useState(false);
+  const [isTokenValid, setIsTokenValid] = useState(false);
+  const [progressMessage, setProgressMessage] = useState<string | null>(null);
+
+  // New state for preview image
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
+  // New state variables for multi-character functionality
+  const [characterPrompts, setCharacterPrompts] = useState<CharacterPrompt[]>([]);
+  const [showCharacterPositionControls, setShowCharacterPositionControls] = useState(false);
+  const [characterTagSelectorForPromptIndex, setCharacterTagSelectorForPromptIndex] = useState<number | null>(null);
+  const [generatedSeed, setGeneratedSeed] = useState<number | null>(null);
+  
+  // NEW: Add state for character tag selector with prompt index
+  const [characterTagSelectorForCharacterPrompt, setCharacterTagSelectorForCharacterPrompt] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      const loadNovelaiToken = async () => {
+        try {
+          const savedToken = user?.settings?.chat?.novelai?.token;
+          if (savedToken) {
+            setNovelaiToken(savedToken);
+            
+            const tokenCache = await NovelAIService.getTokenCache();
+            if (tokenCache && tokenCache.token === savedToken && tokenCache.expiry > Date.now()) {
+              setIsTokenValid(true);
+              console.log('[图片重生成] 已加载有效的NovelAI token');
+            } else {
+              setIsTokenValid(false);
+              console.log('[图片重生成] NovelAI token需要验证');
+            }
+          } else {
+            console.log('[图片重生成] 未找到NovelAI token');
+          }
+        } catch (error) {
+          console.error('[图片重生成] 加载NovelAI token失败:', error);
+        }
+      };
+
+      loadNovelaiToken();
+      
+      const sizePreset = IMAGE_SIZE_PRESETS.find(preset => preset.id === sizePresetId) || IMAGE_SIZE_PRESETS[0];
+      setGenerationSettings(prev => ({
+        ...prev,
+        width: sizePreset.width,
+        height: sizePreset.height
+      }));
+
+      // Reset the preview image
+      setPreviewImageUrl(null);
+      
+      // Initialize with one character if no prompts exist
+      if (characterPrompts.length === 0) {
+        setCharacterPrompts([{
+          prompt: '',  // Changed to empty string
+          position: { x: 0.5, y: 0.5 },
+          color: DEFAULT_COLORS[0]
+        }]);
+      }
+    }
+  }, [visible, sizePresetId, user?.settings?.chat?.novelai?.token]);
 
   useEffect(() => {
     const loadLicense = async () => {
@@ -146,18 +249,99 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       setGeneratedImageUrl(null);
       setError(null);
       setIsLoading(false);
+      setProgressMessage(null);
       setReplaceBackground(true);
       setReplaceAvatar(false);
       if (!existingImageConfig) {
         setCustomPrompt('');
       }
       setGenerationSettings({ ...DEFAULT_GENERATION_SETTINGS });
+      setAnimagine4Settings({ ...DEFAULT_ANIMAGINE4_SETTINGS });
+      
+      // Reset seed and generated seed for new generation
+      setNovelaiSettings(prev => ({ ...prev, seed: '' }));
+      setGeneratedSeed(null);
     }
   }, [visible, character, existingImageConfig]);
+
+  // Handle adding a new character prompt
+  const handleAddCharacterPrompt = () => {
+    setCharacterPrompts(prev => [
+      ...prev, 
+      {
+        prompt: '',  // Empty string by default
+        position: { x: 0.5, y: 0.5 },
+        color: DEFAULT_COLORS[prev.length % DEFAULT_COLORS.length]
+      }
+    ]);
+  };
+
+  // Handle removing a character prompt
+  const handleRemoveCharacterPrompt = (index: number) => {
+    setCharacterPrompts(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle updating a character prompt
+  const handleUpdateCharacterPrompt = (index: number, prompt: string) => {
+    setCharacterPrompts(prev => 
+      prev.map((item, i) => 
+        i === index ? { ...item, prompt } : item
+      )
+    );
+  };
+
+  // Handle position change from CharacterPosition component
+  const handlePositionChange = (index: number, position: { x: number, y: number }) => {
+    setCharacterPrompts(prev => 
+      prev.map((item, i) => 
+        i === index ? { ...item, position } : item
+      )
+    );
+  };
+
+  // Convert character prompts to the format required by NovelAIService
+  const getCharacterPromptsData = (): CharacterPromptData[] => {
+    return characterPrompts.map(char => ({
+      prompt: char.prompt,
+      positions: [char.position]
+    }));
+  };
+
+  // Handle seed input changes
+  const handleSeedChange = (text: string) => {
+    // Allow empty string (for random seed) or valid numbers
+    if (text === '' || (!isNaN(Number(text)) && Number(text) >= 0)) {
+      setNovelaiSettings(prev => ({ ...prev, seed: text }));
+    }
+  };
+
+  const updateImageSize = (presetId: string) => {
+    const preset = IMAGE_SIZE_PRESETS.find(p => p.id === presetId) || IMAGE_SIZE_PRESETS[0];
+    setSizePresetId(presetId);
+    setGenerationSettings(prev => ({
+      ...prev,
+      width: preset.width,
+      height: preset.height
+    }));
+  };
 
   const handleAddCharacterTag = (tagString: string) => {
     if (!characterTags.includes(tagString)) {
       setCharacterTags(prev => [...prev, tagString]);
+    }
+  };
+
+  // NEW: Handle adding a character tag to specific character prompt
+  const handleAddCharacterPromptTag = (tagString: string) => {
+    if (characterTagSelectorForCharacterPrompt !== null) {
+      const index = characterTagSelectorForCharacterPrompt;
+      const currentPrompt = characterPrompts[index].prompt;
+      const updatedPrompt = currentPrompt ? 
+        `${currentPrompt}, ${tagString}` : 
+        tagString;
+      
+      handleUpdateCharacterPrompt(index, updatedPrompt);
+      setCharacterTagSelectorForCharacterPrompt(null);
     }
   };
 
@@ -176,40 +360,47 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
     }
   };
 
-  // Helper function to organize tags for prompt building
+  // Clean the artist tag by removing "artist:" prefix
+  const cleanArtistTag = (artistTag: string | null): string | null => {
+    if (!artistTag) return null;
+    
+    // Remove "artist:" prefix if present
+    if (artistTag.toLowerCase().startsWith('artist:')) {
+      return artistTag.substring(7).trim();
+    }
+    
+    return artistTag;
+  };
+
   const organizeTagsForPrompt = () => {
-    // 1. Extract gender tags
     const genderTags = positiveTags.filter(tag => 
       maleGenderTags.includes(tag) || femaleGenderTags.includes(tag)
     );
     
-    // 2. Character tags are already separate in characterTags state
+    const qualityTags = DEFAULT_POSITIVE_PROMPTS;
     
-    // 3. Artist tag is in selectedArtistPrompt state
-    
-    // 4. Rating tag - always "safe"
-    const ratingTag = "safe";
-    
-    // 5. Normal tags - all positive tags that are not gender tags
     const normalTags = positiveTags.filter(tag => 
       !maleGenderTags.includes(tag) && !femaleGenderTags.includes(tag)
     );
 
-    // 6. Quality tags from DEFAULT_POSITIVE_PROMPTS
-    const qualityTags = DEFAULT_POSITIVE_PROMPTS;
+    const ratingTag = imageProvider === 'animagine4' ? "safe" : null;
+    
+    // Clean artist tag for Animagine4
+    const artistTag = selectedArtistPrompt && useExistingArtistPrompt ? 
+      (imageProvider === 'animagine4' ? cleanArtistTag(selectedArtistPrompt) : selectedArtistPrompt) 
+      : null;
     
     return {
       genderTags,
       characterTags,
-      artistTag: selectedArtistPrompt && useExistingArtistPrompt ? selectedArtistPrompt : null,
+      artistTag,
       ratingTag,
       normalTags,
       qualityTags
     };
   };
 
-  // Build the final prompt in the specified order
-  const buildFinalPrompt = () => {
+  const buildPrompts = () => {
     const {
       genderTags,
       characterTags,
@@ -219,17 +410,35 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       qualityTags
     } = organizeTagsForPrompt();
     
-    // Build the prompt in the specified order
-    const promptParts = [
-      ...genderTags,               // 1. Gender tags
-      ...characterTags,            // 2. Character and work tags
-      artistTag,                   // 3. Artist style tag
-      ratingTag,                   // 4. Rating tag (always "safe")
-      ...normalTags,               // 5. Normal tags + custom prompts
-      ...qualityTags               // 6. Quality tags
-    ].filter(Boolean); // Remove any null/undefined values
-    
-    return promptParts.join(',');
+    if (imageProvider === 'novelai') {
+      const mainPromptParts = [
+        ...genderTags,
+        ...qualityTags,
+        ...normalTags,
+        artistTag
+      ].filter(Boolean);
+      
+      return {
+        mainPrompt: mainPromptParts.join(', '),
+        characterPrompt: characterTags.join(', '),
+        negativePrompt: DEFAULT_NEGATIVE_PROMPTS.join(', ')
+      };
+    } else {
+      const promptParts = [
+        ...genderTags,
+        ...characterTags,
+        artistTag,
+        ratingTag,
+        ...normalTags,
+        ...qualityTags
+      ].filter(Boolean);
+      
+      return {
+        mainPrompt: promptParts.join(','),
+        characterPrompt: '',
+        negativePrompt: DEFAULT_NEGATIVE_PROMPTS.join(',')
+      };
+    }
   };
 
   const submitImageGeneration = async () => {
@@ -240,19 +449,160 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 
     setIsLoading(true);
     setError(null);
+    setPreviewImageUrl(null);
+    setProgressMessage('正在准备生成...');
 
     try {
-      // Use the new prompt building function to create properly ordered prompt
-      const positivePrompt = buildFinalPrompt();
+      if (imageProvider === 'novelai') {
+        await generateWithNovelAI();
+      } else {
+        await generateWithAnimagine4();
+      }
+    } catch (error) {
+      console.error('[图片重生成] 生成失败:', error);
+      setError(error instanceof Error ? error.message : '生成图像失败');
+      setIsLoading(false);
+    }
+  };
+
+  const generateWithNovelAI = async () => {
+    try {
+      if (!novelaiToken) {
+        throw new Error("未设置NovelAI Token，请在API设置中配置");
+      }
       
-      // Always use default negative prompts
-      const negativePrompt = DEFAULT_NEGATIVE_PROMPTS.join(',');
+      if (!isTokenValid) {
+        setProgressMessage('正在验证NovelAI Token...');
+        const valid = await NovelAIService.validateToken(novelaiToken);
+        if (!valid) {
+          throw new Error("NovelAI Token无效或已过期，请检查API设置");
+        }
+        setIsTokenValid(true);
+      }
+
+      const { mainPrompt, negativePrompt } = buildPrompts();
+      
+      console.log(`[图片重生成] 使用NovelAI为角色 "${character.name}" 生成新图像`);
+      console.log(`[图片重生成] 主提示词: ${mainPrompt}`);
+      console.log(`[图片重生成] 角色提示词:`, characterPrompts.map(p => p.prompt).join(', '));
+      console.log(`[图片重生成] 负向提示词: ${negativePrompt}`);
+      
+      const sizePreset = IMAGE_SIZE_PRESETS.find(preset => preset.id === sizePresetId) || IMAGE_SIZE_PRESETS[0];
+      
+      setProgressMessage('NovelAI正在生成图像...');
+      
+      // Get seed value (use random if empty)
+      const seedValue = novelaiSettings.seed ? parseInt(novelaiSettings.seed) : Math.floor(Math.random() * 2 ** 32);
+      console.log(`[图片重生成] 使用seed值: ${seedValue}`);
+      
+      const generateParams = {
+        token: novelaiToken,
+        prompt: mainPrompt,
+        characterPrompts: characterPrompts.length > 0 ? getCharacterPromptsData() : undefined,
+        negativePrompt,
+        model: novelaiSettings.model,
+        width: sizePreset.width,
+        height: sizePreset.height,
+        steps: novelaiSettings.steps,
+        scale: novelaiSettings.scale,
+        sampler: novelaiSettings.sampler,
+        seed: seedValue,
+        noiseSchedule: novelaiSettings.noiseSchedule,
+        useCoords: novelaiSettings.useCoords,
+        useOrder: novelaiSettings.useOrder
+      };
+
+      console.log(`[图片重生成] NovelAI参数设置:`, {
+        model: novelaiSettings.model,
+        width: sizePreset.width,
+        height: sizePreset.height,
+        steps: novelaiSettings.steps,
+        scale: novelaiSettings.scale,
+        sampler: novelaiSettings.sampler,
+        noiseSchedule: novelaiSettings.noiseSchedule,
+        seed: seedValue,
+        useCoords: novelaiSettings.useCoords,
+        useOrder: novelaiSettings.useOrder
+      });
+
+      const result = await NovelAIService.generateImage(generateParams);
+      
+      if (result && result.imageUrls && result.imageUrls.length > 0) {
+        console.log(`[图片重生成] NovelAI生成成功，获取到 ${result.imageUrls.length} 张图像`);
+        setGeneratedSeed(result.seed); // Store the used seed value
+        
+        // Check if the image is already a local file (indicated by the #localNovelAI flag)
+        const imageUrl = result.imageUrls[0];
+        const isLocalNovelAIFile = imageUrl.includes('#localNovelAI');
+        const cleanImageUrl = isLocalNovelAIFile ? imageUrl.split('#localNovelAI')[0] : imageUrl;
+        
+        console.log(`[图片重生成] 图像URL: ${cleanImageUrl}, 是本地NovelAI文件: ${isLocalNovelAIFile}`);
+        
+        // Set the preview image
+        setPreviewImageUrl(cleanImageUrl);
+        
+        const completedImage: CharacterImage = {
+          id: `gen_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          url: cleanImageUrl,
+          characterId: character.id,
+          createdAt: Date.now(),
+          tags: {
+            positive: [...characterTags, ...positiveTags],
+            negative: DEFAULT_NEGATIVE_PROMPTS,
+          },
+          isFavorite: false,
+          generationStatus: 'success',
+          // When it's a local file from NovelAI, set the localUri directly to avoid download
+          localUri: isLocalNovelAIFile ? cleanImageUrl : undefined,
+          setAsBackground: replaceBackground,
+          isAvatar: replaceAvatar,
+          seed: result.seed, // Save the seed value
+          generationConfig: {
+            positiveTags: positiveTags,
+            negativeTags: negativeTags,
+            artistPrompt: selectedArtistPrompt,
+            customPrompt: '',
+            useCustomPrompt: false,
+            characterTags: characterTags
+          }
+        };
+        
+        setIsLoading(false);
+        setGeneratedImageUrl(cleanImageUrl);
+        setProgressMessage(null);
+        
+        // onSuccess(completedImage);
+        // onClose();
+        return;
+      } else {
+        throw new Error("NovelAI未返回有效图像");
+      }
+    } catch (error) {
+      console.error('[图片重生成] NovelAI生成失败:', error);
+      throw error;
+    }
+  };
+
+  const generateWithAnimagine4 = async () => {
+    try {
+      const { mainPrompt: positivePrompt, negativePrompt } = buildPrompts();
 
       console.log(`[图片重生成] 正在为角色 "${character.name}" 生成新图像`);
       console.log(`[图片重生成] 正向提示词: ${positivePrompt}`);
-      console.log(`[图片重生成] 负向提示词: ${negativePrompt} (使用默认负向提示词)`);
-      console.log(`[图片重生成] 图像生成设置:`, generationSettings);
+      console.log(`[图片重生成] 负向提示词: ${negativePrompt}`);
+      
+      const sizePreset = IMAGE_SIZE_PRESETS.find(preset => preset.id === sizePresetId) || IMAGE_SIZE_PRESETS[0];
+      const actualSettings = {
+        width: sizePreset.width,
+        height: sizePreset.height,
+        steps: animagine4Settings.steps,
+        batch_size: animagine4Settings.batch_size
+      };
+      
+      console.log(`[图片重生成] 图像生成设置:`, actualSettings);
 
+      setProgressMessage('正在验证许可证...');
+      
       if (!licenseService.isInitialized()) {
         console.log(`[图片重生成] 初始化许可证服务...`);
         await licenseService.initialize();
@@ -267,13 +617,15 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       const licenseInfo = await licenseService.getLicenseInfo();
       const userEmail = licenseInfo?.email || licenseInfo?.customerEmail || '';
 
+      setProgressMessage('正在发送图像生成请求...');
+      
       const requestData = {
         prompt: positivePrompt,
         negative_prompt: negativePrompt,
-        width: generationSettings.width,
-        height: generationSettings.height,
-        steps: generationSettings.steps,
-        batch_size: generationSettings.batch_size,
+        width: actualSettings.width,
+        height: actualSettings.height,
+        steps: actualSettings.steps,
+        batch_size: actualSettings.batch_size,
         email: userEmail
       };
 
@@ -333,11 +685,17 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         isSuccess = true;
         taskId = data.data?.taskId || '';
         console.log(`[图片重生成] 任务提交成功，ID: ${taskId}`);
+        setProgressMessage(`任务已提交，任务ID: ${taskId.substring(0, 8)}...`);
       } else if (data.error) {
         console.error(`[图片重生成] 请求失败: ${data.error}`);
         throw new Error(data.error);
       } else if (data.urls && Array.isArray(data.urls) && data.urls.length > 0) {
         console.log(`[图片重生成] 服务器直接返回了图片URL: ${data.urls[0]}`);
+        
+        // Set the preview image
+        setPreviewImageUrl(data.urls[0]);
+        setProgressMessage('图像生成完成');
+        
         const completedImage: CharacterImage = {
           id: `gen_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
           url: data.urls[0],
@@ -350,7 +708,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           isFavorite: false,
           generationStatus: 'success',
           setAsBackground: replaceBackground,
-          isAvatar: false,
+          isAvatar: replaceAvatar,
           generationConfig: {
             positiveTags: positiveTags,
             negativeTags: negativeTags,
@@ -360,8 +718,13 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             characterTags: characterTags
           }
         };
-        onSuccess(completedImage);
-        onClose();
+        
+        setIsLoading(false);
+        setGeneratedImageUrl(data.urls[0]);
+        setProgressMessage(null);
+        
+        // onSuccess(completedImage);
+        // onClose();
         return;
       }
 
@@ -375,49 +738,20 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           characterTags: characterTags
         };
 
-        const placeholderImage: CharacterImage = {
-          id: `gen_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          url: '',
-          characterId: character.id,
-          createdAt: Date.now(),
-          tags: {
-            positive: [...characterTags, ...positiveTags],
-            negative: DEFAULT_NEGATIVE_PROMPTS,
-          },
-          isFavorite: false,
-          generationTaskId: taskId,
-          generationStatus: 'pending',
-          generationMessage: '正在生成图像...',
-          setAsBackground: replaceBackground,
-          isAvatar: false,
-          generationConfig: generationConfig,
-        };
-
-        onClose();
-        setTimeout(() => {
-          onSuccess(placeholderImage);
-          console.log(`[图片重生成] 等待3秒后开始检查任务状态...`);
-          setTimeout(() => {
-            checkImageGenerationStatus(character.id, taskId, placeholderImage.id);
-          }, 3000);
-        }, 300);
-
+        // Start polling for status
+        checkImageGenerationStatus(character.id, taskId);
+        
         return;
       } else {
         throw new Error('未能获取有效的任务ID，服务器返回的数据格式不正确');
       }
     } catch (error) {
-      console.error('[图片重生成] 生成失败:', error);
-      setError(error instanceof Error ? error.message : '生成图像失败');
-      setTimeout(() => {
-        onClose();
-      }, 2000);
-    } finally {
-      setIsLoading(false);
+      console.error('[图片重生成] Animagine4生成失败:', error);
+      throw error;
     }
   };
 
-  const checkImageGenerationStatus = async (characterId: string, taskId: string, imageId: string) => {
+  const checkImageGenerationStatus = async (characterId: string, taskId: string) => {
     console.log(`[图片重生成] 开始检查任务状态: ${taskId}`);
 
     const MAX_RETRIES = 60;
@@ -425,7 +759,9 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 
     const poll = async () => {
       try {
-        console.log(`[图片重生成] 检查 #${retries + 1}, 任务: ${taskId}`);
+        retries++;
+        console.log(`[图片重生成] 检查 #${retries}, 任务: ${taskId}`);
+        setProgressMessage(`正在检查任务状态... (${retries}/${MAX_RETRIES})`);
 
         const licenseHeaders = await licenseService.getLicenseHeaders();
 
@@ -443,7 +779,6 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           console.log(`[图片重生成] 状态检查响应: ${response.status}`);
         } catch (fetchError) {
           console.error(`[图片重生成] 状态检查请求失败:`, fetchError);
-          retries++;
           if (retries < MAX_RETRIES) {
             return setTimeout(poll, 15000);
           } else {
@@ -460,7 +795,6 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
           console.log(`[图片重生成] 解析的状态数据:`, data);
         } catch (parseError) {
           console.warn(`[图片重生成] 状态响应不是有效的JSON:`, parseError);
-          retries++;
           if (retries < MAX_RETRIES) {
             return setTimeout(poll, 10000);
           } else {
@@ -480,9 +814,13 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         if (isDone) {
           if (isSuccess && imageUrl) {
             console.log(`[图片重生成] 图像生成成功: ${imageUrl}`);
+            
+            // Set the preview image
+            setPreviewImageUrl(imageUrl);
+            setProgressMessage('图像生成完成');
 
             const completedImage: CharacterImage = {
-              id: imageId,
+              id: `gen_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
               url: imageUrl,
               characterId: characterId,
               createdAt: Date.now(),
@@ -505,90 +843,44 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               }
             };
 
-            onSuccess(completedImage);
+            setIsLoading(false);
+            setGeneratedImageUrl(imageUrl);
+            setProgressMessage(null);
+            
+            // onSuccess(completedImage);
             return;
           } else if (errorMessage) {
             console.error(`[图片重生成] 任务失败: ${errorMessage}`);
-
-            const failedImage: CharacterImage = {
-              id: imageId,
-              url: '',
-              characterId: characterId,
-              createdAt: Date.now(),
-              tags: {
-                positive: [...characterTags, ...positiveTags],
-                negative: negativeTags,
-              },
-              isFavorite: false,
-              generationStatus: 'error',
-              generationError: errorMessage,
-              generationTaskId: undefined,
-              setAsBackground: false,
-              isAvatar: false
-            };
-
-            onSuccess(failedImage);
+            setError(`生成失败: ${errorMessage}`);
+            setIsLoading(false);
             return;
           } else {
             console.warn(`[图片重生成] 任务标记为完成，但未返回图片URL或错误信息`);
+            setError('任务完成但未返回图像');
+            setIsLoading(false);
+            return;
           }
         } else {
           console.log(`[图片重生成] 任务状态: ${status}`);
         }
 
-        retries++;
         if (retries < MAX_RETRIES) {
-          console.log(`[图片重生成] 将在10秒后再次检查`);
-          setTimeout(poll, 10000);
+          console.log(`[图片重生成] 将在5秒后再次检查`);
+          setTimeout(poll, 5000);
         } else {
           console.log(`[图片重生成] 达到最大检查次数 (${MAX_RETRIES})，但任务仍未完成`);
-
-          const timedOutImage: CharacterImage = {
-            id: imageId,
-            url: '',
-            characterId: characterId,
-            createdAt: Date.now(),
-            tags: {
-              positive: [...characterTags, ...positiveTags],
-              negative: negativeTags,
-            },
-            isFavorite: false,
-            generationStatus: 'error',
-            generationError: '检查超时，请在设置中手动检查任务状态',
-            generationTaskId: taskId,
-            setAsBackground: false,
-            isAvatar: false
-          };
-
-          onSuccess(timedOutImage);
+          setError('检查超时，请稍后在图库中查看结果');
+          setIsLoading(false);
         }
       } catch (error) {
         console.error('[图片重生成] 检查任务状态出错:', error);
-        retries++;
         if (retries < MAX_RETRIES) {
           console.log(`[图片重生成] 将在15秒后重试...`);
           setTimeout(poll, 15000);
         } else {
           console.error(`[图片重生成] 达到最大重试次数 (${MAX_RETRIES})，停止检查`);
-
-          const errorImage: CharacterImage = {
-            id: imageId,
-            url: '',
-            characterId: characterId,
-            createdAt: Date.now(),
-            tags: {
-              positive: [...characterTags, ...positiveTags],
-              negative: negativeTags,
-            },
-            isFavorite: false,
-            generationStatus: 'error',
-            generationError: '检查状态时出错，请稍后在图库中查看结果',
-            generationTaskId: taskId,
-            setAsBackground: false,
-            isAvatar: false
-          };
-
-          onSuccess(errorImage);
+          setError('检查状态时出错，请稍后在图库中查看结果');
+          setIsLoading(false);
         }
       }
     };
@@ -690,6 +982,504 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       </View>
     );
   };
+  
+  const renderProviderSelector = () => {
+    return (
+      <View style={styles.providerSelectorContainer}>
+        <Text style={styles.providerSelectorLabel}>图像生成服务:</Text>
+        <View style={styles.providerOptions}>
+          <TouchableOpacity
+            style={[
+              styles.providerOption,
+              imageProvider === 'animagine4' && styles.selectedProviderOption
+            ]}
+            onPress={() => setImageProvider('animagine4')}
+          >
+            <Text 
+              style={[
+                styles.providerOptionText,
+                imageProvider === 'animagine4' && styles.selectedProviderOptionText
+              ]}
+            >
+              Animagine 4
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[
+              styles.providerOption,
+              imageProvider === 'novelai' && styles.selectedProviderOption,
+              !isTokenValid && styles.disabledProviderOption
+            ]}
+            onPress={() => {
+              if (novelaiToken) {
+                setImageProvider('novelai');
+              } else {
+                Alert.alert(
+                  'NovelAI设置缺失',
+                  'NovelAI需要有效的Token才能使用。请在API设置中配置并验证您的NovelAI Token。',
+                  [
+                    { text: '确定', style: 'default' }
+                  ]
+                );
+              }
+            }}
+          >
+            <Text 
+              style={[
+                styles.providerOptionText,
+                imageProvider === 'novelai' && styles.selectedProviderOptionText,
+                !isTokenValid && styles.disabledProviderOptionText
+              ]}
+            >
+              NovelAI {!isTokenValid && novelaiToken ? '(未验证)' : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+  
+  const renderSizeSelector = () => {
+    return (
+      <View style={styles.sizeSelectorContainer}>
+        <Text style={styles.sizeSelectorLabel}>图像尺寸:</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {IMAGE_SIZE_PRESETS.map(preset => (
+            <TouchableOpacity
+              key={preset.id}
+              style={[
+                styles.sizeOption,
+                sizePresetId === preset.id && styles.selectedSizeOption
+              ]}
+              onPress={() => updateImageSize(preset.id)}
+            >
+              <Text style={[
+                styles.sizeOptionText,
+                sizePresetId === preset.id && styles.selectedSizeOptionText
+              ]}>
+                {preset.name}
+              </Text>
+              <Text style={styles.sizeOptionDimensions}>
+                {`${preset.width}×${preset.height}`}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderAnimagine4Settings = () => {
+    if (imageProvider !== 'animagine4') return null;
+    
+    return (
+      <View style={styles.animagineSettingsContainer}>
+        <View style={styles.settingHeader}>
+          <Text style={styles.settingHeaderText}>Animagine 4 设置</Text>
+        </View>
+        
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>步数:</Text>
+          <View style={styles.settingInputContainer}>
+            <TextInput
+              style={styles.settingInput}
+              value={String(animagine4Settings.steps)}
+              onChangeText={(text) => {
+                const steps = parseInt(text);
+                if (!isNaN(steps) && steps > 0) {
+                  setAnimagine4Settings({
+                    ...animagine4Settings,
+                    steps
+                  });
+                }
+              }}
+              keyboardType="numeric"
+              maxLength={3}
+              placeholderTextColor="#888"
+            />
+          </View>
+        </View>
+        
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>批次:</Text>
+          <View style={styles.settingInputContainer}>
+            <TextInput
+              style={styles.settingInput}
+              value={String(animagine4Settings.batch_size)}
+              onChangeText={(text) => {
+                const batch_size = parseInt(text);
+                if (!isNaN(batch_size) && batch_size > 0 && batch_size <= 4) {
+                  setAnimagine4Settings({
+                    ...animagine4Settings,
+                    batch_size
+                  });
+                }
+              }}
+              keyboardType="numeric"
+              maxLength={1}
+              placeholderTextColor="#888"
+            />
+          </View>
+        </View>
+        
+        <Text style={styles.settingNote}>
+          推荐设置: 步数20-30，批次越大消耗积分越多
+        </Text>
+      </View>
+    );
+  };
+  
+  // Render character prompt management UI
+  const renderCharacterPrompts = () => {
+    if (imageProvider !== 'novelai') return null;
+    
+    return (
+      <View style={styles.characterPromptsContainer}>
+        <View style={styles.characterPromptsHeader}>
+          <Text style={styles.characterPromptsTitle}>角色提示词</Text>
+          <TouchableOpacity 
+            style={styles.positionControlButton}
+            onPress={() => setShowCharacterPositionControls(!showCharacterPositionControls)}
+          >
+            <Ionicons 
+              name={showCharacterPositionControls ? "grid" : "location-outline"} 
+              size={18} 
+              color="#ddd" 
+            />
+            <Text style={styles.positionControlButtonText}>
+              {showCharacterPositionControls ? "返回列表" : "位置控制"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        
+        {showCharacterPositionControls ? (
+          <View style={styles.characterPositionContainer}>
+            <CharacterPosition 
+              characters={characterPrompts}
+              width={generationSettings.width}
+              height={generationSettings.height}
+              onPositionChange={handlePositionChange}
+            />
+            
+            <View style={styles.useCoordinatesRow}>
+              <Text style={styles.settingLabel}>使用坐标控制:</Text>
+              <Switch
+                value={novelaiSettings.useCoords}
+                onValueChange={(value) => setNovelaiSettings(prev => ({ ...prev, useCoords: value }))}
+                trackColor={{ false: '#767577', true: '#8a2be2' }}
+                thumbColor={novelaiSettings.useCoords ? '#f5dd4b' : '#f4f3f4'}
+              />
+            </View>
+          </View>
+        ) : (
+          <View>
+            {characterPrompts.map((prompt, index) => (
+              <View key={`char-prompt-${index}`} style={styles.characterPromptItem}>
+                <View style={styles.characterPromptHeader}>
+                  <View 
+                    style={[
+                      styles.characterColorIndicator, 
+                      { backgroundColor: prompt.color || DEFAULT_COLORS[index % DEFAULT_COLORS.length] }
+                    ]}
+                  >
+                    <Text style={styles.characterColorText}>{index + 1}</Text>
+                  </View>
+                  
+                  <View style={styles.characterPromptCoordinates}>
+                    <Text style={styles.coordinateText}>
+                      X: {prompt.position.x.toFixed(2)}, Y: {prompt.position.y.toFixed(2)}
+                    </Text>
+                  </View>
+                  
+                  <TouchableOpacity
+                    style={styles.characterPromptRemoveButton}
+                    onPress={() => handleRemoveCharacterPrompt(index)}
+                    disabled={characterPrompts.length <= 1}
+                  >
+                    <Ionicons 
+                      name="close-circle" 
+                      size={22} 
+                      color={characterPrompts.length <= 1 ? "#666" : "#f66"} 
+                    />
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.characterPromptInputRow}>
+                  <TextInput
+                    style={styles.characterPromptInput}
+                    value={prompt.prompt}
+                    onChangeText={(text) => handleUpdateCharacterPrompt(index, text)}
+                    placeholder="输入角色提示词..."
+                    placeholderTextColor="#888"
+                  />
+                  
+                  {/* Modified: Add two buttons for tag selection */}
+                  <View style={styles.characterPromptActionButtons}>
+                    <TouchableOpacity
+                      style={styles.addTagToCharacterButton}
+                      onPress={() => setCharacterTagSelectorForPromptIndex(index)}
+                    >
+                      <Ionicons name="pricetag-outline" size={18} color="#ddd" />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={styles.addCharacterTagButton}
+                      onPress={() => setCharacterTagSelectorForCharacterPrompt(index)}
+                    >
+                      <Ionicons name="person-outline" size={18} color="#ddd" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ))}
+            
+            <TouchableOpacity
+              style={styles.addCharacterPromptButton}
+              onPress={handleAddCharacterPrompt}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="#fff" />
+              <Text style={styles.addCharacterPromptText}>添加角色</Text>
+            </TouchableOpacity>
+            
+            <Text style={styles.characterPromptsHelp}>
+              提示: 每个角色可以添加自己的提示词，包括角色名称和描述（如站姿、表情等）
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Render seed control UI
+  const renderSeedControl = () => {
+    if (imageProvider !== 'novelai') return null;
+    
+    return (
+      <View style={styles.seedControlContainer}>
+        <Text style={styles.settingLabel}>Seed 值:</Text>
+        <View style={styles.seedInputContainer}>
+          <TextInput
+            style={styles.settingInput}
+            value={novelaiSettings.seed}
+            onChangeText={handleSeedChange}
+            keyboardType="numeric"
+            placeholder="随机"
+            placeholderTextColor="#888"
+          />
+          
+          <TouchableOpacity
+            style={styles.randomSeedButton}
+            onPress={() => {
+              const randomSeed = Math.floor(Math.random() * 2 ** 32).toString();
+              setNovelaiSettings(prev => ({ ...prev, seed: randomSeed }));
+            }}
+          >
+            <Ionicons name="refresh" size={18} color="#ddd" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+  
+  const renderNovelAISettings = () => {
+    if (imageProvider !== 'novelai') return null;
+    
+    return (
+      <View style={styles.novelAISettingsContainer}>
+        <View style={styles.settingHeader}>
+          <Text style={styles.settingHeaderText}>NovelAI 设置</Text>
+          <TouchableOpacity 
+            style={styles.settingHeaderButton}
+            onPress={() => setNovelaiSettingsVisible(true)}
+          >
+            <Ionicons name="settings-outline" size={18} color="#ddd" />
+            <Text style={styles.settingHeaderButtonText}>高级设置</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.novelAIModelSelector}>
+          <Text style={styles.modelSelectorLabel}>模型:</Text>
+          <View style={styles.modelOptions}>
+            {Object.keys(NOVELAI_MODELS).map(modelName => (
+              <TouchableOpacity
+                key={modelName}
+                style={[
+                  styles.modelOption,
+                  novelaiSettings.model === modelName && styles.selectedModelOption
+                ]}
+                onPress={() => setNovelaiSettings({
+                  ...novelaiSettings,
+                  model: modelName
+                })}
+              >
+                <Text style={[
+                  styles.modelOptionText,
+                  novelaiSettings.model === modelName && styles.selectedModelOptionText
+                ]}>
+                  {modelName}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+        
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>步数:</Text>
+          <View style={styles.settingInputContainer}>
+            <TextInput
+              style={styles.settingInput}
+              value={String(novelaiSettings.steps)}
+              onChangeText={(text) => {
+                const steps = parseInt(text);
+                if (!isNaN(steps) && steps > 0) {
+                  setNovelaiSettings({
+                    ...novelaiSettings,
+                    steps
+                  });
+                }
+              }}
+              keyboardType="numeric"
+              maxLength={3}
+              placeholderTextColor="#888"
+            />
+          </View>
+        </View>
+        
+        {/* Add seed control */}
+        {renderSeedControl()}
+        
+        {generatedSeed && (
+          <View style={styles.generatedSeedContainer}>
+            <Text style={styles.generatedSeedLabel}>已生成Seed:</Text>
+            <Text style={styles.generatedSeedValue}>{generatedSeed}</Text>
+            <TouchableOpacity
+              style={styles.copySeedButton}
+              onPress={() => {
+                setNovelaiSettings(prev => ({ ...prev, seed: generatedSeed.toString() }));
+                Alert.alert('已复制', `Seed值 ${generatedSeed} 已设置为当前值`);
+              }}
+            >
+              <Ionicons name="copy-outline" size={16} color="#ddd" />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  };
+  
+  // Render the preview image section
+  const renderPreviewImage = () => {
+    if (!previewImageUrl && !generatedImageUrl) return null;
+    
+    const imageUrl = generatedImageUrl || previewImageUrl;
+    
+    return (
+      <View style={styles.previewImageContainer}>
+        <Text style={styles.previewImageTitle}>生成结果</Text>
+        
+        <Image 
+          source={{ uri: imageUrl || undefined }}
+          style={styles.previewImage}
+          resizeMode="contain"
+        />
+        
+        <View style={styles.imageOptionsContainer}>
+          <View style={styles.imageOptionRow}>
+            <Text style={styles.imageOptionLabel}>设为背景图片</Text>
+            <Switch
+              value={replaceBackground}
+              onValueChange={setReplaceBackground}
+              trackColor={{ false: '#767577', true: '#bfe8ff' }}
+              thumbColor={replaceBackground ? '#007bff' : '#f4f3f4'}
+            />
+          </View>
+          
+          <View style={styles.imageOptionRow}>
+            <Text style={styles.imageOptionLabel}>设为头像</Text>
+            <Switch
+              value={replaceAvatar}
+              onValueChange={setReplaceAvatar}
+              trackColor={{ false: '#767577', true: '#bfe8ff' }}
+              thumbColor={replaceAvatar ? '#007bff' : '#f4f3f4'}
+            />
+          </View>
+
+          {generatedSeed && (
+            <View style={styles.imageOptionRow}>
+              <Text style={styles.imageOptionLabel}>Seed值</Text>
+              <Text style={styles.seedValueText}>{generatedSeed}</Text>
+            </View>
+          )}
+        </View>
+        
+        <TouchableOpacity 
+          style={styles.confirmImageButton}
+          onPress={() => {
+            if (imageUrl) {
+              const completedImage: CharacterImage = {
+                id: `gen_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                url: imageUrl,
+                characterId: character.id,
+                createdAt: Date.now(),
+                tags: {
+                  positive: [...characterTags, ...positiveTags],
+                  negative: DEFAULT_NEGATIVE_PROMPTS,
+                },
+                isFavorite: false,
+                generationStatus: 'success',
+                localUri: imageUrl.includes('#localNovelAI') ? imageUrl.split('#localNovelAI')[0] : undefined,
+                setAsBackground: replaceBackground,
+                isAvatar: replaceAvatar,
+                seed: generatedSeed || undefined,
+                generationConfig: {
+                  positiveTags: positiveTags,
+                  negativeTags: negativeTags,
+                  artistPrompt: selectedArtistPrompt,
+                  customPrompt: '',
+                  useCustomPrompt: false,
+                  characterTags: characterTags
+                }
+              };
+              
+              onSuccess(completedImage);
+              onClose();
+            }
+          }}
+        >
+          <Text style={styles.confirmImageButtonText}>使用此图像</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.regenerateButton}
+          onPress={() => {
+            setPreviewImageUrl(null);
+            setGeneratedImageUrl(null);
+            setIsLoading(false);
+          }}
+        >
+          <Ionicons name="reload" size={16} color="#fff" />
+          <Text style={styles.regenerateButtonText}>重新生成</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Render loading indicator with progress message
+  const renderLoading = () => {
+    if (!isLoading) return null;
+    
+    return (
+      <View style={styles.loadingOverlay}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4A90E2" />
+          {progressMessage && (
+            <Text style={styles.progressMessage}>{progressMessage}</Text>
+          )}
+        </View>
+      </View>
+    );
+  };
 
   return (
     <Modal
@@ -729,36 +1519,23 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               )}
             </View>
             
-            {generatedImageUrl && (
-              <View style={styles.resultSection}>
-                <Text style={styles.sectionTitle}>生成结果</Text>
-                <Image 
-                  source={{ uri: generatedImageUrl }}
-                  style={styles.generatedImage}
-                  resizeMode="contain"
-                />
-                
-                <View style={styles.resultOptions}>
-                  <Text style={styles.optionText}>设为角色背景图片</Text>
-                  <Switch
-                    value={replaceBackground}
-                    onValueChange={setReplaceBackground}
-                    trackColor={{ false: '#767577', true: '#bfe8ff' }}
-                    thumbColor={replaceBackground ? '#007bff' : '#f4f3f4'}
-                  />
-                </View>
-                
-                <TouchableOpacity 
-                  style={styles.confirmButton}
-                  onPress={onClose}
-                >
-                  <Text style={styles.confirmButtonText}>确认</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            {/* Show preview image if available */}
+            {renderPreviewImage()}
             
-            {!generatedImageUrl && (
+            {/* Only show settings if not currently displaying a preview */}
+            {!previewImageUrl && !generatedImageUrl && (
               <>
+                {renderProviderSelector()}
+                
+                {renderSizeSelector()}
+                
+                {renderNovelAISettings()}
+                
+                {/* Add character prompts section for NovelAI */}
+                {renderCharacterPrompts()}
+                
+                {renderAnimagine4Settings()}
+                
                 <View style={styles.tagSelectionSection}>
                   <Text style={styles.sectionTitle}>图像生成选项</Text>
                   
@@ -772,14 +1549,6 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                         {renderUnifiedTagDisplay()}
                         
                         <View style={styles.tagActionButtonsContainer}>
-                          <TouchableOpacity
-                            style={styles.tagActionButton}
-                            onPress={() => setGenerationSettingsVisible(true)}
-                          >
-                            <Ionicons name="options-outline" size={16} color="#ddd" />
-                            <Text style={styles.tagActionButtonText}>生成设置</Text>
-                          </TouchableOpacity>
-
                           <TouchableOpacity
                             style={styles.tagActionButton}
                             onPress={() => setCustomPromptModalVisible(true)}
@@ -804,21 +1573,35 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 
                 <View style={styles.infoContainer}>
                   <Text style={styles.infoText}>
-                    注意：提示词优先级已固定为：性别 → 角色 → 画风 → 安全级别 → 普通标签 → 质量词
+                    {imageProvider === 'novelai' 
+                      ? "提示词优先级: 性别 → 质量词 → 普通标签 → 画风 (角色标签单独处理)" 
+                      : "提示词优先级: 性别 → 角色 → 画风 → 安全级别 → 普通标签 → 质量词"}
                   </Text>
                 </View>
                 
                 <View style={styles.buttonContainer}>
                   {!isLoading ? (
                     <TouchableOpacity 
-                      style={styles.generateButton}
+                      style={[
+                        styles.generateButton,
+                        imageProvider === 'novelai' && styles.generateButtonNovelAI
+                      ]}
                       onPress={submitImageGeneration}
                     >
-                      <Ionicons name="image" size={20} color="#fff" />
-                      <Text style={styles.generateButtonText}>生成图像</Text>
+                      <Ionicons 
+                        name={imageProvider === 'novelai' ? "flash" : "image"} 
+                        size={20} 
+                        color="#fff" 
+                      />
+                      <Text style={styles.generateButtonText}>
+                        {imageProvider === 'novelai' ? 'NovelAI 生成' : '生成图像'}
+                      </Text>
                     </TouchableOpacity>
                   ) : (
-                    <View style={styles.loadingButton}>
+                    <View style={[
+                      styles.loadingButton, 
+                      imageProvider === 'novelai' && styles.loadingButtonNovelAI
+                    ]}>
                       <ActivityIndicator size="small" color="#fff" />
                       <Text style={styles.loadingButtonText}>生成中...</Text>
                     </View>
@@ -833,9 +1616,9 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 )}
               </>
             )}
+
           </ScrollView>
           
-          {/* Artist Reference Selector Modal */}
           <Modal
             visible={artistReferenceSelectorVisible}
             transparent={true}
@@ -855,7 +1638,6 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             />
           </Modal>
           
-          {/* Tag Selector Modal */}
           <Modal
             visible={tagSelectorVisible}
             transparent={false}
@@ -904,14 +1686,12 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             </View>
           </Modal>
           
-          {/* Character Tag Selector Modal */}
           <CharacterTagSelector
             visible={characterTagSelectorVisible}
             onClose={() => setCharacterTagSelectorVisible(false)}
             onAddCharacter={handleAddCharacterTag}
           />
 
-          {/* Custom Prompt Modal */}
           <Modal
             visible={customPromptModalVisible}
             transparent={true}
@@ -959,86 +1739,93 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             </View>
           </Modal>
 
-          {/* Generation Settings Modal */}
           <Modal
-            visible={generationSettingsVisible}
+            visible={novelaiSettingsVisible}
             transparent={true}
             animationType="fade"
-            onRequestClose={() => setGenerationSettingsVisible(false)}
+            onRequestClose={() => setNovelaiSettingsVisible(false)}
           >
             <View style={styles.customPromptModalOverlay}>
               <View style={styles.customPromptModalContent}>
                 <View style={styles.customPromptModalHeader}>
-                  <Text style={styles.customPromptModalTitle}>图像生成设置</Text>
+                  <Text style={styles.customPromptModalTitle}>NovelAI 高级设置</Text>
                 </View>
                 
-                <View style={styles.generationSettingsContainer}>
+                <View style={styles.novelaiAdvancedSettingsContainer}>
                   <View style={styles.settingRow}>
-                    <Text style={styles.settingLabel}>宽度:</Text>
+                    <Text style={styles.settingLabel}>采样器:</Text>
+                    <View style={styles.settingDropdown}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {NOVELAI_SAMPLERS.map(samplerOption => (
+                          <TouchableOpacity
+                            key={samplerOption}
+                            style={[
+                              styles.samplerOption,
+                              novelaiSettings.sampler === samplerOption && styles.selectedSamplerOption
+                            ]}
+                            onPress={() => setNovelaiSettings({
+                              ...novelaiSettings,
+                              sampler: samplerOption
+                            })}
+                          >
+                            <Text style={[
+                              styles.samplerOptionText,
+                              novelaiSettings.sampler === samplerOption && styles.selectedSamplerOptionText
+                            ]}>
+                              {samplerOption}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.settingRow}>
+                    <Text style={styles.settingLabel}>提示词相关性:</Text>
                     <TextInput
                       style={styles.settingInput}
-                      value={String(generationSettings.width)}
+                      value={String(novelaiSettings.scale)}
                       onChangeText={(text) => {
-                        const width = parseInt(text);
-                        if (!isNaN(width)) {
-                          setGenerationSettings(prev => ({ ...prev, width }));
+                        const scale = parseInt(text);
+                        if (!isNaN(scale) && scale > 0) {
+                          setNovelaiSettings(prev => ({ ...prev, scale }));
                         }
                       }}
                       keyboardType="numeric"
-                      maxLength={4}
+                      maxLength={2}
                     />
                   </View>
                   
                   <View style={styles.settingRow}>
-                    <Text style={styles.settingLabel}>高度:</Text>
-                    <TextInput
-                      style={styles.settingInput}
-                      value={String(generationSettings.height)}
-                      onChangeText={(text) => {
-                        const height = parseInt(text);
-                        if (!isNaN(height)) {
-                          setGenerationSettings(prev => ({ ...prev, height }));
-                        }
-                      }}
-                      keyboardType="numeric"
-                      maxLength={4}
-                    />
-                  </View>
-                  
-                  <View style={styles.settingRow}>
-                    <Text style={styles.settingLabel}>步数:</Text>
-                    <TextInput
-                      style={styles.settingInput}
-                      value={String(generationSettings.steps)}
-                      onChangeText={(text) => {
-                        const steps = parseInt(text);
-                        if (!isNaN(steps)) {
-                          setGenerationSettings(prev => ({ ...prev, steps }));
-                        }
-                      }}
-                      keyboardType="numeric"
-                      maxLength={3}
-                    />
-                  </View>
-                  
-                  <View style={styles.settingRow}>
-                    <Text style={styles.settingLabel}>批次:</Text>
-                    <TextInput
-                      style={styles.settingInput}
-                      value={String(generationSettings.batch_size)}
-                      onChangeText={(text) => {
-                        const batch_size = parseInt(text);
-                        if (!isNaN(batch_size) && batch_size > 0 && batch_size <= 4) {
-                          setGenerationSettings(prev => ({ ...prev, batch_size }));
-                        }
-                      }}
-                      keyboardType="numeric"
-                      maxLength={1}
-                    />
+                    <Text style={styles.settingLabel}>噪声调度:</Text>
+                    <View style={styles.settingDropdown}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {NOVELAI_NOISE_SCHEDULES.map(schedule => (
+                          <TouchableOpacity
+                            key={schedule}
+                            style={[
+                              styles.scheduleOption,
+                              novelaiSettings.noiseSchedule === schedule && styles.selectedScheduleOption
+                            ]}
+                            onPress={() => setNovelaiSettings({
+                              ...novelaiSettings,
+                              noiseSchedule: schedule
+                            })}
+                          >
+                            <Text style={[
+                              styles.scheduleOptionText,
+                              novelaiSettings.noiseSchedule === schedule && styles.selectedScheduleOptionText
+                            ]}>
+                              {schedule}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
                   </View>
 
                   <Text style={styles.settingNote}>
-                    注意: 过高的参数会消耗更多积分，步数推荐20~30，批次最高为4
+                    推荐设置: 步数28-30，提示词相关性11，采样器k_euler_ancestral
                   </Text>
                 </View>
                 
@@ -1046,8 +1833,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                   <TouchableOpacity
                     style={styles.customPromptCancelButton}
                     onPress={() => {
-                      setGenerationSettings({ ...DEFAULT_GENERATION_SETTINGS });
-                      setGenerationSettingsVisible(false);
+                      setNovelaiSettings({ ...DEFAULT_NOVELAI_SETTINGS });
+                      setNovelaiSettingsVisible(false);
                     }}
                   >
                     <Text style={styles.customPromptCancelButtonText}>重置</Text>
@@ -1055,7 +1842,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                   
                   <TouchableOpacity
                     style={styles.customPromptConfirmButton}
-                    onPress={() => setGenerationSettingsVisible(false)}
+                    onPress={() => setNovelaiSettingsVisible(false)}
                   >
                     <Text style={styles.customPromptConfirmButtonText}>确认</Text>
                   </TouchableOpacity>
@@ -1063,6 +1850,63 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
               </View>
             </View>
           </Modal>
+
+          {/* Add character tag selector for specific prompt */}
+          <Modal
+            visible={characterTagSelectorForPromptIndex !== null}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setCharacterTagSelectorForPromptIndex(null)}
+          >
+            <View style={styles.tagSelectorModalContainer}>
+              <View style={styles.tagSelectorHeader}>
+                <Text style={styles.tagSelectorTitle}>为角色{characterTagSelectorForPromptIndex !== null ? (characterTagSelectorForPromptIndex + 1) : ''}选择标签</Text>
+                <TouchableOpacity 
+                  style={styles.tagSelectorCloseButton}
+                  onPress={() => setCharacterTagSelectorForPromptIndex(null)}
+                >
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.tagSelectorContent}>
+              <TagSelector 
+                onClose={() => setCharacterTagSelectorForPromptIndex(null)}
+                onAddPositive={(tag) => {
+                  if (characterTagSelectorForPromptIndex !== null) {
+                    const currentCharacter = characterPrompts[characterTagSelectorForPromptIndex];
+                    const updatedPrompt = currentCharacter.prompt ? 
+                      `${currentCharacter.prompt}, ${tag}` : tag;
+                    handleUpdateCharacterPrompt(characterTagSelectorForPromptIndex, updatedPrompt);
+                  }
+                }}
+                onAddNegative={() => {}} // We don't need negative tags here
+                existingPositiveTags={
+                  characterTagSelectorForPromptIndex !== null 
+                  ? characterPrompts[characterTagSelectorForPromptIndex].prompt.split(',').map(item => item.trim()) 
+                  : []
+                }
+                existingNegativeTags={[]}
+                onPositiveTagsChange={(tags) => {
+                  if (characterTagSelectorForPromptIndex !== null) {
+                    handleUpdateCharacterPrompt(characterTagSelectorForPromptIndex, tags.join(', '));
+                  }
+                }}
+                onNegativeTagsChange={() => {}}
+                sidebarWidth={70}
+              />
+              </View>
+            </View>
+          </Modal>
+          
+          {/* NEW: Add CharacterTagSelector for prompts */}
+          <CharacterTagSelector
+            visible={characterTagSelectorForCharacterPrompt !== null}
+            onClose={() => setCharacterTagSelectorForCharacterPrompt(null)}
+            onAddCharacter={handleAddCharacterPromptTag}
+          />
+          
+          {renderLoading()}
         </View>
       </SafeAreaView>
     </Modal>
@@ -1070,6 +1914,98 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  // Preview image styles
+  previewImageContainer: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  previewImageTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  previewImage: {
+    width: '100%',
+    height: 400,
+    borderRadius: 8,
+    marginBottom: 16,
+    backgroundColor: '#222',
+  },
+  imageOptionsContainer: {
+    width: '100%',
+    marginBottom: 16,
+  },
+  imageOptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  imageOptionLabel: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  confirmImageButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  confirmImageButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  regenerateButton: {
+    backgroundColor: '#9C27B0',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  regenerateButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 15,
+    marginLeft: 8,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  loadingContainer: {
+    backgroundColor: '#333',
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    width: '80%',
+    maxWidth: 300,
+  },
+  progressMessage: {
+    color: '#fff',
+    marginTop: 16,
+    fontSize: 16,
+    textAlign: 'center',
+  },
   infoContainer: {
     backgroundColor: 'rgba(74, 144, 226, 0.1)',
     borderRadius: 8,
@@ -1082,7 +2018,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   
-  // Add all the other styles
   safeArea: {
     flex: 1,
     backgroundColor: '#222',
@@ -1268,11 +2203,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
     fontSize: 16,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
   },
   loadingText: {
     color: '#fff',
@@ -1671,6 +2601,9 @@ const styles = StyleSheet.create({
     width: '60%',
     textAlign: 'center',
   },
+  settingInputContainer: {
+    width: '60%',
+  },
   settingNote: {
     color: '#aaa',
     fontSize: 12,
@@ -1678,6 +2611,369 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  providerSelectorContainer: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  providerSelectorLabel: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  providerOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  providerOption: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    flex: 1,
+    marginHorizontal: 5,
+    alignItems: 'center',
+  },
+  selectedProviderOption: {
+    backgroundColor: '#9C27B0',
+  },
+  disabledProviderOption: {
+    opacity: 0.5,
+  },
+  providerOptionText: {
+    color: '#ddd',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  selectedProviderOptionText: {
+    color: '#fff',
+  },
+  disabledProviderOptionText: {
+    color: '#aaa',
+  },
+  sizeSelectorContainer: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  sizeSelectorLabel: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  sizeOption: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    alignItems: 'center',
+    minWidth: 100,
+  },
+  selectedSizeOption: {
+    backgroundColor: '#4A90E2',
+  },
+  sizeOptionText: {
+    color: '#ddd',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  selectedSizeOptionText: {
+    color: '#fff',
+  },
+  sizeOptionDimensions: {
+    color: '#bbb',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  novelAISettingsContainer: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  animagineSettingsContainer: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  settingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  settingHeaderText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  settingHeaderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  settingHeaderButtonText: {
+    color: '#ddd',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  novelAIModelSelector: {
+    marginTop: 6,
+  },
+  modelSelectorLabel: {
+    color: '#eee',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  modelOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  modelOption: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  selectedModelOption: {
+    backgroundColor: '#8a2be2',
+  },
+  modelOptionText: {
+    color: '#ddd',
+    fontSize: 13,
+  },
+  selectedModelOptionText: {
+    color: '#fff',
+  },
+  generateButtonNovelAI: {
+    backgroundColor: '#8a2be2',
+  },
+  loadingButtonNovelAI: {
+    backgroundColor: '#6a1b9a',
+  },
+  novelaiAdvancedSettingsContainer: {
+    marginTop: 8,
+  },
+  settingDropdown: {
+    width: '60%',
+  },
+  samplerOption: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginRight: 6,
+  },
+  selectedSamplerOption: {
+    backgroundColor: '#8a2be2',
+  },
+  samplerOptionText: {
+    color: '#ddd',
+    fontSize: 12,
+  },
+  selectedSamplerOptionText: {
+    color: '#fff',
+  },
+  scheduleOption: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginRight: 6,
+  },
+  selectedScheduleOption: {
+    backgroundColor: '#8a2be2',
+  },
+  scheduleOptionText: {
+    color: '#ddd',
+    fontSize: 12,
+  },
+  selectedScheduleOptionText: {
+    color: '#fff',
+  },
+  // Character prompts styles
+  characterPromptsContainer: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  characterPromptsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  characterPromptsTitle: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  characterPromptItem: {
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  characterPromptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  characterColorIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  characterColorText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  characterPromptCoordinates: {
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  coordinateText: {
+    color: '#bbb',
+    fontSize: 12,
+  },
+  characterPromptRemoveButton: {
+    padding: 4,
+  },
+  characterPromptInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  characterPromptInput: {
+    flex: 1,
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    color: '#fff',
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 14,
+    marginRight: 8,
+  },
+  addTagToCharacterButton: {
+    backgroundColor: 'rgba(50, 50, 50, 0.8)',
+    borderRadius: 6,
+    padding: 8,
+    marginRight: 4,
+  },
+  // New style for character prompt action buttons container
+  characterPromptActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // New style for character tag button in character prompts
+  addCharacterTagButton: {
+    backgroundColor: 'rgba(100, 149, 237, 0.3)',
+    borderRadius: 6,
+    padding: 8,
+  },
+  addCharacterPromptButton: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(74, 144, 226, 0.3)',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  addCharacterPromptText: {
+    color: '#fff',
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  characterPromptsHelp: {
+    color: '#aaa',
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  positionControlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  positionControlButtonText: {
+    color: '#ddd',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  characterPositionContainer: {
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  useCoordinatesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 10,
+  },
+  seedControlContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  seedInputContainer: {
+    flexDirection: 'row',
+    width: '60%',
+    alignItems: 'center',
+  },
+  randomSeedButton: {
+    backgroundColor: 'rgba(74, 144, 226, 0.3)',
+    borderRadius: 8,
+    padding: 8,
+    marginLeft: 8,
+  },
+  generatedSeedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 10,
+  },
+  generatedSeedLabel: {
+    color: '#70A1FF',
+    fontSize: 12,
+    marginRight: 8,
+  },
+  generatedSeedValue: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  copySeedButton: {
+    padding: 4,
+  },
+  seedValueText: {
+    color: '#70A1FF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  }
 });
 
 export default ImageRegenerationModal;

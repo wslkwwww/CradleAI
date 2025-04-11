@@ -18,12 +18,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { CradleCharacter } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
-import CradleCharacterCarousel from '@/components/CradleCharacterCarousel';
-import CradleFeedModal from '@/components/CradleFeedModal';
 import ImportToCradleModal from '@/components/ImportToCradleModal';
 import CradleSettings from '@/components/CradleSettings';
 import CradleApiSettings from '@/components/CradleApiSettings';
@@ -237,31 +235,46 @@ export default function CradlePage() {
         id: newImage.id,
         status: newImage.generationStatus,
         isTaskPending: !!newImage.generationTaskId,
+        url: newImage.url ? newImage.url.substring(0, 50) + '...' : 'none',
+        localUri: newImage.localUri ? newImage.localUri.substring(0, 50) + '...' : 'none',
       });
       
-      // If this is a successful image with URL but no local URI, download it first
+      // If this is a successful image with URL but no local URI, download it first (if it's not already a local file)
       if (newImage.generationStatus === 'success' && newImage.url && 
           (!newImage.localUri || newImage.localUri.startsWith('http'))) {
-        try {
-          console.log('[摇篮页面] 下载图像到本地存储:', newImage.url);
-          const localUri = await downloadAndSaveImage(
-            newImage.url,
-            selectedCharacter.id,
-            'gallery'
-          );
-          
-          if (localUri) {
-            console.log('[摇篮页面] 图像已保存到本地:', localUri);
-            newImage = {
-              ...newImage,
-              localUri
-            };
-          } else {
-            console.warn('[摇篮页面] 无法下载图像, 将使用远程URL');
+        
+        // Check if the URL is not a local file path
+        const isRemoteUrl = newImage.url.startsWith('http');
+        
+        if (isRemoteUrl) {
+          try {
+            console.log('[摇篮页面] 下载图像到本地存储:', newImage.url);
+            const localUri = await downloadAndSaveImage(
+              newImage.url,
+              selectedCharacter.id,
+              'gallery'
+            );
+            
+            if (localUri) {
+              console.log('[摇篮页面] 图像已保存到本地:', localUri);
+              newImage = {
+                ...newImage,
+                localUri
+              };
+            } else {
+              console.warn('[摇篮页面] 无法下载图像, 将使用远程URL');
+            }
+          } catch (downloadError) {
+            console.error('[摇篮页面] 下载图像失败:', downloadError);
+            // Continue with remote URL if download fails
           }
-        } catch (downloadError) {
-          console.error('[摇篮页面] 下载图像失败:', downloadError);
-          // Continue with remote URL if download fails
+        } else {
+          // This is already a local file, use it directly
+          console.log('[摇篮页面] 图像已是本地文件，无需下载:', newImage.url);
+          newImage = {
+            ...newImage,
+            localUri: newImage.url
+          };
         }
       }
       
@@ -345,26 +358,38 @@ export default function CradlePage() {
         else if (imageExists && newImage.url && newImage.generationStatus === 'success') {
           console.log('[摇篮页面] 更新已完成的图像:', newImage.id);
           
-          // Download image to local storage if not already local
+          // Download image to local storage only if it's a remote URL and not already local
           if (newImage.url && (!newImage.localUri || newImage.localUri.startsWith('http'))) {
-            try {
-              console.log('[摇篮页面] 下载已完成图像到本地存储');
-              const localUri = await downloadAndSaveImage(
-                newImage.url,
-                selectedCharacter.id,
-                'gallery'
-              );
-              
-              if (localUri) {
-                console.log('[摇篮页面] 图像已保存到本地:', localUri);
-                newImage = {
-                  ...newImage,
-                  localUri
-                };
+            // Check if URL is remote
+            const isRemoteUrl = newImage.url.startsWith('http');
+            
+            if (isRemoteUrl) {
+              try {
+                console.log('[摇篮页面] 下载已完成图像到本地存储');
+                const localUri = await downloadAndSaveImage(
+                  newImage.url,
+                  selectedCharacter.id,
+                  'gallery'
+                );
+                
+                if (localUri) {
+                  console.log('[摇篮页面] 图像已保存到本地:', localUri);
+                  newImage = {
+                    ...newImage,
+                    localUri
+                  };
+                }
+              } catch (error) {
+                console.error('[摇篮页面] 下载已完成图像失败:', error);
+                // Continue with remote URL if download fails
               }
-            } catch (error) {
-              console.error('[摇篮页面] 下载已完成图像失败:', error);
-              // Continue with remote URL if download fails
+            } else {
+              // It's already a local file, use it directly as localUri
+              newImage = {
+                ...newImage,
+                localUri: newImage.url
+              };
+              console.log('[摇篮页面] 使用本地文件作为localUri:', newImage.localUri);
             }
           }
           
@@ -812,7 +837,8 @@ export default function CradlePage() {
                   negativeTags: character.generationData.appearanceTags.negative || [],
                   artistPrompt: character.generationData.appearanceTags.artistPrompt || null,
                   customPrompt: '',
-                  useCustomPrompt: false
+                  useCustomPrompt: false,
+                  characterTags: character.generationData.appearanceTags.characterTags || [],
                 }
               };
               

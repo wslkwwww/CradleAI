@@ -16,7 +16,6 @@ import { useUser } from '@/constants/UserContext';
 import { useRouter } from 'expo-router';
 import { NodeSTCleanupButton } from '@/components/settings/NodeSTCleanupButton';
 import ListItem from '@/components/ListItem';
-import EmptyStateView from '@/components/EmptyStateView';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadingIndicator from '@/components/LoadingIndicator';
 import { theme } from '@/constants/theme';

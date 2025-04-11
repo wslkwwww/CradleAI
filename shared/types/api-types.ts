@@ -48,6 +48,17 @@ export interface OpenRouterModel {
     per_request_limits?: Record<string, any>; // 请求限制参数
 }
 
+// NovelAI 设置
+export interface NovelAISettings {
+    enabled: boolean;          // 是否启用 NovelAI
+    token: string;             // NovelAI Token
+    model: string;             // 当前选择的模型
+    sampler: string;           // 采样器
+    steps: number;             // 步数
+    scale: number;             // 提示词相关性
+    noiseSchedule?: string;    // 噪声调度方式
+}
+
 export interface ApiSettings {
     apiProvider: 'gemini' | 'openrouter';  // 当前选择的API提供商
     openrouter?: OpenRouterSettings;       // OpenRouter设置
@@ -56,6 +67,7 @@ export interface ApiSettings {
     additionalGeminiKeys?: string[];
     useGeminiModelLoadBalancing?: boolean;
     useGeminiKeyRotation?: boolean;
+    novelai?: NovelAISettings;             // NovelAI 设置
 }
 
 // OpenRouter API 请求
@@ -77,6 +89,14 @@ export interface OpenRouterRequest {
     stop?: string[];         // 停止序列
     frequency_penalty?: number; // 频率惩罚
     presence_penalty?: number;  // 存在惩罚
+}
+
+// 支持的图像尺寸预设
+export interface ImageSizePreset {
+    name: string;           // 预设名称
+    width: number;          // 宽度
+    height: number;         // 高度
+    supportedProviders: string[];  // 支持该尺寸的提供商
 }
 
 // OpenRouter API 响应

@@ -1,4 +1,4 @@
-import { mcpAdapter } from './mcp-adapter';
+import { mcpAdapter } from '@/NodeST/nodest/utils/mcp-adapter';
 import { CloudServiceProvider } from '@/services/cloud-service-provider';
 
 /**

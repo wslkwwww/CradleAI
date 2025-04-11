@@ -28,6 +28,7 @@ import { API_CONFIG } from '@/constants/api-config';
 import { CloudServiceProvider } from '@/services/cloud-service-provider';
 import { updateCloudServiceStatus } from '@/utils/settings-helper';
 import { mcpAdapter } from '@/NodeST/nodest/utils/mcp-adapter';
+import { NovelAIService } from '@/components/NovelAIService';
 
 const ApiSettings = () => {
   const router = useRouter();
@@ -74,6 +75,19 @@ const ApiSettings = () => {
     user?.settings?.search?.braveSearchApiKey || ''
   );
   const [isTestingBraveSearch, setIsTestingBraveSearch] = useState(false);
+
+  // NovelAI settings
+  const [novelAIEnabled, setNovelAIEnabled] = useState(
+    user?.settings?.chat?.novelai?.enabled || false
+  );
+  const [novelAIToken, setNovelAIToken] = useState(
+    user?.settings?.chat?.novelai?.token || ''
+  );
+  const [isTestingNovelAI, setIsTestingNovelAI] = useState(false);
+  const [novelAITokenStatus, setNovelAITokenStatus] = useState<{
+    isValid: boolean;
+    message: string;
+  } | null>(null);
 
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
 
@@ -151,6 +165,40 @@ const ApiSettings = () => {
 
     loadLicenseInfo();
   }, []);
+
+  // 加载NovelAI token状态
+  useEffect(() => {
+    const loadNovelAITokenStatus = async () => {
+      try {
+        const tokenCache = await NovelAIService.getTokenCache();
+        if (tokenCache && tokenCache.token === novelAIToken.trim()) {
+          const now = Date.now();
+          if (tokenCache.expiry > now) {
+            const daysRemaining = (tokenCache.expiry - now) / (24 * 3600 * 1000);
+            setNovelAITokenStatus({
+              isValid: true,
+              message: `Token有效，剩余约 ${daysRemaining.toFixed(1)} 天`
+            });
+          } else {
+            setNovelAITokenStatus({
+              isValid: false,
+              message: `Token已过期，需要重新验证`
+            });
+          }
+        } else {
+          setNovelAITokenStatus(null);
+        }
+      } catch (error) {
+        console.error('加载NovelAI token状态失败:', error);
+      }
+    };
+
+    if (novelAIToken.trim()) {
+      loadNovelAITokenStatus();
+    } else {
+      setNovelAITokenStatus(null);
+    }
+  }, [novelAIToken]);
 
   // 在组件加载时，添加日志显示设备ID
   useEffect(() => {
@@ -260,6 +308,43 @@ const ApiSettings = () => {
       Alert.alert('连接失败', error instanceof Error ? error.message : '未知错误');
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  // Test NovelAI token
+  const testNovelAIToken = async () => {
+    try {
+      setIsTestingNovelAI(true);
+      
+      if (!novelAIToken) {
+        Alert.alert('错误', '请输入NovelAI Token');
+        return;
+      }
+
+      const isValid = await NovelAIService.validateToken(novelAIToken);
+      
+      if (isValid) {
+        setNovelAITokenStatus({
+          isValid: true,
+          message: `Token验证成功，有效期约30天`
+        });
+        Alert.alert('验证成功', 'NovelAI Token验证成功，已缓存Token');
+      } else {
+        setNovelAITokenStatus({
+          isValid: false,
+          message: `Token验证失败`
+        });
+        Alert.alert('验证失败', '无法验证NovelAI Token，请检查后重试');
+      }
+    } catch (error) {
+      console.error('NovelAI Token测试失败:', error);
+      Alert.alert('验证失败', error instanceof Error ? error.message : '未知错误');
+      setNovelAITokenStatus({
+        isValid: false,
+        message: `验证出错：${error instanceof Error ? error.message : '未知错误'}`
+      });
+    } finally {
+      setIsTestingNovelAI(false);
     }
   };
 
@@ -430,6 +515,15 @@ const ApiSettings = () => {
               model: selectedModel,
               useBackupModels: useBackupModels,
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
+            },
+            novelai: {
+              enabled: novelAIEnabled,
+              token: novelAIToken,
+              model: 'NAI Diffusion V4',
+              sampler: 'k_euler_ancestral',
+              steps: 28,
+              scale: 11,
+              noiseSchedule: 'karras'
             }
           },
           search: {
@@ -536,6 +630,15 @@ const ApiSettings = () => {
               model: selectedModel,
               useBackupModels: useBackupModels,
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
+            },
+            novelai: {
+              enabled: novelAIEnabled,
+              token: novelAIToken,
+              model: 'NAI Diffusion V4',
+              sampler: 'k_euler_ancestral',
+              steps: 28,
+              scale: 11,
+              noiseSchedule: 'karras'
             }
           },
           search: {
@@ -593,6 +696,31 @@ const ApiSettings = () => {
   // Add a method to test if model selector can be displayed
   const canShowModelSelector = () => {
     return true; // Always allow showing model selector
+  };
+
+  // Render NovelAI token status
+  const renderNovelAITokenStatus = () => {
+    if (!novelAITokenStatus) return null;
+
+    return (
+      <View style={styles.tokenStatusContainer}>
+        {novelAITokenStatus.isValid ? (
+          <View style={styles.tokenStatusContent}>
+            <Text style={styles.tokenStatusText}>
+              令牌状态: <Text style={styles.tokenValid}>有效</Text>
+            </Text>
+            {novelAITokenStatus.message && (
+              <Text style={styles.tokenDetailText}>{novelAITokenStatus.message}</Text>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.tokenStatusText}>
+            令牌状态: <Text style={styles.tokenInvalid}>无效</Text>
+            {novelAITokenStatus.message && ` - ${novelAITokenStatus.message}`}
+          </Text>
+        )}
+      </View>
+    );
   };
 
   return (
@@ -711,6 +839,65 @@ const ApiSettings = () => {
                     )}
                   </TouchableOpacity>
                 )}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>NovelAI 图像生成</Text>
+              <Switch
+                value={novelAIEnabled}
+                onValueChange={setNovelAIEnabled}
+                trackColor={{ false: '#767577', true: 'rgba(138, 43, 226, 0.4)' }}
+                thumbColor={novelAIEnabled ? '#8a2be2' : '#f4f3f4'}
+              />
+            </View>
+
+            {novelAIEnabled && (
+              <View style={styles.contentSection}>
+                <Text style={styles.inputLabel}>NovelAI Token</Text>
+                <TextInput
+                  style={styles.input}
+                  value={novelAIToken}
+                  onChangeText={setNovelAIToken}
+                  placeholder="输入 NovelAI Token"
+                  placeholderTextColor="#999"
+                  secureTextEntry={true}
+                />
+                <Text style={styles.helperText}>
+                  需要登录 <Text style={styles.link}>novelai.net</Text> 获取 Token，用于生成高质量动漫图片
+                </Text>
+
+                {renderNovelAITokenStatus()}
+
+                <TouchableOpacity
+                  style={[styles.testButton, styles.novelAITestButton, { marginTop: 16 }]}
+                  onPress={testNovelAIToken}
+                  disabled={isTestingNovelAI || !novelAIToken}
+                >
+                  {isTestingNovelAI ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.buttonText}>验证 NovelAI Token</Text>
+                  )}
+                </TouchableOpacity>
+                
+                <View style={styles.novelAIInfoContainer}>
+                  <Text style={styles.novelAIInfoTitle}>功能说明:</Text>
+                  <View style={styles.novelAIInfoItem}>
+                    <Ionicons name="image-outline" size={14} color="#8a2be2" style={styles.novelAIInfoIcon} />
+                    <Text style={styles.novelAIInfoText}>支持高质量动漫风格图像生成</Text>
+                  </View>
+                  <View style={styles.novelAIInfoItem}>
+                    <Ionicons name="sparkles-outline" size={14} color="#8a2be2" style={styles.novelAIInfoIcon} />
+                    <Text style={styles.novelAIInfoText}>使用NAI Diffusion V4模型，效果最佳</Text>
+                  </View>
+                  <View style={styles.novelAIInfoItem}>
+                    <Ionicons name="lock-closed-outline" size={14} color="#8a2be2" style={styles.novelAIInfoIcon} />
+                    <Text style={styles.novelAIInfoText}>需要有效的NovelAI订阅才能使用</Text>
+                  </View>
+                </View>
               </View>
             )}
           </View>
@@ -1023,6 +1210,10 @@ const ApiSettings = () => {
             <View style={styles.noteItem}>
               <Ionicons name="shield-checkmark-outline" size={16} color="#2196F3" style={styles.noteIcon} />
               <Text style={styles.noteText}>云服务提供稳定的全球访问，绕过地区限制，保护您的隐私</Text>
+            </View>
+            <View style={styles.noteItem}>
+              <Ionicons name="image-outline" size={16} color="#8a2be2" style={styles.noteIcon} />
+              <Text style={styles.noteText}>NovelAI图像生成可用于创建高质量动漫风格的角色图像和背景</Text>
             </View>
           </View>
         </ScrollView>
@@ -1422,6 +1613,67 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
     borderLeftWidth: 2,
     borderLeftColor: 'rgba(33, 150, 243, 0.6)',
+  },
+  novelAITestButton: {
+    backgroundColor: '#8a2be2',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  novelAIInfoContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: 'rgba(30, 30, 30, 0.6)',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#8a2be2',
+  },
+  novelAIInfoTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  novelAIInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  novelAIInfoIcon: {
+    marginRight: 6,
+  },
+  novelAIInfoText: {
+    fontSize: 13,
+    color: '#ddd',
+  },
+  tokenStatusContainer: {
+    marginVertical: 10,
+    padding: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: '#8a2be2',
+  },
+  tokenStatusContent: {
+    flexDirection: 'column',
+  },
+  tokenStatusText: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
+  },
+  tokenDetailText: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
+  },
+  tokenValid: {
+    color: '#27ae60',
+    fontWeight: 'bold',
+  },
+  tokenInvalid: {
+    color: '#e74c3c',
+    fontWeight: 'bold',
   },
 });
 

@@ -422,6 +422,15 @@ replicate后端：
 
 
 
+NAI提示词的sx：
+
+
+1.默认正面提示词。
+2.tagselector的标签和自定义输入的标签。
+2.artistreference的标签放在中间。
+
+
+
 
 
 
@@ -480,10 +489,11 @@ replicate后端：
         *   `prompt`:  可选，文字描述（Prompt），用于影响视频生成效果。
         *   `seconds`:  视频的生成秒数 (时长)。
     *   **处理流程：**
-        *   **调用 Luma AI 模型 API：**
+        *   **调用 Luma AI 模型 API：** Luma AI的输入参数：
 
+  model: "luma/ray-flash-2-540p",
+  input:
 ```
-INPUT:
 {
   "type": "object",
   "title": "Input",
@@ -545,15 +555,14 @@ INPUT:
     }
   }
 }
-
-OUTPUT:
-{
-  "type": "string",
-  "title": "Output",
-  "format": "uri"
-}
 ```
 
+luma AI的response:
+```
+  "type": "string",
+  "title": "Output",
+  "format": "uri"//返回视频 URL地址
+```
 
 
         *   **返回视频 URL：**

@@ -1,7 +1,15 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity, FlatList, Image } from 'react-native';
-import { ForwardDialogProps, Character } from '@/constants/types';
+import { Character } from '@/shared/types';
 import { MaterialIcons } from '@expo/vector-icons';
+
+interface ForwardDialogProps {
+  isVisible: boolean;
+  onClose: () => void;
+  messages: any[];
+  characters: Character[];
+  onSelectCharacter: (character: Character) => void;
+}
 
 const ForwardDialog: React.FC<ForwardDialogProps> = ({
   isVisible,

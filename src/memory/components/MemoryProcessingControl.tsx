@@ -16,11 +16,10 @@ import {
   KeyboardAvoidingView
 } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { Ionicons, MaterialCommunityIcons, FontAwesome, AntDesign } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons, } from '@expo/vector-icons';
 import { useMemoryContext } from '../providers/MemoryProvider';
 import Mem0Service from '../services/Mem0Service';
 import { theme } from '@/constants/theme';
-import { BlurView } from 'expo-blur';
 import { Character } from '@/shared/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
