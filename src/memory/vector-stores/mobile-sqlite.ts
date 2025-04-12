@@ -201,9 +201,20 @@ export class MobileSQLiteVectorStore implements VectorStore {
 
   async update(
     vectorId: string,
-    vector: number[],
+    vector: number[] | null,
     payload: Record<string, any>,
   ): Promise<void> {
+    // 处理 null 向量的情况 - 只更新payload而不修改向量数据
+    if (vector === null) {
+      console.log(`[MobileSQLiteVectorStore] 更新记忆 ${vectorId} 的 payload 但保持向量不变`);
+      await this.run(
+        `UPDATE ${this.collectionName} SET payload = ? WHERE id = ?`,
+        [JSON.stringify(payload), vectorId]
+      );
+      return;
+    }
+    
+    // 常规向量更新 - 需要验证向量长度
     if (vector.length !== this.dimension) {
       throw new Error(
         `向量维度不匹配。期望 ${this.dimension}, 实际 ${vector.length}`
@@ -287,20 +298,62 @@ export class MobileSQLiteVectorStore implements VectorStore {
    */
   public async getByCharacterId(characterId: string, limit: number = 100): Promise<VectorStoreResult[]> {
     try {
-      // 使用 JSON_EXTRACT 函数提取 payload 中的 agentId
+      // 修改查询以同时获取向量数据
       const query = `
-        SELECT id, payload 
+        SELECT id, vector, payload 
         FROM ${this.collectionName} 
         WHERE json_extract(payload, '$.agentId') = ?
         ORDER BY json_extract(payload, '$.updatedAt') DESC, json_extract(payload, '$.createdAt') DESC
         LIMIT ?`;
       
-      const rows = await this.db.getAllAsync<PayloadRow>(query, [characterId, limit]);
+      const rows = await this.db.getAllAsync<{ id: string; vector: string; payload: string }>(query, [characterId, limit]);
       
-      const results: VectorStoreResult[] = rows.map(row => ({
-        id: row.id,
-        payload: JSON.parse(row.payload)
-      }));
+      if (!rows || rows.length === 0) {
+        console.log(`[MobileSQLiteVectorStore] 未找到角色ID=${characterId}的记忆数据`);
+        return [];
+      }
+      
+      const results: VectorStoreResult[] = [];
+      
+      for (const row of rows) {
+        try {
+          // 解析payload
+          const payload = typeof row.payload === 'string' 
+            ? JSON.parse(row.payload) 
+            : row.payload;
+            
+          // 修复: 确保payload.data字段存在
+          if (!payload.data && payload.memory) {
+            // 向后兼容：如果没有data字段但有memory字段，使用memory字段内容
+            payload.data = payload.memory;
+            console.log(`[MobileSQLiteVectorStore] 为记忆ID=${row.id}从memory字段恢复data字段`);
+          }
+          
+          // 修复: 确保payload.memory字段存在
+          if (!payload.memory && payload.data) {
+            // 向前兼容：确保memory字段存在
+            payload.memory = payload.data;
+          }
+          
+          const result: VectorStoreResult = {
+            id: row.id,
+            payload: payload
+          };
+          
+          // 如果有向量数据则添加
+          if (row.vector) {
+            try {
+              result.vector = JSON.parse(row.vector);
+            } catch (e) {
+              console.warn(`[MobileSQLiteVectorStore] 为记忆ID=${row.id}解析向量失败:`, e);
+            }
+          }
+          
+          results.push(result);
+        } catch (error) {
+          console.error(`[MobileSQLiteVectorStore] 处理记忆ID=${row.id}时出错:`, error);
+        }
+      }
       
       console.log(`[MobileSQLiteVectorStore] 按角色ID ${characterId} 查询到 ${results.length} 条记录`);
       return results;

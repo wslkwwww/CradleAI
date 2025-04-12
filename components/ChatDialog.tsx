@@ -35,6 +35,7 @@ import { useDialogMode } from '@/constants/DialogModeContext';
 // Update ChatDialogProps interface in the file or in shared/types.ts to include messageMemoryState
 interface ExtendedChatDialogProps extends ChatDialogProps {
   messageMemoryState?: Record<string, string>;
+  regeneratingMessageId?: string | null; // Add this new prop
 }
 
 const { width } = Dimensions.get('window');
@@ -54,7 +55,8 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   onRegenerateMessage,
   savedScrollPosition,
   onScrollPositionChange,
-  messageMemoryState = {} // Default to empty object
+  messageMemoryState = {}, // Default to empty object
+  regeneratingMessageId = null // Default to null
 }) => {
   // Replace ScrollView ref with FlatList ref for virtualization
   const flatListRef = useRef<FlatList<Message>>(null);
@@ -993,6 +995,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     const isLastAIMessage = isMessageLastAIMessage(message, index);
     
     const messageRating = getMessageRating(message.id);
+    const isRegenerating = regeneratingMessageId === message.id;
     
     return (
       <View style={styles.messageActions}>
@@ -1002,17 +1005,29 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         {/* Only show regenerate button for the last AI message */}
         {onRegenerateMessage && isLastAIMessage && (
           <TouchableOpacity
-            style={styles.actionButton}
+            style={[
+              styles.actionButton,
+              isRegenerating && styles.regeneratingButton // Add special style for regenerating state
+            ]}
             onPress={() => {
-              // Get the stored or calculated AI message index
-              const aiIndex = getAiMessageIndex(index);
-              onRegenerateMessage(message.id, aiIndex);
+              if (!isRegenerating) { // Only allow clicking if not already regenerating
+                // Get the stored or calculated AI message index
+                const aiIndex = getAiMessageIndex(index);
+                onRegenerateMessage(message.id, aiIndex);
+              }
             }}
+            disabled={isRegenerating} // Disable the button when regenerating
           >
-            <Ionicons name="refresh-circle-outline" size={22} color="#ddd" />
+            {isRegenerating ? (
+              // Show activity indicator when regenerating
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="refresh-circle-outline" size={22} color="#ddd" />
+            )}
           </TouchableOpacity>
         )}
         
+        {/* Rating buttons */}
         {onRateMessage && (
           <>
             <TouchableOpacity
@@ -1143,6 +1158,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     // For visual novel mode, find the index of the last AI message
     const lastAiMessageIndex = virtualizedMessages.findIndex(msg => msg.id === lastAiMessage.id);
     const isLastAIMessage = true;
+    const isRegenerating = regeneratingMessageId === lastAiMessage.id;
     
     return (
       <View style={[
@@ -1211,17 +1227,28 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
           {/* Regenerate button - only show if it's the last AI message */}
           {onRegenerateMessage && isLastAIMessage && (
             <TouchableOpacity
-              style={styles.visualNovelActionButton}
+              style={[
+                styles.visualNovelActionButton,
+                isRegenerating && styles.visualNovelRegeneratingButton // Add special style for regenerating state
+              ]}
               onPress={() => {
-                // Get the stored or calculated AI message index
-                const aiIndex = lastAiMessage.metadata?.aiIndex !== undefined 
-                  ? lastAiMessage.metadata.aiIndex
-                  : virtualizedMessages.filter(m => m.sender === 'bot' && !m.isLoading).length - 1;
-                
-                onRegenerateMessage(lastAiMessage.id, aiIndex);
+                if (!isRegenerating) { // Only allow clicking if not already regenerating
+                  // Get the stored or calculated AI message index
+                  const aiIndex = lastAiMessage.metadata?.aiIndex !== undefined 
+                    ? lastAiMessage.metadata.aiIndex
+                    : virtualizedMessages.filter(m => m.sender === 'bot' && !m.isLoading).length - 1;
+                  
+                  onRegenerateMessage(lastAiMessage.id, aiIndex);
+                }
               }}
+              disabled={isRegenerating} // Disable the button when regenerating
             >
-              <Ionicons name="refresh-circle" size={26} color="rgba(255,255,255,0.9)" />
+              {isRegenerating ? (
+                // Show activity indicator when regenerating
+                <ActivityIndicator size="small" color="rgba(255,255,255,0.9)" />
+              ) : (
+                <Ionicons name="refresh-circle" size={26} color="rgba(255,255,255,0.9)" />
+              )}
             </TouchableOpacity>
           )}
           
@@ -2125,6 +2152,15 @@ const styles = StyleSheet.create({
     color: '#ddd',
     fontSize: 14,
     marginLeft: 8,
+  },
+  // Add new styles for regeneration state
+  regeneratingButton: {
+    backgroundColor: 'rgba(52, 152, 219, 0.6)',
+    width: 36, // Make a bit wider to accommodate the spinner
+    height: 36, // Make a bit taller to accommodate the spinner
+  },
+  visualNovelRegeneratingButton: {
+    backgroundColor: 'rgba(52, 152, 219, 0.6)',
   },
 });
 

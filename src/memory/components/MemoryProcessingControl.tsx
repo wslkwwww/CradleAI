@@ -13,7 +13,8 @@ import {
   TextInput,
   SafeAreaView,
   Dimensions,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  Share
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Ionicons, MaterialCommunityIcons, } from '@expo/vector-icons';
@@ -21,6 +22,9 @@ import { useMemoryContext } from '../providers/MemoryProvider';
 import Mem0Service from '../services/Mem0Service';
 import { theme } from '@/constants/theme';
 import { Character } from '@/shared/types';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -75,6 +79,9 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
   });
   const [characterMemoryCount, setCharacterMemoryCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [expandedMemoryId, setExpandedMemoryId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     const interval = getMemoryProcessingInterval();
@@ -107,8 +114,14 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
       setDbStats(stats);
       
       if (selectedCharacterId) {
-        const count = await mem0Service.getCharacterMemoryCount(selectedCharacterId);
-        setCharacterMemoryCount(count);
+        try {
+          const memories = await mem0Service.getCharacterMemories(selectedCharacterId);
+          setCharacterMemoryCount(memories.length);
+          console.log(`[MemoryProcessingControl] 统计面板获取到 ${memories.length} 条记忆，与记忆面板保持一致`);
+        } catch (error) {
+          console.error('[MemoryProcessingControl] 获取角色记忆统计失败:', error);
+          setCharacterMemoryCount(0);
+        }
       }
     } catch (error) {
       console.error('[MemoryProcessingControl] Error fetching database stats:', error);
@@ -147,11 +160,32 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
       let memories: MemoryFact[] = [];
       
       if (mem0Service.getCharacterMemories && charId) {
-        memories = await mem0Service.getCharacterMemories(charId, 200);
-        console.log(`[MemoryProcessingControl] Retrieved ${memories.length} memories directly for character ${charId}`);
+        try {
+          memories = await mem0Service.getCharacterMemories(charId, 200);
+          console.log(`[MemoryProcessingControl] Retrieved ${memories.length} memories directly for character ${charId}`);
+          
+          // 验证并修复记忆数据
+          memories = memories.filter(mem => {
+            if (!mem) return false;
+            
+            // 尝试从不同位置恢复memory内容
+            if (!mem.memory && mem.metadata?.data) {
+              mem.memory = mem.metadata.data;
+              console.log(`[MemoryProcessingControl] Recovered memory content from metadata.data`);
+            } 
+            
+            return !!mem.memory; // 只保留有内容的记忆
+          });
+          
+          // 同步更新统计数据
+          setCharacterMemoryCount(memories.length);
+        } catch (err) {
+          console.error('[MemoryProcessingControl] Error retrieving character memories:', err);
+        }
       }
       
       if (memories.length === 0 && mem0Service.memoryRef) {
+        console.log('[MemoryProcessingControl] No memories found through getCharacterMemories, trying memoryRef.getAll');
         try {
           const result = await mem0Service.memoryRef.getAll({
             agentId: charId,
@@ -159,7 +193,18 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
           });
 
           if (result && result.results) {
-            memories = result.results;
+            interface DbMemoryItem {
+              memory?: string;
+              data?: string;
+              [key: string]: any;
+            }
+
+            memories = result.results.map((item: DbMemoryItem) => {
+              if (!item.memory && item.data) {
+                item.memory = item.data;
+              }
+              return item as MemoryFact;
+            });
           }
         } catch (err) {
           console.error('[MemoryProcessingControl] Error accessing database directly:', err);
@@ -167,9 +212,11 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
       }
       
       if (factSearchQuery && memories.length > 0) {
-        memories = memories.filter((item: MemoryFact) =>
-          item.memory.toLowerCase().includes(factSearchQuery.toLowerCase())
-        );
+        const query = factSearchQuery.toLowerCase();
+        memories = memories.filter((item: MemoryFact) => {
+          const content = item?.memory || '';
+          return content.toLowerCase().includes(query);
+        });
       }
       
       memories.sort((a, b) => {
@@ -188,7 +235,8 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await Promise.all([fetchMemoryFacts(), fetchDbStats()]);
+    await fetchMemoryFacts();
+    await fetchDbStats();
     setIsRefreshing(false);
   }, [fetchMemoryFacts, fetchDbStats]);
 
@@ -266,7 +314,14 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
     }
 
     try {
+      setIsCreatingNew(false); 
+      Alert.alert('处理中', '正在创建记忆...');
+      
       const mem0Service = Mem0Service.getInstance();
+      if (!mem0Service.isEmbeddingAvailable) {
+        throw new Error('嵌入服务不可用，请确保在设置中配置了有效的智谱API密钥');
+      }
+      
       const result = await mem0Service.createMemory(
         newMemoryContent, 
         charId, 
@@ -275,15 +330,34 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
 
       if (result) {
         Alert.alert('成功', '成功创建新记忆');
-        setIsCreatingNew(false);
         setNewMemoryContent('');
         await handleRefresh();
       } else {
-        Alert.alert('错误', '创建记忆失败');
+        throw new Error('创建记忆失败，请检查嵌入服务配置');
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[MemoryProcessingControl] Error creating memory:', error);
-      Alert.alert('错误', '创建记忆失败');
+      
+      let alertMessage = '创建记忆失败';
+      
+      if (errorMessage.includes('嵌入服务不可用') || 
+          errorMessage.includes('API密钥') || 
+          errorMessage.includes('嵌入')) {
+        alertMessage = '创建记忆失败：嵌入服务不可用。请在设置中配置有效的智谱API密钥。';
+      } else {
+        alertMessage = `创建记忆失败：${errorMessage}`;
+      }
+      
+      Alert.alert('错误', alertMessage, [
+        { 
+          text: '重试', 
+          onPress: () => setIsCreatingNew(true) 
+        },
+        { 
+          text: '确定' 
+        }
+      ]);
     }
   };
 
@@ -348,6 +422,171 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
         }
       ]
     );
+  };
+
+  const toggleMemoryExpansion = (id: string) => {
+    setExpandedMemoryId(expandedMemoryId === id ? null : id);
+  };
+
+  const handleExportMemories = async () => {
+    if (!selectedCharacterId && !characterId) {
+      Alert.alert('错误', '未选择角色，无法导出记忆');
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+      const charId = selectedCharacterId || characterId;
+      
+      const mem0Service = Mem0Service.getInstance();
+      const memories = await mem0Service.getCharacterMemories(charId!, 1000);
+      
+      if (!memories || memories.length === 0) {
+        Alert.alert('提示', '该角色没有可导出的记忆数据');
+        setIsExporting(false);
+        return;
+      }
+
+      const exportData = {
+        version: '1.0',
+        exportDate: new Date().toISOString(),
+        characterId: charId,
+        characterName: character?.name || '未知角色',
+        memoryCount: memories.length,
+        memories: memories
+      };
+      
+      const jsonString = JSON.stringify(exportData, null, 2);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `memory_${charId}_${timestamp}.json`;
+      
+      const tempFilePath = FileSystem.cacheDirectory + fileName;
+      await FileSystem.writeAsStringAsync(tempFilePath, jsonString);
+      
+      const canShare = await Sharing.isAvailableAsync();
+      
+      if (canShare) {
+        await Sharing.shareAsync(tempFilePath, {
+          mimeType: 'application/json',
+          dialogTitle: '导出记忆数据',
+          UTI: 'public.json'
+        });
+        console.log(`[MemoryProcessingControl] 成功导出 ${memories.length} 条记忆数据`);
+      } else {
+        await Share.share({
+          title: '记忆数据导出',
+          message: `已为角色 ${character?.name || charId} 导出 ${memories.length} 条记忆数据`,
+          url: tempFilePath
+        });
+      }
+      
+      Alert.alert('成功', `已导出 ${memories.length} 条记忆数据`);
+    } catch (error) {
+      console.error('[MemoryProcessingControl] 导出记忆失败:', error);
+      Alert.alert('导出失败', '无法导出记忆数据，请稍后再试');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImportMemories = async () => {
+    if (!selectedCharacterId && !characterId) {
+      Alert.alert('错误', '未选择角色，无法导入记忆');
+      return;
+    }
+
+    try {
+      setIsImporting(true);
+      
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true
+      });
+      
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        console.log('[MemoryProcessingControl] 用户取消了文件选择');
+        setIsImporting(false);
+        return;
+      }
+      
+      const fileUri = result.assets[0].uri;
+      const fileContent = await FileSystem.readAsStringAsync(fileUri);
+      
+      const importData = JSON.parse(fileContent);
+      
+      if (!importData.version || !importData.memories || !Array.isArray(importData.memories)) {
+        throw new Error('导入文件格式无效');
+      }
+      
+      const charId = selectedCharacterId || characterId;
+      const confirmMsg = importData.characterId === charId 
+        ? `确定要导入 ${importData.memories.length} 条记忆到当前角色吗？` 
+        : `原数据属于角色 ${importData.characterId}，与当前角色 ${charId} 不匹配。是否仍要导入 ${importData.memories.length} 条记忆？`;
+      
+      Alert.alert(
+        '确认导入',
+        confirmMsg,
+        [
+          {
+            text: '取消',
+            style: 'cancel',
+            onPress: () => setIsImporting(false)
+          },
+          {
+            text: '导入',
+            onPress: async () => {
+              await processImport(importData.memories, charId!);
+            }
+          }
+        ]
+      );
+      
+    } catch (error) {
+      console.error('[MemoryProcessingControl] 导入记忆失败:', error);
+      Alert.alert('导入失败', '无法导入记忆数据，文件可能已损坏或格式不正确');
+      setIsImporting(false);
+    }
+  };
+  
+  const processImport = async (memories: MemoryFact[], targetCharId: string) => {
+    try {
+      const mem0Service = Mem0Service.getInstance();
+      let successCount = 0;
+      let errorCount = 0;
+      
+      Alert.alert('导入中', '正在导入记忆数据，请稍候...');
+      
+      for (const memory of memories) {
+        try {
+          const content = memory.memory;
+          if (content && content.trim()) {
+            await mem0Service.createMemory(
+              content,
+              targetCharId,
+              memory.runId || 'imported-memory'
+            );
+            successCount++;
+          }
+        } catch (err) {
+          console.error('[MemoryProcessingControl] 导入单条记忆失败:', err);
+          errorCount++;
+        }
+      }
+      
+      await handleRefresh();
+      
+      Alert.alert(
+        '导入完成', 
+        `成功导入 ${successCount} 条记忆` + 
+        (errorCount > 0 ? `，${errorCount} 条记忆导入失败` : '')
+      );
+      
+    } catch (error) {
+      console.error('[MemoryProcessingControl] 批量导入记忆失败:', error);
+      Alert.alert('导入失败', '处理导入数据时出错');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -438,6 +677,8 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
               searchQuery={factSearchQuery}
               onSearchQueryChange={handleSearchQueryChange}
               onSearchSubmit={handleSearchSubmit}
+              expandedMemoryId={expandedMemoryId}
+              toggleMemoryExpansion={toggleMemoryExpansion}
             />
           )}
           
@@ -461,6 +702,10 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
               characterName={character?.name || '当前角色'}
               characterId={selectedCharacterId || characterId || ''}
               onRefresh={fetchDbStats}
+              onExportMemories={handleExportMemories}
+              onImportMemories={handleImportMemories}
+              isExporting={isExporting}
+              isImporting={isImporting}
             />
           )}
         </View>
@@ -692,6 +937,8 @@ interface MemoriesPanelProps {
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   onSearchSubmit: () => void;
+  expandedMemoryId: string | null;
+  toggleMemoryExpansion: (id: string) => void;
 }
 
 const MemoriesPanel: React.FC<MemoriesPanelProps> = ({
@@ -705,16 +952,21 @@ const MemoriesPanel: React.FC<MemoriesPanelProps> = ({
   characterId,
   searchQuery,
   onSearchQueryChange,
-  onSearchSubmit
+  onSearchSubmit,
+  expandedMemoryId,
+  toggleMemoryExpansion
 }) => {
-  const [expandedMemoryId, setExpandedMemoryId] = useState<string | null>(null);
-
-  const toggleMemoryExpansion = (id: string) => {
-    setExpandedMemoryId(expandedMemoryId === id ? null : id);
-  };
-
   const renderMemoryItem = (memory: MemoryFact) => {
+    if (!memory || !memory.id) {
+      console.warn('[MemoryProcessingControl] Invalid memory object:', memory);
+      return null;
+    }
+    
     const isExpanded = expandedMemoryId === memory.id;
+    const memoryContent = memory.memory || 
+                          memory.metadata?.data || 
+                          '(内容为空或格式错误)';
+    
     return (
       <View 
         style={[
@@ -740,7 +992,7 @@ const MemoriesPanel: React.FC<MemoriesPanelProps> = ({
               style={styles.memoryText}
               numberOfLines={isExpanded ? undefined : 2}
             >
-              {memory.memory}
+              {memoryContent}
             </Text>
           </View>
           
@@ -890,6 +1142,10 @@ interface StatsPanelProps {
   characterName: string;
   characterId: string;
   onRefresh: () => void;
+  onExportMemories: () => void;
+  onImportMemories: () => void;
+  isExporting: boolean;
+  isImporting: boolean;
 }
 
 const StatsPanel: React.FC<StatsPanelProps> = ({
@@ -897,7 +1153,11 @@ const StatsPanel: React.FC<StatsPanelProps> = ({
   characterMemoryCount,
   characterName,
   characterId,
-  onRefresh
+  onRefresh,
+  onExportMemories,
+  onImportMemories,
+  isExporting,
+  isImporting
 }) => {
   return (
     <ScrollView style={styles.statsScrollView}>
@@ -951,6 +1211,44 @@ const StatsPanel: React.FC<StatsPanelProps> = ({
                 {dbStats.totalCount > 0 
                   ? ((characterMemoryCount / dbStats.totalCount) * 100).toFixed(1) + '%'
                   : '0%'}
+              </Text>
+            </View>
+            
+            <View style={styles.dataBackupSection}>
+              <View style={styles.backupButtonsContainer}>
+                <TouchableOpacity 
+                  style={[styles.backupButton, styles.exportButton]} 
+                  onPress={onExportMemories}
+                  disabled={isExporting || characterMemoryCount === 0}
+                >
+                  {isExporting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="cloud-download-outline" size={18} color="#fff" />
+                      <Text style={styles.backupButtonText}>导出记忆</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.backupButton, styles.importButton]} 
+                  onPress={onImportMemories}
+                  disabled={isImporting}
+                >
+                  {isImporting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                      <Text style={styles.backupButtonText}>导入记忆</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.backupDescription}>
+                导出记忆数据到JSON文件，或从备份文件导入记忆
               </Text>
             </View>
           </View>
@@ -1488,6 +1786,43 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '500',
+  },
+  dataBackupSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  backupButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  backupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 10,
+    flex: 0.48,
+  },
+  exportButton: {
+    backgroundColor: '#3498db',
+  },
+  importButton: {
+    backgroundColor: '#9b59b6',
+  },
+  backupButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  backupDescription: {
+    color: '#aaa',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
   },
 });
 

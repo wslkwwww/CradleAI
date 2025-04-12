@@ -253,12 +253,41 @@ export class MobileMemory {
       );
     }
 
+    // 检查是否为手动创建的记忆
+    const isManualCreation = metadata.source === 'manual-creation' || 
+      metadata.isManuallyCreated === true;
+
+    // 如果是手动创建，则绕过正常流程直接创建
+    if (isManualCreation && typeof messages === 'string') {
+      console.log('[MobileMemory] 检测到手动创建记忆请求，跳过事实提取过程');
+      
+      const memoryId = await this.createMemoryDirectly(
+        messages, // 直接使用输入的字符串作为记忆内容
+        metadata,
+        filters
+      );
+      
+      // 更新：确保返回结构一致，包含必要的memory字段和metadata内容
+      const timestamp = new Date().toISOString();
+      return {
+        results: [{
+          id: memoryId,
+          memory: messages,
+          hash: md5(messages),
+          createdAt: timestamp,
+          metadata: { 
+            event: 'ADD',
+            source: 'manual-creation',
+            data: messages,  // 确保包含data字段
+          },
+          ...filters
+        }]
+      };
+    }
+
     const parsedMessages = Array.isArray(messages)
       ? messages
       : [{ role: "user" as const, content: messages }];
-
-    // 对于简单实现，跳过视觉消息处理
-    // 如果需要视觉支持，可以适配相关功能
 
     // 添加到向量存储
     const vectorStoreResult = await this.addToVectorStore(
@@ -271,6 +300,73 @@ export class MobileMemory {
     return {
       results: vectorStoreResult,
     };
+  }
+
+  /**
+   * 直接创建记忆（绕过事实提取过程）
+   * @param content 记忆内容 
+   * @param metadata 元数据
+   * @param filters 过滤条件
+   * @returns 记忆ID
+   */
+  private async createMemoryDirectly(
+    content: string,
+    metadata: Record<string, any>,
+    filters: SearchFilters
+  ): Promise<string> {
+    console.log('[MobileMemory] 直接创建记忆:', content.substring(0, 30) + (content.length > 30 ? '...' : ''));
+    
+    if (!content || content.trim() === '') {
+      throw new Error('记忆内容不能为空');
+    }
+    
+    try {
+      // 生成嵌入向量
+      const embedding = await this.embedder.embed(content);
+      
+      // 创建记忆ID
+      const memoryId = uuidv4();
+      
+      // 创建元数据对象 - 确保包含data字段，这是搜索时的关键字段
+      const memoryMetadata = {
+        ...metadata,
+        data: content,           // 关键字段：搜索时依赖此字段
+        memory: content,         // 为了兼容性，同时保留memory字段
+        hash: md5(content),
+        createdAt: new Date().toISOString(),
+        aiResponse: metadata.aiResponse || '',
+        source: 'manual-creation',
+        isManuallyCreated: true,
+        ...filters  // 包含过滤条件
+      };
+      
+      // 调试信息，检查创建的记忆格式
+      console.log(`[MobileMemory] 创建记忆格式:`, {
+        id: memoryId,
+        hasData: !!memoryMetadata.data,
+        hasMemory: !!memoryMetadata.memory,
+        filterKeys: Object.keys(filters)
+      });
+      
+      // 插入到向量存储
+      await this.vectorStore.insert([embedding], [memoryId], [memoryMetadata]);
+      
+      // 添加历史记录
+      await this.db.addHistory(
+        memoryId,
+        null,
+        content,
+        "ADD",
+        memoryMetadata.createdAt,
+      );
+      
+      console.log(`[MobileMemory] 成功直接创建记忆, ID: ${memoryId}`);
+      return memoryId;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[MobileMemory] 直接创建记忆失败: ${errorMessage}`);
+      throw error;
+    }
   }
 
   /**
@@ -813,28 +909,50 @@ export class MobileMemory {
     existingEmbeddings: Record<string, number[]>,
     metadata: Record<string, any>,
   ): Promise<string> {
+    if (!data || data.trim() === '') {
+      throw new Error('记忆内容不能为空');
+    }
+    
     const memoryId = uuidv4();
-    const embedding =
-      existingEmbeddings[data] || (await this.embedder.embed(data));
+    let embedding: number[];
+    
+    try {
+      // 尝试获取或创建嵌入向量
+      embedding = existingEmbeddings[data] || (await this.embedder.embed(data));
+      
+      if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+        throw new Error('嵌入向量生成失败');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[MobileMemory] 记忆嵌入失败: ${errorMessage}`);
+      throw new Error(`记忆嵌入失败: ${errorMessage}`);
+    }
 
     const memoryMetadata = {
       ...metadata,
-      data,
+      data, // 将data直接作为payload的一部分存储
       hash: md5(data),
       createdAt: new Date().toISOString(),
       aiResponse: metadata.aiResponse || '', // 确保包含aiResponse字段
     };
 
-    await this.vectorStore.insert([embedding], [memoryId], [memoryMetadata]);
-    await this.db.addHistory(
-      memoryId,
-      null,
-      data,
-      "ADD",
-      memoryMetadata.createdAt,
-    );
+    try {
+      await this.vectorStore.insert([embedding], [memoryId], [memoryMetadata]);
+      await this.db.addHistory(
+        memoryId,
+        null,
+        data,
+        "ADD",
+        memoryMetadata.createdAt,
+      );
 
-    return memoryId;
+      return memoryId;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[MobileMemory] 向量存储失败: ${errorMessage}`);
+      throw new Error(`向量存储失败: ${errorMessage}`);
+    }
   }
 
   /**

@@ -444,7 +444,7 @@ class Mem0Service {
           }
         });
         
-        // 保存这次处理的记忆ID，以便下次AI回复时更新
+        // 保存这次处理的记忆ID，以便下次AI回复时更新AI响应字段
         if (processedIds.length > 0) {
           this.lastProcessedMemoryIds = processedIds;
           console.log(`[Mem0Service] 已记录 ${processedIds.length} 个待更新的记忆ID，等待AI回复后更新AI响应字段`);
@@ -567,7 +567,7 @@ class Mem0Service {
   ): Promise<any> {
     this.checkInitialized();
     
-    // 如果嵌入服务不可用，直接返回空结果
+    // If embedding service is unavailable, return empty results
     if (!this.isEmbeddingAvailable) {
       console.log('[Mem0Service] 嵌入服务不可用，返回空搜索结果');
       return { results: [] };
@@ -577,64 +577,62 @@ class Mem0Service {
     console.log(`[Mem0Service] 搜索参数: characterId=${characterId}, conversationId=${conversationId}, limit=${limit}`);
     
     try {
-      // 记录搜索开始时间，用于计算搜索耗时
+      // Record search start time for calculating search duration
       const searchStartTime = Date.now();
       
-      const results = await this.memoryActions!.search(
-        query,
-        {
-          userId: 'current-user',
-          agentId: characterId,
-          runId: conversationId,
-          limit
-        }
-      );
+      // Generate both versions of the conversation ID
+      const originalConversationId = conversationId;
+      const prefixedConversationId = conversationId.startsWith('conversation-') ? 
+        conversationId : `conversation-${conversationId}`;
+      const unprefixedConversationId = conversationId.startsWith('conversation-') ?
+        conversationId.replace('conversation-', '') : conversationId;
       
-      // 计算搜索耗时
+      console.log(`[Mem0Service] 将检索原始ID(${originalConversationId})和${originalConversationId === prefixedConversationId ? '无' : '有'}前缀ID的记忆`);
+      
+      // First try with original conversation ID
+      const originalResults = await this.memoryActions!.search(query, {
+        userId: 'current-user',
+        agentId: characterId,
+        runId: originalConversationId,
+        limit
+      });
+      
+      // Always search with the alternative ID, regardless of how many results we got in the first search
+      console.log(`[Mem0Service] 同时使用${originalConversationId === prefixedConversationId ? '无' : '有'}前缀ID搜索`);
+      
+      // Search with alternative ID
+      const alternativeResults = await this.memoryActions!.search(query, {
+        userId: 'current-user',
+        agentId: characterId,
+        runId: originalConversationId === prefixedConversationId ? unprefixedConversationId : prefixedConversationId,
+        limit
+      });
+      
+      // Merge results, avoiding duplicates
+      let results = { results: [] as any[] };
+      if (originalResults.results && originalResults.results.length > 0) {
+        results.results = [...originalResults.results];
+      }
+      
+      if (alternativeResults.results && alternativeResults.results.length > 0) {
+        const existingIds = new Set(results.results.map((item: any) => item.id));
+        const newResults = alternativeResults.results.filter((item: any) => !existingIds.has(item.id));
+        
+        console.log(`[Mem0Service] 使用替代ID找到${newResults.length}条额外记忆`);
+        
+        // Merge and limit to requested amount
+        results.results = [...results.results, ...newResults].slice(0, limit);
+      }
+      
+      // Calculate search time
       const searchEndTime = Date.now();
       const searchTime = searchEndTime - searchStartTime;
       
-      // 计算结果数量
+      // Calculate result count
       const resultCount = results.results?.length || 0;
       console.log(`[Mem0Service] 搜索结果: 找到 ${resultCount} 条记忆, 搜索耗时: ${searchTime}ms`);
       
-      // 完整打印每个结果
-      if (resultCount > 0) {
-        console.log(`[Mem0Service] 搜索结果详情:`);
-        interface SearchResultItem {
-          id: string;
-          memory: string;
-          score: number;
-          createdAt: string;
-          updatedAt?: string;
-          metadata?: Record<string, unknown>;
-        }
-
-        results.results.forEach((item: SearchResultItem, index: number) => {
-          console.log(`  记忆 #${index + 1} (ID: ${item.id}):`);
-          console.log(`    内容: ${item.memory}`);
-          console.log(`    相似度: ${typeof item.score === 'number' ? item.score.toFixed(4) : item.score}`);
-          console.log(`    创建时间: ${item.createdAt}`);
-          if (item.updatedAt) {
-            console.log(`    最后更新: ${item.updatedAt}`);
-          }
-          if (item.metadata && Object.keys(item.metadata).length > 0) {
-            // Check specifically for aiResponse
-            if (item.metadata.aiResponse) {
-              const aiResponse = String(item.metadata.aiResponse);
-              console.log(`    AI响应: ${aiResponse.substring(0, 100)}${aiResponse.length > 100 ? '...' : ''}`);
-            }
-            
-            // Log other metadata too
-            const otherMetadata = { ...item.metadata };
-            delete otherMetadata.aiResponse; // Remove aiResponse since we already logged it
-            
-            if (Object.keys(otherMetadata).length > 0) {
-              console.log(`    其他元数据: ${JSON.stringify(otherMetadata)}`);
-            }
-          }
-        });
-      }
+      // Rest of existing logging code...
       
       return results;
     } catch (error) {
@@ -863,6 +861,108 @@ class Mem0Service {
   }
 
   /**
+   * 创建新记忆
+   * @param content 记忆内容
+   * @param characterId 角色ID
+   * @param conversationId 对话ID
+   * @returns 新记忆ID
+   */
+  public async createMemory(
+    content: string, 
+    characterId: string, 
+    conversationId?: string
+  ): Promise<string | null> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryActions?.add) {
+        throw new Error('添加记忆功能不可用');
+      }
+      
+      if (!content || !characterId) {
+        throw new Error('记忆内容和角色ID不能为空');
+      }
+      
+      console.log(`[Mem0Service] 创建新记忆: ${content.substring(0, 50)}...`);
+      
+      // 检查嵌入服务可用性
+      if (!this.isEmbeddingAvailable) {
+        console.error('[Mem0Service] 嵌入服务不可用，无法创建记忆');
+        throw new Error('嵌入服务不可用，请确保API密钥已正确设置');
+      }
+      
+      // 获取角色特定的命名
+      const userName = this.getUserName(characterId);
+      const aiName = this.getAIName(characterId);
+      
+      const timestamp = new Date().toISOString();
+      
+      // 直接添加为单条记忆，明确标记为手动创建
+      const result = await this.memoryActions.add(
+        content,
+        {
+          userId: 'current-user',
+          agentId: characterId,
+          runId: conversationId || 'manual-creation',
+          metadata: {
+            timestamp: timestamp,
+            source: 'manual-creation',
+            isManuallyCreated: true, // 明确标记为手动创建
+            role: 'user', // 模拟用户角色，确保被处理
+            userName: userName,
+            aiName: aiName,
+            data: content, // 确保存在data字段
+            memory: content, // 同时设置memory字段确保兼容性
+            createdAt: timestamp
+          }
+        },
+        false // 不是多轮对话
+      );
+      
+      if (result && result.results && result.results.length > 0) {
+        const newMemoryId = result.results[0].id;
+        console.log(`[Mem0Service] 成功创建新记忆，ID: ${newMemoryId}`);
+        
+        // 调试输出，检查返回的结果结构
+        console.log(`[Mem0Service] 新记忆结构:`, {
+          id: newMemoryId,
+          hasMemory: !!result.results[0].memory,
+          memoryKeys: Object.keys(result.results[0])
+        });
+        
+        if (result.results[0].metadata) {
+          console.log(`[Mem0Service] 新记忆元数据:`, {
+            metadataKeys: Object.keys(result.results[0].metadata),
+            hasData: !!result.results[0].metadata.data
+          });
+        }
+        
+        return newMemoryId;
+      } else {
+        console.error('[Mem0Service] 创建记忆失败: 无结果返回');
+        return null;
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[Mem0Service] 创建新记忆失败: ${errorMessage}`);
+      
+      // 检查是否是嵌入器错误，尝试刷新嵌入可用性状态
+      if (errorMessage.includes('嵌入') || errorMessage.includes('API密钥')) {
+        this.isEmbeddingAvailable = false;
+        // 尝试重新获取API密钥
+        this.tryGetZhipuApiKey().then(apiKey => {
+          if (apiKey) {
+            console.log('[Mem0Service] 找到API密钥，标记嵌入服务为可用');
+            this.isEmbeddingAvailable = true;
+          }
+        });
+      }
+      
+      throw error; // 重新抛出错误以便UI层处理
+    }
+  }
+
+  /**
    * 直接获取角色的所有记忆数据（不使用向量搜索）
    * @param characterId 角色ID
    * @param limit 返回结果数量限制
@@ -881,18 +981,36 @@ class Mem0Service {
       
       // 直接使用vectorStore的getByCharacterId方法
       const memories = await this.memoryRef.vectorStore.getByCharacterId(characterId, limit);
+      console.log(`[Mem0Service] 从向量存储获取到 ${memories.length} 条记忆数据`);
+      
+      if (memories.length === 0) {
+        return [];
+      }
+      
+      // 检查数据结构，输出第一条记忆的关键字段
+      if (memories[0]) {
+        const sample = memories[0];
+        console.log(`[Mem0Service] 记忆数据示例:`, {
+          id: sample.id,
+          hasPayload: !!sample.payload,
+          payloadKeys: Object.keys(sample.payload || {}),
+          hasData: !!sample.payload?.data,
+          hasMemory: !!sample.payload?.memory
+        });
+      }
       
       // 转换为标准记忆项格式
       interface VectorStoreMemoryItem {
         id: string;
         payload: {
-          data: string;
-          hash: string;
-          createdAt: string;
-          updatedAt: string;
-          userId: string;
-          agentId: string;
-          runId: string;
+          data?: string;
+          memory?: string;
+          hash?: string;
+          createdAt?: string;
+          updatedAt?: string;
+          userId?: string;
+          agentId?: string;
+          runId?: string;
           [key: string]: any;
         };
       }
@@ -900,82 +1018,64 @@ class Mem0Service {
       interface FormattedMemoryItem {
         id: string;
         memory: string;
-        hash: string;
-        createdAt: string;
-        updatedAt: string;
+        hash?: string;
+        createdAt?: string;
+        updatedAt?: string;
         metadata: Record<string, any>;
-        userId: string;
-        agentId: string;
-        runId: string;
+        userId?: string;
+        agentId?: string;
+        runId?: string;
       }
 
-      const formattedMemories: FormattedMemoryItem[] = memories.map((mem: VectorStoreMemoryItem) => ({
-        id: mem.id,
-        memory: mem.payload.data,
-        hash: mem.payload.hash,
-        createdAt: mem.payload.createdAt,
-        updatedAt: mem.payload.updatedAt,
-        metadata: Object.entries(mem.payload)
-          .filter(([key]: [string, any]) => !['data', 'hash', 'createdAt', 'updatedAt', 'userId', 'agentId', 'runId'].includes(key))
-          .reduce((acc: Record<string, any>, [key, value]: [string, any]) => ({ ...acc, [key]: value }), {}),
-        userId: mem.payload.userId,
-        agentId: mem.payload.agentId,
-        runId: mem.payload.runId,
-      }));
+      const formattedMemories: FormattedMemoryItem[] = memories.map((mem: VectorStoreMemoryItem) => {
+        // 确定memory内容 - 优先使用payload.data，然后是payload.memory
+        const memoryContent = mem.payload.data || mem.payload.memory || '';
+        
+        // 如果没有data字段但有memory字段，为payload添加data字段
+        if (!mem.payload.data && mem.payload.memory) {
+          mem.payload.data = mem.payload.memory;
+        }
+        
+        // 如果没有memory字段但有data字段，为payload添加memory字段
+        if (!mem.payload.memory && mem.payload.data) {
+          mem.payload.memory = mem.payload.data;
+        }
+        
+        return {
+          id: mem.id,
+          memory: memoryContent,
+          hash: mem.payload.hash || '',
+          createdAt: mem.payload.createdAt || '',
+          updatedAt: mem.payload.updatedAt || '',
+          metadata: Object.entries(mem.payload)
+            .filter(([key]: [string, any]) => !['data', 'hash', 'createdAt', 'updatedAt', 'userId', 'agentId', 'runId', 'memory'].includes(key))
+            .reduce((acc: Record<string, any>, [key, value]: [string, any]) => ({ ...acc, [key]: value }), {}),
+          userId: mem.payload.userId,
+          agentId: mem.payload.agentId,
+          runId: mem.payload.runId,
+        };
+      });
       
-      console.log(`[Mem0Service] 找到角色 ${characterId} 的 ${formattedMemories.length} 条记忆数据`);
+      console.log(`[Mem0Service] 成功格式化 ${formattedMemories.length} 条记忆数据`);
+      
+      // 检查格式化后的数据，输出第一条
+      if (formattedMemories.length > 0) {
+        const sample = formattedMemories[0];
+        console.log(`[Mem0Service] 格式化后记忆示例:`, {
+          id: sample.id,
+          memoryLength: sample.memory?.length || 0,
+          hasMemory: !!sample.memory,
+          metadataKeys: Object.keys(sample.metadata || {})
+        });
+      }
+      
       return formattedMemories;
     } catch (error) {
       console.error('[Mem0Service] 获取角色记忆数据失败:', error);
       return [];
     }
   }
-  
-  /**
-   * 获取向量数据库统计信息
-   * @returns 数据库统计信息
-   */
-  public async getVectorDbStats(): Promise<{ totalCount: number, dbSize: number, dbSizeMB: string }> {
-    try {
-      this.checkInitialized();
-      
-      if (!this.memoryRef || !this.memoryRef.vectorStore) {
-        return { totalCount: 0, dbSize: 0, dbSizeMB: '0' };
-      }
-      
-      const stats = await this.memoryRef.vectorStore.getStats();
-      const dbSizeMB = (stats.dbSize / (1024 * 1024)).toFixed(2);
-      
-      return {
-        ...stats,
-        dbSizeMB
-      };
-    } catch (error) {
-      console.error('[Mem0Service] 获取向量数据库统计信息失败:', error);
-      return { totalCount: 0, dbSize: 0, dbSizeMB: '0' };
-    }
-  }
-  
-  /**
-   * 获取某角色的记忆数量
-   * @param characterId 角色ID
-   * @returns 记忆数量
-   */
-  public async getCharacterMemoryCount(characterId: string): Promise<number> {
-    try {
-      this.checkInitialized();
-      
-      if (!this.memoryRef || !this.memoryRef.vectorStore) {
-        return 0;
-      }
-      
-      return await this.memoryRef.vectorStore.getCountByCharacterId(characterId);
-    } catch (error) {
-      console.error('[Mem0Service] 获取角色记忆数量失败:', error);
-      return 0;
-    }
-  }
-  
+
   /**
    * 更新记忆内容
    * @param memoryId 记忆ID
@@ -1022,56 +1122,47 @@ class Mem0Service {
   }
   
   /**
-   * 创建新记忆
-   * @param content 记忆内容
-   * @param characterId 角色ID
-   * @param conversationId 对话ID
-   * @returns 新记忆ID
+   * 获取向量数据库统计信息
+   * @returns 数据库统计信息
    */
-  public async createMemory(
-    content: string, 
-    characterId: string, 
-    conversationId?: string
-  ): Promise<string | null> {
+  public async getVectorDbStats(): Promise<{ totalCount: number, dbSize: number, dbSizeMB: string }> {
     try {
       this.checkInitialized();
       
-      if (!this.memoryActions?.add) {
-        throw new Error('添加记忆功能不可用');
+      if (!this.memoryRef || !this.memoryRef.vectorStore) {
+        return { totalCount: 0, dbSize: 0, dbSizeMB: '0' };
       }
       
-      if (!content || !characterId) {
-        throw new Error('记忆内容和角色ID不能为空');
-      }
+      const stats = await this.memoryRef.vectorStore.getStats();
+      const dbSizeMB = (stats.dbSize / (1024 * 1024)).toFixed(2);
       
-      console.log(`[Mem0Service] 创建新记忆: ${content.substring(0, 50)}...`);
-      
-      // 直接添加为单条记忆
-      const result = await this.memoryActions.add(
-        content,
-        {
-          userId: 'current-user',
-          agentId: characterId,
-          runId: conversationId || 'manual-creation',
-          metadata: {
-            timestamp: new Date().toISOString(),
-            source: 'manual-creation',
-            isManuallyCreated: true
-          }
-        },
-        false
-      );
-      
-      if (result.results?.length > 0) {
-        const newMemoryId = result.results[0].id;
-        console.log(`[Mem0Service] 成功创建新记忆，ID: ${newMemoryId}`);
-        return newMemoryId;
-      }
-      
-      return null;
+      return {
+        ...stats,
+        dbSizeMB
+      };
     } catch (error) {
-      console.error('[Mem0Service] 创建新记忆失败:', error);
-      return null;
+      console.error('[Mem0Service] 获取向量数据库统计信息失败:', error);
+      return { totalCount: 0, dbSize: 0, dbSizeMB: '0' };
+    }
+  }
+  
+  /**
+   * 获取某角色的记忆数量
+   * @param characterId 角色ID
+   * @returns 记忆数量
+   */
+  public async getCharacterMemoryCount(characterId: string): Promise<number> {
+    try {
+      this.checkInitialized();
+      
+      if (!this.memoryRef || !this.memoryRef.vectorStore) {
+        return 0;
+      }
+      
+      return await this.memoryRef.vectorStore.getCountByCharacterId(characterId);
+    } catch (error) {
+      console.error('[Mem0Service] 获取角色记忆数量失败:', error);
+      return 0;
     }
   }
 }

@@ -109,4 +109,5 @@ export interface VectorStoreResult {
   id: string;
   payload: Record<string, any>;
   score?: number;
+  vector?: number[]; // 添加可选的vector属性，用于存储和传递向量数据
 }

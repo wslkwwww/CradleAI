@@ -190,6 +190,9 @@ const App = () => {
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
 
+  // Add new state to track regenerating message
+  const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
+
   // Toggle brave search function
   const toggleBraveSearch = () => {
     const newState = !braveSearchEnabled;
@@ -492,6 +495,9 @@ const App = () => {
     }
     
     try {
+      // Set regenerating state to show loading indicator
+      setRegeneratingMessageId(messageId);
+      
       // Record current scroll position
       const currentScrollPosition = selectedConversationId ? 
         chatScrollPositions[selectedConversationId] : undefined;
@@ -512,6 +518,7 @@ const App = () => {
       const targetMessageIndex = currentMessages.findIndex(msg => msg.id === messageId);
       if (targetMessageIndex === -1) {
         console.warn('Target message not found by ID:', messageId);
+        setRegeneratingMessageId(null); // Reset regenerating state
         return;
       }
       
@@ -523,6 +530,7 @@ const App = () => {
           sender: targetMessage.sender,
           isLoading: targetMessage.isLoading
         });
+        setRegeneratingMessageId(null); // Reset regenerating state
         return;
       }
       
@@ -550,6 +558,9 @@ const App = () => {
         },
         character: selectedCharacter || undefined
       });
+      
+      // Clear regenerating state after completion
+      setRegeneratingMessageId(null);
       
       // Handle the regeneration result
       if (result.success) {
@@ -627,6 +638,9 @@ const App = () => {
       }
     } catch (error) {
       console.error('Error regenerating message:', error);
+      
+      // Clear regenerating state on error
+      setRegeneratingMessageId(null);
       
       // Clean up loading indicator in case of error
       const updatedMessages = messages.filter(msg => !msg.isLoading);
@@ -1435,6 +1449,7 @@ const App = () => {
                     savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
                     onScrollPositionChange={handleScrollPositionChange}
                     messageMemoryState={messageMemoryState}
+                    regeneratingMessageId={regeneratingMessageId} // Pass the regenerating message ID
                     // Note: We're not passing allMessages separately as ChatDialog now handles virtualization internally
                   />
                 </View>
