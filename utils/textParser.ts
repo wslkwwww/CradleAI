@@ -95,9 +95,27 @@ export const containsComplexHtml = (text: string): boolean => {
 export const optimizeHtmlForRendering = (html: string): string => {
   if (!html) return '';
   
+  // First handle line breaks in text content for HTML nodes that don't preserve whitespace
+  let processedHtml = html;
+  
+  // Replace line breaks in content outside of HTML tags with <br/> tags
+  processedHtml = processedHtml.replace(/(?<=>|^)([^<]+)(?=<|$)/g, (match) => {
+    return match.replace(/\n/g, '<br/>');
+  });
+
+  // Handle existing <br> tags for consistency
+  processedHtml = processedHtml.replace(/<br\s*\/?>/gi, '<br/>');
+  
+  // Prevent unnecessary BR elements inside certain custom tags
+  const fixStatus = /<(status|StatusBlock|statusblock)>(.+?)<\/(status|StatusBlock|statusblock)>/gs;
+  processedHtml = processedHtml.replace(fixStatus, (match, startTag, content, endTag) => {
+    // For status blocks, we want to preserve line breaks as HTML <br> tags
+    return `<${startTag}>${content}</${endTag}>`;
+  });
+
   // Make sure custom tags are properly formatted
   // Sometimes AI might add spaces in the tags which breaks the parser
-  const optimizedHtml = html
+  processedHtml = processedHtml
     // Fix opening tags (removing unwanted spaces)
     .replace(/<\s*(thinking|think|status|mem|websearch|char-think)(\s+[^>]*)?>/gi, 
              (match, tag, attrs) => `<${tag}${attrs || ''}>`)
@@ -114,7 +132,7 @@ export const optimizeHtmlForRendering = (html: string): string => {
                return match;
              });
   
-  return optimizedHtml;
+  return processedHtml;
 };
 
 // Process custom tags before HTML parsing - keep tags intact for react-native-render-html

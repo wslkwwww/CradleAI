@@ -524,8 +524,8 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
 
   // Add function to detect custom tags in messages
   const containsCustomTags = (text: string): boolean => {
-    return /(<\s*(thinking|think|status|mem|websearch|char-think)[^>]*>[\s\S]*?<\/\s*(thinking|think|status|mem|websearch|char-think)\s*>)/i.test(text);
-  };
+      return /(<\s*(thinking|think|status|mem|websearch|char-think|StatusBlock|statusblock|font)[^>]*>[\s\S]*?<\/\s*(thinking|think|status|mem|websearch|char-think|StatusBlock|statusblock|font)\s*>)/i.test(text);
+   };
 
   // 检测并处理消息中的图片链接
   const processMessageContent = (text: string, isUser: boolean) => {
@@ -784,14 +784,9 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     }
     
     // If no stored index, calculate it by counting previous AI messages
-    // Only count valid messages (non-error) for index calculation
     let aiMessageCount = 0;
     for (let i = 0; i <= index; i++) {
-      const msg = virtualizedMessages[i];
-      if (msg.sender === 'bot' && 
-          !msg.isLoading && 
-          msg.metadata?.isErrorMessage !== true && 
-          msg.metadata?.error === undefined) {
+      if (virtualizedMessages[i].sender === 'bot' && !virtualizedMessages[i].isLoading) {
         aiMessageCount++;
       }
     }
@@ -999,18 +994,6 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     // Check if this is the most recent AI message
     const isLastAIMessage = isMessageLastAIMessage(message, index);
     
-    // Check if this is an error message - don't show regenerate button for error messages
-    const isErrorMessage = 
-      (message.metadata?.isErrorMessage === true) || 
-      (message.metadata?.error !== undefined) ||
-      (message.text.includes("抱歉，处理消息时出现了错误") || 
-       message.text.includes("抱歉，无法重新生成回复") ||
-       message.text.includes("发生错误，无法重新生成") ||
-       message.text.includes("处理图片时出现了错误") ||
-       message.text.includes("生成图片时出现了错误") ||
-       message.text.includes("编辑图片时出现了错误") ||
-       message.text.includes("发送消息时出现了错误"));
-    
     const messageRating = getMessageRating(message.id);
     const isRegenerating = regeneratingMessageId === message.id;
     
@@ -1019,8 +1002,8 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         {/* Add TTS buttons */}
         {message.sender === 'bot' && renderTTSButtons(message)}
         
-        {/* Only show regenerate button for the last AI message that is NOT an error message */}
-        {onRegenerateMessage && isLastAIMessage && !isErrorMessage && (
+        {/* Only show regenerate button for the last AI message */}
+        {onRegenerateMessage && isLastAIMessage && (
           <TouchableOpacity
             style={[
               styles.actionButton,
@@ -1087,24 +1070,16 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     // Only AI messages can be regenerated
     if (message.sender !== 'bot' || message.isLoading) return false;
     
-    // Never allow regeneration for error messages
-    if (message.metadata?.isErrorMessage === true || message.metadata?.error !== undefined) {
-      return false;
-    }
-    
-    // Check if there are any non-loading, non-error AI messages after this one
+    // Check if there are any non-loading AI messages after this one
     for (let i = index + 1; i < virtualizedMessages.length; i++) {
       const laterMessage = virtualizedMessages[i];
-      if (laterMessage.sender === 'bot' && 
-          !laterMessage.isLoading && 
-          laterMessage.metadata?.isErrorMessage !== true && 
-          laterMessage.metadata?.error === undefined) {
-        // Found a later valid AI message, so current message is not the last one
+      if (laterMessage.sender === 'bot' && !laterMessage.isLoading) {
+        // Found a later AI message, so current message is not the last one
         return false;
       }
     }
     
-    // No later valid AI messages found, this is the last one
+    // No later AI messages found, this is the last one
     return true;
   };
 

@@ -16,7 +16,9 @@ import RenderHTML, {
   HTMLContentModel,
   CustomRendererProps, 
   TBlock, 
-  TNodeChildrenRenderer 
+  TNodeChildrenRenderer,
+  TText,
+  CustomTextualRenderer
 } from 'react-native-render-html';
 import ImageManager from '@/utils/ImageManager';
 
@@ -156,6 +158,58 @@ const StatusRenderer = ({
   );
 };
 
+// Custom renderer for the <font> tag - handles font attributes
+// Fix: Properly type as CustomTextualRenderer to match expected types in CustomTagRendererRecord
+const FontRenderer: CustomTextualRenderer = function FontRenderer({ 
+  tnode,
+  TDefaultRenderer,
+  ...props 
+}) {
+  // Extract font attributes if available
+  const color = tnode.attributes.color || null;
+  const face = tnode.attributes.face || null;
+  const size = tnode.attributes.size || null;
+  
+  // Create style object based on attributes
+  const fontStyle: Record<string, any> = {};
+  
+  if (color) {
+    fontStyle.color = color;
+  }
+  
+  if (face) {
+    fontStyle.fontFamily = face;
+  }
+  
+  if (size) {
+    // Convert HTML font size (1-7) to pixels
+    const fontSize = {
+      '1': 10,
+      '2': 13,
+      '3': 16, // Default
+      '4': 18,
+      '5': 24,
+      '6': 32,
+      '7': 48
+    }[size];
+    
+    if (fontSize) {
+      fontStyle.fontSize = fontSize;
+    }
+  }
+  
+  // Render with the font styles applied
+  return (
+    <TDefaultRenderer
+      {...props}
+      tnode={tnode}
+      style={fontStyle}
+    >
+      <TNodeChildrenRenderer tnode={tnode} />
+    </TDefaultRenderer>
+  );
+};
+
 // Main function to parse HTML content with React Native Render HTML
 export const parseHtmlToReactNative = (
   html: string,
@@ -172,6 +226,12 @@ export const parseHtmlToReactNative = (
     handleImagePress,
     maxImageHeight = 300,
   } = options;
+
+  // Pre-process HTML to preserve line breaks by replacing \n with <br/>
+  // but only when not inside a tag
+  const processedHtml = html.replace(/(?<=>|^)([^<]+)(?=<|$)/g, (match) => {
+    return match.replace(/\n/g, '<br/>');
+  });
 
   const renderers = {
     img: ({ tnode }: CustomRendererProps<TBlock>) => {
@@ -226,8 +286,11 @@ export const parseHtmlToReactNative = (
     think: ThinkingRenderer,
     mem: MemoryRenderer,
     status: StatusRenderer,
+    StatusBlock: StatusRenderer, // Case sensitive tag name
+    statusblock: StatusRenderer, // Lowercase version for case-insensitive matching
     websearch: WebsearchRenderer,
     'char-think': ThinkingRenderer,
+    font: FontRenderer, // Now properly typed as CustomTextualRenderer
   };
 
   const customHTMLElementModels = {
@@ -247,6 +310,15 @@ export const parseHtmlToReactNative = (
       tagName: 'status',
       contentModel: HTMLContentModel.block
     }),
+    StatusBlock: HTMLElementModel.fromCustomModel({
+      tagName: 'StatusBlock',
+      contentModel: HTMLContentModel.block
+    }),
+    // Add lowercase version for case-insensitive matching
+    statusblock: HTMLElementModel.fromCustomModel({
+      tagName: 'statusblock',
+      contentModel: HTMLContentModel.block
+    }),
     websearch: HTMLElementModel.fromCustomModel({
       tagName: 'websearch',
       contentModel: HTMLContentModel.block
@@ -254,6 +326,11 @@ export const parseHtmlToReactNative = (
     'char-think': HTMLElementModel.fromCustomModel({
       tagName: 'char-think',
       contentModel: HTMLContentModel.block
+    }),
+    // Add model for font tag
+    font: HTMLElementModel.fromCustomModel({
+      tagName: 'font',
+      contentModel: HTMLContentModel.textual
     }),
   };
 
@@ -267,6 +344,8 @@ export const parseHtmlToReactNative = (
     h5: { fontSize: 16, fontWeight: 'bold' as const, marginVertical: 4, ...baseStyle },
     h6: { fontSize: 14, fontWeight: 'bold' as const, marginVertical: 3, ...baseStyle },
     text: { color: '#fff', ...baseStyle },
+    span: { color: '#fff', ...baseStyle }, // Ensure span tags match text styles
+    br: { height: 12 }, // Add specific height to line breaks to ensure visibility
     // Add styles for mem and websearch tags to make all text inside them italic
     mem: { fontStyle: 'italic' as const },
     websearch: { fontStyle: 'italic' as const }
@@ -275,11 +354,22 @@ export const parseHtmlToReactNative = (
   return (
     <RenderHTML
       contentWidth={MAX_CONTENT_WIDTH}
-      source={{ html }}
+      source={{ html: processedHtml }}
       tagsStyles={tagsStyles}
       customHTMLElementModels={customHTMLElementModels}
       renderers={renderers}
-      baseStyle={{ color: '#fff', fontSize: 16, ...baseStyle }}
+      baseStyle={{ 
+        color: '#fff', 
+        fontSize: 16, 
+        ...baseStyle,
+        // Add explicit whitespace handling for better text formatting
+        textAlignVertical: 'center',
+        // Ensure whitespace is preserved
+        whiteSpace: 'pre-wrap' as any,
+      }}
+      // Improve text rendering with specific settings
+      enableExperimentalBRCollapsing={false}
+      enableExperimentalGhostLinesPrevention={true}
     />
   );
 };
