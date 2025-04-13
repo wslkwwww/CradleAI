@@ -14,9 +14,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   FlatList,
-  Switch
+
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { CradleCharacter } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
@@ -29,12 +29,9 @@ import vndbData from '@/app/data/vndb.json';
 // Import VNDB API service
 import { defaultClient as vndb } from '@/src/services/vndb';
 import { VNDBCharacter } from '@/src/services/vndb/types';
-// Add import for the new formatter utility
 import { processVNDBResponse } from '@/src/utils/vndbFormatters';
 import { formatVNDBCharactersForLLM } from '@/src/utils/vndbLLMFormatter';
 import ArtistReferenceSelector from './ArtistReferenceSelector';
-// Add import for default negative prompts
-import { DEFAULT_NEGATIVE_PROMPTS } from '@/constants/defaultPrompts';
 // Import theme
 import { theme } from '@/constants/theme';
 // Add VoiceSelector import at the top with other imports
@@ -225,15 +222,6 @@ const DEFAULT_TRAIT_CATEGORIES: TraitCategory[] = [
   }
 ];
 
-// Define age ranges for character selection
-const AGE_RANGES = [
-  { id: 'child', name: '儿童 (0-12岁)' },
-  { id: 'teen', name: '青少年 (13-17岁)' },
-  { id: 'young-adult', name: '青年 (18-25岁)' },
-  { id: 'adult', name: '成年 (26-39岁)' },
-  { id: 'middle-aged', name: '中年 (40-59岁)' },
-  { id: 'elderly', name: '老年 (60岁以上)' }
-];
 
 // Modified sidebar sections - now has three tabs
 const SIDEBAR_SECTIONS = [
@@ -562,8 +550,8 @@ const handleCreateCharacter = async () => {
   try {
     console.log(`[摇篮角色创建] 开始创建角色: ${characterName}, 性别: ${gender}`);
     
-    // Get API settings from user context
-    const apiProvider = user?.settings?.chat?.apiProvider || 'gemini';
+    // Get API settings from user context with type assertion
+    const apiProvider = (user?.settings?.chat?.apiProvider || 'gemini') as 'gemini' | 'openrouter';
     const apiKey = apiProvider === 'openrouter' ? 
       user?.settings?.chat?.openrouter?.apiKey : 
       user?.settings?.chat?.characterApiKey;

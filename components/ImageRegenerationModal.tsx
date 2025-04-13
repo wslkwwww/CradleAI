@@ -1997,17 +1997,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
-  infoContainer: {
-    backgroundColor: 'rgba(74, 144, 226, 0.1)',
-    borderRadius: 8,
-    padding: 12,
-    marginVertical: 12,
-  },
-  infoText: {
-    color: '#70A1FF',
-    fontSize: 13,
-    textAlign: 'center',
-  },
+
   
   safeArea: {
     flex: 1,

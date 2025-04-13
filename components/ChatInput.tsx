@@ -909,45 +909,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     {isTtsEnhancerEnabled ? "语音增强: 已开启" : "语音增强: 已关闭"}
                   </Text>
                 </View>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.actionMenuItem}
-                activeOpacity={0.7}
-                onPress={handleShowNovelAI}>
-                <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#e74c3c" }]}>
-                    <Ionicons name="image" size={22} color="#fff" />
-                  </View>
-                  <Text style={styles.actionMenuItemText}>图像测试</Text>
-                </View>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.actionMenuItem}
-                activeOpacity={0.7}
-                onPress={handleShowVNDB}>
-                <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#2ecc71" }]}>
-                    <Ionicons name="game-controller" size={22} color="#fff" />
-                  </View>
-                  <Text style={styles.actionMenuItemText}>角色查询</Text>
-                </View>
-              </TouchableOpacity>
-              
-              {onShowMemoryPanel && (
-                <TouchableOpacity 
-                  style={styles.actionMenuItem}
-                  activeOpacity={0.7}
-                  onPress={handleShowMemoryPanel}>
-                  <View style={styles.actionMenuItemInner}>
-                    <View style={[styles.actionMenuItemIcon, { backgroundColor: "#f39c12" }]}>
-                      <Ionicons name="book" size={22} color="#fff" />
-                    </View>
-                    <Text style={styles.actionMenuItemText}>记忆面板</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
+              </TouchableOpacity>            
             </ScrollView>
           </View>
         </View>

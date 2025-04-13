@@ -2,6 +2,7 @@ export const theme = {
   colors: {
     primary: 'rgb(255, 224, 195)',
     primaryDark: 'rgb(224, 196, 168)',
+    primaryTransparent: 'rgba(255, 224, 195, 0.5)',
     background: '#212121',
     cardBackground: '#333333',
     backgroundSecondary: 'rgba(60, 60, 60, 0.5)',  // Add this line

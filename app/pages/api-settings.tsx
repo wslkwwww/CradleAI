@@ -1267,50 +1267,6 @@ const ApiSettings = () => {
               <Text style={styles.buttonText}>保存设置</Text>
             </TouchableOpacity>
           </View>
-
-          <View style={styles.notesContainer}>
-            <Text style={styles.noteTitle}>使用说明:</Text>
-            <View style={styles.noteItem}>
-              <Ionicons name="information-circle-outline" size={16} color="#aaa" style={styles.noteIcon} />
-              <Text style={styles.noteText}>Gemini API 可免费获取，适合基础对话</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="git-network-outline" size={16} color="#2196F3" style={styles.noteIcon} />
-              <Text style={styles.noteText}>模型负载均衡优先使用更强大的gemini-2.5-pro模型，图片相关任务仍使用gemini-2.0-flash-exp</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="repeat-outline" size={16} color="#2196F3" style={styles.noteIcon} />
-              <Text style={styles.noteText}>API密钥轮换功能可自动切换API密钥，避免请求频率限制</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="search-outline" size={16} color="#FB542B" style={styles.noteIcon} />
-              <Text style={styles.noteText}>Brave Search API 提供网络搜索能力，免费版每月最多2000次查询</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="warning-outline" size={16} color="#f0ad4e" style={styles.noteIcon} />
-              <Text style={styles.noteText}>智谱清言嵌入需要单独的API密钥，与LLM的密钥不通用</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="key-outline" size={16} color="#aaa" style={styles.noteIcon} />
-              <Text style={styles.noteText}>激活码可以在最多3台设备上使用，首次使用将自动绑定设备</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="shield-outline" size={16} color="#aaa" style={styles.noteIcon} />
-              <Text style={styles.noteText}>激活后可使用所有高级API功能，无需再配置其他API密钥</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="cloud-outline" size={16} color="#2196F3" style={styles.noteIcon} />
-              <Text style={styles.noteText}>云服务允许无需API密钥即可使用高级模型，仅限许可证用户</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="shield-checkmark-outline" size={16} color="#2196F3" style={styles.noteIcon} />
-              <Text style={styles.noteText}>云服务提供稳定的全球访问，绕过地区限制，保护您的隐私</Text>
-            </View>
-            <View style={styles.noteItem}>
-              <Ionicons name="image-outline" size={16} color="#8a2be2" style={styles.noteIcon} />
-              <Text style={styles.noteText}>NovelAI图像生成可用于创建高质量动漫风格的角色图像和背景</Text>
-            </View>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
