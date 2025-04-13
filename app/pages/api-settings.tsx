@@ -46,6 +46,31 @@ const ApiSettings = () => {
   const [useGeminiKeyRotation, setUseGeminiKeyRotation] = useState(
     user?.settings?.chat?.useGeminiKeyRotation || false
   );
+  const [geminiPrimaryModel, setGeminiPrimaryModel] = useState(
+    user?.settings?.chat?.geminiPrimaryModel || 'gemini-2.5-pro-exp-03-25'
+  );
+  const [geminiBackupModel, setGeminiBackupModel] = useState(
+    user?.settings?.chat?.geminiBackupModel || 'gemini-2.0-flash-exp'
+  );
+  const [retryDelay, setRetryDelay] = useState(
+    user?.settings?.chat?.retryDelay || 5000
+  );
+  const [isModelPickerVisible, setIsModelPickerVisible] = useState(false);
+  const [modelPickerType, setModelPickerType] = useState<'primary' | 'backup'>('primary');
+
+  const availableGeminiModels = [
+    'gemini-2.5-pro-exp-03-25',
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-pro-exp-02-05',
+    'gemini-exp-1206',
+    'gemini-2.0-flash-thinking-exp-1219',
+    'gemini-exp-1121',
+    'gemini-exp-1114',
+    'gemini-1.5-pro-exp-0827',
+    'gemini-1.5-pro-exp-0801',
+    'gemini-1.5-flash-8b-exp-0924',
+    'gemini-1.5-flash-8b-exp-0827'
+  ];
 
   // OpenRouter settings
   const [openRouterEnabled, setOpenRouterEnabled] = useState(
@@ -289,7 +314,10 @@ const ApiSettings = () => {
             apiProvider: 'gemini',
             additionalGeminiKeys: validAdditionalKeys,
             useGeminiModelLoadBalancing,
-            useGeminiKeyRotation
+            useGeminiKeyRotation,
+            geminiPrimaryModel,
+            geminiBackupModel,
+            retryDelay
           }
         );
       }
@@ -499,6 +527,9 @@ const ApiSettings = () => {
             additionalGeminiKeys: validAdditionalKeys,
             useGeminiModelLoadBalancing,
             useGeminiKeyRotation,
+            geminiPrimaryModel,
+            geminiBackupModel,
+            retryDelay,
             xApiKey: user?.settings?.chat?.xApiKey || '',
             apiProvider: openRouterEnabled ? 'openrouter' : 'gemini',
             typingDelay: user?.settings?.chat?.typingDelay || 50,
@@ -615,6 +646,9 @@ const ApiSettings = () => {
             additionalGeminiKeys: validAdditionalKeys,
             useGeminiModelLoadBalancing,
             useGeminiKeyRotation,
+            geminiPrimaryModel,
+            geminiBackupModel,
+            retryDelay,
             xApiKey: user?.settings?.chat?.xApiKey || '',
             apiProvider: openRouterEnabled ? 'openrouter' : 'gemini',
             typingDelay: user?.settings?.chat?.typingDelay || 50,
@@ -721,6 +755,22 @@ const ApiSettings = () => {
         )}
       </View>
     );
+  };
+
+  // Function to select a Gemini model
+  const openModelPicker = (type: 'primary' | 'backup') => {
+    setModelPickerType(type);
+    setIsModelPickerVisible(true);
+  };
+
+  // Function to handle model selection
+  const handleModelSelection = (model: string) => {
+    if (modelPickerType === 'primary') {
+      setGeminiPrimaryModel(model);
+    } else {
+      setGeminiBackupModel(model);
+    }
+    setIsModelPickerVisible(false);
   };
 
   return (
@@ -1030,9 +1080,54 @@ const ApiSettings = () => {
                     />
                   </View>
                   {useGeminiModelLoadBalancing && (
-                    <Text style={styles.featureDescription}>
-                      优先使用 gemini-2.5-pro，如请求失败自动切换到 gemini-2.0-flash-exp
-                    </Text>
+                    <>
+                      <Text style={styles.featureDescription}>
+                        优先使用主模型，如请求失败自动切换到备用模型
+                      </Text>
+                      
+                      {/* 主模型选择 */}
+                      <View style={styles.modelSelectorContainer}>
+                        <Text style={styles.inputLabel}>主模型</Text>
+                        <TouchableOpacity
+                          style={styles.modelButton}
+                          onPress={() => openModelPicker('primary')}
+                        >
+                          <Text style={styles.modelButtonText}>{geminiPrimaryModel}</Text>
+                          <Ionicons name="chevron-down" size={16} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                      
+                      {/* 备用模型选择 */}
+                      <View style={styles.modelSelectorContainer}>
+                        <Text style={styles.inputLabel}>备用模型</Text>
+                        <TouchableOpacity
+                          style={styles.modelButton}
+                          onPress={() => openModelPicker('backup')}
+                        >
+                          <Text style={styles.modelButtonText}>{geminiBackupModel}</Text>
+                          <Ionicons name="chevron-down" size={16} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                      
+                      {/* 重试延迟设置 */}
+                      <View style={styles.modelSelectorContainer}>
+                        <Text style={styles.inputLabel}>备用模型重试延迟 (毫秒)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={String(retryDelay)}
+                          onChangeText={(text) => {
+                            const value = parseInt(text.replace(/[^0-9]/g, ''));
+                            setRetryDelay(isNaN(value) ? 5000 : value);
+                          }}
+                          keyboardType="numeric"
+                          placeholder="输入延迟时间 (毫秒)"
+                          placeholderTextColor="#999"
+                        />
+                        <Text style={styles.helperText}>
+                          推荐值: 5000 (5秒)。主模型失败后等待多久再尝试备用模型
+                        </Text>
+                      </View>
+                    </>
                   )}
                   
                   <View style={styles.switchContainer}>
@@ -1049,7 +1144,7 @@ const ApiSettings = () => {
                   </View>
                   {useGeminiKeyRotation && (
                     <Text style={styles.featureDescription}>
-                      当API密钥请求限制(429错误)时，自动切换到下一个可用密钥
+                      当API请求失败时，自动切换到下一个可用密钥，可显著提高请求成功率
                     </Text>
                   )}
                 </View>
@@ -1250,6 +1345,51 @@ const ApiSettings = () => {
             useCloudService={useCloudService}
           />
         </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={isModelPickerVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsModelPickerVisible(false)}
+      >
+        <View style={styles.modelPickerOverlay}>
+          <View style={styles.modelPickerContent}>
+            <View style={styles.modelPickerHeader}>
+              <Text style={styles.modelPickerTitle}>
+                选择{modelPickerType === 'primary' ? '主' : '备用'}模型
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIsModelPickerVisible(false)}
+                style={styles.modelPickerCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modelPickerList}>
+              {availableGeminiModels.map((model) => (
+                <TouchableOpacity
+                  key={model}
+                  style={[
+                    styles.modelPickerItem,
+                    ((modelPickerType === 'primary' && model === geminiPrimaryModel) ||
+                      (modelPickerType === 'backup' && model === geminiBackupModel)) &&
+                      styles.modelPickerItemSelected
+                  ]}
+                  onPress={() => handleModelSelection(model)}
+                >
+                  <Text style={styles.modelPickerItemText}>
+                    {model}
+                  </Text>
+                  {((modelPickerType === 'primary' && model === geminiPrimaryModel) ||
+                    (modelPickerType === 'backup' && model === geminiBackupModel)) && (
+                    <Ionicons name="checkmark" size={20} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1674,6 +1814,57 @@ const styles = StyleSheet.create({
   tokenInvalid: {
     color: '#e74c3c',
     fontWeight: 'bold',
+  },
+  modelSelectorContainer: {
+    marginTop: 16,
+  },
+  modelPickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modelPickerContent: {
+    backgroundColor: '#333',
+    width: '90%',
+    maxHeight: '70%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modelPickerHeader: {
+    backgroundColor: '#444',
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#555',
+  },
+  modelPickerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  modelPickerCloseButton: {
+    padding: 4,
+  },
+  modelPickerList: {
+    padding: 8,
+  },
+  modelPickerItem: {
+    padding: 16,
+    borderRadius: 8,
+    marginVertical: 4,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modelPickerItemSelected: {
+    backgroundColor: 'rgba(100, 210, 255, 0.2)',
+  },
+  modelPickerItemText: {
+    fontSize: 16,
+    color: '#fff',
   },
 });
 

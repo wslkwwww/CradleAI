@@ -22,39 +22,7 @@ export interface GlobalSettings {
         gender: 'male' | 'female' | 'other';
         description: string;
     };
-    chat: {
-        // Legacy fields
-        serverUrl: string | null | undefined; 
-        characterApiKey: string;
-        xApiKey: string;
-        
-        // Gemini API load balancing settings
-        additionalGeminiKeys?: string[];
-        useGeminiModelLoadBalancing?: boolean;
-        useGeminiKeyRotation?: boolean;
-        
-        // New API settings
-        apiProvider: 'gemini' | 'openrouter';
-        openrouter?: OpenRouterSettings;
-        typingDelay: number;
-        maxtokens: number;
-        temperature: number;
-        maxTokens: number;
-        useZhipuEmbedding: boolean;
-        zhipuApiKey: string;
-        // Cloud service setting
-        useCloudService?: boolean;
-        cloudModel?: string; // Add cloud model preference
-        novelai?: {
-          enabled: boolean;
-          token: string;
-          model?: string;  
-          sampler:  string;
-          steps:  number;
-          scale:  number; 
-          noiseSchedule: string
-        };
-    }
+    chat: ChatSettings;
     app?: {
         darkMode?: boolean;
         autoSave?: boolean;
@@ -597,4 +565,43 @@ export interface ChatDialogProps {
   savedScrollPosition?: number;
   onScrollPositionChange?: (characterId: string, position: number) => void;
   messageMemoryState?: Record<string, string>; // Add this new prop
+}
+
+export interface ChatSettings {
+  serverUrl: string;
+  characterApiKey: string;
+  xApiKey: string;
+  apiProvider: string;
+  openrouter?: {
+    enabled?: boolean;
+    apiKey?: string;
+    model?: string;
+    autoRoute?: boolean;
+    useBackupModels?: boolean;
+    backupModels?: string[];
+  };
+  typingDelay: number;
+  temperature: number;
+  maxtokens: number;
+  maxTokens: number;
+  additionalGeminiKeys?: string[];
+  useGeminiModelLoadBalancing?: boolean;
+  useGeminiKeyRotation?: boolean;
+  // Add new model configuration fields
+  geminiPrimaryModel?: string;
+  geminiBackupModel?: string;
+  retryDelay?: number;
+  useZhipuEmbedding?: boolean;
+  zhipuApiKey?: string;
+  useCloudService?: boolean;
+  cloudModel?: string;
+  novelai?: {
+    enabled?: boolean;
+    token?: string;
+    model?: string;
+    sampler?: string;
+    steps?: number;
+    scale?: number;
+    noiseSchedule?: string;
+  };
 }

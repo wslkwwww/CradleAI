@@ -27,7 +27,7 @@ import Mem0Service from '@/src/memory/services/Mem0Service';
 import ImageManager from '@/utils/ImageManager';
 
 interface ChatInputProps {
-  onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean) => void;
+  onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean, metadata?: Record<string, any>) => void;
   selectedConversationId: string | null;
   conversationId: string;
   onResetConversation: () => void;
@@ -244,12 +244,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
           console.log('[ChatInput] 由于用户消息未成功添加到记忆，跳过添加AI回复');
         }
       } else {
-        onSendMessage('抱歉，处理消息时出现了错误，请重试。', 'bot');
+        const errorMessage = '抱歉，处理消息时出现了错误，请重试。';
+        onSendMessage(errorMessage, 'bot', false, { 
+          isErrorMessage: true, 
+          error: result.error || 'Unknown NodeST error' 
+        });
         console.error('NodeST error:', result.error);
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      onSendMessage('抱歉，发送消息时出现了错误，请重试。', 'bot');
+      onSendMessage('抱歉，发送消息时出现了错误，请重试。', 'bot', false, { 
+        isErrorMessage: true, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
     } finally {
       setIsLoading(false);
     }

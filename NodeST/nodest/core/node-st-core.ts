@@ -731,7 +731,10 @@ export class NodeSTCore {
                         characterId,
                         updatedChatHistory,
                         apiKey,
-                        this.apiSettings
+                        {
+                            apiProvider: this.apiSettings.apiProvider === 'openrouter' ? 'openrouter' : 'gemini',
+                            openrouter: this.apiSettings.openrouter,
+                        }
                     );
                     
                     // Use the potentially summarized history
@@ -1833,7 +1836,10 @@ export class NodeSTCore {
                         characterId,
                         truncatedHistory,
                         apiKey,
-                        this.apiSettings
+                        {
+                            apiProvider: this.apiSettings.apiProvider === 'openrouter' ? 'openrouter' : 'gemini',
+                            openrouter: this.apiSettings.openrouter,
+                        }
                     );
                     
                     // Use the potentially summarized history

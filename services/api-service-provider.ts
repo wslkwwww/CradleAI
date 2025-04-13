@@ -16,6 +16,9 @@ interface ServiceOptions {
   additionalGeminiKeys?: string[];
   useGeminiModelLoadBalancing?: boolean;
   useGeminiKeyRotation?: boolean;
+  geminiPrimaryModel?: string;
+  geminiBackupModel?: string;
+  retryDelay?: number;
 }
 
 /**
@@ -50,8 +53,7 @@ export class ApiServiceProvider {
   static getAdapter(
     apiKey: string, 
     apiSettings?: ApiSettings, 
-    additionalKeys: string[] = [], 
-    useModelLoadBalancing: boolean = false
+    options: Partial<ServiceOptions> = {}
   ): GeminiAdapter | OpenRouterAdapter {
     console.log(`【API服务】获取适配器，提供商=${apiSettings?.apiProvider || 'gemini'}`);
     
@@ -76,23 +78,49 @@ export class ApiServiceProvider {
       return this.openRouterAdapterInstances[cacheKey];
     }
     
-    // 生成gemini适配器的缓存键，考虑到负载均衡设置
-    const geminiCacheKey = `gemini-${apiKey}-lb${useModelLoadBalancing ? 1 : 0}-keys${additionalKeys.length}`;
+    // Extract options
+    const additionalKeys = options.additionalGeminiKeys || [];
+    const useModelLoadBalancing = options.useGeminiModelLoadBalancing || false;
+    const useKeyRotation = options.useGeminiKeyRotation || false;
+    const primaryModel = options.geminiPrimaryModel;
+    const backupModel = options.geminiBackupModel;
+    const retryDelay = options.retryDelay;
+    
+    // 生成gemini适配器的缓存键，考虑到负载均衡设置和模型设置
+    const geminiCacheKey = `gemini-${apiKey}-lb${useModelLoadBalancing ? 1 : 0}-kr${useKeyRotation ? 1 : 0}-keys${additionalKeys.length}-pm${primaryModel || 'default'}-bm${backupModel || 'default'}`;
     
     // 检查缓存中是否有实例
     if (!this.geminiAdapterInstances[geminiCacheKey] && apiKey) {
-      console.log(`【API服务】创建新的Gemini适配器实例，启用模型负载均衡: ${useModelLoadBalancing}, 额外密钥数: ${additionalKeys.length}`);
-      this.geminiAdapterInstances[geminiCacheKey] = new GeminiAdapter(apiKey, additionalKeys, useModelLoadBalancing);
+      console.log(`【API服务】创建新的Gemini适配器实例，启用模型负载均衡: ${useModelLoadBalancing}, 启用密钥轮换: ${useKeyRotation}, 额外密钥数: ${additionalKeys.length}`);
+      
+      // Create adapter with all options
+      this.geminiAdapterInstances[geminiCacheKey] = new GeminiAdapter(apiKey, {
+        additionalKeys,
+        useModelLoadBalancing,
+        useKeyRotation,
+        primaryModel,
+        backupModel,
+        retryDelay
+      });
     } else if (this.geminiAdapterInstances[geminiCacheKey]) {
       console.log(`【API服务】使用现有Gemini适配器实例，更新配置`);
       // 更新现有实例的配置
       const adapter = this.geminiAdapterInstances[geminiCacheKey];
-      adapter.updateApiKeys(apiKey, additionalKeys);
-      adapter.setModelLoadBalancing(useModelLoadBalancing);
+      adapter.updateSettings({
+        additionalKeys,
+        useModelLoadBalancing,
+        useKeyRotation,
+        primaryModel,
+        backupModel,
+        retryDelay
+      });
     } else if (!apiKey) {
       console.error(`【API服务】缺少Gemini API密钥`);
       // 创建一个没有API密钥的适配器，这会在调用时失败，但避免了null异常
-      return new GeminiAdapter('', [], useModelLoadBalancing);
+      return new GeminiAdapter('', {
+        useModelLoadBalancing,
+        useKeyRotation
+      });
     }
     
     return this.geminiAdapterInstances[geminiCacheKey];
@@ -133,8 +161,7 @@ export class ApiServiceProvider {
       return await this.generateWithGemini(
         messages, 
         apiKey, 
-        options.additionalGeminiKeys || [], 
-        options.useGeminiModelLoadBalancing || false
+        options
       );
     }
   }
@@ -143,19 +170,17 @@ export class ApiServiceProvider {
    * 使用Gemini API生成内容
    * @param messages 消息数组
    * @param apiKey 主API密钥
-   * @param additionalKeys 额外API密钥
-   * @param useModelLoadBalancing 是否启用模型负载均衡
+   * @param options 服务选项
    * @returns 生成的文本
    */
   private static async generateWithGemini(
     messages: ChatMessage[], 
     apiKey: string,
-    additionalKeys: string[] = [],
-    useModelLoadBalancing: boolean = false
+    options: ServiceOptions = {}
   ): Promise<string> {
     try {
       // 获取或创建适配器
-      const adapter = this.getAdapter(apiKey, { apiProvider: 'gemini' }, additionalKeys, useModelLoadBalancing) as GeminiAdapter;
+      const adapter = this.getAdapter(apiKey, { apiProvider: 'gemini' }, options) as GeminiAdapter;
       
       // 记录请求开始时间
       const startTime = Date.now();

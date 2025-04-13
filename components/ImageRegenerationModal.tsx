@@ -196,7 +196,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       if (characterPrompts.length === 0) {
         setCharacterPrompts([{
           prompt: '',  // Changed to empty string
-          position: { x: 0.5, y: 0.5 },
+          position: { x: 0, y: 0 },
           color: DEFAULT_COLORS[0]
         }]);
       }

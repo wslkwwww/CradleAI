@@ -466,12 +466,32 @@ const App = () => {
     // Calculate aiIndex for bot messages
     let metadata = undefined;
     if (sender === 'bot' && !isLoading) {
-      // Count existing bot messages to calculate the index
-      const existingBotMessages = messages.filter(m => m.sender === 'bot' && !m.isLoading);
-      const aiIndex = existingBotMessages.length;
+      // Check if this is an error message by content
+      const isErrorMessage = newMessage.includes("抱歉，处理消息时出现了错误") || 
+                             newMessage.includes("抱歉，无法重新生成回复") ||
+                             newMessage.includes("发生错误，无法重新生成") ||
+                             newMessage.includes("处理图片时出现了错误") ||
+                             newMessage.includes("生成图片时出现了错误") ||
+                             newMessage.includes("编辑图片时出现了错误") ||
+                             newMessage.includes("发送消息时出现了错误");
       
-      metadata = { aiIndex };
-      console.log(`[App] Assigning aiIndex ${aiIndex} to new bot message`);
+      // Only count non-error bot messages for aiIndex calculation
+      if (!isErrorMessage) {
+        const existingBotMessages = messages.filter(m => 
+          m.sender === 'bot' && 
+          !m.isLoading && 
+          !m.metadata?.isErrorMessage && 
+          !m.metadata?.error
+        );
+        const aiIndex = existingBotMessages.length;
+        
+        metadata = { aiIndex };
+        console.log(`[App] Assigning aiIndex ${aiIndex} to new bot message`);
+      } else {
+        // For error messages, add error flag but don't include in aiIndex calculation
+        metadata = { isErrorMessage: true };
+        console.log(`[App] Message identified as error message, not assigning aiIndex`);
+      }
     }
 
     const newMessageObj: Message = {
@@ -480,7 +500,7 @@ const App = () => {
       sender: sender,
       isLoading: isLoading,
       timestamp: Date.now(),
-      metadata // Add metadata with aiIndex for bot messages
+      metadata // Add metadata with aiIndex for bot messages or error flag for error messages
     };
 
     // 只在Context中更新消息，本地状态通过useEffect自动更新
@@ -507,9 +527,12 @@ const App = () => {
       // Find all AI messages and their corresponding user messages
       const currentMessages = [...messages];
       
-      // First, count the number of actual bot messages (excluding loading messages)
+      // First, count the number of actual bot messages (excluding loading messages and error messages)
       const botMessages = currentMessages.filter(msg => 
-        msg.sender === 'bot' && !msg.isLoading
+        msg.sender === 'bot' && 
+        !msg.isLoading && 
+        !msg.metadata?.isErrorMessage && 
+        !msg.metadata?.error
       );
       
       console.log(`Found ${botMessages.length} bot messages for regeneration`);
@@ -524,16 +547,21 @@ const App = () => {
       
       const targetMessage = currentMessages[targetMessageIndex];
       
-      // Verify this is a bot message we can regenerate
-      if (targetMessage.sender !== 'bot' || targetMessage.isLoading) {
+      // Verify this is a bot message we can regenerate (not an error message)
+      if (targetMessage.sender !== 'bot' || 
+          targetMessage.isLoading || 
+          targetMessage.metadata?.isErrorMessage === true ||
+          targetMessage.metadata?.error !== undefined) {
         console.warn('Cannot regenerate message - invalid message type:', {
           sender: targetMessage.sender,
-          isLoading: targetMessage.isLoading
+          isLoading: targetMessage.isLoading,
+          isErrorMessage: targetMessage.metadata?.isErrorMessage,
+          hasError: targetMessage.metadata?.error !== undefined
         });
         setRegeneratingMessageId(null); // Reset regenerating state
         return;
       }
-      
+
       // Create a loading message
       const loadingMessageId = `loading-${Date.now()}`;
       await addMessage(selectedConversationId, {
@@ -629,7 +657,7 @@ const App = () => {
           metadata: {
             error: result.error || 'Unknown error during regeneration',
             regenerationAttempt: true,
-            aiIndex: messageIndex
+            isErrorMessage: true // Add explicit flag to identify error messages
           }
         });
         
@@ -652,7 +680,8 @@ const App = () => {
         timestamp: Date.now(),
         metadata: {
           error: error instanceof Error ? error.message : 'Unknown error',
-          regenerationAttempt: true
+          regenerationAttempt: true,
+          isErrorMessage: true // Add explicit flag to identify error messages
         }
       }]);
     }
