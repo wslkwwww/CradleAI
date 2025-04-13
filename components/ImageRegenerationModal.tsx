@@ -986,7 +986,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
   const renderProviderSelector = () => {
     return (
       <View style={styles.providerSelectorContainer}>
-        <Text style={styles.providerSelectorLabel}>图像生成服务:</Text>
+        <Text style={styles.providerSelectorLabel}>模型选择:</Text>
         <View style={styles.providerOptions}>
           <TouchableOpacity
             style={[
@@ -1507,9 +1507,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.characterInfoSection}>
-              <Text style={styles.sectionTitle}>
-                为 "{character.name}" 生成新图像
-              </Text>
+
               
               {character.avatar && (
                 <Image 
@@ -1537,12 +1535,12 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 {renderAnimagine4Settings()}
                 
                 <View style={styles.tagSelectionSection}>
-                  <Text style={styles.sectionTitle}>图像生成选项</Text>
+
                   
                   <View style={styles.tagSection}>
                     <View style={styles.unifiedTagSummaryContainer}>
                       <View style={styles.tagSectionHeader}>
-                        <Text style={styles.tagSectionTitle}>标签</Text>
+                        <Text style={styles.tagSectionTitle}>主提示词</Text>
                       </View>
                       
                       <View style={styles.expandedTagDisplayContainer}>
@@ -1570,14 +1568,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
                 )}
                 
                 {renderActionButtonsBar()}
-                
-                <View style={styles.infoContainer}>
-                  <Text style={styles.infoText}>
-                    {imageProvider === 'novelai' 
-                      ? "提示词优先级: 性别 → 质量词 → 普通标签 → 画风 (角色标签单独处理)" 
-                      : "提示词优先级: 性别 → 角色 → 画风 → 安全级别 → 普通标签 → 质量词"}
-                  </Text>
-                </View>
+
                 
                 <View style={styles.buttonContainer}>
                   {!isLoading ? (
@@ -2071,13 +2062,6 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     marginTop: 10,
-  },
-  sectionTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textAlign: 'center',
   },
   sectionDescription: {
     color: '#aaa',

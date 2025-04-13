@@ -21,11 +21,10 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
-import { Ionicons, MaterialIcons, MaterialCommunityIcons, FontAwesome5, Feather, AntDesign } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons, Feather, AntDesign } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
-import { CirclePost, CircleComment, CircleLike, Character, Message } from '@/shared/types';
+import { CirclePost, CircleComment, CircleLike, Character,} from '@/shared/types';
 import ForwardSheet from '@/components/ForwardSheet';
-import TestResultsModal from '@/components/TestResultsModal';
 import { useUser } from '@/constants/UserContext';
 import { CircleService } from '@/services/circle-service';
 import { RelationshipAction } from '@/shared/types/relationship-types';
@@ -139,6 +138,10 @@ const Explore: React.FC = () => {
 
   // Add new state to track when comment input is active
   const [isCommentInputActive, setIsCommentInputActive] = useState(false);
+
+  // Add state for character selection in test post publishing
+  const [selectedPublishCharacterId, setSelectedPublishCharacterId] = useState<string | null>(null);
+  const [showPublishCharacterSelector, setShowPublishCharacterSelector] = useState(false);
 
   // Add the image handling function before renderPost
   const handleImagePress = useCallback((images: string[], index: number) => {
@@ -583,6 +586,86 @@ const Explore: React.FC = () => {
     }
   };
 
+  // Modified function to handle test post publishing
+  const handlePublishTestPost = async () => {
+    try {
+      setPublishingPost(true);
+      
+      // 获取API Key
+      const apiKey = user?.settings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
+        openrouter: user?.settings?.chat?.openrouter
+      };
+      
+      let selectedCharacters = characters;
+      
+      // If a specific character is selected for publishing, filter to only that character
+      if (selectedPublishCharacterId) {
+        selectedCharacters = characters.filter(c => c.id === selectedPublishCharacterId);
+        if (selectedCharacters.length === 0) {
+          Alert.alert('错误', '所选角色不可用');
+          return;
+        }
+      }
+      
+      // 使用CircleService创建测试帖子
+      const { post, author } = await CircleService.publishTestPost(selectedCharacters, apiKey, apiSettings);
+      
+      if (!post || !author) {
+        Alert.alert('发布失败', '没有可用的角色或发布过程中出现错误');
+        return;
+      }
+      
+      // Check if the post already exists to prevent duplicates
+      const postExists = posts.some(p => p.id === post.id);
+      if (postExists) {
+        console.log(`【朋友圈测试】帖子已存在，ID: ${post.id}，避免重复添加`);
+        Alert.alert('发布成功', `${author.name} 发布了新朋友圈`);
+        return;
+      }
+      
+      // 创建新帖子列表，将新帖子放在顶部
+      const updatedPosts = [post, ...posts];
+      setPosts(updatedPosts);
+      
+      // 添加到作者的朋友圈帖子中
+      const updatedAuthor = {
+        ...author,
+        circlePosts: [...(author.circlePosts || []), post]
+      };
+      
+      // 更新角色
+      await updateCharacter(updatedAuthor);
+      
+      // Save posts to AsyncStorage to prevent duplicates on reload
+      await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
+      
+      // 显示通知
+      Alert.alert('发布成功', `${author.name} 发布了新朋友圈`);
+      
+      // If we have characters to interact with the post, start interaction after a short delay
+      const interactingCharacters = characters.filter(c => 
+        c.circleInteraction === true && c.id !== author.id
+      );
+      
+      if (interactingCharacters.length > 0) {
+        setTimeout(() => {
+          handleCirclePostUpdate(post);
+        }, 500);
+      }
+      
+    } catch (error) {
+      console.error('【朋友圈测试】发布测试帖子失败:', error);
+      Alert.alert('发布失败', '发布测试帖子时出现错误');
+    } finally {
+      setPublishingPost(false);
+      // Reset character selection
+      setSelectedPublishCharacterId(null);
+      setShowPublishCharacterSelector(false);
+    }
+  };
+
   // Comment handling
   const handleComment = useCallback(async (post: CirclePost) => {
     if (!commentText.trim() || !activePostId) return;
@@ -859,53 +942,117 @@ const Explore: React.FC = () => {
   }, [testModeEnabled, loadPosts, handleCirclePostUpdate, testPost]);
 
   // Add new method to handle test post publishing
-  const handlePublishTestPost = async () => {
-    try {
-      setPublishingPost(true);
-      
-      // 获取API Key
-      const apiKey = user?.settings?.chat?.characterApiKey;
-      const apiSettings = {
-        apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-        openrouter: user?.settings?.chat?.openrouter
-      };
-      
-      // 使用CircleService创建测试帖子
-      const { post, author } = await CircleService.publishTestPost(characters, apiKey, apiSettings);
-      
-      if (!post || !author) {
-        Alert.alert('发布失败', '没有可用的角色或发布过程中出现错误');
-        return;
-      }
-      
-      // 创建新帖子列表，将新帖子放在顶部
-      const updatedPosts = [post, ...posts];
-      setPosts(updatedPosts);
-      
-      // 添加到作者的朋友圈帖子中
-      const updatedAuthor = {
-        ...author,
-        circlePosts: [...(author.circlePosts || []), post]
-      };
-      
-      // 更新角色
-      await updateCharacter(updatedAuthor);
-      
-      // 显示通知
-      Alert.alert('发布成功', `${author.name} 发布了新朋友圈`);
-      
-      // 开始让其他角色互动
-      setTimeout(() => {
-        handleCirclePostUpdate(post);
-      }, 500);
-      
-    } catch (error) {
-      console.error('【朋友圈测试】发布测试帖子失败:', error);
-      Alert.alert('发布失败', '发布测试帖子时出现错误');
-    } finally {
-      setPublishingPost(false);
-    }
-  };
+  const renderCharacterSelectorModal = () => (
+    <Modal
+      visible={showPublishCharacterSelector}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowPublishCharacterSelector(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>选择发布角色</Text>
+            <TouchableOpacity
+              onPress={() => setShowPublishCharacterSelector(false)}
+              style={styles.modalCloseButton}
+            >
+              <Ionicons name="close" size={24} color={theme.colors.white} />
+            </TouchableOpacity>
+          </View>
+          
+          <FlatList
+            data={characters.filter(c => c.circleInteraction)}
+            keyExtractor={item => item.id}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>没有可用的角色</Text>
+                <Text style={styles.emptySubText}>请先在角色设置中启用朋友圈功能</Text>
+              </View>
+            }
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={styles.characterItem}
+                onPress={() => {
+                  setSelectedPublishCharacterId(item.id);
+                  setShowPublishCharacterSelector(false);
+                  handlePublishTestPost();
+                }}
+              >
+                <Image 
+                  source={item.avatar ? { uri: item.avatar } : require('@/assets/images/default-avatar.png')}
+                  style={styles.selectorAvatar} 
+                />
+                <View style={styles.characterInfo}>
+                  <Text style={styles.characterName}>{item.name}</Text>
+                  <Text style={styles.characterSubtext}>
+                    发布频率: {item.circlePostFrequency || 'medium'}
+                  </Text>
+                </View>
+                <MaterialIcons name="arrow-forward-ios" size={16} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+            contentContainerStyle={{ padding: 16 }}
+          />
+          
+          <TouchableOpacity
+            style={styles.randomCharacterButton}
+            onPress={() => {
+              setSelectedPublishCharacterId(null);
+              setShowPublishCharacterSelector(false);
+              handlePublishTestPost();
+            }}
+          >
+            <Text style={styles.randomButtonText}>随机选择角色</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderCircleHeaderButtons = () => (
+    <View style={styles.headerButtons}>
+      {/* Add Character Interaction Settings button */}
+      <TouchableOpacity 
+        style={styles.headerButton}
+        onPress={() => setShowInteractionSettings(true)}
+      >
+        <Ionicons name="settings-outline" size={22} color={theme.colors.buttonText} />
+      </TouchableOpacity>
+
+      {/* Add Favorite List button */}
+      <TouchableOpacity 
+        style={styles.headerButton}
+        onPress={() => setShowFavoriteList(true)}
+      >
+        <MaterialCommunityIcons name="bookmark-outline" size={22} color={theme.colors.buttonText} />
+      </TouchableOpacity>
+
+      {/* Add User Post button - moved from floating button */}
+      <TouchableOpacity 
+        style={styles.headerButton}
+        onPress={() => setShowUserPostModal(true)}
+      >
+        <Feather name="plus" size={24} color={theme.colors.buttonText} />
+      </TouchableOpacity>
+
+      {/* Modified: Show character selector instead of directly publishing */}
+      <TouchableOpacity 
+        style={[
+          styles.headerButton,
+          publishingPost && styles.headerButtonDisabled
+        ]} 
+        onPress={() => setShowPublishCharacterSelector(true)}
+        disabled={publishingPost}
+      >
+        {publishingPost ? (
+          <ActivityIndicator size="small" color={theme.colors.text} />
+        ) : (
+          <MaterialIcons name="auto-awesome" size={22} color={theme.colors.buttonText} />
+        )}
+      </TouchableOpacity>
+    </View>
+  );
 
   // Comment rendering
   const renderComment = useCallback((comment: CircleComment) => {
@@ -1295,50 +1442,6 @@ const Explore: React.FC = () => {
       handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu, handleImagePress,
       expandedThoughts, toggleThoughtExpansion]);
 
-  const renderCircleHeaderButtons = () => (
-    <View style={styles.headerButtons}>
-      {/* Add Character Interaction Settings button */}
-      <TouchableOpacity 
-        style={styles.headerButton}
-        onPress={() => setShowInteractionSettings(true)}
-      >
-        <Ionicons name="settings-outline" size={22} color={theme.colors.buttonText} />
-      </TouchableOpacity>
-
-      {/* Add Favorite List button */}
-      <TouchableOpacity 
-        style={styles.headerButton}
-        onPress={() => setShowFavoriteList(true)}
-      >
-        <MaterialCommunityIcons name="bookmark-outline" size={22} color={theme.colors.buttonText} />
-      </TouchableOpacity>
-
-      {/* Add User Post button - moved from floating button */}
-      <TouchableOpacity 
-        style={styles.headerButton}
-        onPress={() => setShowUserPostModal(true)}
-      >
-        <Feather name="plus" size={24} color={theme.colors.buttonText} />
-      </TouchableOpacity>
-
-      {/* Modified: Remove text from "角色发布" button */}
-      <TouchableOpacity 
-        style={[
-          styles.headerButton,
-          publishingPost && styles.headerButtonDisabled
-        ]} 
-        onPress={handlePublishTestPost}
-        disabled={publishingPost}
-      >
-        {publishingPost ? (
-          <ActivityIndicator size="small" color={theme.colors.text} />
-        ) : (
-          <MaterialIcons name="auto-awesome" size={22} color={theme.colors.buttonText} />
-        )}
-      </TouchableOpacity>
-    </View>
-  );
-
   const renderUserPostModal = () => (
     <Modal
       visible={showUserPostModal}
@@ -1423,17 +1526,6 @@ const Explore: React.FC = () => {
       </View>
     </Modal>
   );
-
-  if (isLoading && activeTab === 'circle') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={styles.loadingText}>加载中...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   if (error && activeTab === 'circle') {
     return (
@@ -1521,12 +1613,6 @@ const Explore: React.FC = () => {
           />
         )}
 
-        {/* 测试结果模态窗口 */}
-        <TestResultsModal
-          visible={showTestResults}
-          onClose={() => setShowTestResults(false)}
-          results={testResults}
-        />
 
         {/* Relationship Test Results Modal */}
         <RelationshipTestResults
@@ -1571,12 +1657,20 @@ const Explore: React.FC = () => {
           isVisible={showInteractionSettings}
           onClose={() => setShowInteractionSettings(false)}
         />
+
+        {/* Character Selector for Publishing */}
+        {renderCharacterSelectorModal()}
       </ImageBackground>
     </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
+  // Character selector styles
+  characterInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
   // Header styles matched with Character page
   header: {
     backgroundColor: '#333333',
@@ -2012,6 +2106,50 @@ const styles = StyleSheet.create({
   postMenuButton: {
     padding: theme.spacing.xs,
     marginLeft: theme.spacing.sm,
+  },
+
+  // Styles for character selector
+  characterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: 12,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: 8,
+  },
+  selectorAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
+  },
+  characterSubtext: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    marginTop: 2,
+  },
+  characterName: {
+    color: theme.colors.text,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  randomCharacterButton: {
+    backgroundColor: theme.colors.backgroundSecondary,
+    padding: 12,
+    borderRadius: theme.borderRadius.md,
+    margin: 16,
+    alignItems: 'center',
+  },
+  randomButtonText: {
+    color: theme.colors.text,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  emptySubText: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 
