@@ -31,6 +31,13 @@ interface ImageInput {
     url?: string;
 }
 
+// Add this interface for the options
+interface GeminiAdapterOptions {
+    useModelLoadBalancing?: boolean;
+    useKeyRotation?: boolean;
+    additionalKeys?: string[];
+}
+
 export class GeminiAdapter {
     private readonly BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
     private apiKeys: string[] = []; // Array to store multiple API keys
@@ -40,6 +47,7 @@ export class GeminiAdapter {
     private primaryModel = "gemini-2.5-pro-exp-03-25"; // Primary model for text requests
     private backupModel = "gemini-2.0-flash-exp";      // Backup model for text & primary for images
     private useModelLoadBalancing: boolean = false;    // Whether to enable model load balancing
+    private useKeyRotation: boolean = false;           // Whether to rotate between multiple API keys
     
     private readonly headers = {
         "Content-Type": "application/json"
@@ -49,18 +57,29 @@ export class GeminiAdapter {
 
     private conversationHistory: ChatMessage[] = [];
 
-    constructor(apiKey: string, additionalKeys: string[] = [], useModelLoadBalancing: boolean = false) {
+    constructor(apiKey: string, options?: GeminiAdapterOptions) {
         // Initialize with primary key and any additional keys
         if (!apiKey) {
             throw new Error("API key cannot be empty");
         }
         
-        this.apiKeys = [apiKey, ...additionalKeys.filter(key => key && key.trim() !== '')];
-        this.useModelLoadBalancing = useModelLoadBalancing;
+        // Add the primary key
+        this.apiKeys = [apiKey];
+        
+        // Add additional keys if provided and they are non-empty
+        if (options?.additionalKeys && Array.isArray(options.additionalKeys)) {
+            this.apiKeys = [...this.apiKeys, ...options.additionalKeys.filter(key => key && key.trim() !== '')];
+        }
+        
+        // Set load balancing configurations
+        this.useModelLoadBalancing = options?.useModelLoadBalancing || false;
+        this.useKeyRotation = options?.useKeyRotation || false;
         
         console.log(`[Gemini适配器] 初始化完成，配置了 ${this.apiKeys.length} 个API密钥`);
+        console.log(`[Gemini适配器] API密钥轮换: ${this.useKeyRotation ? '已启用' : '未启用'}`);
+        console.log(`[Gemini适配器] 模型负载均衡: ${this.useModelLoadBalancing ? '已启用' : '未启用'}`);
         if (this.useModelLoadBalancing) {
-            console.log(`[Gemini适配器] 模型负载均衡已启用，首选模型: ${this.primaryModel}, 备用模型: ${this.backupModel}`);
+            console.log(`[Gemini适配器] 模型负载均衡配置 - 首选模型: ${this.primaryModel}, 备用模型: ${this.backupModel}`);
         }
         
         // Initialize cloud service status from tracker
@@ -71,6 +90,48 @@ export class GeminiAdapter {
             console.log(`[Gemini适配器] 云服务状态更新: ${enabled ? '启用' : '禁用'}`);
             this.useCloudService = enabled;
         });
+    }
+    
+    /**
+     * Gets the current active API key or rotates to next key if key rotation is enabled
+     */
+    private getApiKeyForRequest(): string {
+        if (!this.useKeyRotation || this.apiKeys.length <= 1) {
+            // If key rotation is disabled or we only have one key, return the first key
+            return this.apiKeys[0];
+        }
+        
+        // Otherwise rotate to the next key
+        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
+        console.log(`[Gemini适配器] 已轮换到API密钥 ${this.currentKeyIndex + 1}/${this.apiKeys.length}`);
+        return this.apiKeys[this.currentKeyIndex];
+    }
+    
+    /**
+     * Update API keys and load balancing settings - useful when settings change
+     */
+    public updateSettings(options: GeminiAdapterOptions): void {
+        // Update additional keys if provided
+        if (options.additionalKeys && Array.isArray(options.additionalKeys)) {
+            // Always keep the primary key (first in array) and add valid additional keys
+            const primaryKey = this.apiKeys[0];
+            this.apiKeys = [primaryKey, ...options.additionalKeys.filter(key => key && key.trim() !== '')];
+            this.currentKeyIndex = 0; // Reset to first key
+        }
+        
+        // Update load balancing settings if provided
+        if (options.useModelLoadBalancing !== undefined) {
+            this.useModelLoadBalancing = options.useModelLoadBalancing;
+        }
+        
+        // Update key rotation setting if provided
+        if (options.useKeyRotation !== undefined) {
+            this.useKeyRotation = options.useKeyRotation;
+        }
+        
+        console.log(`[Gemini适配器] 设置已更新，共 ${this.apiKeys.length} 个密钥`);
+        console.log(`[Gemini适配器] API密钥轮换: ${this.useKeyRotation ? '已启用' : '未启用'}`);
+        console.log(`[Gemini适配器] 模型负载均衡: ${this.useModelLoadBalancing ? '已启用' : '未启用'}`);
     }
     
     /**

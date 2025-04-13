@@ -20,13 +20,12 @@ export interface ProcessChatRequest {
     conversationId: string;
     status: "更新人设" | "新建角色" | "同一角色继续对话";
     apiKey: string;
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>;
     jsonString?: string;
     isCradleGeneration?: boolean; 
-    characterId?: string; // Add characterId parameter
-    customUserName?: string; // Add customUserName parameter
-    useToolCalls?: boolean; // Add useToolCalls parameter
-
+    characterId?: string;
+    customUserName?: string;
+    useToolCalls?: boolean;
 }
 
 export class NodeST {
@@ -62,7 +61,7 @@ export class NodeST {
     // Add new method for updating API settings
     updateApiSettings(
         apiKey: string, 
-        apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+        apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>
     ): void {
         // Set API key first
         this.setApiKey(apiKey);
@@ -88,11 +87,14 @@ export class NodeST {
             provider: apiSettings?.apiProvider || 'gemini',
             hasOpenRouter: !!apiSettings?.openrouter?.enabled,
             model: apiSettings?.openrouter?.model || 'none',
+            useGeminiModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing,
+            useGeminiKeyRotation: apiSettings?.useGeminiKeyRotation,
+            additionalKeysCount: apiSettings?.additionalGeminiKeys?.length,
             apiKeyLength: apiKey?.length || 0
         });
     }
 
-    private getCoreInstance(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): NodeSTCore {
+    private getCoreInstance(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>): NodeSTCore {
         // 确保使用最新的API Key
         const effectiveApiKey = this.apiKey || apiKey;
         
@@ -101,13 +103,18 @@ export class NodeST {
             console.log("[NodeST] Creating new NodeSTCore instance with API settings:", {
                 provider: apiSettings?.apiProvider || 'gemini',
                 hasOpenRouter: !!apiSettings?.openrouter,
+                useGeminiModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing,
+                useGeminiKeyRotation: apiSettings?.useGeminiKeyRotation,
+                additionalKeysCount: apiSettings?.additionalGeminiKeys?.length,
                 apiKeyLength: effectiveApiKey?.length || 0
             });
             this.nodeSTCore = new NodeSTCore(effectiveApiKey, apiSettings);
         } else {
             console.log("[NodeST] Updating existing NodeSTCore with API settings:", {
                 provider: apiSettings?.apiProvider || 'gemini',
-                hasOpenRouter: !!apiSettings?.openrouter
+                hasOpenRouter: !!apiSettings?.openrouter,
+                useGeminiModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing,
+                useGeminiKeyRotation: apiSettings?.useGeminiKeyRotation
             });
             this.nodeSTCore.updateApiSettings(effectiveApiKey, apiSettings);
         }
@@ -131,8 +138,11 @@ export class NodeST {
                 status: params.status,
                 conversationId: params.conversationId,
                 apiProvider: params.apiSettings?.apiProvider || 'gemini',
+                useGeminiModelLoadBalancing: params.apiSettings?.useGeminiModelLoadBalancing,
+                useGeminiKeyRotation: params.apiSettings?.useGeminiKeyRotation,
+                additionalKeysCount: params.apiSettings?.additionalGeminiKeys?.length,
                 hasJsonString: !!params.jsonString,
-                useToolCalls: params.useToolCalls || false // Log the tool calls parameter
+                useToolCalls: params.useToolCalls || false
             });
 
             if (!params.apiKey) {
@@ -226,9 +236,9 @@ export class NodeST {
                     params.conversationId,
                     params.userMessage,
                     params.apiKey,
-                    params.characterId,  // Pass the characterId
+                    params.characterId,
                     params.customUserName,
-                    params.useToolCalls // Pass the useToolCalls parameter to continueChat
+                    params.useToolCalls
                 );
 
                 if (response) {

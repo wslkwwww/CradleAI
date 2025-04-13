@@ -20,11 +20,11 @@ export class NodeSTCore {
     private openRouterAdapter: OpenRouterAdapter | null = null;
     private currentContents: ChatMessage[] | null = null;
     private apiKey: string;
-    private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'> = {
+    private apiSettings: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'> = {
         apiProvider: 'gemini'
     };
 
-    constructor(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
+    constructor(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>) {       
         this.apiKey = apiKey;
         this.apiSettings = apiSettings || { apiProvider: 'gemini' };
         this.initAdapters(apiKey, apiSettings);
@@ -32,7 +32,17 @@ export class NodeSTCore {
 
     updateApiKey(apiKey: string): void {
         this.apiKey = apiKey;
-        this.geminiAdapter = new GeminiAdapter(apiKey);
+        
+        // Initialize Gemini adapter with load balancing settings if available
+        this.geminiAdapter = new GeminiAdapter(
+            apiKey, 
+            {
+                useModelLoadBalancing: this.apiSettings?.useGeminiModelLoadBalancing || false,
+                useKeyRotation: this.apiSettings?.useGeminiKeyRotation || false,
+                additionalKeys: this.apiSettings?.additionalGeminiKeys || []
+            }
+        );
+
         if (this.apiSettings?.apiProvider === 'openrouter' && 
             this.apiSettings.openrouter?.enabled &&
             this.apiSettings.openrouter?.apiKey) {
@@ -43,21 +53,24 @@ export class NodeSTCore {
         }
     }
 
-    // 添加方法以更新 API 设置
-    updateApiSettings(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>): void {
+    // Update method to handle API settings
+    updateApiSettings(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>): void {
         this.apiKey = apiKey;
         if (apiSettings) {
             this.apiSettings = apiSettings;
             console.log('[NodeSTCore] Updating API settings:', {
                 provider: apiSettings.apiProvider,
                 openRouterEnabled: apiSettings.openrouter?.enabled,
-                model: apiSettings.openrouter?.model || 'none'
+                model: apiSettings.openrouter?.model || 'none',
+                useGeminiModelLoadBalancing: apiSettings.useGeminiModelLoadBalancing,
+                useGeminiKeyRotation: apiSettings.useGeminiKeyRotation,
+                additionalKeysCount: apiSettings.additionalGeminiKeys?.length || 0
             });
         }
         this.initAdapters(apiKey, apiSettings);
     }
 
-    private initAdapters(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>) {
+    private initAdapters(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>) {
         if (!apiKey) {
             // Don't throw an error for initialization without API key
             // This allows operations like deletion to work without a key
@@ -65,8 +78,22 @@ export class NodeSTCore {
             return;
         }
 
-        // Always initialize Gemini as a fallback
-        this.geminiAdapter = new GeminiAdapter(apiKey);
+        // Initialize Gemini with load balancing settings
+        this.geminiAdapter = new GeminiAdapter(
+            apiKey,
+            {
+                useModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing || false,
+                useKeyRotation: apiSettings?.useGeminiKeyRotation || false,
+                additionalKeys: apiSettings?.additionalGeminiKeys || []
+            }
+        );
+        
+        // Log the load balancing setup
+        console.log('[NodeSTCore] GeminiAdapter initialized with load balancing options:', {
+            useModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing || false,
+            useKeyRotation: apiSettings?.useGeminiKeyRotation || false,
+            additionalKeysCount: apiSettings?.additionalGeminiKeys?.length || 0
+        });
         
         // Initialize OpenRouter if enabled and API key is available
         if (apiSettings?.apiProvider === 'openrouter' && 
@@ -556,8 +583,12 @@ export class NodeSTCore {
                 conversationId,
                 messageLength: userMessage.length,
                 apiProvider: this.apiSettings?.apiProvider,
+                useGeminiLoadBalancing: this.apiSettings?.useGeminiModelLoadBalancing,
+                useGeminiKeyRotation: this.apiSettings?.useGeminiKeyRotation,
+                additionalKeysCount: this.apiSettings?.additionalGeminiKeys?.length || 0,
                 hasCustomUserName: !!customUserName,
-                useToolCalls: useToolCalls            });
+                useToolCalls: useToolCalls
+            });
 
             // 确保Adapter已初始化
             if ((!this.geminiAdapter || !this.openRouterAdapter) && apiKey) {

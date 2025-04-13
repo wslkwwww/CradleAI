@@ -112,7 +112,7 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     status?: "更新人设" | "新建角色" | "同一角色继续对话";
     conversationId: string;
     apiKey: string;
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>;
     character?: Character;
   }): Promise<{
     success: boolean;
@@ -128,6 +128,9 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
         apiProvider: params.apiSettings?.apiProvider || 'gemini',
         openRouterEnabled: params.apiSettings?.apiProvider === 'openrouter' && params.apiSettings?.openrouter?.enabled,
         openRouterModel: params.apiSettings?.openrouter?.model,
+        useGeminiModelLoadBalancing: params.apiSettings?.useGeminiModelLoadBalancing,
+        useGeminiKeyRotation: params.apiSettings?.useGeminiKeyRotation,
+        additionalKeysCount: params.apiSettings?.additionalGeminiKeys?.length,
         status: params.status || '同一角色继续对话',
         conversationId: params.conversationId,
         characterId: characterId,
@@ -135,7 +138,7 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
         hasJsonData: !!jsonString,
         customUserName: params.character?.customUserName || 'User',
         action: params.status === "更新人设" ? "更新人设" : (params.status === "新建角色" ? "新建角色" : "继续对话"),
-        useToolCalls: this.searchEnabled // Add the search preference as useToolCalls parameter
+        useToolCalls: this.searchEnabled
       });
 
       // Add detailed logging of character data when creating a new character
@@ -184,7 +187,7 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
         }
       }
       
-      // Call NodeST with all params including apiSettings, characterId, and useToolCalls
+      // Call NodeST with all params including apiSettings with load balancing params
       const response = await this.nodeST.processChatMessage({
         userMessage: params.userMessage,
         conversationId: params.conversationId,
@@ -861,7 +864,7 @@ interface ProcessChatOptions {
   status?: "更新人设" | "新建角色" | "同一角色继续对话";
   conversationId: string;
   apiKey: string;
-  apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+  apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>;
   character?: Character;
   
 }
