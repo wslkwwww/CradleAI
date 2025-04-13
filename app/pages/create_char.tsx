@@ -251,6 +251,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     onOptionsChange?: (options: any) => void;
     name?: string;
     onNameChange?: (text: string) => void;
+    id?: string; // Add id for deletion
   } | null>(null);
 
   // Handle detail view for world book, preset, and author note entries
@@ -263,7 +264,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     entryOptions?: any,
     onOptionsChange?: (options: any) => void,
     name?: string,
-    onNameChange?: (text: string) => void
+    onNameChange?: (text: string) => void,
+    entryId?: string // Add entryId parameter
   ) => {
     setSelectedField({ 
       title, 
@@ -274,7 +276,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       entryOptions,
       onOptionsChange,
       name,
-      onNameChange
+      onNameChange,
+      id: entryId // Store the ID for deletion
     });
   };
 
@@ -325,6 +328,27 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
     );
     setHasUnsavedChanges(true);
   };
+
+  const handleDeleteWorldBookEntry = (id: string) => {
+    Alert.alert(
+      '删除条目',
+      '确定要删除此世界书条目吗？',
+      [
+        {
+          text: '取消',
+          style: 'cancel'
+        },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            setWorldBookEntries(prev => prev.filter(entry => entry.id !== id));
+            setHasUnsavedChanges(true);
+          }
+        }
+      ]
+    );
+  };
   
   // Preset handling functions
   const handleAddPresetEntry = () => {
@@ -352,6 +376,36 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       )
     );
     setHasUnsavedChanges(true);
+  };
+
+  const handleDeletePresetEntry = (id: string) => {
+    const entry = presetEntries.find(e => e.id === id);
+    if (entry?.isDefault) {
+      Alert.alert(
+        '无法删除',
+        '默认预设条目不能被删除，但可以禁用。'
+      );
+      return;
+    }
+
+    Alert.alert(
+      '删除条目',
+      '确定要删除此预设条目吗？此操作无法撤销。',
+      [
+        {
+          text: '取消',
+          style: 'cancel'
+        },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            setPresetEntries(prev => prev.filter(entry => entry.id !== id));
+            setHasUnsavedChanges(true);
+          }
+        }
+      ]
+    );
   };
 
   // 处理条目排序
@@ -935,10 +989,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
       
       try {
         const fileUri = result.assets[0].uri;
-        // Fix: Use FileSystem.cacheDirectory properly
         const cacheUri = `${FileSystem.cacheDirectory}${result.assets[0].name}`;
         
-        // Fix: Use FileSystem.copyAsync properly
         await FileSystem.copyAsync({
           from: fileUri,
           to: cacheUri
@@ -947,8 +999,8 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         const presetJson = await CharacterImporter.importPresetForCharacter(cacheUri, 'temp');
         
         if (presetJson && presetJson.prompts) {
-          // Clear existing presets completely
-          const importedEntries = presetJson.prompts.map((prompt: any, index: number) => ({
+          // Fix: Explicitly type the insertType to match the PresetEntryUI interface
+          const importedEntries: PresetEntryUI[] = presetJson.prompts.map((prompt: any, index: number) => ({
             id: `imported_${index}`,
             name: prompt.name || '',
             content: prompt.content || '',
@@ -960,11 +1012,10 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             role: prompt.role || 'user',
             order: index,
             isDefault: false,
-            enable: prompt.enable ?? true, // Use enable property directly from import
+            enable: prompt.enable ?? true,
             depth: prompt.injection_depth || 0
           }));
           
-          // Replace all preset entries
           setPresetEntries(importedEntries);
           
           Alert.alert('成功', '预设导入成功');
@@ -1279,6 +1330,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             onUpdate={handleUpdateWorldBookEntry}
             onViewDetail={handleViewDetail}
             onReorder={handleReorderWorldBook}
+            onDelete={handleDeleteWorldBookEntry}
           />
           
           {/* Modify PresetSection to include import functionality */}
@@ -1299,6 +1351,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
             onMove={handleMoveEntry}
             onViewDetail={handleViewDetail}
             onReorder={handleReorderPresets}
+            onDelete={handleDeletePresetEntry}
           />
           
           <AuthorNoteSection
@@ -1741,6 +1794,15 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
         onOptionsChange={selectedField?.onOptionsChange}
         name={selectedField?.name}
         onNameChange={selectedField?.onNameChange}
+        onDelete={selectedField?.id && selectedField.entryType ? 
+          () => {
+            if (selectedField.entryType === 'worldbook' && selectedField.id) {
+              handleDeleteWorldBookEntry(selectedField.id);
+            } else if (selectedField.entryType === 'preset' && selectedField.id) {
+              handleDeletePresetEntry(selectedField.id);
+            }
+          } : undefined
+        }
       />
       
       {/* Confirm Dialog */}

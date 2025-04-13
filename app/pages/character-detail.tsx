@@ -18,7 +18,10 @@ import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
 import { NodeSTManager } from '@/utils/NodeSTManager';
+import { CharacterImporter } from '@/utils/CharacterImporter';
 import { 
   RoleCardJson, 
   WorldBookEntry, 
@@ -248,6 +251,7 @@ const CharacterDetail: React.FC = () => {
     onOptionsChange?: (options: any) => void;
     name?: string;
     onNameChange?: (text: string) => void;
+    id?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -705,7 +709,8 @@ const CharacterDetail: React.FC = () => {
     entryOptions?: any,
     onOptionsChange?: (options: any) => void,
     name?: string,
-    onNameChange?: (text: string) => void
+    onNameChange?: (text: string) => void,
+    entryId?: string // Add entryId parameter
   ) => {
     setSelectedField({ 
       title, 
@@ -716,7 +721,8 @@ const CharacterDetail: React.FC = () => {
       entryOptions,
       onOptionsChange,
       name,
-      onNameChange
+      onNameChange,
+      id: entryId // Store the ID for deletion
     });
   };
 
@@ -821,6 +827,112 @@ const CharacterDetail: React.FC = () => {
       }));
     });
     setHasUnsavedChanges(true);
+  };
+
+  const handleImportPreset = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true
+      });
+  
+      if (!result.assets || !result.assets[0]) {
+        return;
+      }
+  
+      console.log('[Preset Import] File selected:', result.assets[0].name);
+      
+      try {
+        const fileUri = result.assets[0].uri;
+        const cacheUri = `${FileSystem.cacheDirectory}${result.assets[0].name}`;
+        
+        await FileSystem.copyAsync({
+          from: fileUri,
+          to: cacheUri
+        });
+  
+        const presetJson = await CharacterImporter.importPresetForCharacter(cacheUri, 'temp');
+        
+        if (presetJson && presetJson.prompts) {
+          const importedEntries: PresetEntryUI[] = presetJson.prompts.map((prompt: any, index: number) => ({
+            id: `imported_${index}`,
+            name: prompt.name || '',
+            content: prompt.content || '',
+            identifier: prompt.identifier,
+            isEditable: true,
+            insertType: prompt.injection_position === 1 ? 
+              'chat' as const : 'relative' as const,
+            role: prompt.role || 'user',
+            order: index,
+            isDefault: false,
+            enable: prompt.enable ?? true,
+            depth: prompt.injection_depth || 0
+          }));
+          
+          setPresetEntries(importedEntries);
+          
+          Alert.alert('成功', '预设导入成功');
+          setHasUnsavedChanges(true);
+        }
+      } catch (error) {
+        console.error('[Preset Import] Error:', error);
+        Alert.alert('导入失败', error instanceof Error ? error.message : '未知错误');
+      }
+    } catch (error) {
+      console.error('[Preset Import] Document picker error:', error);
+      Alert.alert('错误', '选择文件失败');
+    }
+  };
+
+  const handleDeleteWorldBookEntry = (id: string) => {
+    Alert.alert(
+      '删除条目',
+      '确定要删除此世界书条目吗？此操作无法撤销。',
+      [
+        {
+          text: '取消',
+          style: 'cancel'
+        },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            setWorldBookEntries(prev => prev.filter(entry => entry.id !== id));
+            setHasUnsavedChanges(true);
+          }
+        }
+      ]
+    );
+  };
+
+  const handleDeletePresetEntry = (id: string) => {
+    const entry = presetEntries.find(e => e.id === id);
+    if (entry?.isDefault) {
+      Alert.alert(
+        '无法删除',
+        '默认预设条目不能被删除，但可以禁用。'
+      );
+      return;
+    }
+
+    Alert.alert(
+      '删除条目',
+      '确定要删除此预设条目吗？此操作无法撤销。',
+      [
+        {
+          text: '取消',
+          style: 'cancel'
+        },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            setPresetEntries(prev => prev.filter(entry => entry.id !== id));
+            setHasUnsavedChanges(true);
+          }
+        }
+      ]
+    );
   };
 
   const renderTagGenerationSection = () => (
@@ -1120,6 +1232,7 @@ const CharacterDetail: React.FC = () => {
               onUpdate={handleUpdateWorldBookEntry}
               onReorder={handleReorderWorldBook}
               onViewDetail={handleViewDetail}
+              onDelete={handleDeleteWorldBookEntry}
             />
             
             <AuthorNoteSection
@@ -1136,6 +1249,17 @@ const CharacterDetail: React.FC = () => {
               onViewDetail={handleViewDetail}
             />
             
+            <View style={styles.presetSectionHeader}>
+              <Text style={styles.sectionTitle}>预设设定</Text>
+              <TouchableOpacity 
+                style={styles.importPresetButton}
+                onPress={handleImportPreset}
+              >
+                <Ionicons name="cloud-download-outline" size={16} color="#FFD700" />
+                <Text style={styles.importPresetText}>导入预设</Text>
+              </TouchableOpacity>
+            </View>
+            
             <PresetSection
               entries={presetEntries}
               onAdd={handleAddPresetEntry}
@@ -1143,6 +1267,7 @@ const CharacterDetail: React.FC = () => {
               onMove={handleMoveEntry}
               onReorder={handleReorderPresets}
               onViewDetail={handleViewDetail}
+              onDelete={handleDeletePresetEntry}
             />
           </View>
         ) : activeTab === 'appearance' ? (
@@ -1188,6 +1313,15 @@ const CharacterDetail: React.FC = () => {
         onOptionsChange={selectedField?.onOptionsChange}
         name={selectedField?.name}
         onNameChange={selectedField?.onNameChange}
+        onDelete={selectedField?.id && selectedField.entryType ? 
+          () => {
+            if (selectedField.entryType === 'worldbook' && selectedField.id) {
+              handleDeleteWorldBookEntry(selectedField.id);
+            } else if (selectedField.entryType === 'preset' && selectedField.id) {
+              handleDeletePresetEntry(selectedField.id);
+            }
+          } : undefined
+        }
       />
       
       <ConfirmDialog
@@ -1561,6 +1695,24 @@ const styles = StyleSheet.create({
   },
   tagSelectorContent: {
     flex: 1,
+  },
+  presetSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  importPresetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(224, 196, 168, 0.2)',
+  },
+  importPresetText: {
+    color: theme.colors.primary,
+    marginLeft: 4,
+    fontSize: 12,
   },
 });
 

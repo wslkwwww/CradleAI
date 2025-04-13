@@ -113,18 +113,6 @@ const Profile: React.FC = () => {
           chevron={true}
           subtitle="版本 1.0.0"
         />
-
-        {/* Danger Zone */}
-        <View style={styles.dangerSection}>
-          <Text style={styles.dangerSectionTitle}>危险区域</Text>
-          <NodeSTCleanupButton 
-            onCleanupComplete={handleCleanupComplete}
-            style={styles.cleanupButton}
-          />
-          <Text style={styles.dangerSectionDescription}>
-            清理所有角色数据将删除所有存储在应用中的角色对话历史和设定数据。此操作无法撤销。
-          </Text>
-        </View>
       </ScrollView>
 
       {/* 图片权限确认对话框 */}
@@ -196,30 +184,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-  },
-  dangerSection: {
-    margin: 16,
-    marginTop: 32,
-    padding: 16,
-    backgroundColor: 'rgba(255, 71, 87, 0.05)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 71, 87, 0.3)',
-  },
-  dangerSectionTitle: {
-    color: theme.colors.danger,
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
-  },
-  dangerSectionDescription: {
-    color: theme.colors.textSecondary,
-    fontSize: 12,
-    marginTop: 12,
-    lineHeight: 18,
-  },
-  cleanupButton: {
-    width: '100%',
   },
 });
 

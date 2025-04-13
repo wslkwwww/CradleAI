@@ -282,8 +282,10 @@ const styles = StyleSheet.create({
   },
   characterActionButtons: {
     flexDirection: 'row',
+    color: theme.colors.buttonText,
   },
   characterActionButton: {
+    color: theme.colors.buttonText,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -295,10 +297,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
   },
   secondaryButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: theme.colors.buttonText
   },
   characterActionButtonText: {
-    color: '#fff',
+    color: 'black',
     marginLeft: 8,
     fontWeight: '500',
     fontSize: 14,

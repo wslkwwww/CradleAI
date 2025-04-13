@@ -46,18 +46,7 @@ const CharacterDetailHeader: React.FC<CharacterDetailHeaderProps> = ({
             colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
             style={styles.gradient}
           >
-            <TouchableOpacity style={styles.backButton} onPress={onBackPress}>
-              <Ionicons name="arrow-back" size={24} color="#fff" />
-            </TouchableOpacity>
-            
-            {onFullscreenPress && (
-              <TouchableOpacity 
-                style={styles.fullscreenButton} 
-                onPress={onFullscreenPress}
-              >
-                <Ionicons name="expand-outline" size={20} color="#fff" />
-              </TouchableOpacity>
-            )}
+
 
             <Text style={styles.characterName}>{name}</Text>
           </LinearGradient>

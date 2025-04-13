@@ -26,6 +26,7 @@ interface WorldBookSectionProps {
     onNameChange?: (text: string) => void
   ) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
+  onDelete?: (id: string) => void;
 }
 
 export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
@@ -133,6 +134,7 @@ interface PresetSectionProps {
     onOptionsChange?: (options: any) => void
   ) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
+  onDelete?: (id: string) => void;
 }
 
 export const PresetSection: React.FC<PresetSectionProps> = ({

@@ -16,7 +16,8 @@ import {
   BackHandler,
   ViewStyle,
   FlatList,
-  Animated
+  Animated,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -35,10 +36,12 @@ interface DetailSidebarProps {
   onOptionsChange?: (options: any) => void;
   name?: string;
   onNameChange?: (text: string) => void;
+  onDelete?: () => void;
 }
 
 const { width } = Dimensions.get('window');
 const COLOR_BEIGE = 'rgb(255, 224, 195)';
+const COLOR_DANGER = '#FF5252';
 
 const DetailSidebar: React.FC<DetailSidebarProps> = ({
   isVisible,
@@ -52,6 +55,7 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
   onOptionsChange,
   name,
   onNameChange,
+  onDelete,
 }) => {
   const [localContent, setLocalContent] = useState(content);
   const [localName, setLocalName] = useState(name || '');
@@ -180,9 +184,6 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
     }, 100);
   }, [onClose]);
 
-  const handleTextInputFocus = useCallback(() => {
-  }, []);
-
   const handleTextPress = useCallback(() => {
     setShowTextEditor(true);
   }, []);
@@ -190,6 +191,19 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
   const handleTextSave = useCallback((newText: string) => {
     setLocalContent(newText);
   }, []);
+
+  const handleDelete = useCallback(() => {
+    if (!onDelete) return;
+    
+    // First close the sidebar
+    handleCloseWithKeyboardDismiss();
+    
+    // Execute the delete operation after the sidebar has closed with a delay
+    setTimeout(() => {
+      onDelete();
+    }, 300);
+    
+  }, [onDelete, handleCloseWithKeyboardDismiss]);
 
   const renderEntryOptions = () => {
     if (!entryType || !localOptions) return null;
@@ -413,12 +427,25 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
           <View style={styles.content}>
             <View style={styles.header}>
               <Text style={styles.title}>{title}</Text>
-              <TouchableOpacity 
-                style={styles.closeButton} 
-                onPress={handleCloseWithKeyboardDismiss}
-              >
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
+              <View style={styles.headerButtons}>
+
+                  <TouchableOpacity 
+                    style={[styles.headerButton, styles.deleteButton]}
+                    onPress={handleDelete}
+                    accessibilityLabel="Delete"
+                  >
+                    <Ionicons name="trash-outline" size={22} color={COLOR_DANGER} />
+                  </TouchableOpacity>
+
+
+                <TouchableOpacity 
+                  style={styles.headerButton} 
+                  onPress={handleCloseWithKeyboardDismiss}
+                  accessibilityLabel="Close"
+                >
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {name !== undefined && (
@@ -529,6 +556,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  deleteButton: {
+    backgroundColor: 'rgba(255, 82, 82, 0.2)',
+    borderRadius: 4,
+    padding: 6,
+    marginRight: 4, // Add some margin between delete and close buttons
   },
   closeButton: {
     padding: 4,
