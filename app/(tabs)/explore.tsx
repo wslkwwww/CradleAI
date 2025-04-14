@@ -19,7 +19,6 @@ import {
   ScrollView,
   ImageBackground,
   Modal,
-  RefreshControl,
 } from 'react-native';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons, Feather, AntDesign } from '@expo/vector-icons';
 import { useCharacters } from '@/constants/CharactersContext';
@@ -37,6 +36,7 @@ import FavoriteList from '@/components/FavoriteList';
 import ImageViewer from '@/components/ImageViewer';
 import CharacterInteractionSettings from '@/components/CharacterInteractionSettings';
 import { theme } from '@/constants/theme';
+import { CircleScheduler } from '@/services/circle-scheduler';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -120,7 +120,6 @@ const Explore: React.FC = () => {
   const [isCreatingPost, setIsCreatingPost] = useState(false);
 
   // Add these new state variables
-  const [refreshing, setRefreshing] = useState(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
   // Add new states for image viewer and favorite list
@@ -142,6 +141,38 @@ const Explore: React.FC = () => {
   // Add state for character selection in test post publishing
   const [selectedPublishCharacterId, setSelectedPublishCharacterId] = useState<string | null>(null);
   const [showPublishCharacterSelector, setShowPublishCharacterSelector] = useState(false);
+
+  // Add useRef for storing scheduler instance
+  const schedulerRef = useRef<CircleScheduler | null>(null);
+
+  // Get scheduler instance
+  useEffect(() => {
+    schedulerRef.current = CircleScheduler.getInstance();
+  }, []);
+
+  // Register update callbacks for visible posts
+  useEffect(() => {
+    if (!schedulerRef.current || posts.length === 0) return;
+    
+    // Create update callback function
+    const handlePostUpdate = (updatedPost: CirclePost) => {
+      setPosts(prevPosts => 
+        prevPosts.map(p => p.id === updatedPost.id ? updatedPost : p)
+      );
+    };
+    
+    // Register callback for each post
+    posts.forEach(post => {
+      schedulerRef.current?.registerUpdateCallback(post.id, handlePostUpdate);
+    });
+    
+    // Cleanup function to unregister callbacks
+    return () => {
+      posts.forEach(post => {
+        schedulerRef.current?.unregisterUpdateCallback(post.id, handlePostUpdate);
+      });
+    };
+  }, [posts, schedulerRef.current]);
 
   // Add the image handling function before renderPost
   const handleImagePress = useCallback((images: string[], index: number) => {
@@ -311,22 +342,50 @@ const Explore: React.FC = () => {
 
       // Load posts from AsyncStorage and merge with character posts
       const storedPosts = await CircleService.loadSavedPosts();
-      const refreshedPosts = await CircleService.refreshPosts(
-        characters,
-        storedPosts,
-        user?.settings?.chat?.characterApiKey,
-        {
-          apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-          openrouter: user?.settings?.chat?.openrouter
-        }
-      );
       
-      // Update favorite status for each post
-      const postsWithFavoriteStatus = refreshedPosts.map(post => {
+      // Process posts without calling refreshPosts
+      const postsWithFavoriteStatus = storedPosts.map(post => {
+        // Update character avatars and other information
         const character = characters.find(c => c.id === post.characterId);
         const isFavorited = character?.favoritedPosts?.includes(post.id) || false;
+        
+        // Update avatar if a character post
+        if (character && post.characterId !== 'user-1') {
+          post.characterAvatar = character.avatar;
+        }
+        
+        // Update likes and comments avatars
+        if (post.likedBy) {
+          post.likedBy = post.likedBy.map(like => {
+            if (like.isCharacter) {
+              const likeCharacter = characters.find(c => c.id === like.userId);
+              if (likeCharacter) {
+                return {...like, userAvatar: likeCharacter.avatar || like.userAvatar};
+              }
+            }
+            return like;
+          });
+        }
+        
+        if (post.comments) {
+          post.comments = post.comments.map(comment => {
+            if (comment.type === 'character') {
+              const commentCharacter = characters.find(c => c.id === comment.userId);
+              if (commentCharacter) {
+                return {...comment, userAvatar: commentCharacter.avatar || comment.userAvatar};
+              }
+            }
+            return comment;
+          });
+        }
+        
         return { ...post, isFavorited };
       });
+      
+      // Sort by created date, newest first
+      postsWithFavoriteStatus.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
       
       setPosts(postsWithFavoriteStatus);
       console.log(`【朋友圈】加载了 ${postsWithFavoriteStatus.length} 条帖子`);
@@ -336,17 +395,10 @@ const Explore: React.FC = () => {
       setError('加载动态失败，请重试');
     } finally {
       setIsLoading(false);
-      setRefreshing(false);
     }
-  }, [characters, testModeEnabled, testPost, user?.settings?.chat]);
-
-  // Add pull-to-refresh handler
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadPosts();
-  }, [loadPosts]);
+  }, [characters, testModeEnabled, testPost]);
   
-  // Add useFocusEffect to reload posts when the tab is focused
+  // Add useFocusEffect to load posts when the tab is focused
   useFocusEffect(
     useCallback(() => {
       if (characters.length > 0 && activeTab === 'circle') {
@@ -555,14 +607,24 @@ const Explore: React.FC = () => {
         apiKey,
         apiSettings,
         characters
-      ).then(({ post, responses }) => {
-        // Update the post with character responses
+      ).then(({ post: updatedPost, responses }) => {
+        // FIX: Update using a function form of setPosts to ensure we have the latest state
         setPosts(prevPosts => {
-          const updatedPosts = prevPosts.map(p => p.id === newPost.id ? post : p);
-          // Save updated posts to AsyncStorage
-          AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts))
+          // Find the original post in current posts
+          const postIndex = prevPosts.findIndex(p => p.id === newPost.id);
+          if (postIndex === -1) return prevPosts; // Post doesn't exist anymore
+            
+          // Create a new array with all posts
+          const newPosts = [...prevPosts];
+            
+          // Replace the post with the updated one that includes all character responses
+          newPosts[postIndex] = updatedPost;
+            
+          // Save to AsyncStorage
+          AsyncStorage.setItem('circle_posts', JSON.stringify(newPosts))
             .catch(error => console.error('【朋友圈】保存更新的帖子失败:', error));
-          return updatedPosts;
+            
+          return newPosts;
         });
         
         // Log response stats
@@ -1585,16 +1647,6 @@ const Explore: React.FC = () => {
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyText}>暂无动态</Text>
                 </View>
-              }
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  colors={[theme.colors.primary]}
-                  tintColor={theme.colors.primary}
-                  title="加载中..."
-                  titleColor={theme.colors.primary}
-                />
               }
             />
           </>

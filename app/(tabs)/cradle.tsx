@@ -1353,13 +1353,7 @@ const handleSetAsAvatar = async (imageId: string) => {
               </View>
             )}
             
-            {/* Add a tag-generated badge if this character was created with tags */}
-            {isTagGenerated && !isGeneratingImage && (
-              <View style={styles.tagGeneratedBadge}>
-                <Ionicons name="pricetag" size={12} color="#fff" />
-                <Text style={styles.tagGeneratedBadgeText}>AI生成</Text>
-              </View>
-            )}
+
             
             {/* Character info overlay with gradient for better text visibility */}
             <LinearGradient

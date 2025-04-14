@@ -1302,7 +1302,7 @@ export class CircleService {
   }
 
   /**
-   * Enhanced user post method with better image handling
+   * Enhanced user post method with better image handling and immediate UI updates
    */
   static async createUserPost(
     userNickname: string,
@@ -1344,26 +1344,84 @@ export class CircleService {
         // Continue even if save fails
       }
       
-      // Process character responses in background
-      const { updatedPost, responses } = await this.processPostResponses(
-        newPost,
-        charactersList || [],
-        apiKey,
-        apiSettings
-      );
+      // Skip character responses if no characters are provided
+      if (!charactersList || charactersList.length === 0) {
+        return { post: newPost, responses: [] };
+      }
       
-      // Update storage with the post including character responses
+      // Filter characters with circle interaction enabled - just like in processTestInteraction
+      const interactingCharacters = charactersList.filter(c => c.circleInteraction);
+      console.log(`【朋友圈服务】找到 ${interactingCharacters.length} 个启用了朋友圈互动的角色`);
+      
+      // Make a copy of the post to avoid mutating the original - just like in processTestInteraction
+      let updatedPost = { ...newPost };
+      const responses: Array<{characterId: string, success: boolean, response?: CircleResponse}> = [];
+      
+      // Process each character's response individually - this is the key difference
+      for (const character of interactingCharacters) {
+        try {
+          console.log(`【朋友圈服务】处理角色 ${character.name} 对用户帖子的回应`);
+          
+          // Initialize character if needed
+          await this.initCharacterCircle(character, apiKey, apiSettings);
+          
+          // Process interaction directly instead of using scheduler
+          const options: CirclePostOptions = {
+            type: 'replyToPost',
+            content: {
+              authorId: updatedPost.characterId, // Use the current state of the post
+              authorName: updatedPost.characterName,
+              text: updatedPost.content,
+              context: `这是${updatedPost.characterName}发布的一条朋友圈动态。${
+                updatedPost.comments?.length ? 
+                `目前已有${updatedPost.comments.length}条评论和${updatedPost.likes}个点赞。` : 
+                '还没有其他人互动。'
+              }`,
+              images: updatedPost.images
+            },
+            responderId: character.id,
+            responderCharacter: character
+          };
+          
+          // Process the interaction directly with current post state
+          const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(options);
+          
+          // Record response
+          responses.push({
+            characterId: character.id,
+            success: response.success,
+            response
+          });
+          
+          // Update post with character's response - this is critical to accumulate responses
+          if (response.success) {
+            const { updatedPost: newPost } = this.updatePostWithResponse(updatedPost, character, response);
+            updatedPost = newPost; // Update for next iteration
+            
+            console.log(`【朋友圈服务】角色 ${character.name} 对用户帖子的回应已处理: 点赞=${!!response.action?.like}, 评论=${!!response.action?.comment}`);
+          }
+        } catch (error) {
+          console.error(`【朋友圈服务】处理角色 ${character.name} 的回应时出错:`, error);
+          responses.push({
+            characterId: character.id,
+            success: false
+          });
+        }
+      }
+      
+      // Save the final post with all accumulated responses
       try {
-        const allSavedPosts = await this.loadSavedPosts();
-        const updatedSavedPosts = allSavedPosts.map(p => 
+        const allPosts = await this.loadSavedPosts();
+        const updatedPosts = allPosts.map(p => 
           p.id === updatedPost.id ? updatedPost : p
         );
-        await this.savePosts(updatedSavedPosts);
-        console.log(`【朋友圈服务】已更新带有角色响应的用户帖子`);
+        await this.savePosts(updatedPosts);
+        console.log(`【朋友圈服务】已保存带有所有角色响应(${responses.filter(r => r.success).length}个)的用户帖子`);
       } catch (updateError) {
         console.error(`【朋友圈服务】更新带有角色响应的用户帖子到存储失败:`, updateError);
       }
       
+      // Return the updated post with all accumulated responses
       return { post: updatedPost, responses };
     } catch (error) {
       console.error(`【朋友圈服务】创建用户帖子失败:`, error);

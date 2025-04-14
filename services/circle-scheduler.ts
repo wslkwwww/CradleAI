@@ -35,6 +35,9 @@ export class CircleScheduler {
   private scheduledPostsCache: Record<string, string[]> = {};
   private lastProcessedTimes: Record<string, string> = {};
 
+  // Map to track update callbacks by postId
+  private updateCallbacks: Map<string, UpdateCallback[]> = new Map();
+
   private constructor() {
     console.log('【CircleScheduler】创建调度器实例');
     // Load scheduled times on startup
@@ -50,6 +53,28 @@ export class CircleScheduler {
       instance = new CircleScheduler();
     }
     return instance;
+  }
+
+  // Add a method to register callbacks
+  public registerUpdateCallback(postId: string, callback: UpdateCallback): void {
+    if (!this.updateCallbacks.has(postId)) {
+      this.updateCallbacks.set(postId, []);
+    }
+    this.updateCallbacks.get(postId)!.push(callback);
+  }
+
+  // Add a method to unregister callbacks
+  public unregisterUpdateCallback(postId: string, callback: UpdateCallback): void {
+    if (this.updateCallbacks.has(postId)) {
+      const callbacks = this.updateCallbacks.get(postId)!;
+      const index = callbacks.indexOf(callback);
+      if (index !== -1) {
+        callbacks.splice(index, 1);
+      }
+      if (callbacks.length === 0) {
+        this.updateCallbacks.delete(postId);
+      }
+    }
   }
 
   // Load scheduled times from AsyncStorage
@@ -261,41 +286,41 @@ export class CircleScheduler {
   }
 
   // Schedule user post interaction with higher priority
-  public async scheduleUserPostInteraction(
-    character: Character,
-    userPost: CirclePost,
-    apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
-    images?: string[]
-  ): Promise<CircleResponse> {
-    return new Promise((resolve) => {
-      // Add to queue with higher priority
-      this.interactionQueue.push({
-        character,
-        post: userPost,
-        apiKey,
-        apiSettings,
-        images,
-        priority: 3 // Highest priority for user posts
-      });
-      
-      // Start processing if not already running
-      if (!this.isProcessing) {
-        this.processQueues();
-      }
-      
-      // Resolve with temporary response
-      resolve({
-        success: true,
-        action: {
-          like: false,
-          comment: undefined
-        },
-        error: 'User post interaction queued for priority processing'
-      });
+// Schedule user post interaction with higher priority
+public async scheduleUserPostInteraction(
+  character: Character,
+  userPost: CirclePost,
+  apiKey?: string,
+  apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+  images?: string[]
+): Promise<CircleResponse> {
+  return new Promise((resolve) => {
+    // Add to queue with higher priority
+    this.interactionQueue.push({
+      character,
+      post: userPost,
+      apiKey,
+      apiSettings,
+      images,
+      priority: 3 // Highest priority for user posts
     });
-  }
-
+    
+    // Start processing if not already running
+    if (!this.isProcessing) {
+      this.processQueues();
+    }
+    
+    // Resolve with temporary response
+    resolve({
+      success: true,
+      action: {
+        like: false,
+        comment: undefined
+      },
+      error: 'User post interaction queued for priority processing'
+    });
+  });
+}
   // Process the queues
   private async processQueues(): Promise<void> {
     // If already processing, don't start a new process
@@ -424,6 +449,19 @@ export class CircleScheduler {
       
       if (response.success) {
         console.log(`【CircleScheduler】角色 ${item.character.name} 成功与 ${item.post.characterName} 的帖子互动`);
+        
+        // Call any registered callbacks for this post
+        if (this.updateCallbacks.has(item.post.id)) {
+          this.updateCallbacks.get(item.post.id)!.forEach(callback => {
+            try {
+              // Get the updated post from the response
+              const { updatedPost } = CircleService.updatePostWithResponse(item.post, item.character, response);
+              callback(updatedPost);
+            } catch (callbackError) {
+              console.error(`【CircleScheduler】调用更新回调失败:`, callbackError);
+            }
+          });
+        }
       } else {
         console.error(`【CircleScheduler】角色 ${item.character.name} 互动失败:`, response.error);
       }
@@ -482,3 +520,6 @@ export class CircleScheduler {
     return generalPrompts[Math.floor(Math.random() * generalPrompts.length)];
   }
 }
+
+// Add a type for update callbacks
+type UpdateCallback = (post: CirclePost) => void;
