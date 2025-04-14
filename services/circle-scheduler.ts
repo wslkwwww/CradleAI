@@ -2,7 +2,7 @@ import { CircleService } from './circle-service';
 import { Character, GlobalSettings } from '../shared/types';
 import { CirclePost, CircleResponse } from '../shared/types/circle-types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { scheduleCirclePostNotification } from './notification-service';
+import { scheduleCirclePostNotification } from '@/utils/notification-utils'; // Add this import
 
 // Single instance for queue management
 let instance: CircleScheduler | null = null;
@@ -24,6 +24,7 @@ export class CircleScheduler {
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
     images?: string[];
     priority: number;
+    callback?: (response: CircleResponse) => void;
   }> = [];
 
   // Processing state
@@ -33,7 +34,7 @@ export class CircleScheduler {
   // Last processed timestamp
   private lastScheduleCheck: number = 0;
   private scheduledPostsCache: Record<string, string[]> = {};
-  private lastProcessedTimes: Record<string, string> = {};
+  private lastProcessedTimes: Record<string, { [timeString: string]: string }> = {};
 
   // Map to track update callbacks by postId
   private updateCallbacks: Map<string, UpdateCallback[]> = new Map();
@@ -99,11 +100,17 @@ export class CircleScheduler {
   // Save the last processed time for a character-time pair
   private async saveLastProcessedTime(characterId: string, timeString: string): Promise<void> {
     try {
+      // Initialize character's processed times if not exists
+      if (!this.lastProcessedTimes[characterId]) {
+        this.lastProcessedTimes[characterId] = {};
+      }
+      
       // Update in-memory cache
-      this.lastProcessedTimes[`${characterId}_${timeString}`] = this.getTodayDateString();
+      this.lastProcessedTimes[characterId][timeString] = this.getTodayDateString();
       
       // Save to AsyncStorage
       await AsyncStorage.setItem('last_processed_times', JSON.stringify(this.lastProcessedTimes));
+      console.log(`【CircleScheduler】已记录角色 ${characterId} 的发布时间 ${timeString} 为已处理`);
     } catch (error) {
       console.error('【CircleScheduler】保存处理时间记录失败:', error);
     }
@@ -111,11 +118,17 @@ export class CircleScheduler {
 
   // Check if a specific time for a character was already processed today
   private isTimeProcessedToday(characterId: string, timeString: string): boolean {
-    const key = `${characterId}_${timeString}`;
-    const lastProcessed = this.lastProcessedTimes[key];
+    if (!this.lastProcessedTimes[characterId]) {
+      return false;
+    }
+    
+    const lastProcessed = this.lastProcessedTimes[characterId][timeString];
     const today = this.getTodayDateString();
     
-    return lastProcessed === today;
+    const isProcessed = lastProcessed === today;
+    console.log(`【CircleScheduler】检查角色 ${characterId} 时间 ${timeString} 是否已处理: ${isProcessed ? '已处理' : '未处理'}, 上次处理日期: ${lastProcessed || '无'}, 今日: ${today}`);
+    
+    return isProcessed;
   }
 
   // Get today's date as string in format YYYY-MM-DD
@@ -159,43 +172,72 @@ export class CircleScheduler {
         for (const timeString of times) {
           // Check if this exact time matches (or is within 1 minute) and wasn't already processed today
           if (this.isTimeMatching(currentTime, timeString) && !this.isTimeProcessedToday(characterId, timeString)) {
-            console.log(`【CircleScheduler】检测到角色 ${characterId} 的定时发布时间: ${timeString}`);
+            console.log(`【CircleScheduler】检测到角色 ${characterId} 的定时发布时间: ${timeString}, 开始处理`);
             
-            // Get characters list
-            const charactersString = await AsyncStorage.getItem('characters');
-            if (!charactersString) continue;
-            
-            const characters: Character[] = JSON.parse(charactersString);
-            const character = characters.find(c => c.id === characterId);
-            
-            if (character && character.circleInteraction) {
-              console.log(`【CircleScheduler】为角色 ${character.name} 安排发布定时朋友圈`);
-              
-              // Get API settings from AsyncStorage
-              const settingsString = await AsyncStorage.getItem('user_settings');
-              let apiKey = '';
-              let apiSettings = undefined;
-              
-              if (settingsString) {
-                const settings = JSON.parse(settingsString);
-                apiKey = settings?.chat?.characterApiKey || '';
-                apiSettings = {
-                  apiProvider: settings?.chat?.apiProvider || 'gemini',
-                  openrouter: settings?.chat?.apiProvider === 'openrouter' && settings?.chat?.openrouter
-                    ? {
-                        enabled: true,
-                        apiKey: settings?.chat?.openrouter.apiKey,
-                        model: settings?.chat?.openrouter.model
-                      }
-                    : undefined
-                };
+            try {
+              // Get characters list with better error handling
+              let charactersString;
+              try {
+                charactersString = await AsyncStorage.getItem('characters');
+              } catch (storageError) {
+                console.error(`【CircleScheduler】从AsyncStorage读取角色数据失败:`, storageError);
+                
+                // Try a backup approach - use the local storage API if available
+                try {
+                  // This is a fallback for web environments or where AsyncStorage might be failing
+                  if (typeof localStorage !== 'undefined') {
+                    charactersString = localStorage.getItem('characters');
+                    console.log(`【CircleScheduler】尝试从localStorage获取角色数据: ${!!charactersString}`);
+                  }
+                } catch (localStorageError) {
+                  // Ignore this error, it's just a fallback attempt
+                }
               }
               
-              // Add to queue with high priority
-              this.schedulePost(character, apiKey, apiSettings, true);
+              if (!charactersString) {
+                console.error(`【CircleScheduler】无法获取角色列表，键名'characters'不存在或无法访问`);
+                continue;
+              }
+              
+              let characters;
+              try {
+                characters = JSON.parse(charactersString);
+                console.log(`【CircleScheduler】成功解析角色数据，共 ${characters.length} 个角色`);
+              } catch (parseError) {
+                console.error(`【CircleScheduler】解析角色数据JSON失败:`, parseError);
+                continue;
+              }
+              
+              // Find the specific character
+              const character = characters.find((c: any) => c.id === characterId);
+              
+              if (!character) {
+                console.error(`【CircleScheduler】未找到ID为 ${characterId} 的角色`);
+                continue;
+              }
+              
+              if (!character.circleInteraction) {
+                console.log(`【CircleScheduler】角色 ${character.name} 未启用朋友圈互动，跳过发布`);
+                continue;
+              }
+              
+              console.log(`【CircleScheduler】找到角色 ${character.name}，安排发布定时朋友圈`);
+              
+              // Get API settings from AsyncStorage
+              const settings = await this.getAPISettings();
+              if (!settings.apiKey) {
+                console.log(`【CircleScheduler】未找到API Key，使用模拟数据`);
+              }
+              
+              // Schedule post with high priority and mark it as scheduled
+              await this.schedulePost(character, settings?.apiKey, settings?.apiSettings, true);
               
               // Mark this time as processed for today
               await this.saveLastProcessedTime(characterId, timeString);
+              
+              console.log(`【CircleScheduler】成功安排角色 ${character.name} 的定时发布任务`);
+            } catch (characterError) {
+              console.error(`【CircleScheduler】处理角色 ${characterId} 定时发布失败:`, characterError);
             }
           }
         }
@@ -205,24 +247,32 @@ export class CircleScheduler {
     }
   }
 
-  // Check if current time matches scheduled time (within 1 minute tolerance)
-  private isTimeMatching(currentTime: string, scheduledTime: string): boolean {
-    const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
-    const [scheduledHours, scheduledMinutes] = scheduledTime.split(':').map(Number);
-    
-    // Direct match
-    if (currentHours === scheduledHours && currentMinutes === scheduledMinutes) {
-      return true;
+  // Add helper method to get API settings
+  private async getAPISettings(): Promise<{
+    apiKey?: string;
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
+  }> {
+    try {
+      // Try to get user settings
+      const userSettingsString = await AsyncStorage.getItem('user_settings');
+      if (!userSettingsString) return {};
+      
+      const userSettings = JSON.parse(userSettingsString);
+      
+      // Extract API key and settings
+      const apiKey = userSettings?.chat?.characterApiKey;
+      const apiSettings = {
+        apiProvider: userSettings?.chat?.apiProvider || 'gemini',
+        openrouter: userSettings?.chat?.openrouter
+      };
+      
+      return { apiKey, apiSettings };
+    } catch (error) {
+      console.error('【CircleScheduler】获取API设置失败:', error);
+      return {};
     }
-    
-    // Within 1 minute tolerance (to prevent missing due to the exact minute)
-    const currentTotalMinutes = currentHours * 60 + currentMinutes;
-    const scheduledTotalMinutes = scheduledHours * 60 + scheduledMinutes;
-    const diff = Math.abs(currentTotalMinutes - scheduledTotalMinutes);
-    
-    return diff === 1; // 1 minute tolerance
   }
-
+  
   // Schedule a post
   public async schedulePost(
     character: Character,
@@ -239,9 +289,14 @@ export class CircleScheduler {
         priority: isScheduled ? 2 : 1 // Scheduled posts get higher priority
       });
       
+      console.log(`【CircleScheduler】已将角色 ${character.name} 的${isScheduled ? '定时' : ''}帖子添加到队列，优先级: ${isScheduled ? 2 : 1}`);
+      
       // Start processing if not already running
       if (!this.isProcessing) {
+        console.log(`【CircleScheduler】队列处理器未运行，启动处理`);
         this.processQueues();
+      } else {
+        console.log(`【CircleScheduler】队列处理器正在运行中，将等待处理`);
       }
       
       // Always resolve immediately - we're just queuing
@@ -286,48 +341,47 @@ export class CircleScheduler {
   }
 
   // Schedule user post interaction with higher priority
-// Schedule user post interaction with higher priority
-public async scheduleUserPostInteraction(
-  character: Character,
-  userPost: CirclePost,
-  apiKey?: string,
-  apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
-  images?: string[]
-): Promise<CircleResponse> {
-  return new Promise((resolve) => {
-    // Add to queue with higher priority
-    this.interactionQueue.push({
-      character,
-      post: userPost,
-      apiKey,
-      apiSettings,
-      images,
-      priority: 3 // Highest priority for user posts
+  public async scheduleUserPostInteraction(
+    character: Character,
+    userPost: CirclePost,
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    images?: string[]
+  ): Promise<CircleResponse> {
+    return new Promise((resolve, reject) => {
+      // Add to queue with higher priority
+      this.interactionQueue.push({
+        character,
+        post: userPost,
+        apiKey,
+        apiSettings,
+        images,
+        priority: 3, // Highest priority for user posts
+        callback: (response: CircleResponse) => {
+          // This callback will be called when the interaction is actually processed
+          resolve(response);
+        }
+      });
+      
+      // Start processing if not already running
+      if (!this.isProcessing) {
+        this.processQueues();
+      }
+      
+      // No immediate resolve - we'll wait for the callback
+      // This prevents the race condition by not returning until processing is complete
     });
-    
-    // Start processing if not already running
-    if (!this.isProcessing) {
-      this.processQueues();
-    }
-    
-    // Resolve with temporary response
-    resolve({
-      success: true,
-      action: {
-        like: false,
-        comment: undefined
-      },
-      error: 'User post interaction queued for priority processing'
-    });
-  });
-}
+  }
+
   // Process the queues
   private async processQueues(): Promise<void> {
     // If already processing, don't start a new process
     if (this.isProcessing) {
+      console.log(`【CircleScheduler】队列正在处理中，跳过当前处理请求`);
       return;
     }
     
+    console.log(`【CircleScheduler】开始处理队列，帖子队列: ${this.postQueue.length}，互动队列: ${this.interactionQueue.length}`);
     this.isProcessing = true;
     
     try {
@@ -372,6 +426,8 @@ public async scheduleUserPostInteraction(
           }
         }
       }
+      
+      console.log(`【CircleScheduler】队列处理完成`);
     } catch (error) {
       console.error('【CircleScheduler】处理队列时出错:', error);
     } finally {
@@ -379,7 +435,7 @@ public async scheduleUserPostInteraction(
     }
   }
 
-  // Process a post request
+  // Process a post request - modified to ensure proper error handling
   private async processPost(
     item: {
       character: Character;
@@ -412,11 +468,91 @@ public async scheduleUserPostInteraction(
         
         // If this is a scheduled post, send notification
         if (isScheduled && postContent) {
-          await scheduleCirclePostNotification(
-            item.character.name,
-            item.character.id,
-            postContent
-          );
+          try {
+            await scheduleCirclePostNotification(
+              item.character.name,
+              item.character.id,
+              postContent
+            );
+          } catch (notificationError) {
+            console.error(`【CircleScheduler】发送通知失败:`, notificationError);
+          }
+          
+          // Save the post to AsyncStorage to ensure it appears in the timeline
+          try {
+            // Load existing posts with careful error handling
+            let posts = [];
+            try {
+              const postsString = await AsyncStorage.getItem('circle_posts');
+              if (postsString) {
+                posts = JSON.parse(postsString);
+                // Verify it's an array
+                if (!Array.isArray(posts)) {
+                  console.error('【CircleScheduler】circle_posts不是一个数组，重置为空数组');
+                  posts = [];
+                }
+              }
+            } catch (loadError) {
+              console.error('【CircleScheduler】加载已有帖子失败:', loadError);
+              posts = []; // Reset to empty array on error
+            }
+            
+            // Create a new post object
+            const newPost = {
+              id: `post-${Date.now()}-${item.character.id}`,
+              characterId: item.character.id,
+              characterName: item.character.name,
+              characterAvatar: item.character.avatar || null,
+              content: postContent,
+              createdAt: new Date().toISOString(),
+              comments: [],
+              likes: 0,
+              likedBy: [],
+              hasLiked: false
+            };
+            
+            // Add the new post to the beginning of the array
+            posts.unshift(newPost);
+            
+            // Save back to AsyncStorage with error handling
+            try {
+              await AsyncStorage.setItem('circle_posts', JSON.stringify(posts));
+              console.log(`【CircleScheduler】已保存定时帖子到存储`);
+            } catch (saveError) {
+              console.error('【CircleScheduler】保存帖子到存储失败:', saveError);
+            }
+            
+            // Add to the character's posts as well with error handling
+            try {
+              let characters = [];
+              const charactersString = await AsyncStorage.getItem('characters');
+              if (charactersString) {
+                characters = JSON.parse(charactersString);
+              } else {
+                console.error('【CircleScheduler】未找到角色数据，无法更新角色的帖子列表');
+                return; // Skip character update if no character data
+              }
+              
+              const characterIndex = characters.findIndex((c: any) => c.id === item.character.id);
+              
+              if (characterIndex >= 0) {
+                // Add post to character's posts
+                if (!characters[characterIndex].circlePosts) {
+                  characters[characterIndex].circlePosts = [];
+                }
+                
+                characters[characterIndex].circlePosts.unshift(newPost);
+                
+                // Save updated characters
+                await AsyncStorage.setItem('characters', JSON.stringify(characters));
+                console.log(`【CircleScheduler】已将帖子添加到角色 ${item.character.name} 的帖子列表`);
+              }
+            } catch (characterUpdateError) {
+              console.error('【CircleScheduler】更新角色帖子列表失败:', characterUpdateError);
+            }
+          } catch (saveError) {
+            console.error(`【CircleScheduler】保存帖子失败:`, saveError);
+          }
         }
       } else {
         console.error(`【CircleScheduler】角色 ${item.character.name} 发布${isScheduled ? '定时' : ''}朋友圈失败:`, response.error);
@@ -426,7 +562,7 @@ public async scheduleUserPostInteraction(
     }
   }
 
-  // Process an interaction request
+  // Process an interaction request - modified to handle callbacks
   private async processInteraction(
     item: {
       character: Character;
@@ -434,6 +570,7 @@ public async scheduleUserPostInteraction(
       apiKey?: string;
       apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>;
       images?: string[];
+      callback?: (response: CircleResponse) => void;
     }
   ): Promise<void> {
     try {
@@ -465,9 +602,45 @@ public async scheduleUserPostInteraction(
       } else {
         console.error(`【CircleScheduler】角色 ${item.character.name} 互动失败:`, response.error);
       }
+      
+      // Call the item callback if provided (to resolve the Promise)
+      if (item.callback) {
+        item.callback(response);
+      }
     } catch (error) {
       console.error(`【CircleScheduler】处理互动时出错:`, error);
+      // Call the item callback with an error response
+      if (item.callback) {
+        item.callback({
+          success: false,
+          error: error instanceof Error ? error.message : '处理互动时出错'
+        });
+      }
     }
+  }
+
+  // Check if current time matches scheduled time (within 1 minute tolerance)
+  private isTimeMatching(currentTime: string, scheduledTime: string): boolean {
+    const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
+    const [scheduledHours, scheduledMinutes] = scheduledTime.split(':').map(Number);
+    
+    // Direct match
+    if (currentHours === scheduledHours && currentMinutes === scheduledMinutes) {
+      console.log(`【CircleScheduler】时间完全匹配: ${currentTime} = ${scheduledTime}`);
+      return true;
+    }
+    
+    // Within 1 minute tolerance (to prevent missing due to the exact minute)
+    const currentTotalMinutes = currentHours * 60 + currentMinutes;
+    const scheduledTotalMinutes = scheduledHours * 60 + scheduledMinutes;
+    const diff = Math.abs(currentTotalMinutes - scheduledTotalMinutes);
+    
+    if (diff === 1) {
+      console.log(`【CircleScheduler】时间相差1分钟，视为匹配: ${currentTime} ≈ ${scheduledTime}`);
+      return true;
+    }
+    
+    return false;
   }
 
   // Generate a prompt for scheduled posts

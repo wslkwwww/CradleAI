@@ -186,6 +186,68 @@ if (postAuthorCharacter) {
 }
 ```
 
+## 18. 重大Bug修复记录
+
+### 18.1 角色响应累积Bug (v1.4.1)
+
+在v1.4.0版本中，发现并修复了一个严重的角色响应累积bug，该bug导致用户发布朋友圈后，多个角色的回复会相互覆盖，而非累积。
+
+#### Bug描述
+
+问题的核心在于`CircleService.createUserPost`方法中存在的竞态条件(Race Condition)：
+
+1. **根本原因**：`scheduleUserPostInteraction`方法总是立即返回一个成功的Promise，而实际上操作并未完成
+2. **竞态条件**：由于立即返回，`for...of`循环会非常快地遍历所有角色，导致多个角色"看不到"彼此的回复
+3. **覆盖问题**：每次循环迭代，都会调用`this.savePosts`保存当前状态的帖子（只包含部分角色的回复）
+4. **结果**：后面完成的角色回复会覆盖先完成的角色回复，造成"随机覆盖"现象
+
+#### 修复方案
+
+修复方案采用了直接处理而非队列调度的方式：
+
+1. **替代队列调度**：不再使用`scheduleUserPostInteraction`，改为直接处理交互
+2. **顺序处理**：按顺序处理每个角色的回复，确保每个角色都能看到之前角色的回复
+3. **状态累积**：每个角色处理完毕后，更新帖子状态，并将此更新后的状态传递给下一个角色
+4. **最终保存**：所有角色处理完毕后，才保存最终的、包含所有回复的帖子
+
+```typescript
+// 修复后的关键代码
+let updatedPost = { ...newPost }; // 创建工作副本
+for (const character of interactingCharacters) {
+  // 处理角色互动，并传递当前最新的帖子状态
+  const options = {
+    // ...配置信息
+    content: {
+      // 使用最新的帖子状态，确保角色能看到之前的互动
+      authorId: updatedPost.characterId,
+      authorName: updatedPost.characterName,
+      text: updatedPost.content,
+      // ...包含现有评论和点赞信息的上下文
+    }
+  };
+  
+  // 直接处理而非加入队列
+  const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(options);
+  
+  // 如果成功，更新帖子状态供下一个角色使用
+  if (response.success) {
+    const { updatedPost: newPost } = this.updatePostWithResponse(updatedPost, character, response);
+    updatedPost = newPost; // 更新工作副本
+  }
+}
+
+// 所有角色处理完毕后，保存最终状态
+```
+
+#### 技术教训
+
+1. **队列设计问题**：队列系统应当提供真实的异步处理而非假装异步
+2. **状态管理**：复杂的状态更新需要确保累积而非覆盖
+3. **竞态条件**：在涉及多个异步更新的场景中，需要特别注意竞态条件
+4. **测试场景**：应该添加专门的测试用例验证多角色回复的累积效果
+
+此问题修复后，用户发布朋友圈将能正确累积所有角色的回复，不再出现相互覆盖的情况。
+
 # 朋友圈互动系统文档
 
 ## 1. 系统概述

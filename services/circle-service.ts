@@ -142,6 +142,92 @@ export class CircleService {
     }
   }
 
+  // Improved publishTestPost method to respect targetCharacters
+  static async publishTestPost(
+    characters: Character[],
+    apiKey?: string,
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+  ): Promise<{post: CirclePost | null, author: Character | null}> {
+    try {
+      console.log(`【朋友圈服务】尝试发布测试帖子，提供的角色数: ${characters.length}`);
+      
+      // Filter characters with circle interaction enabled
+      const enabledCharacters = characters.filter(c => c.circleInteraction);
+      if (enabledCharacters.length === 0) {
+        console.log(`【朋友圈服务】没有启用朋友圈的角色，无法发布测试帖子`);
+        return { post: null, author: null };
+      }
+      
+      // If only one character is provided, use that one (meaning a specific character was selected)
+      // Otherwise, if there are multiple characters, use the first one
+      const author = enabledCharacters[0];
+      
+      console.log(`【朋友圈服务】选择角色 ${author.name} (ID: ${author.id}) 作为发帖者`);
+      
+      // Log API settings to debug
+      console.log(`【朋友圈服务】发布测试帖子使用的API配置:`, {
+        provider: apiSettings?.apiProvider || 'gemini',
+        hasOpenRouter: apiSettings?.apiProvider === 'openrouter' && apiSettings?.openrouter?.enabled,
+        openRouterModel: apiSettings?.openrouter?.model
+      });
+      
+      // Generate test content template
+      const postTemplates = [
+        `今天的心情真不错！刚刚${author.name === '厨师' ? '做了一道新菜' : '看了一部有趣的电影'}，大家有什么推荐吗？`,
+        `突然想到一个问题，${author.name === '医生' ? '如果人类能活200岁会怎样' : '如果可以拥有一种超能力，你们会选择什么'}？`,
+        `分享一下${author.name === '老师' ? '今天教课的心得' : '我最近的一些想法'}，希望能给大家一些启发。`,
+        `${author.name === '作家' ? '正在写一个新故事' : '遇到了一个有趣的人'}，让我感到很有灵感，想听听大家的经历。`
+      ];
+      
+      // Randomly select a template as the prompt
+      const promptTemplate = postTemplates[Math.floor(Math.random() * postTemplates.length)];
+      
+      // Create a circle post - ensure proper API settings are passed
+      const response = await this.createNewPost(author, promptTemplate, apiKey, apiSettings);
+      
+      if (!response.success) {
+        console.log(`【朋友圈服务】发布测试帖子失败: ${response.error}`);
+        return { post: null, author: null };
+      }
+      
+      // Check if AI generated post content
+      let postContent = promptTemplate;
+      
+      // Prioritize AI-generated post content
+      if (response.action?.comment) {
+        // AI's comment field contains the generated post content
+        postContent = response.action.comment;
+        console.log(`【朋友圈服务】使用AI生成的帖子内容:`, postContent.substring(0, 30) + '...');
+      } else if (response.post) {
+        // Some models might return content in the post field
+        postContent = response.post;
+        console.log(`【朋友圈服务】使用AI生成的帖子内容(from post字段):`, postContent.substring(0, 30) + '...');
+      } else {
+        console.log(`【朋友圈服务】AI未返回帖子内容，使用提示模板作为内容`);
+      }
+      
+      // Build post object
+      const newPost: CirclePost = {
+        id: `post-${Date.now()}`,
+        characterId: author.id,
+        characterName: author.name,
+        characterAvatar: author.avatar as string,
+        content: postContent,
+        createdAt: new Date().toISOString(),
+        comments: [],
+        likes: 0,
+        likedBy: [],
+        hasLiked: false,
+      };
+      
+      console.log(`【朋友圈服务】成功发布测试帖子: "${postContent.substring(0, 30)}..." 作者ID: ${author.id}`);
+      return { post: newPost, author };
+    } catch (error) {
+      console.error(`【朋友圈服务】发布测试帖子失败:`, error);
+      return { post: null, author: null };
+    }
+  }
+
   // Process interaction with a post
   static async processCircleInteraction(
     character: Character, 
@@ -230,6 +316,60 @@ export class CircleService {
         success: false,
         error: error instanceof Error ? error.message : '朋友圈互动处理过程中发生未知错误'
       };
+    }
+  }
+
+  /**
+   * Improved version of toggling favorites to ensure post data integrity
+   */
+  static async toggleFavoritePost(
+    character: Character,
+    postId: string,
+    isFavorite: boolean
+  ): Promise<boolean> {
+    try {
+      console.log(`【朋友圈服务】${isFavorite ? '收藏' : '取消收藏'}帖子，ID: ${postId}, 角色: ${character.name}`);
+      
+      // First, load the complete post data from storage to ensure we have all comments
+      const allPosts = await this.loadSavedPosts();
+      const completePost = allPosts.find(p => p.id === postId);
+      
+      if (!completePost) {
+        console.error(`【朋友圈服务】未找到要${isFavorite ? '收藏' : '取消收藏'}的帖子: ${postId}`);
+        return false;
+      }
+      
+      // Initialize favoritedPosts if it doesn't exist
+      if (!character.favoritedPosts) {
+        character.favoritedPosts = [];
+      }
+      
+      // Update the favoritedPosts array
+      if (isFavorite && !character.favoritedPosts.includes(postId)) {
+        character.favoritedPosts.push(postId);
+      } else if (!isFavorite) {
+        character.favoritedPosts = character.favoritedPosts.filter(id => id !== postId);
+      }
+      
+      // If this is a special 'user-1' character (for storing user favorites),
+      // update the separate AsyncStorage for user favorites
+      if (character.id === 'user-1') {
+        try {
+          await AsyncStorage.setItem('user_favorited_posts', JSON.stringify(character.favoritedPosts));
+          console.log(`【朋友圈服务】已更新用户收藏帖子列表，共 ${character.favoritedPosts.length} 条`);
+        } catch (error) {
+          console.error('【朋友圈服务】更新用户收藏帖子列表失败:', error);
+          return false;
+        }
+      }
+      
+      // For normal characters, we don't need to do anything special as the character
+      // data will be saved by the calling code
+      
+      return true;
+    } catch (error) {
+      console.error(`【朋友圈服务】${isFavorite ? '收藏' : '取消收藏'}帖子失败:`, error);
+      return false;
     }
   }
 
@@ -793,90 +933,6 @@ export class CircleService {
     return { updatedPost, results, updatedCharacters };
   }
   
-  // 新增：发布测试帖子
-  static async publishTestPost(
-    characters: Character[],
-    apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
-  ): Promise<{post: CirclePost | null, author: Character | null}> {
-    try {
-      console.log(`【朋友圈服务】尝试发布测试帖子`);
-      
-      // 筛选启用了朋友圈的角色
-      const enabledCharacters = characters.filter(c => c.circleInteraction);
-      if (enabledCharacters.length === 0) {
-        console.log(`【朋友圈服务】没有启用朋友圈的角色，无法发布测试帖子`);
-        return { post: null, author: null };
-      }
-      
-      // 随机选择一个角色作为发帖者
-      const author = enabledCharacters[Math.floor(Math.random() * enabledCharacters.length)];
-      console.log(`【朋友圈服务】选择角色 ${author.name} 作为发帖者`);
-      
-      // Log API settings to debug
-      console.log(`【朋友圈服务】发布测试帖子使用的API配置:`, {
-        provider: apiSettings?.apiProvider || 'gemini',
-        hasOpenRouter: apiSettings?.apiProvider === 'openrouter' && apiSettings?.openrouter?.enabled,
-        openRouterModel: apiSettings?.openrouter?.model
-      });
-      
-      // 生成测试内容模板
-      const postTemplates = [
-        `今天的心情真不错！刚刚${author.name === '厨师' ? '做了一道新菜' : '看了一部有趣的电影'}，大家有什么推荐吗？`,
-        `突然想到一个问题，${author.name === '医生' ? '如果人类能活200岁会怎样' : '如果可以拥有一种超能力，你们会选择什么'}？`,
-        `分享一下${author.name === '老师' ? '今天教课的心得' : '我最近的一些想法'}，希望能给大家一些启发。`,
-        `${author.name === '作家' ? '正在写一个新故事' : '遇到了一个有趣的人'}，让我感到很有灵感，想听听大家的经历。`
-      ];
-      
-      // 随机选择一个模板作为提示词
-      const promptTemplate = postTemplates[Math.floor(Math.random() * postTemplates.length)];
-      
-      // 创建朋友圈帖子 - 确保正确传递apiSettings
-      const response = await this.createNewPost(author, promptTemplate, apiKey, apiSettings);
-      
-      if (!response.success) {
-        console.log(`【朋友圈服务】发布测试帖子失败: ${response.error}`);
-        return { post: null, author: null };
-      }
-      
-      // 检查AI是否生成了帖子内容
-      let postContent = promptTemplate;
-      
-      // 优先使用AI生成的帖子内容
-      if (response.action?.comment) {
-        // AI返回的comment字段包含了生成的帖子内容
-        postContent = response.action.comment;
-        console.log(`【朋友圈服务】使用AI生成的帖子内容:`, postContent.substring(0, 30) + '...');
-      } else if (response.post) {
-        // 有些模型可能会使用post字段返回内容
-        postContent = response.post;
-        console.log(`【朋友圈服务】使用AI生成的帖子内容(from post字段):`, postContent.substring(0, 30) + '...');
-      } else {
-        console.log(`【朋友圈服务】AI未返回帖子内容，使用提示模板作为内容`);
-      }
-      
-      // 构建帖子对象
-      const newPost: CirclePost = {
-        id: `post-${Date.now()}`,
-        characterId: author.id,
-        characterName: author.name,
-        characterAvatar: author.avatar as string,
-        content: postContent,
-        createdAt: new Date().toISOString(),
-        comments: [],
-        likes: 0,
-        likedBy: [],
-        hasLiked: false,
-      };
-      
-      console.log(`【朋友圈服务】成功发布测试帖子: "${postContent.substring(0, 30)}..."`);
-      return { post: newPost, author };
-    } catch (error) {
-      console.error(`【朋友圈服务】发布测试帖子失败:`, error);
-      return { post: null, author: null };
-    }
-  }
-  
   // 新增：检查互动频率限制
   private static checkInteractionLimits(
     character: Character, 
@@ -1043,19 +1099,76 @@ export class CircleService {
    */
   static async loadSavedPosts(): Promise<CirclePost[]> {
     try {
-      console.log(`【朋友圈服务】从存储加载帖子`);
+      console.log(`【朋友圈服务】从存储加载帖子 - 开始`);
       const storedPosts = await AsyncStorage.getItem('circle_posts');
       
       if (storedPosts) {
-        const posts = JSON.parse(storedPosts) as CirclePost[];
-        console.log(`【朋友圈服务】成功从存储加载 ${posts.length} 条帖子`);
-        return posts;
+        try {
+          console.log(`【朋友圈服务】成功获取存储数据，长度: ${storedPosts.length} 字符`);
+          
+          // Check if the string is valid JSON before parsing
+          if (!storedPosts.trim().startsWith('[') || !storedPosts.trim().endsWith(']')) {
+            console.error(`【朋友圈服务】存储的帖子数据格式无效，不是有效的JSON数组`);
+            console.log(`【朋友圈服务】数据前20字符: ${storedPosts.substring(0, 20)}...`);
+            // Reset storage with empty array if invalid
+            await AsyncStorage.setItem('circle_posts', JSON.stringify([]));
+            return [];
+          }
+          
+          const posts = JSON.parse(storedPosts) as CirclePost[];
+          
+          console.log(`【朋友圈服务】解析JSON成功，帖子数量: ${posts.length}`);
+          
+          // Filter out invalid posts (null or undefined entries) that might have been saved incorrectly
+          const validPosts = posts.filter(post => !!post && typeof post === 'object' && post.id);
+          
+          if (validPosts.length !== posts.length) {
+            console.log(`【朋友圈服务】过滤掉了 ${posts.length - validPosts.length} 个无效的帖子条目`);
+            // Save the filtered posts back to AsyncStorage
+            await AsyncStorage.setItem('circle_posts', JSON.stringify(validPosts));
+          }
+          
+          // Log first 3 post IDs for debugging
+          if (validPosts.length > 0) {
+            const sampleIds = validPosts.slice(0, 3).map(p => p.id);
+            console.log(`【朋友圈服务】前3个帖子ID: ${sampleIds.join(', ')}`);
+          }
+          
+          console.log(`【朋友圈服务】成功从存储加载 ${validPosts.length} 条帖子`);
+          return validPosts;
+        } catch (parseError) {
+          console.error(`【朋友圈服务】解析存储的帖子失败:`, parseError);
+          // Try to save the raw data for later inspection
+          try {
+            await AsyncStorage.setItem('circle_posts_backup', storedPosts);
+            console.log('【朋友圈服务】已将损坏的数据备份到circle_posts_backup');
+          } catch (backupError) {
+            console.error('【朋友圈服务】备份损坏数据失败:', backupError);
+          }
+          
+          // If parsing fails, return empty array and reset storage
+          await AsyncStorage.setItem('circle_posts', JSON.stringify([]));
+          return [];
+        }
       } else {
-        console.log(`【朋友圈服务】存储中没有帖子`);
+        console.log(`【朋友圈服务】存储中没有帖子 (circle_posts key不存在)`);
         return [];
       }
     } catch (error) {
       console.error(`【朋友圈服务】从存储加载帖子失败:`, error);
+      // Add retry mechanism for critical errors
+      try {
+        console.log('【朋友圈服务】尝试重新获取帖子数据...');
+        const retryStoredPosts = await AsyncStorage.getItem('circle_posts');
+        if (retryStoredPosts) {
+          const retryPosts = JSON.parse(retryStoredPosts) as CirclePost[];
+          console.log(`【朋友圈服务】重试成功，获取到 ${retryPosts.length} 条帖子`);
+          return retryPosts;
+        }
+      } catch (retryError) {
+        console.error('【朋友圈服务】重试获取帖子失败:', retryError);
+      }
+      
       return [];
     }
   }
@@ -1065,11 +1178,106 @@ export class CircleService {
    */
   static async savePosts(posts: CirclePost[]): Promise<boolean> {
     try {
-      console.log(`【朋友圈服务】保存 ${posts.length} 条帖子到存储`);
-      await AsyncStorage.setItem('circle_posts', JSON.stringify(posts));
+      // Filter out any invalid posts
+      const validPosts = posts.filter(post => !!post && typeof post === 'object' && post.id);
+      
+      if (validPosts.length !== posts.length) {
+        console.log(`【朋友圈服务】保存时过滤掉了 ${posts.length - validPosts.length} 个无效的帖子条目`);
+      }
+      
+      // Try to stringify first to catch any serialization errors before saving
+      const postsJson = JSON.stringify(validPosts);
+      
+      // Log stringification success and data size
+      console.log(`【朋友圈服务】准备保存 ${validPosts.length} 条帖子，数据大小: ${postsJson.length} 字符`);
+      
+      // Verify the JSON is valid before saving
+      if (!postsJson.startsWith('[') || !postsJson.endsWith(']')) {
+        console.error(`【朋友圈服务】生成的JSON格式无效，不是有效的数组`);
+        return false;
+      }
+      
+      // Save posts with verification
+      await AsyncStorage.setItem('circle_posts', postsJson);
+      
+      // Verify data was saved correctly by reading it back
+      const verifyJson = await AsyncStorage.getItem('circle_posts');
+      if (!verifyJson) {
+        console.error('【朋友圈服务】数据保存验证失败: 无法读取保存的数据');
+        return false;
+      }
+      
+      console.log(`【朋友圈服务】成功保存并验证 ${validPosts.length} 条帖子到存储`);
       return true;
     } catch (error) {
       console.error(`【朋友圈服务】保存帖子到存储失败:`, error);
+      
+      // If the error is related to JSON stringification, try saving posts one by one to identify the problematic post
+      if (error instanceof TypeError && posts.length > 0) {
+        try {
+          console.log('【朋友圈服务】尝试分批保存帖子以定位问题...');
+          const problemPosts: string[] = [];
+          
+          // Test each post for JSON serialization
+          posts.forEach((post, index) => {
+            try {
+              JSON.stringify(post);
+            } catch (err) {
+              problemPosts.push(`Post #${index} with ID ${post.id || 'unknown'}`);
+            }
+          });
+          
+          if (problemPosts.length > 0) {
+            console.error(`【朋友圈服务】发现 ${problemPosts.length} 个问题帖子:`, problemPosts);
+          }
+        } catch (diagError) {
+          console.error('【朋友圈服务】分批诊断失败:', diagError);
+        }
+      }
+      
+      return false;
+    }
+  }
+  
+  /**
+   * NEW: Check storage integrity and attempt recovery if needed
+   */
+  static async checkStorageIntegrity(): Promise<boolean> {
+    try {
+      console.log('【朋友圈服务】开始检查存储完整性');
+      const storedPosts = await AsyncStorage.getItem('circle_posts');
+      
+      if (!storedPosts) {
+        console.log('【朋友圈服务】存储中没有帖子数据，正常空状态');
+        return true;
+      }
+      
+      try {
+        // Attempt to parse the JSON
+        const posts = JSON.parse(storedPosts) as CirclePost[];
+        
+        if (!Array.isArray(posts)) {
+          console.error('【朋友圈服务】存储的帖子不是数组格式，需要修复');
+          await AsyncStorage.setItem('circle_posts', JSON.stringify([]));
+          return false;
+        }
+        
+        // Check for any invalid posts
+        const validPosts = posts.filter(post => !!post && typeof post === 'object' && post.id);
+        if (validPosts.length !== posts.length) {
+          console.log(`【朋友圈服务】存储中存在 ${posts.length - validPosts.length} 个无效帖子，已修复`);
+          await AsyncStorage.setItem('circle_posts', JSON.stringify(validPosts));
+        }
+        
+        console.log(`【朋友圈服务】存储检查完成，${validPosts.length} 条有效帖子`);
+        return true;
+      } catch (parseError) {
+        console.error('【朋友圈服务】存储中的数据无法解析，重置存储:', parseError);
+        await AsyncStorage.setItem('circle_posts', JSON.stringify([]));
+        return false;
+      }
+    } catch (error) {
+      console.error('【朋友圈服务】检查存储完整性时出错:', error);
       return false;
     }
   }
@@ -1196,12 +1404,16 @@ export class CircleService {
       
       // 先添加存储的帖子
       storedPosts.forEach(post => {
-        postMap.set(post.id, post);
+        if (post && post.id) { // 添加额外检查确保帖子有效
+          postMap.set(post.id, post);
+        } else {
+          console.warn('【朋友圈服务】发现无效的帖子对象，已跳过');
+        }
       });
       
       // 然后添加内存中的帖子（如果存储中不存在）
       savedPosts.forEach(post => {
-        if (!postMap.has(post.id)) {
+        if (post && post.id && !postMap.has(post.id)) {
           postMap.set(post.id, post);
         }
       });
@@ -1275,11 +1487,11 @@ export class CircleService {
         if (post.comments) {
           post.comments = post.comments.map(comment => {
             if (comment.type === 'character') {
-              const character = characters.find(c => c.id === comment.userId);
-              if (character) {
+              const commentCharacter = characters.find(c => c.id === comment.userId);
+              if (commentCharacter) {
                 return { 
                   ...comment, 
-                  userAvatar: character.avatar || comment.userAvatar 
+                  userAvatar: commentCharacter.avatar || comment.userAvatar 
                 };
               }
             }
@@ -1415,6 +1627,14 @@ export class CircleService {
         const updatedPosts = allPosts.map(p => 
           p.id === updatedPost.id ? updatedPost : p
         );
+        
+        // Check if the post already exists in the list
+        const existingPostIndex = updatedPosts.findIndex(p => p.id === updatedPost.id);
+        if (existingPostIndex === -1) {
+          // Add the post if it doesn't exist
+          updatedPosts.unshift(updatedPost);
+        }
+        
         await this.savePosts(updatedPosts);
         console.log(`【朋友圈服务】已保存带有所有角色响应(${responses.filter(r => r.success).length}个)的用户帖子`);
       } catch (updateError) {
@@ -1441,69 +1661,6 @@ export class CircleService {
         },
         responses: []
       };
-    }
-  }
-  
-  /**
-   * Test multiple posts for interaction and get relationship updates
-   */
-  static async runBatchInteractionTest(
-    characters: Character[],
-    postCount: number = 3,
-    apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
-  ): Promise<{
-    posts: CirclePost[],
-    updates: Array<{characterId: string, changes: any}>
-  }> {
-    try {
-      console.log(`【朋友圈服务】开始批量互动测试，生成 ${postCount} 条测试帖子，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
-      
-      const testPosts: CirclePost[] = [];
-      const characterUpdates: Array<{characterId: string, changes: any}> = [];
-      
-      // Generate test posts
-      for (let i = 0; i < postCount; i++) {
-        // Ensure apiSettings are correctly passed to publishTestPost
-        const { post, author } = await this.publishTestPost(characters, apiKey, apiSettings);
-        if (post && author) {
-          testPosts.push(post);
-          
-          // Process interactions for this post - ensure apiSettings are passed here too
-          const { updatedPost, updatedCharacters } = await this.processTestInteraction(
-            post,
-            characters.filter(c => c.id !== author.id && c.circleInteraction),
-            apiKey,
-            apiSettings
-          );
-          
-          // Record character updates
-          updatedCharacters.forEach(updatedChar => {
-            characterUpdates.push({
-              characterId: updatedChar.id,
-              changes: {
-                relationshipMap: updatedChar.relationshipMap,
-                messageBox: updatedChar.messageBox,
-                relationshipActions: updatedChar.relationshipActions
-              }
-            });
-          });
-          
-          // Save the test post
-          const savedPosts = await this.loadSavedPosts();
-          await this.savePosts([updatedPost, ...savedPosts]);
-        }
-      }
-      
-      console.log(`【朋友圈服务】批量互动测试完成，生成了 ${testPosts.length} 条帖子，${characterUpdates.length} 个角色更新`);
-      
-      return {
-        posts: testPosts,
-        updates: characterUpdates
-      };
-    } catch (error) {
-      console.error(`【朋友圈服务】批量互动测试失败:`, error);
-      return { posts: [], updates: [] };
     }
   }
 }

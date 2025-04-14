@@ -99,9 +99,11 @@ export class CircleManager {
 
     private async saveJson(key: string, data: any): Promise<void> {
         try {
-            await AsyncStorage.setItem(key, JSON.stringify(data));
+            const jsonString = JSON.stringify(data);
+            console.log(`【CircleManager】保存数据到 ${key}, 数据大小: ${jsonString.length} 字符`);
+            await AsyncStorage.setItem(key, jsonString);
         } catch (error) {
-            console.error(`保存数据失败，键名: ${key}:`, error);
+            console.error(`【CircleManager】保存数据失败，键名: ${key}:`, error);
             throw error;
         }
     }
@@ -109,9 +111,15 @@ export class CircleManager {
     private async loadJson<T>(key: string): Promise<T | null> {
         try {
             const data = await AsyncStorage.getItem(key);
-            return data ? JSON.parse(data) : null;
+            if (!data) {
+                console.log(`【CircleManager】未找到数据，键名: ${key}`);
+                return null;
+            }
+            
+            console.log(`【CircleManager】加载数据成功，键名: ${key}, 数据大小: ${data.length} 字符`);
+            return JSON.parse(data);
         } catch (error) {
-            console.error(`加载数据失败，键名: ${key}:`, error);
+            console.error(`【CircleManager】加载数据失败，键名: ${key}:`, error);
             return null;
         }
     }
@@ -275,6 +283,7 @@ export class CircleManager {
             throw new Error('保存角色社交互动记忆失败');
         }
     }
+
     async initCharacterCircle(characterId: string): Promise<boolean> {
         try {
             console.log(`【CircleManager】初始化角色朋友圈: ${characterId}, apiKey存在: ${!!this.apiKey}`);
@@ -317,6 +326,7 @@ export class CircleManager {
             return false;
         }
     }    
+
     // CircleManager specific methods
     async circleInit(character: Character): Promise<boolean> {
         try {

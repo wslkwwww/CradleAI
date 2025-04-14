@@ -31,7 +31,6 @@ import { ActionService } from '@/services/action-service';
 import RelationshipTestResults, { RelationshipTestResult } from '@/components/RelationshipTestResults';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
 import FavoriteList from '@/components/FavoriteList';
 import ImageViewer from '@/components/ImageViewer';
 import CharacterInteractionSettings from '@/components/CharacterInteractionSettings';
@@ -327,7 +326,7 @@ const Explore: React.FC = () => {
     }
   }, [characters, user?.settings?.chat?.characterApiKey]);
 
-  // Load posts with test post if in test mode
+  // Update the loadPosts function to properly fetch from storage
   const loadPosts = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -340,14 +339,37 @@ const Explore: React.FC = () => {
         return;
       }
 
+      console.log('【朋友圈】开始从存储加载帖子');
       // Load posts from AsyncStorage and merge with character posts
       const storedPosts = await CircleService.loadSavedPosts();
+      console.log(`【朋友圈】成功从存储加载了 ${storedPosts.length} 条帖子`);
+      
+      // Get user favorites (for user-posted content)
+      let userFavorites: string[] = [];
+      try {
+        const storedUserFavorites = await AsyncStorage.getItem('user_favorited_posts');
+        if (storedUserFavorites) {
+          userFavorites = JSON.parse(storedUserFavorites);
+        }
+      } catch (error) {
+        console.error('Failed to load user favorites:', error);
+      }
       
       // Process posts without calling refreshPosts
       const postsWithFavoriteStatus = storedPosts.map(post => {
         // Update character avatars and other information
         const character = characters.find(c => c.id === post.characterId);
-        const isFavorited = character?.favoritedPosts?.includes(post.id) || false;
+        
+        // Check if post is favorited - handle both character and user posts
+        let isFavorited = false;
+        
+        if (post.characterId === 'user-1') {
+          // For user posts, check the user favorites list
+          isFavorited = userFavorites.includes(post.id);
+        } else if (character) {
+          // For character posts, check the character's favorited posts
+          isFavorited = character.favoritedPosts?.includes(post.id) || false;
+        }
         
         // Update avatar if a character post
         if (character && post.characterId !== 'user-1') {
@@ -388,7 +410,7 @@ const Explore: React.FC = () => {
       );
       
       setPosts(postsWithFavoriteStatus);
-      console.log(`【朋友圈】加载了 ${postsWithFavoriteStatus.length} 条帖子`);
+      console.log(`【朋友圈】已加载并处理 ${postsWithFavoriteStatus.length} 条帖子`);
       
     } catch (err) {
       console.error('【朋友圈】加载帖子失败:', err);
@@ -397,64 +419,21 @@ const Explore: React.FC = () => {
       setIsLoading(false);
     }
   }, [characters, testModeEnabled, testPost]);
-  
-  // Add useFocusEffect to load posts when the tab is focused
-  useFocusEffect(
-    useCallback(() => {
-      if (characters.length > 0 && activeTab === 'circle') {
-        loadPosts();
-      }
-    }, [characters, loadPosts, activeTab])
-  );
 
-  // Update post avatars when characters or user changes
+  // Add a specific effect hook to load posts on component mount
   useEffect(() => {
-    setPosts(prevPosts => prevPosts.map(post => {
-      // Update poster avatar
-      const posterCharacter = characters.find(c => c.id === post.characterId);
-      const updatedPost = {
-        ...post,
-        characterAvatar: posterCharacter?.avatar || null
-      };
-
-      // Update avatars in likes and comments
-      if (updatedPost.likedBy) {
-        updatedPost.likedBy = updatedPost.likedBy.map(like => {
-          if (like.isCharacter) {
-            const character = characters.find(c => c.id === like.userId);
-            return { 
-              ...like, 
-              userAvatar: character?.avatar || undefined 
-            };
-          } else {
-            return { 
-              ...like, 
-              userAvatar: user?.avatar || undefined 
-            };
-          }
-        });
-      }
-
-      if (updatedPost.comments) {
-        updatedPost.comments = updatedPost.comments.map(comment => {
-          if (comment.type === 'character') {
-            const character = characters.find(c => c.id === comment.userId);
-            return { 
-              ...comment, 
-              userAvatar: character?.avatar || undefined 
-            };
-          } else {
-            return { 
-              ...comment, 
-              userAvatar: user?.avatar || undefined 
-            };
-          }
-        });
-      }
-
-      return updatedPost;
-    }));
-  }, [characters, user]);
+    console.log('【朋友圈】初始化加载帖子');
+    loadPosts();
+    
+    // Check storage integrity on component mount
+    CircleService.checkStorageIntegrity()
+      .then(isValid => {
+        console.log(`【朋友圈】存储完整性检查结果: ${isValid ? '正常' : '需要修复'}`);
+      })
+      .catch(error => {
+        console.error('【朋友圈】存储完整性检查失败:', error);
+      });
+  }, [loadPosts]);
 
   // Like handling
   const handleLike = useCallback(async (post: CirclePost) => {
@@ -521,6 +500,117 @@ const Explore: React.FC = () => {
       Alert.alert('操作失败', '无法完成点赞操作');
     }
   }, [characters, posts, updateCharacter, user]);
+
+  // Updated handleFavorite function to use the new CircleService.toggleFavoritePost method
+  const handleFavorite = useCallback(async (post: CirclePost) => {
+    try {
+      const characterId = post.characterId;
+      if (!characterId) {
+        console.error('Post has no associated characterId:', post);
+        return;
+      }
+      
+      // Get current favorite status to toggle
+      const newFavoriteStatus = !post.isFavorited;
+      
+      // Update local posts state immediately for UI feedback
+      setPosts(prevPosts => prevPosts.map(p => {
+        if (p.id === post.id) {
+          return { ...p, isFavorited: newFavoriteStatus };
+        }
+        return p;
+      }));
+      
+      console.log(`[朋友圈] ${newFavoriteStatus ? '收藏' : '取消收藏'} 帖子:`, post.id);
+      
+      // Use different handling for user posts vs character posts
+      if (characterId === 'user-1') {
+        // Create a placeholder "character" for user favorites with minimum required fields
+        const userCharacter: Character = {
+          id: 'user-1',
+          name: user?.settings?.self.nickname || '我',
+          favoritedPosts: [], // Will be populated in toggleFavoritePost
+          // Add required fields from Character interface
+          avatar: null,
+          backgroundImage: null,
+          description: '',
+          personality: '',
+          interests: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        
+        // Get existing favorited posts for user if any
+        const userFavorites = await AsyncStorage.getItem('user_favorited_posts');
+        if (userFavorites) {
+          userCharacter.favoritedPosts = JSON.parse(userFavorites);
+        }
+        
+        // Use the new method for user favorites
+        const success = await CircleService.toggleFavoritePost(
+          userCharacter,
+          post.id,
+          newFavoriteStatus
+        );
+        
+        if (!success) {
+          throw new Error('Failed to update user favorites');
+        }
+      } else {
+        // For regular character posts
+        const character = characters.find(c => c.id === characterId);
+        if (!character) {
+          console.error(`Character with ID ${characterId} not found`);
+          return;
+        }
+        
+        // Use the new method
+        const success = await CircleService.toggleFavoritePost(
+          character,
+          post.id, 
+          newFavoriteStatus
+        );
+        
+        if (!success) {
+          throw new Error('Failed to update character favorites');
+        }
+        
+        // Then persist the change through toggleFavorite for character data updates
+        await toggleFavorite(character.id, post.id);
+      }
+      
+      // Also update AsyncStorage post data with the new favorite status
+      try {
+        // IMPORTANT: Don't update post content, only the favorite status
+        const storedPosts = await AsyncStorage.getItem('circle_posts');
+        if (storedPosts) {
+          const parsedPosts = JSON.parse(storedPosts);
+          const updatedPosts = parsedPosts.map((p: CirclePost) => {
+            if (p.id === post.id) {
+              // Keep all original properties, just update isFavorited
+              return { ...p, isFavorited: newFavoriteStatus };
+            }
+            return p;
+          });
+          await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
+        }
+      } catch (storageError) {
+        console.error('Failed to update post favorite status in AsyncStorage:', storageError);
+      }
+      
+    } catch (error) {
+      // If error occurs, revert the UI change
+      setPosts(prevPosts => prevPosts.map(p => {
+        if (p.id === post.id) {
+          return { ...p, isFavorited: !p.isFavorited };
+        }
+        return p;
+      }));
+      
+      console.error('【朋友圈】收藏操作失败:', error);
+      Alert.alert('操作失败', '无法完成收藏操作');
+    }
+  }, [characters, toggleFavorite, user?.settings?.self.nickname]);
 
   // Add function to handle image selection
   const handleSelectImages = async () => {
@@ -660,30 +750,49 @@ const Explore: React.FC = () => {
         openrouter: user?.settings?.chat?.openrouter
       };
       
-      let selectedCharacters = characters;
+      let targetCharacters: Character[] = [];
       
       // If a specific character is selected for publishing, filter to only that character
       if (selectedPublishCharacterId) {
-        selectedCharacters = characters.filter(c => c.id === selectedPublishCharacterId);
-        if (selectedCharacters.length === 0) {
+        const selectedChar = characters.find(c => c.id === selectedPublishCharacterId);
+        if (!selectedChar) {
           Alert.alert('错误', '所选角色不可用');
+          setPublishingPost(false);
           return;
         }
+        
+        // Use only the selected character (as a single-element array)
+        targetCharacters = [selectedChar];
+        console.log(`【朋友圈】使用指定角色发布: ${selectedChar.name}, ID: ${selectedChar.id}`);
+      } else {
+        // If no specific character is selected, use characters with circle interaction enabled
+        targetCharacters = characters.filter(c => c.circleInteraction);
+        console.log(`【朋友圈】使用随机角色发布，共有 ${targetCharacters.length} 个可用角色`);
       }
       
-      // 使用CircleService创建测试帖子
-      const { post, author } = await CircleService.publishTestPost(selectedCharacters, apiKey, apiSettings);
-      
-      if (!post || !author) {
-        Alert.alert('发布失败', '没有可用的角色或发布过程中出现错误');
+      if (targetCharacters.length === 0) {
+        Alert.alert('发布失败', '没有可用的角色，请确保至少有一个角色启用了朋友圈互动');
+        setPublishingPost(false);
         return;
       }
+      
+      // 使用CircleService创建测试帖子，传入筛选后的角色列表
+      const { post, author } = await CircleService.publishTestPost(targetCharacters, apiKey, apiSettings);
+      
+      if (!post || !author) {
+        Alert.alert('发布失败', '发布过程中出现错误');
+        setPublishingPost(false);
+        return;
+      }
+      
+      console.log(`【朋友圈】帖子成功创建，作者: ${author.name}, ID: ${post.id}`);
       
       // Check if the post already exists to prevent duplicates
       const postExists = posts.some(p => p.id === post.id);
       if (postExists) {
         console.log(`【朋友圈测试】帖子已存在，ID: ${post.id}，避免重复添加`);
         Alert.alert('发布成功', `${author.name} 发布了新朋友圈`);
+        setPublishingPost(false);
         return;
       }
       
@@ -949,43 +1058,6 @@ const Explore: React.FC = () => {
     }
   }, [activePostId]);
 
-  const handleFavorite = useCallback(async (post: CirclePost) => {
-    try {
-      const character = characters.find(c => c.id === post.characterId);
-      if (!character) return;
-      
-      // Toggle favorite status first to provide immediate UI feedback
-      const newFavoriteStatus = !post.isFavorited;
-      
-      // Update local posts state immediately for UI feedback
-      setPosts(prevPosts => prevPosts.map(p => {
-        if (p.id === post.id) {
-          return { ...p, isFavorited: newFavoriteStatus };
-        }
-        return p;
-      }));
-      
-      // Then persist the change through the context
-      await toggleFavorite(character.id, post.id);
-      
-      // Show feedback
-      const actionText = newFavoriteStatus ? '已加入收藏' : '已取消收藏';
-      console.log(`【朋友圈】${actionText}: ${post.characterName} 的帖子`);
-      
-    } catch (error) {
-      // If error occurs, revert the UI change
-      setPosts(prevPosts => prevPosts.map(p => {
-        if (p.id === post.id) {
-          return { ...p, isFavorited: !p.isFavorited };
-        }
-        return p;
-      }));
-      
-      console.error('【朋友圈】收藏操作失败:', error);
-      Alert.alert('操作失败', '无法完成收藏操作');
-    }
-  }, [characters, toggleFavorite]);
-
   // Toggle test mode and run the test
   const toggleTestMode = useCallback(async () => {
     const newTestMode = !testModeEnabled;
@@ -1034,11 +1106,13 @@ const Explore: React.FC = () => {
             }
             renderItem={({ item }) => (
               <TouchableOpacity 
-                style={styles.characterItem}
+                style={[
+                  styles.characterItem,
+                  selectedPublishCharacterId === item.id ? styles.selectedCharacterItem : null
+                ]}
                 onPress={() => {
                   setSelectedPublishCharacterId(item.id);
-                  setShowPublishCharacterSelector(false);
-                  handlePublishTestPost();
+                  console.log(`【朋友圈】已选择角色 ${item.name}, ID: ${item.id}`);
                 }}
               >
                 <Image 
@@ -1051,22 +1125,42 @@ const Explore: React.FC = () => {
                     发布频率: {item.circlePostFrequency || 'medium'}
                   </Text>
                 </View>
-                <MaterialIcons name="arrow-forward-ios" size={16} color={theme.colors.textSecondary} />
+                {selectedPublishCharacterId === item.id && (
+                  <Ionicons name="checkmark-circle" size={20} color={theme.colors.accent} />
+                )}
               </TouchableOpacity>
             )}
             contentContainerStyle={{ padding: 16 }}
           />
           
-          <TouchableOpacity
-            style={styles.randomCharacterButton}
-            onPress={() => {
-              setSelectedPublishCharacterId(null);
-              setShowPublishCharacterSelector(false);
-              handlePublishTestPost();
-            }}
-          >
-            <Text style={styles.randomButtonText}>随机选择角色</Text>
-          </TouchableOpacity>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={styles.randomCharacterButton}
+              onPress={() => {
+                setSelectedPublishCharacterId(null);
+                setShowPublishCharacterSelector(false);
+                handlePublishTestPost();
+              }}
+            >
+              <Text style={styles.randomButtonText}>随机选择角色</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.confirmButton,
+                !selectedPublishCharacterId ? styles.disabledButton : null
+              ]}
+              disabled={!selectedPublishCharacterId}
+              onPress={() => {
+                if (selectedPublishCharacterId) {
+                  setShowPublishCharacterSelector(false);
+                  handlePublishTestPost();
+                }
+              }}
+            >
+              <Text style={styles.confirmButtonText}>确认选择</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -2195,6 +2289,32 @@ const styles = StyleSheet.create({
   randomButtonText: {
     color: theme.colors.text,
     fontSize: 16,
+    fontWeight: '500',
+  },
+  selectedCharacterItem: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  confirmButton: {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100,
+  },
+  confirmButtonText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSizes.md,
     fontWeight: '500',
   },
   emptySubText: {

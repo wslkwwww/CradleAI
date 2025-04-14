@@ -76,7 +76,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
               },
               self: {
-                nickname: 'Me',
+                nickname: '我',
                 gender: 'other',
                 description: ''
               }
