@@ -11,7 +11,7 @@ export interface ScenePromptParams {
   context?: string;
   hasImages: boolean;
   charDescription: string;
-  charName?: string; // Add character name parameter
+  charName?: string;
   userIdentification?: string;
   conversationHistory?: string;
   characterJsonData?: string;
@@ -27,12 +27,14 @@ export const CirclePrompts = {
 【内容】${params.contentText}
 ${params.hasImages ? "【图片内容】动态中包含图片，图片是帖子的核心内容" : ""}
 ${params.context ? `【上下文】${params.context}` : ''}
+${params.conversationHistory ? `【历史对话记录】\n${params.conversationHistory}` : ''}
 
 请你以${params.charName ? params.charName : ''}的身份（${params.charDescription.substring(0, 50)}），考虑以下几点：
 1. 这是在私聊中用户转发给你的朋友圈，而不是你在浏览朋友圈
 2. 你可能认识也可能不认识发朋友圈的人
 3. 如果发朋友圈的人是你自己，请对"用户看了你的朋友圈并转发给你"这个行为做出反应
 ${params.hasImages ? "4. 这条朋友圈包含图片，请优先对图片内容做出详细回应，在回复中直接提及你看到的图片具体内容" : ""}
+${params.conversationHistory ? "5. 请参考上方的历史对话记录，保持对话的连贯性和一致性，体现出你对之前交流内容的记忆" : ""}
 
 请以JSON格式提供你的回应：
 {
@@ -55,6 +57,7 @@ ${params.hasImages ? "4. 这条朋友圈包含图片，请优先对图片内容�
 这次发布可能的主题是：${params.contentText}
 ${params.context ? `【上下文】${params.context}` : ''}
 ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : ''}
+${params.conversationHistory ? `【与用户的历史对话】\n${params.conversationHistory}` : ''}
 
 请以JSON格式提供你的朋友圈帖子：
 {
@@ -66,7 +69,7 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
   }
 }
 
-确保内容符合你的角色人设，展现出你独特的性格和表达方式。`,
+确保内容符合你的角色人设，展现出你独特的性格和表达方式。${params.conversationHistory ? '如果可能，可以巧妙地融入你与用户之前交流中提到的话题或内容，增强连贯性。' : ''}`,
 
   /**
    * Prompt for when a character sees their own post
@@ -76,6 +79,7 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
 【你发布的内容】${params.context || '无'}
 ${params.hasImages ? "该动态包含图片内容，请首先关注【图片描述】部分，这是对图片内容的详细描述。" : ''}
 【${params.userIdentification || '某人'}的回复】${params.contentText}
+${params.conversationHistory ? `【你与${params.userIdentification || '对方'}的历史对话】\n${params.conversationHistory}` : ''}
 
 基于你的角色性格，请以JSON格式回应：
 - 你对这个回复的感受
@@ -85,7 +89,7 @@ ${params.hasImages ? "该动态包含图片内容，请首先关注【图片描�
 回复，不要包含任何其他文字：
 {
   "thoughts": "你对这条回复的内心想法（不会展示给对方）",
-  "response": "你对这条评论的回复",
+  "response": "你对这条评论的回复${params.conversationHistory ? '，保持与历史对话的连贯性' : ''}",
   "emotion": {
     "type": "positive/neutral/negative",
     "intensity": 0.0-1.0
@@ -132,6 +136,7 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
 【内容】${params.contentText}
 【上下文】${params.context || '无'}
 ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : ''}
+${params.conversationHistory ? `【你与${params.authorName === '用户' || params.userIdentification ? '用户' : '对方'}的历史对话】\n${params.conversationHistory}` : ''}
 
 请特别注意：这条动态包含图片内容，图片是帖子内容的重要组成部分。你看到的是图片的详细描述，应该主要对图片内容进行回应，而不是仅关注文字内容。
 
@@ -140,6 +145,7 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
 2. 你对图片中的内容有什么感受？
 3. 图片内容如何影响你的回应方式？
 4. 基于你的角色设定，你会如何回应这张图片？
+${params.conversationHistory ? '5. 如何让你的回应与之前的对话保持连贯性？' : ''}
 
 然后，以JSON格式提供你的回应：
 - 包含你看到这张图片时的内心想法（不会展示给对方）
@@ -152,7 +158,7 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
   "thoughts": "你看到这条朋友圈的内心想法（不会展示给对方）",
   "action": {
     "like": true/false,
-    "comment": "你对图片的具体评论，必须明确提及图片中的内容"
+    "comment": "你对图片的具体评论，必须明确提及图片中的内容${params.conversationHistory ? '，应与历史对话保持连贯性' : ''}"
   },
   "emotion": {
     "type": "positive/neutral/negative",
@@ -169,6 +175,7 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
 【内容】${params.contentText}
 【上下文】${params.context || '无'}
 ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : ''}
+${params.conversationHistory ? `【你与${params.authorName === '用户' || params.userIdentification ? '用户' : '对方'}的历史对话】\n${params.conversationHistory}` : ''}
 ${params.hasImages ? "该动态包含图片内容，请首先关注【图片描述】部分，这是对图片内容的详细描述。你的回应应该主要基于图片内容，而不仅仅是动态的文字。" : ''}
 
 基于你的角色性格，请以JSON格式回应：
@@ -182,7 +189,7 @@ ${params.hasImages ? "该动态包含图片内容，请首先关注【图片描�
   "thoughts": "你看到这条朋友圈的内心想法（不会展示给对方）",
   "action": {
     "like": true/false,
-    "comment": "你的评论内容（如不评论则省略此字段）"
+    "comment": "你的评论内容${params.conversationHistory ? '，应与历史对话保持连贯性' : ''}（如不评论则省略此字段）"
   },
   "emotion": {
     "type": "positive/neutral/negative",
@@ -199,14 +206,14 @@ ${params.hasImages ? "该动态包含图片内容，请首先关注【图片描�
 【评论内容】${params.contentText}
 【评论作者】${params.userIdentification || '某人'}
 ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : ''}
-${params.conversationHistory ? `【历史对话记录】\n${params.conversationHistory}` : ''}
+${params.conversationHistory ? `【你与${params.userIdentification === '用户' ? '用户' : '对方'}的历史对话】\n${params.conversationHistory}` : ''}
 
 请特别注意上方的【图片描述】部分，这是对图片内容的详细描述。你的回复应该对图片内容和评论文本都做出响应。
 
 作为角色 ${params.charName ? params.charName : ''}（${params.charDescription.substring(0, 50)}），请基于图片内容和你的角色特点：
 1. 考虑图片内容如何影响你对评论的回应
 2. 在回复中提及图片中的具体元素
-${params.conversationHistory ? '3. 回应应保持与上方历史对话的连贯性' : ''}
+${params.conversationHistory ? '3. 回应应保持与上方历史对话的连贯性，表现出你对之前对话内容的记忆' : ''}
 
 然后，以JSON格式提供你的回应：
 - 包含你看到这条评论时的内心想法（不会展示给对方）
@@ -219,7 +226,7 @@ ${params.conversationHistory ? '3. 回应应保持与上方历史对话的连贯
   "thoughts": "你看到这条评论的内心想法（不会展示给对方）",
   "action": {
     "like": true/false,
-    "comment": "你的回复内容，提及图片和评论"
+    "comment": "你的回复内容，提及图片和评论${params.conversationHistory ? '，并与历史对话保持连贯' : ''}"
   },
   "emotion": {
     "type": "positive/neutral/negative",
@@ -237,7 +244,7 @@ ${params.hasImages ? "该动态包含图片内容，请首先关注【图片描�
 【评论内容】${params.contentText}
 【评论作者】${params.userIdentification || '某人'}
 ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : ''}
-${params.conversationHistory ? `【历史对话记录】\n${params.conversationHistory}` : ''}
+${params.conversationHistory ? `【你与${params.userIdentification === '用户' ? '用户' : '对方'}的历史对话】\n${params.conversationHistory}` : ''}
 
 基于你的角色性格，请以JSON格式回应：
 - 包含你看到这条评论时的内心想法（不会展示给对方）
@@ -250,7 +257,7 @@ ${params.conversationHistory ? `【历史对话记录】\n${params.conversationH
   "thoughts": "你看到这条评论的内心想法（不会展示给对方）",
   "action": {
     "like": true/false,
-    "comment": "你对评论的回复内容（如不回复则省略此字段）"
+    "comment": "你对评论的回复内容${params.conversationHistory ? '，应与历史对话保持连贯性' : ''}（如不回复则省略此字段）"
   },
   "emotion": {
     "type": "positive/neutral/negative",

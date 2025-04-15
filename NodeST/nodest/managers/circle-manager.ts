@@ -6,6 +6,7 @@ import { OpenRouterAdapter } from '../utils/openrouter-adapter';
 import { MessageBoxItem, RelationshipMapData } from '../../../shared/types/relationship-types';
 import { PromptBuilderService, DEntry, RFrameworkEntry } from '../services/prompt-builder-service';
 import CirclePrompts, { defaultScenePrompt, ScenePromptParams } from '@/prompts/circle-prompts';
+import { StorageAdapter } from '../utils/storage-adapter';
 
 export { CirclePostOptions, CircleResponse };
 export class CircleManager {
@@ -386,6 +387,32 @@ export class CircleManager {
         }
     }
 
+    // 新增：获取角色与用户的聊天历史记录
+    private async getCharacterUserChatHistory(characterId: string): Promise<string> {
+        try {
+            // 使用 StorageAdapter 获取最近的消息（限制为10条）
+            const messages = await StorageAdapter.getRecentMessages(characterId, 10);
+            
+            if (!messages || messages.length === 0) {
+                console.log(`【CircleManager】未找到角色 ${characterId} 的聊天历史记录`);
+                return '';
+            }
+            
+            console.log(`【CircleManager】获取到角色 ${characterId} 的最近 ${messages.length} 条聊天记录`);
+            
+            // 格式化消息为可读文本
+            const formattedHistory = messages.map((msg, idx) => {
+                const role = msg.role === 'user' ? '用户' : '角色';
+                return `${idx + 1}. ${role}: ${msg.parts?.[0]?.text || ''}`;
+            }).join('\n');
+            
+            return formattedHistory;
+        } catch (error) {
+            console.error(`【CircleManager】获取角色 ${characterId} 的聊天历史记录失败:`, error);
+            return '';
+        }
+    }
+
     // 更新circlePost方法，支持apiKey参数和多种交互类型
     async circlePost(options: CirclePostOptions, apiKey?: string): Promise<CircleResponse> {
         try {
@@ -418,6 +445,7 @@ export class CircleManager {
             }
             
             // 3. 构建R框架条目
+            const updatedFramework = await this.getScenePromptByType(framework, options);
             const rFramework: RFrameworkEntry[] = [
               // 角色描述
               PromptBuilderService.createRFrameworkEntry({
@@ -436,7 +464,7 @@ export class CircleManager {
               // 场景提示词
               PromptBuilderService.createRFrameworkEntry({
                 name: "Scene Prompt",
-                content: this.getScenePromptByType(framework, options).circle.scenePrompt,
+                content: updatedFramework.circle.scenePrompt,
                 identifier: "scenePrompt"
               })
             ];
@@ -616,6 +644,28 @@ export class CircleManager {
                 circleResponse
             );
 
+            // 如果是用户互动，保存到聊天历史记录
+            if ((options.content.authorId === 'user-1' || options.type === 'replyToComment') && 
+                circleResponse.success && options.responderId && 
+                (circleResponse.action?.comment || circleResponse.response)) {
+                
+                const userMessage = options.content.text;
+                const aiResponse = circleResponse.action?.comment || circleResponse.response || '';
+                
+                if (userMessage && aiResponse) {
+                    try {
+                        await StorageAdapter.storeMessageExchange(
+                            options.responderId,
+                            userMessage,
+                            aiResponse
+                        );
+                        console.log(`【朋友圈】已保存用户-角色对话到聊天历史记录`);
+                    } catch (storageError) {
+                        console.error(`【朋友圈】保存对话到聊天历史记录失败:`, storageError);
+                    }
+                }
+            }
+
             console.log(`【朋友圈】成功处理互动，结果:`, circleResponse);
             return circleResponse;
         } catch (error) {
@@ -628,7 +678,7 @@ export class CircleManager {
     }
 
     // 新增：根据互动类型获取适当的场景提示词
-    private getScenePromptByType(framework: CircleRFramework, options: CirclePostOptions): CircleRFramework {
+    private async getScenePromptByType(framework: CircleRFramework, options: CirclePostOptions): Promise<CircleRFramework> {
         const updatedFramework = { ...framework };
         
         // 准备要显示的内容
@@ -658,6 +708,13 @@ export class CircleManager {
         // 获取角色名称 - 添加这一段以确保角色名称传递给提示词
         const charName = options.responderCharacter?.name || '';
         
+        // 获取聊天历史记录
+        let chatHistory = '';
+        if (isUserComment && options.responderId) {
+            chatHistory = await this.getCharacterUserChatHistory(options.responderId);
+            console.log(`【CircleManager】为用户-角色互动添加聊天历史记录，长度: ${chatHistory.length}`);
+        }
+        
         // 准备场景参数
         const params: ScenePromptParams = {
             contentText,
@@ -667,8 +724,8 @@ export class CircleManager {
             charDescription: framework.base.charDescription,
             charName, // 添加角色名称
             userIdentification,
-            // Pass conversation history if available
-            conversationHistory: options.content.conversationHistory,
+            // Add chat history if available
+            conversationHistory: chatHistory || options.content.conversationHistory,
             // Pass character JSON data if available
             characterJsonData: options.content.characterJsonData
         };

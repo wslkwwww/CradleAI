@@ -5,6 +5,7 @@ import { CirclePost, CircleComment, CircleLike } from '../shared/types/circle-ty
 import { RelationshipService } from './relationship-service';
 import { CircleScheduler } from './circle-scheduler';
 import AsyncStorage from '@react-native-async-storage/async-storage'; // Add this import
+import { StorageAdapter } from '../NodeST/nodest/utils/storage-adapter'; // Add this import
 
 // 创建具有apiKey的单例实例
 let nodeST: NodeST | null = null;
@@ -86,6 +87,23 @@ export class CircleService {
         };
       }
       
+      // 获取角色与用户的聊天历史记录
+      let chatHistory = '';
+      try {
+        // 获取最近10条聊天记录
+        const recentMessages = await StorageAdapter.getRecentMessages(character.id, 10);
+        if (recentMessages && recentMessages.length > 0) {
+          chatHistory = recentMessages.map((msg, idx) => {
+            const speaker = msg.role === 'user' ? (character.customUserName || '用户') : character.name;
+            return `${idx + 1}. ${speaker}: ${msg.parts?.[0]?.text || ''}`;
+          }).join('\n');
+          console.log(`【朋友圈服务】已获取角色 ${character.name} 的最近 ${recentMessages.length} 条聊天记录用于创建新帖子`);
+        }
+      } catch (historyError) {
+        console.warn(`【朋友圈服务】获取角色 ${character.name} 的聊天历史失败:`, historyError);
+        // 继续执行，不依赖于聊天历史记录
+      }
+      
       // 创建帖子选项，传入角色对象以确保初始化
       const postOptions: CirclePostOptions = {
         type: 'newPost',
@@ -93,7 +111,8 @@ export class CircleService {
           authorId: character.id,
           authorName: character.name,
           text: content,
-          context: `这是${character.name}发布的新朋友圈`
+          context: `这是${character.name}发布的新朋友圈`,
+          conversationHistory: chatHistory // 添加聊天历史记录
         },
         responderId: character.id, // responderId和authorId相同
         responderCharacter: character // 添加角色对象
@@ -256,20 +275,39 @@ export class CircleService {
           error: `不允许回复自己的帖子`
         };
       }
+
+      // 获取聊天历史记录，如果是对用户帖子的回复
+      let chatHistory = '';
+      if (post.characterId === 'user-1') {
+        try {
+          // 获取最近10条聊天记录
+          const recentMessages = await StorageAdapter.getRecentMessages(character.id, 10);
+          if (recentMessages && recentMessages.length > 0) {
+            chatHistory = recentMessages.map((msg, idx) => {
+              const speaker = msg.role === 'user' ? (character.customUserName || '用户') : character.name;
+              return `${idx + 1}. ${speaker}: ${msg.parts?.[0]?.text || ''}`;
+            }).join('\n');
+            console.log(`【朋友圈服务】已获取角色 ${character.name} 与用户的最近 ${recentMessages.length} 条聊天记录`);
+          }
+        } catch (historyError) {
+          console.warn(`【朋友圈服务】获取角色 ${character.name} 的聊天历史记录失败:`, historyError);
+        }
+      }
       
       // Use the provided postOptions if available, otherwise create a new one
       const options = postOptions || {
         type: 'replyToPost',
         content: {
           authorId: post.characterId,
-          authorName: post.characterName,  // Now TypeScript won't complain
+          authorName: post.characterName,
           text: post.content,
           context: `这是${post.characterName}发布的一条朋友圈动态。${
             post.comments?.length ? 
             `目前已有${post.comments.length}条评论和${post.likes}个点赞。` : 
             '还没有其他人互动。'
           }`,
-          images: post.images // Make sure images from the post are included
+          images: post.images, // Make sure images from the post are included
+          conversationHistory: chatHistory // Add conversation history
         },
         responderId: character.id,
         responderCharacter: character
@@ -305,6 +343,20 @@ export class CircleService {
             console.log(`【朋友圈服务】已保存角色 ${character.name} 对帖子 ${post.id} 的互动`);
           } catch (saveError) {
             console.error(`【朋友圈服务】保存角色互动失败:`, saveError);
+          }
+        }
+
+        // 如果是对用户帖子的回复，将对话保存到聊天历史
+        if (post.characterId === 'user-1' && response.action?.comment) {
+          try {
+            await StorageAdapter.storeMessageExchange(
+              character.id,
+              post.content,
+              response.action.comment
+            );
+            console.log(`【朋友圈服务】已保存角色 ${character.name} 对用户帖子的回复到聊天历史`);
+          } catch (storeError) {
+            console.warn(`【朋友圈服务】保存对话到聊天历史失败:`, storeError);
           }
         }
       }
@@ -410,9 +462,28 @@ export class CircleService {
         console.log('【朋友圈服务】提取角色jsonData失败', error);
       }
       
+      // 获取聊天历史记录，如果是用户互动
+      let chatHistory = '';
+      if (replyTo?.userId === 'user-1' || isForwarded || post.characterId === 'user-1') {
+        try {
+          // 获取最近10条聊天记录
+          const recentMessages = await StorageAdapter.getRecentMessages(character.id, 10);
+          if (recentMessages && recentMessages.length > 0) {
+            chatHistory = recentMessages.map((msg, idx) => {
+              const speaker = msg.role === 'user' ? (character.customUserName || '用户') : character.name;
+              return `${idx + 1}. ${speaker}: ${msg.parts?.[0]?.text || ''}`;
+            }).join('\n');
+            console.log(`【朋友圈服务】已获取角色 ${character.name} 与用户的最近 ${recentMessages.length} 条对话记录`);
+          }
+        } catch (historyError) {
+          console.warn(`【朋友圈服务】获取角色 ${character.name} 的聊天历史记录失败:`, historyError);
+          // 继续执行，不依赖于聊天历史记录
+        }
+      }
+      
       // NEW: Get conversation history from the post or comment thread
-      let conversationHistory = '';
-      if (replyTo) {
+      let conversationHistory = chatHistory;
+      if (replyTo && !chatHistory) {
         // This is a reply to a specific comment, get the conversation thread
         conversationHistory = this.extractConversationThread(post, replyTo.userId);
       }
@@ -516,6 +587,20 @@ export class CircleService {
         } catch (saveError) {
           console.error(`【朋友圈服务】保存评论回复失败:`, saveError);
         }
+
+        // 如果是用户互动，保存到聊天历史记录
+        if ((replyTo?.userId === 'user-1' || isForwarded) && response.action?.comment) {
+          try {
+            await StorageAdapter.storeMessageExchange(
+              character.id,
+              comment,
+              response.action.comment
+            );
+            console.log(`【朋友圈服务】已保存角色 ${character.name} 与用户的对话到聊天历史`);
+          } catch (storeError) {
+            console.warn(`【朋友圈服务】保存对话到聊天历史失败:`, storeError);
+          }
+        }
       }
       
       // Log detailed response for debugging if it contains thoughts
@@ -535,7 +620,7 @@ export class CircleService {
   }
   
   /**
-   * NEW: Extract conversation thread from post or comments
+   * Extract conversation thread from post or comments
    * This helps maintain context continuity in conversations
    */
   static extractConversationThread(post: CirclePost, commenterId: string): string {
@@ -643,6 +728,24 @@ export class CircleService {
           error: `不允许回复自己的评论`
         };
       }
+
+      // 获取聊天历史记录，如果是回复用户评论
+      let chatHistory = '';
+      if (comment.userId === 'user-1') {
+        try {
+          // 获取最近10条聊天记录
+          const recentMessages = await StorageAdapter.getRecentMessages(character.id, 10);
+          if (recentMessages && recentMessages.length > 0) {
+            chatHistory = recentMessages.map((msg, idx) => {
+              const speaker = msg.role === 'user' ? (character.customUserName || '用户') : character.name;
+              return `${idx + 1}. ${speaker}: ${msg.parts?.[0]?.text || ''}`;
+            }).join('\n');
+            console.log(`【朋友圈服务】已获取角色 ${character.name} 与用户的最近 ${recentMessages.length} 条对话记录`);
+          }
+        } catch (historyError) {
+          console.warn(`【朋友圈服务】获取角色 ${character.name} 的聊天历史记录失败:`, historyError);
+        }
+      }
       
       // 确定适当的上下文和提示
       let context = '';
@@ -660,7 +763,8 @@ export class CircleService {
           authorId: post.characterId,  // 原帖作者ID
           authorName: post.characterName,
           text: comment.content,       // 评论内容
-          context: context             // 自定义上下文
+          context: context,            // 自定义上下文
+          conversationHistory: chatHistory // Add conversation history
         },
         responderId: character.id,      // 当前回复者ID
         responderCharacter: character   // 添加角色对象
@@ -696,6 +800,20 @@ export class CircleService {
             console.log(`【朋友圈服务】已保存角色 ${character.name} 对评论 ${comment.id} 的回复`);
           } catch (saveError) {
             console.error(`【朋友圈服务】保存评论回复失败:`, saveError);
+          }
+        }
+
+        // 如果是回复用户评论，保存到聊天历史记录
+        if (comment.userId === 'user-1' && response.action?.comment) {
+          try {
+            await StorageAdapter.storeMessageExchange(
+              character.id,
+              comment.content,
+              response.action.comment
+            );
+            console.log(`【朋友圈服务】已保存角色 ${character.name} 与用户的对话到聊天历史`);
+          } catch (storeError) {
+            console.warn(`【朋友圈服务】保存对话到聊天历史记录失败:`, storeError);
           }
         }
       }
@@ -1566,6 +1684,21 @@ export class CircleService {
           // Initialize character if needed
           await this.initCharacterCircle(character, apiKey, apiSettings);
           
+          // Get character's chat history with user for context
+          let chatHistory = '';
+          try {
+            const recentMessages = await StorageAdapter.getRecentMessages(character.id, 10);
+            if (recentMessages && recentMessages.length > 0) {
+              chatHistory = recentMessages.map((msg, idx) => {
+                const speaker = msg.role === 'user' ? (character.customUserName || '用户') : character.name;
+                return `${idx + 1}. ${speaker}: ${msg.parts?.[0]?.text || ''}`;
+              }).join('\n');
+              console.log(`【朋友圈服务】获取了角色 ${character.name} 与用户的 ${recentMessages.length} 条历史聊天记录`);
+            }
+          } catch (historyError) {
+            console.warn(`【朋友圈服务】获取角色 ${character.name} 的聊天历史失败:`, historyError);
+          }
+          
           // Process interaction directly instead of using scheduler
           const options: CirclePostOptions = {
             type: 'replyToPost',
@@ -1580,7 +1713,8 @@ export class CircleService {
                   `目前已有${updatedPost.comments.length}条评论和${updatedPost.likes}个点赞。` : 
                   '还没有其他人互动。'
                 }`,
-              images: updatedPost.images
+              images: updatedPost.images,
+              conversationHistory: chatHistory // Add chat history for context
             },
             responderId: character.id,
             responderCharacter: character
@@ -1604,6 +1738,20 @@ export class CircleService {
             updatedPost = newPost; // Update for next iteration
             
             console.log(`【朋友圈服务】角色 ${character.name} 对用户帖子的回应已处理: 点赞=${!!response.action?.like}, 评论=${!!response.action?.comment}`);
+            
+            // Store in chat history if response contains a comment
+            if (response.action?.comment) {
+              try {
+                await StorageAdapter.storeMessageExchange(
+                  character.id,
+                  content, // user's post content 
+                  response.action.comment // character's response
+                );
+                console.log(`【朋友圈服务】已保存角色 ${character.name} 对用户帖子的回复到聊天历史`);
+              } catch (storeError) {
+                console.warn(`【朋友圈服务】保存对话到聊天历史失败:`, storeError);
+              }
+            }
           }
         } catch (error) {
           console.error(`【朋友圈服务】处理角色 ${character.name} 的回应时出错:`, error);
