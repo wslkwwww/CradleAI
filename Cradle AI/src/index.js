@@ -7,6 +7,7 @@ const logger = require('./utils/logger');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
 const chatRoutes = require('./routes/chatRoutes');
+const huggingfaceRoutes = require('./routes/huggingfaceRoutes');
 
 // 创建 Express 应用
 const app = express();
@@ -46,6 +47,7 @@ app.use(requestLogger);
 
 // API 路由
 app.use('/api/chat', chatRoutes);
+app.use('/api/huggingface', huggingfaceRoutes);
 
 // 404 处理
 app.use((req, res) => {

@@ -130,6 +130,21 @@ const ApiSettings = () => {
     user?.settings?.chat?.cloudModel || 'openai/gpt-3.5-turbo'
   );
 
+  // Define the allowed cloud models list
+  const allowedCloudModels = [
+    'gemini-2.5-pro-exp-03-25',
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-pro-exp-02-05',
+    'gemini-exp-1206',
+    'gemini-2.0-flash-thinking-exp-1219',
+    'gemini-exp-1121',
+    'gemini-exp-1114',
+    'gemini-1.5-pro-exp-0827',
+    'gemini-1.5-pro-exp-0801',
+    'gemini-1.5-flash-8b-exp-0924',
+    'gemini-1.5-flash-8b-exp-0827'
+  ];
+
   // Load existing license information on component mount
   useEffect(() => {
     const loadLicenseInfo = async () => {
@@ -764,13 +779,20 @@ const ApiSettings = () => {
   };
 
   // Function to handle model selection
-  const handleModelSelection = (model: string) => {
-    if (modelPickerType === 'primary') {
-      setGeminiPrimaryModel(model);
+  const handleModelSelection = (modelId: string) => {
+    if (useCloudService) {
+      // For cloud service, validate that the model is allowed
+      if (allowedCloudModels.includes(modelId)) {
+        setCloudModel(modelId);
+      } else {
+        // If not an allowed model, use the first allowed model
+        setCloudModel(allowedCloudModels[0]);
+        Alert.alert('模型不可用', '云服务目前仅支持Gemini系列模型，已自动选择推荐模型。');
+      }
     } else {
-      setGeminiBackupModel(model);
+      setSelectedModel(modelId);
     }
-    setIsModelPickerVisible(false);
+    setIsModelSelectorVisible(false);
   };
 
   return (
@@ -1290,15 +1312,9 @@ const ApiSettings = () => {
           <ModelSelector
             apiKey={openRouterKey || ''}
             selectedModelId={useCloudService ? cloudModel : selectedModel}
-            onSelectModel={(modelId) => {
-              if (useCloudService) {
-                setCloudModel(modelId);
-              } else {
-                setSelectedModel(modelId);
-              }
-              setIsModelSelectorVisible(false);
-            }}
+            onSelectModel={handleModelSelection}
             useCloudService={useCloudService}
+            allowedCloudModels={allowedCloudModels}
           />
         </SafeAreaView>
       </Modal>
@@ -1825,3 +1841,4 @@ const styles = StyleSheet.create({
 });
 
 export default ApiSettings;
+

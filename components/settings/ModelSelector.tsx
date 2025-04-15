@@ -19,6 +19,7 @@ interface ModelSelectorProps {
   isLoading?: boolean;
   apiKey: string;
   useCloudService?: boolean;
+  allowedCloudModels?: string[];
 }
 
 enum FilterMode {
@@ -33,7 +34,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   onSelectModel,
   isLoading = false,
   models = [],
-  useCloudService = false
+  useCloudService = false,
+  allowedCloudModels = []
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [internalModels, setInternalModels] = useState<OpenRouterModel[]>([]);
@@ -87,6 +89,20 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   useEffect(() => {
     const fetchModels = async () => {
+      if (useCloudService && allowedCloudModels.length > 0) {
+        const cloudServiceModels = allowedCloudModels.map(modelId => ({
+          id: modelId,
+          name: formatGeminiModelName(modelId),
+          description: "Google's Gemini model via cloud service",
+          context_length: 30720,
+          pricing: { prompt: 0, completion: 0 },
+          provider: { id: "google", name: "Google" }
+        }));
+        setInternalModels(cloudServiceModels);
+        setInternalLoading(false);
+        return;
+      }
+
       setInternalLoading(true);
       setFetchError(null);
       
@@ -104,11 +120,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         }
         
         if (modelData?.data && Array.isArray(modelData.data)) {
-          // Filter out "Auto Router" from the model list
-            const filteredModels: OpenRouterModel[] = modelData.data.filter((model: OpenRouterModel) => 
+          const filteredModels: OpenRouterModel[] = modelData.data.filter((model: OpenRouterModel) => 
             model.id !== 'openrouter/auto' && 
             model.name !== 'Auto Router'
-            );
+          );
           setInternalModels(filteredModels);
         } else {
           throw new Error('无效的响应格式');
@@ -129,7 +144,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     };
     
     fetchModels();
-  }, [apiKey]);
+  }, [apiKey, useCloudService, allowedCloudModels]);
 
   const getDefaultModels = (): OpenRouterModel[] => {
     return [
@@ -168,7 +183,19 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     ];
   };
 
-  const displayModels = models.length > 0 ? models : internalModels;
+  const formatGeminiModelName = (modelId: string) => {
+    let name = modelId.replace(/-/g, ' ');
+    name = name.split(' ').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+    name = name.replace(/Exp\s+\d+/, 'Experimental');
+    name = name.replace(/Exp\s+\d+\s+\d+/, 'Experimental');
+    return name;
+  };
+
+  const displayModels = useCloudService && allowedCloudModels.length > 0 
+    ? internalModels 
+    : (models.length > 0 ? models : internalModels);
 
   const validModels = Array.isArray(displayModels) ? displayModels.filter(model => 
     model && typeof model === 'object' && model.id && model.name
