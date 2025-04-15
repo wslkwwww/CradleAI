@@ -321,6 +321,7 @@ export class CircleService {
 
   /**
    * Improved version of toggling favorites to ensure post data integrity
+   * This version will not modify the original post content
    */
   static async toggleFavoritePost(
     character: Character,
@@ -330,21 +331,12 @@ export class CircleService {
     try {
       console.log(`【朋友圈服务】${isFavorite ? '收藏' : '取消收藏'}帖子，ID: ${postId}, 角色: ${character.name}`);
       
-      // First, load the complete post data from storage to ensure we have all comments
-      const allPosts = await this.loadSavedPosts();
-      const completePost = allPosts.find(p => p.id === postId);
-      
-      if (!completePost) {
-        console.error(`【朋友圈服务】未找到要${isFavorite ? '收藏' : '取消收藏'}的帖子: ${postId}`);
-        return false;
-      }
-      
       // Initialize favoritedPosts if it doesn't exist
       if (!character.favoritedPosts) {
         character.favoritedPosts = [];
       }
       
-      // Update the favoritedPosts array
+      // Update the favoritedPosts array without changing the post content
       if (isFavorite && !character.favoritedPosts.includes(postId)) {
         character.favoritedPosts.push(postId);
       } else if (!isFavorite) {
@@ -362,9 +354,6 @@ export class CircleService {
           return false;
         }
       }
-      
-      // For normal characters, we don't need to do anything special as the character
-      // data will be saved by the calling code
       
       return true;
     } catch (error) {
@@ -1581,19 +1570,23 @@ export class CircleService {
           const options: CirclePostOptions = {
             type: 'replyToPost',
             content: {
-              authorId: updatedPost.characterId, // Use the current state of the post
+              authorId: 'user-1', // 明确标记为用户发布的帖子
               authorName: updatedPost.characterName,
               text: updatedPost.content,
-              context: `这是${updatedPost.characterName}发布的一条朋友圈动态。${
-                updatedPost.comments?.length ? 
-                `目前已有${updatedPost.comments.length}条评论和${updatedPost.likes}个点赞。` : 
-                '还没有其他人互动。'
-              }`,
+              context: images.length > 0 ? 
+                `这是${updatedPost.characterName}发布的带有${images.length}张图片的朋友圈动态。请重点关注并回应图片内容。` : 
+                `这是${updatedPost.characterName}发布的一条朋友圈动态。${
+                  updatedPost.comments?.length ? 
+                  `目前已有${updatedPost.comments.length}条评论和${updatedPost.likes}个点赞。` : 
+                  '还没有其他人互动。'
+                }`,
               images: updatedPost.images
             },
             responderId: character.id,
             responderCharacter: character
           };
+          
+          console.log(`【朋友圈服务】为角色 ${character.name} 构建互动options，帖子包含图片: ${images.length > 0}，类型: ${options.type}`);
           
           // Process the interaction directly with current post state
           const response = await this.getNodeST(apiKey, apiSettings).processCircleInteraction(options);

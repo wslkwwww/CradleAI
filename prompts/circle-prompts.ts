@@ -25,21 +25,21 @@ export const CirclePrompts = {
 
 【作者】${params.authorName || '某人'}
 【内容】${params.contentText}
-${params.hasImages ? "【图片内容】动态中包含图片" : ""}
+${params.hasImages ? "【图片内容】动态中包含图片，图片是帖子的核心内容" : ""}
 ${params.context ? `【上下文】${params.context}` : ''}
 
 请你以${params.charName ? params.charName : ''}的身份（${params.charDescription.substring(0, 50)}），考虑以下几点：
 1. 这是在私聊中用户转发给你的朋友圈，而不是你在浏览朋友圈
 2. 你可能认识也可能不认识发朋友圈的人
 3. 如果发朋友圈的人是你自己，请对"用户看了你的朋友圈并转发给你"这个行为做出反应
-${params.hasImages ? "4. 这条朋友圈包含图片，请优先对图片内容做出回应，在回复中直接提及你看到的图片内容" : ""}
+${params.hasImages ? "4. 这条朋友圈包含图片，请优先对图片内容做出详细回应，在回复中直接提及你看到的图片具体内容" : ""}
 
 请以JSON格式提供你的回应：
 {
   "thoughts": "你看到这条朋友圈的内心想法（不会展示给对方）",
   "action": {
     "like": true/false,
-    "comment": "${params.hasImages ? "对图片内容的回应，请明确提及你看到的图片内容" : "你的回复内容"}"
+    "comment": "${params.hasImages ? "对图片内容的具体回应，必须明确提及你看到的图片具体内容" : "你的回复内容"}"
   },
   "emotion": {
     "type": "positive/neutral/negative",
@@ -133,17 +133,18 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
 【上下文】${params.context || '无'}
 ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : ''}
 
-请特别注意上方的【图片描述】部分，这是对图片内容的详细描述。你的回应应该首先对图片内容进行回应，而不是仅关注文字内容。
+请特别注意：这条动态包含图片内容，图片是帖子内容的重要组成部分。你看到的是图片的详细描述，应该主要对图片内容进行回应，而不是仅关注文字内容。
 
 作为角色 ${params.charName ? params.charName : ''}（${params.charDescription.substring(0, 50)}），基于你看到的图片内容和你的性格特点，请思考：
 1. 这张图片展示了什么内容？
 2. 你对图片中的内容有什么感受？
-3. 基于你的角色设定，你会如何回应这张图片？
+3. 图片内容如何影响你的回应方式？
+4. 基于你的角色设定，你会如何回应这张图片？
 
 然后，以JSON格式提供你的回应：
 - 包含你看到这张图片时的内心想法（不会展示给对方）
 - 决定是否点赞（like: true/false）
-- 评论内容应直接提及图片中看到的具体元素，表明你看到并理解了图片内容
+- 评论内容必须直接提及图片中看到的具体元素，表明你看到并理解了图片内容
 - 包含你对图片的情感反应（emotion对象）
 
 严格按以下格式，用中文回复，不要包含任何其他文字：
@@ -151,7 +152,7 @@ ${params.characterJsonData ? `【角色设定】${params.characterJsonData}` : '
   "thoughts": "你看到这条朋友圈的内心想法（不会展示给对方）",
   "action": {
     "like": true/false,
-    "comment": "你对图片的具体评论，直接提及图片中的内容"
+    "comment": "你对图片的具体评论，必须明确提及图片中的内容"
   },
   "emotion": {
     "type": "positive/neutral/negative",

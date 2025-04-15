@@ -690,13 +690,17 @@ export class CircleManager {
                 break;
                 
             case 'replyToPost':
-                // 关键修改: 当是自己帖子"或"是用户评论角色帖子时，使用selfPost模板
-                if (isOwnPost || isUserComment) {
+                // 修复: 优先检查是否有图片，只有在没有图片的情况下才进一步考虑是否为自己的帖子或用户评论
+                if (hasImages) {
+                    console.log('【朋友圈】检测到帖子包含图片，使用replyToPostWithImage模板');
+                    scenePrompt = CirclePrompts.replyToPostWithImage(params);
+                } 
+                // 只有在没有图片的情况下，才考虑是否为自己的帖子或用户评论
+                else if (isOwnPost || (isUserComment && options.content.authorId !== 'user-1')) {
                     console.log('【朋友圈】检测到用户评论角色帖子或角色查看自己帖子，使用selfPost模板');
                     scenePrompt = CirclePrompts.selfPost(params);
-                } else if (hasImages) {
-                    scenePrompt = CirclePrompts.replyToPostWithImage(params);
-                } else {
+                } 
+                else {
                     scenePrompt = CirclePrompts.replyToPost(params);
                 }
                 break;

@@ -31,7 +31,6 @@ import { ActionService } from '@/services/action-service';
 import RelationshipTestResults, { RelationshipTestResult } from '@/components/RelationshipTestResults';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import FavoriteList from '@/components/FavoriteList';
 import ImageViewer from '@/components/ImageViewer';
 import CharacterInteractionSettings from '@/components/CharacterInteractionSettings';
 import { theme } from '@/constants/theme';
@@ -103,15 +102,6 @@ const Explore: React.FC = () => {
   const [pendingActions, setPendingActions] = useState<RelationshipAction[]>([]);
   const [isGeneratingActions, setIsGeneratingActions] = useState(false);
 
-  // Add these states and variables for relationship testing
-  const [isRunningRelationshipTest, setIsRunningRelationshipTest] = useState(false);
-  const [relationshipTestResults, setRelationshipTestResults] = useState<RelationshipTestResult | null>(null);
-  const [showRelationshipTestResults, setShowRelationshipTestResults] = useState(false);
-
-  // Add state for message box modal
-  const [showMessageBoxModal, setShowMessageBoxModal] = useState(false);
-  const [showTestControlsModal, setShowTestControlsModal] = useState(false);
-
   // Add states for user post creation
   const [showUserPostModal, setShowUserPostModal] = useState(false);
   const [userPostText, setUserPostText] = useState('');
@@ -121,9 +111,6 @@ const Explore: React.FC = () => {
   // Add these new state variables
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
-  // Add new states for image viewer and favorite list
-  const [showFavoriteList, setShowFavoriteList] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isImageViewerVisible, setIsImageViewerVisible] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
@@ -501,116 +488,7 @@ const Explore: React.FC = () => {
     }
   }, [characters, posts, updateCharacter, user]);
 
-  // Updated handleFavorite function to use the new CircleService.toggleFavoritePost method
-  const handleFavorite = useCallback(async (post: CirclePost) => {
-    try {
-      const characterId = post.characterId;
-      if (!characterId) {
-        console.error('Post has no associated characterId:', post);
-        return;
-      }
-      
-      // Get current favorite status to toggle
-      const newFavoriteStatus = !post.isFavorited;
-      
-      // Update local posts state immediately for UI feedback
-      setPosts(prevPosts => prevPosts.map(p => {
-        if (p.id === post.id) {
-          return { ...p, isFavorited: newFavoriteStatus };
-        }
-        return p;
-      }));
-      
-      console.log(`[朋友圈] ${newFavoriteStatus ? '收藏' : '取消收藏'} 帖子:`, post.id);
-      
-      // Use different handling for user posts vs character posts
-      if (characterId === 'user-1') {
-        // Create a placeholder "character" for user favorites with minimum required fields
-        const userCharacter: Character = {
-          id: 'user-1',
-          name: user?.settings?.self.nickname || '我',
-          favoritedPosts: [], // Will be populated in toggleFavoritePost
-          // Add required fields from Character interface
-          avatar: null,
-          backgroundImage: null,
-          description: '',
-          personality: '',
-          interests: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        };
-        
-        // Get existing favorited posts for user if any
-        const userFavorites = await AsyncStorage.getItem('user_favorited_posts');
-        if (userFavorites) {
-          userCharacter.favoritedPosts = JSON.parse(userFavorites);
-        }
-        
-        // Use the new method for user favorites
-        const success = await CircleService.toggleFavoritePost(
-          userCharacter,
-          post.id,
-          newFavoriteStatus
-        );
-        
-        if (!success) {
-          throw new Error('Failed to update user favorites');
-        }
-      } else {
-        // For regular character posts
-        const character = characters.find(c => c.id === characterId);
-        if (!character) {
-          console.error(`Character with ID ${characterId} not found`);
-          return;
-        }
-        
-        // Use the new method
-        const success = await CircleService.toggleFavoritePost(
-          character,
-          post.id, 
-          newFavoriteStatus
-        );
-        
-        if (!success) {
-          throw new Error('Failed to update character favorites');
-        }
-        
-        // Then persist the change through toggleFavorite for character data updates
-        await toggleFavorite(character.id, post.id);
-      }
-      
-      // Also update AsyncStorage post data with the new favorite status
-      try {
-        // IMPORTANT: Don't update post content, only the favorite status
-        const storedPosts = await AsyncStorage.getItem('circle_posts');
-        if (storedPosts) {
-          const parsedPosts = JSON.parse(storedPosts);
-          const updatedPosts = parsedPosts.map((p: CirclePost) => {
-            if (p.id === post.id) {
-              // Keep all original properties, just update isFavorited
-              return { ...p, isFavorited: newFavoriteStatus };
-            }
-            return p;
-          });
-          await AsyncStorage.setItem('circle_posts', JSON.stringify(updatedPosts));
-        }
-      } catch (storageError) {
-        console.error('Failed to update post favorite status in AsyncStorage:', storageError);
-      }
-      
-    } catch (error) {
-      // If error occurs, revert the UI change
-      setPosts(prevPosts => prevPosts.map(p => {
-        if (p.id === post.id) {
-          return { ...p, isFavorited: !p.isFavorited };
-        }
-        return p;
-      }));
-      
-      console.error('【朋友圈】收藏操作失败:', error);
-      Alert.alert('操作失败', '无法完成收藏操作');
-    }
-  }, [characters, toggleFavorite, user?.settings?.self.nickname]);
+
 
   // Add function to handle image selection
   const handleSelectImages = async () => {
@@ -1058,23 +936,6 @@ const Explore: React.FC = () => {
     }
   }, [activePostId]);
 
-  // Toggle test mode and run the test
-  const toggleTestMode = useCallback(async () => {
-    const newTestMode = !testModeEnabled;
-    setTestModeEnabled(newTestMode);
-    
-    if (newTestMode) {
-      await loadPosts(); // This will load the test post
-      // Run the interaction test after a short delay to ensure UI is updated
-      setTimeout(() => {
-        handleCirclePostUpdate(testPost);
-      }, 500);
-    } else {
-      // Switch back to normal mode
-      loadPosts();
-    }
-  }, [testModeEnabled, loadPosts, handleCirclePostUpdate, testPost]);
-
   // Add new method to handle test post publishing
   const renderCharacterSelectorModal = () => (
     <Modal
@@ -1174,14 +1035,6 @@ const Explore: React.FC = () => {
         onPress={() => setShowInteractionSettings(true)}
       >
         <Ionicons name="settings-outline" size={22} color={theme.colors.buttonText} />
-      </TouchableOpacity>
-
-      {/* Add Favorite List button */}
-      <TouchableOpacity 
-        style={styles.headerButton}
-        onPress={() => setShowFavoriteList(true)}
-      >
-        <MaterialCommunityIcons name="bookmark-outline" size={22} color={theme.colors.buttonText} />
       </TouchableOpacity>
 
       {/* Add User Post button - moved from floating button */}
@@ -1385,37 +1238,8 @@ const Explore: React.FC = () => {
       style: 'default' | 'cancel' | 'destructive';
     }> = [];
     
-    // Add delete option (available for all posts)
-    options.push({
-      text: '删除',
-      onPress: () => {
-        Alert.alert(
-          '确认删除',
-          isUserPost 
-            ? '确定要删除这条帖子吗？此操作不可撤销。'
-            : `确定要删除 ${post.characterName} 的这条帖子吗？此操作不可撤销。`,
-          [
-            {
-              text: '取消',
-              style: 'cancel'
-            },
-            {
-              text: '删除',
-              onPress: () => handleDeletePost(post.id),
-              style: 'destructive'
-            }
-          ]
-        );
-      },
-      style: 'destructive'
-    });
-    
-    // Add cancel option
-    options.push({
-      text: '取消',
-      style: 'cancel'
-    });
-    
+
+       
     // Show alert with options
     Alert.alert(
       '帖子操作',
@@ -1518,16 +1342,7 @@ const Explore: React.FC = () => {
           <Text style={styles.actionText}>{item.likes}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.actionButton} 
-          onPress={() => handleFavorite(item)}
-        >
-          <MaterialCommunityIcons
-            name={item.isFavorited ? "bookmark" : "bookmark-outline"}
-            size={24}
-            color={item.isFavorited ? theme.colors.accent : theme.colors.white}
-          />
-        </TouchableOpacity>
+
 
         <TouchableOpacity
           style={styles.actionButton}
@@ -1595,7 +1410,7 @@ const Explore: React.FC = () => {
       {activePostId === item.id && renderCommentInput(item)}
     </TouchableOpacity>
   ), [activePostId, renderComment, renderCommentInput, testModeEnabled, processingCharacters, 
-      handleLike, handleFavorite, handleCommentPress, deletingPostId, showPostMenu, handleImagePress,
+      handleLike, handleCommentPress, deletingPostId, showPostMenu, handleImagePress,
       expandedThoughts, toggleThoughtExpansion]);
 
   const renderUserPostModal = () => (
@@ -1759,14 +1574,6 @@ const Explore: React.FC = () => {
           />
         )}
 
-
-        {/* Relationship Test Results Modal */}
-        <RelationshipTestResults
-          visible={showRelationshipTestResults}
-          onClose={() => setShowRelationshipTestResults(false)}
-          results={relationshipTestResults}
-        />
-
         {/* User Post Modal */}
         {renderUserPostModal()}
 
@@ -1780,23 +1587,6 @@ const Explore: React.FC = () => {
           />
         )}
 
-        {/* Favorite List Modal */}
-        <Modal
-          visible={showFavoriteList}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setShowFavoriteList(false)}
-        >
-          <FavoriteList
-            posts={posts}
-            onClose={() => setShowFavoriteList(false)}
-            onUpdatePost={(updatedPost) => {
-              setPosts(prevPosts => 
-                prevPosts.map(p => p.id === updatedPost.id ? updatedPost : p)
-              );
-            }}
-          />
-        </Modal>
 
         {/* Character Interaction Settings Modal */}
         <CharacterInteractionSettings
@@ -1857,17 +1647,6 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 
-  // Define button color to match Character page
-  // Add this at the beginning of the theme definition or extend the theme
-  // ...existing code...
-  
-  // Remove old socialHeader styles that are no longer needed
-  // socialHeader: { ... },
-  // headerTitle: { ... },
-  // headerTitleText: { ... },
-  // circleHeaderButtons: { ... },
-  // iconButton: { ... },
-  
   // Post and card styles
   card: {
     width: CARD_WIDTH,
