@@ -236,4 +236,27 @@ export class ApiServiceProvider {
       throw error;
     }
   }
+
+  /**
+   * Generate plain text response from an AI model
+   * @param prompt The prompt to send to the AI
+   * @param apiKey Optional API key (will use default if not provided)
+   * @param settings Optional API settings override
+   * @returns The generated text
+   */
+  static async generatePlainText(prompt: string, apiKey?: string, settings?: any): Promise<string> {
+    try {
+      // Create a simple message format for the API
+      const messages = [{ role: 'user', parts: [{ text: prompt }] }];
+      
+      // Use the existing generateContent method
+      const response = await this.generateContent(messages, apiKey || '', settings);
+      
+      // Extract and return the text content
+      return response?.trim() || '';
+    } catch (error) {
+      console.error('[ApiServiceProvider] Error generating plain text:', error);
+      throw error;
+    }
+  }
 }

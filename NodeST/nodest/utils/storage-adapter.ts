@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChatHistoryEntity, ChatMessage } from '../../../shared/types';
-
+import { ChatHistoryEntity, ChatMessage,} from '../../../shared/types';
+import{ CircleMemory  } from '../../../shared/types/circle-types';
 /**
  * StorageAdapter provides a clean interface for managing chat-related storage operations,
  * focusing on actual user-AI conversation without exposing framework details.
@@ -271,6 +271,107 @@ export class StorageAdapter {
     } catch (error) {
       console.error('[StorageAdapter] Error getting all conversation IDs:', error);
       return [];
+    }
+  }
+
+  /**
+   * Retrieve messages from a specific day
+   * @param conversationId The conversation identifier
+   * @param date The date to retrieve messages from (default: current day)
+   * @returns Array of messages from the specified day
+   */
+  static async getMessagesFromDate(conversationId: string, date: Date = new Date()): Promise<ChatMessage[]> {
+    try {
+      console.log('[StorageAdapter] Retrieving messages from date for conversation:', conversationId);
+      
+      // Set time to start of day
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      // Set time to end of day
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      // Load raw chat history
+      const chatHistory = await this.loadJson<ChatHistoryEntity>(
+        this.getStorageKey(conversationId, '_history')
+      );
+
+      if (!chatHistory || !chatHistory.parts) {
+        return [];
+      }
+      
+      // Filter to include only real user/AI messages from the specified day
+      const messagesFromDay = chatHistory.parts.filter(message => {
+        // Only include actual conversation messages with timestamp within the day
+        return (!message.is_d_entry && 
+                (message.role === "user" || message.role === "model" || message.role === "assistant") &&
+                message.parts?.[0]?.text &&
+                message.timestamp && 
+                message.timestamp >= startOfDay.getTime() &&
+                message.timestamp <= endOfDay.getTime());
+      });
+
+      console.log(`[StorageAdapter] Retrieved ${messagesFromDay.length} messages from ${date.toDateString()}`);
+      
+      return messagesFromDay;
+    } catch (error) {
+      console.error('[StorageAdapter] Error getting messages from date:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get circle memories for a character
+   * @param characterId The character identifier
+   * @param limit Maximum number of memories to retrieve (defaults to all)
+   * @returns Array of circle memories sorted by timestamp (newest first)
+   */
+  static async getCircleMemories(characterId: string, limit?: number): Promise<CircleMemory[]> {
+    try {
+      console.log(`[StorageAdapter] Retrieving circle memories for character: ${characterId}, limit: ${limit || 'none'}`);
+      
+      const storageKey = `nodest_${characterId}_circle_memory`;
+      const memoryData = await AsyncStorage.getItem(storageKey);
+      
+      if (!memoryData) {
+        console.log(`[StorageAdapter] No circle memories found for character: ${characterId}`);
+        return [];
+      }
+      
+      const memories: CircleMemory[] = JSON.parse(memoryData);
+      
+      // Sort by timestamp (newest first)
+      const sortedMemories = memories.sort((a, b) => b.timestamp - a.timestamp);
+      
+      // Apply limit if specified
+      const limitedMemories = limit ? sortedMemories.slice(0, limit) : sortedMemories;
+      
+      console.log(`[StorageAdapter] Retrieved ${limitedMemories.length} circle memories for character: ${characterId}`);
+      
+      return limitedMemories;
+    } catch (error) {
+      console.error(`[StorageAdapter] Error retrieving circle memories for character: ${characterId}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Save circle memories for a character
+   * @param characterId The character identifier
+   * @param memories The circle memories to save
+   */
+  static async saveCircleMemories(characterId: string, memories: CircleMemory[]): Promise<void> {
+    try {
+      console.log(`[StorageAdapter] Saving ${memories.length} circle memories for character: ${characterId}`);
+      
+      const storageKey = `nodest_${characterId}_circle_memory`;
+      await AsyncStorage.setItem(storageKey, JSON.stringify(memories));
+      
+      console.log(`[StorageAdapter] Successfully saved circle memories for character: ${characterId}`);
+    } catch (error) {
+      console.error(`[StorageAdapter] Error saving circle memories for character: ${characterId}`, error);
+      throw error;
     }
   }
 }

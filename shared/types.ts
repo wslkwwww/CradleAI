@@ -263,6 +263,10 @@ export interface Character {
   messageBox?: MessageBoxItem[];
   relationshipEnabled?: boolean;
   relationshipActions?: RelationshipAction[];
+
+  // Add diary settings
+  diarySettings?: DiarySettings;
+  diaryEntries?: DiaryEntry[];
 }
 
 export interface Message {
@@ -579,6 +583,9 @@ export interface ChatSettings {
     autoRoute?: boolean;
     useBackupModels?: boolean;
     backupModels?: string[];
+    sortingStrategy?: 'price' | 'performance' | 'random';
+    dataCollection?: boolean;
+    ignoredProviders?: string[];
   };
   typingDelay: number;
   temperature: number;
@@ -604,4 +611,38 @@ export interface ChatSettings {
     scale?: number;
     noiseSchedule?: string;
   };
+}
+
+// Add new diary system types
+export interface DiaryEntry {
+  id: string;
+  characterId: string;
+  content: string;
+  createdAt: number;
+  reflectionGoal: string;
+  contextWeight: number;
+  characterWeight: number;
+  worldInfoWeight: number;
+  strategicWeight: number;
+  aiGeneratedActions?: string[];
+  userOverrideAction?: 'send' | 'not_send' | null;
+  messageToSend?: string;
+  circleMemoryWeight?: number; // Weight for Circle memory
+  circleMemoryCount?: number; // Number of Circle posts to consider
+}
+
+export interface DiarySettings {
+  enabled: boolean;
+  reflectionGoal: string;
+  wordCount: number;
+  contextWeight: number;
+  characterWeight: number;
+  worldInfoWeight: number;
+  strategicWeight: number;
+  confidenceThreshold: number;
+  triggerInterval: 'daily' | 'hourly' | 'manual' | string; // 'hourly' can be '2hours', '4hours', etc.
+  triggerTime?: string; // For daily, the time of day to trigger (e.g., '08:00')
+  lastTriggered?: number; // Timestamp of last trigger
+  circleMemoryWeight?: number; // Weight for Circle memory
+  circleMemoryCount?: number; // Number of Circle posts to consider
 }

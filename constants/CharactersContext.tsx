@@ -1442,10 +1442,6 @@ const generateCharacterFromCradle = async (cradleIdOrCharacter: string | CradleC
   }
 };
 
-// 生成唯一ID
-const generateUniqueId = (): string => {
-  return Date.now().toString() + Math.random().toString(36).substring(2, 9);
-};
 
   // 新增方法: 导入常规角色到摇篮系统
   const importCharacterToCradle = async (characterId: string): Promise<void> => {

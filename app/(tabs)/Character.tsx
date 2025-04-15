@@ -33,6 +33,7 @@ import CradleCreateForm from '@/components/CradleCreateForm';
 import { theme } from '@/constants/theme';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av'; // Import Video component from expo-av
+import DiaryBook from '@/components/diary/DiaryBook'; // Import the DiaryBook component
 
 const VIEW_MODE_SMALL = 'small';
 const VIEW_MODE_LARGE = 'large';
@@ -61,6 +62,9 @@ const CharactersScreen: React.FC = () => {
   const [showCreationModal, setShowCreationModal] = useState(false);
   const [creationType, setCreationType] = useState<'manual' | 'auto' | 'import'>('manual');
   const [refreshKey, setRefreshKey] = useState(0);
+  // Add state for diary book
+  const [showDiaryBook, setShowDiaryBook] = useState(false);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
 
   const appState = useRef(AppState.currentState);
   const [appStateVisible, setAppStateVisible] = useState(appState.current);
@@ -203,6 +207,18 @@ const CharactersScreen: React.FC = () => {
     }
   }, [isManaging, router]);
 
+  // Add new method to open diary book
+  const handleOpenDiaryBook = (id: string) => {
+    setSelectedCharacterId(id);
+    setShowDiaryBook(true);
+  };
+
+  // Close diary book
+  const handleCloseDiaryBook = () => {
+    setShowDiaryBook(false);
+    setSelectedCharacterId(null);
+  };
+
   const toggleSelectCharacter = (id: string) => {
     setSelectedCharacters((prevSelected) =>
       prevSelected.includes(id)
@@ -278,6 +294,7 @@ const CharactersScreen: React.FC = () => {
         isSelected={selectedCharacters.includes(item.id)}
         onSelect={toggleSelectCharacter}
         onPress={handleCharacterPress}
+        onOpenDiary={handleOpenDiaryBook}
         viewMode={viewMode}
       />
     ),
@@ -429,6 +446,21 @@ const CharactersScreen: React.FC = () => {
       {renderCreationModal()}
 
       {renderDeleteButton()}
+
+      {/* Add Diary Book Modal */}
+      {showDiaryBook && selectedCharacterId && (
+        <Modal
+          animationType="slide"
+          transparent={false}
+          visible={showDiaryBook}
+          onRequestClose={handleCloseDiaryBook}
+        >
+          <DiaryBook 
+            character={characters.find(c => c.id === selectedCharacterId)!} 
+            onClose={handleCloseDiaryBook} 
+          />
+        </Modal>
+      )}
     </SafeAreaView>
   );
 };
@@ -439,8 +471,9 @@ const CharacterCard: React.FC<{
   isSelected: boolean;
   onSelect: (id: string) => void;
   onPress: (id: string) => void;
+  onOpenDiary: (id: string) => void;
   viewMode: 'small' | 'large' | 'vertical';
-}> = React.memo(({ item, isManaging, isSelected, onSelect, onPress, viewMode }) => {
+}> = React.memo(({ item, isManaging, isSelected, onSelect, onPress, onOpenDiary, viewMode }) => {
   const isLargeView = viewMode === VIEW_MODE_LARGE;
   const isVerticalView = viewMode === VIEW_MODE_VERTICAL;
   const videoRef = useRef<Video | null>(null);
@@ -562,6 +595,19 @@ const CharacterCard: React.FC<{
 
       <View style={styles.cardOverlay}>
         <Text style={styles.cardName}>{item.name}</Text>
+        
+        {/* Add diary button if not in managing mode */}
+        {!isManaging && (
+          <TouchableOpacity 
+            style={styles.diaryButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              onOpenDiary(item.id);
+            }}
+          >
+            <Ionicons name="book-outline" size={18} color="#fff" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {isManaging && (
@@ -604,6 +650,7 @@ interface Styles {
   creationModalContent: ViewStyle;
   videoLoadingContainer: ViewStyle;
   videoErrorText: TextStyle;
+  diaryButton: ViewStyle;
 }
 
 const styles = StyleSheet.create<Styles>({
@@ -679,13 +726,16 @@ const styles = StyleSheet.create<Styles>({
   cardOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     padding: 12,
   },
   cardName: {
     color: COLOR_TEXT,
     fontSize: 16,
     fontWeight: '500',
+    flex: 1,
   },
   checkboxContainer: {
     position: 'absolute',
@@ -793,6 +843,14 @@ const styles = StyleSheet.create<Styles>({
     padding: 6,
     borderRadius: 4,
     fontSize: 12,
+  },
+  diaryButton: {
+    width: 32,
+    height: 32,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

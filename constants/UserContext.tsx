@@ -62,6 +62,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 maxTokens: 800,
                 maxtokens: 800,
                 useZhipuEmbedding: false,
+                useCloudService: true,
                 zhipuApiKey: '',
                 openrouter: {
                   enabled: false,

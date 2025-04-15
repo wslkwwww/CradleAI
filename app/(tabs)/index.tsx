@@ -1074,7 +1074,10 @@ const App = () => {
             apiKey: user?.settings?.chat?.characterApiKey || '',
             apiSettings: {
               apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-              openrouter: user?.settings?.chat?.openrouter
+              openrouter: user?.settings?.chat?.openrouter,
+              useGeminiModelLoadBalancing: user?.settings?.chat.useGeminiModelLoadBalancing,
+              useGeminiKeyRotation: user?.settings?.chat.useGeminiKeyRotation,
+              additionalGeminiKeys: user?.settings?.chat.additionalGeminiKeys
             },
             character: selectedCharacter
           });
