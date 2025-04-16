@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, GlobalSettings } from '@/shared/types';
-import { storeUserSettingsGlobally } from '@/utils/settings-helper';
+import { storeUserSettingsGlobally, updateCloudServiceStatus } from '@/utils/settings-helper';
 
 interface UserContextProps {
   user: User | null;
@@ -28,6 +28,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Store settings globally for services to access
           if (parsedUser.settings) {
             storeUserSettingsGlobally(parsedUser.settings);
+            
+            // Update cloud service status based on user settings
+            if (parsedUser.settings.chat && parsedUser.settings.chat.useCloudService !== undefined) {
+              updateCloudServiceStatus(parsedUser.settings.chat.useCloudService);
+            }
           }
           
           // Also store to localStorage for web compatibility (already handled by settings helper)
@@ -62,7 +67,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 maxTokens: 800,
                 maxtokens: 800,
                 useZhipuEmbedding: false,
-                useCloudService: true,
+                useCloudService: false, // Default to not using cloud service
                 zhipuApiKey: '',
                 openrouter: {
                   enabled: false,
@@ -89,6 +94,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Store settings globally for services to access
           if (defaultUser.settings) {
             storeUserSettingsGlobally(defaultUser.settings);
+            
+            // Update cloud service status based on default settings
+            if (defaultUser.settings.chat) {
+              updateCloudServiceStatus(defaultUser.settings.chat.useCloudService || false);
+            }
           }
         }
       } catch (error) {
@@ -142,6 +152,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Also update global settings for direct access by services
       storeUserSettingsGlobally(updatedUser.settings);
+      
+      // Update cloud service status when settings are updated
+      if (settings.chat && settings.chat.useCloudService !== undefined) {
+        updateCloudServiceStatus(settings.chat.useCloudService);
+      }
       
       console.log('[UserContext] Settings updated successfully, apiProvider:', 
         updatedUser.settings.chat.apiProvider, 

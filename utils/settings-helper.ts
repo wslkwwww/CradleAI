@@ -55,6 +55,11 @@ export function storeUserSettingsGlobally(settings: GlobalSettings): void {
     }
     
     console.log('[SettingsHelper] User settings stored globally');
+    
+    // Update cloud service status when settings are updated
+    if (settings.chat && settings.chat.useCloudService !== undefined) {
+      updateCloudServiceStatus(settings.chat.useCloudService);
+    }
   } catch (error) {
     console.error('[SettingsHelper] Failed to store settings globally:', error);
   }
@@ -84,4 +89,45 @@ export function getUserSettingsGlobally(): GlobalSettings | null {
     console.error('[SettingsHelper] Failed to get global settings:', error);
     return null;
   }
+}
+
+/**
+ * Get API settings for Circle Service
+ */
+export function getApiSettings(): {
+  apiKey: string | undefined;
+  apiProvider: string;
+  openrouter?: {
+    enabled: boolean;
+    apiKey?: string;
+    model?: string;
+  };
+  useCloudService: boolean;
+} {
+  const settings = getUserSettingsGlobally();
+  if (!settings || !settings.chat) {
+    // Return default settings if none found
+    return {
+      apiKey: undefined,
+      apiProvider: 'gemini',
+      useCloudService: false,
+      openrouter: {
+        enabled: false
+      }
+    };
+  }
+  
+  // Get the preferred API provider and settings
+  const { apiProvider, characterApiKey, openrouter, useCloudService = false } = settings.chat;
+  
+  return {
+    apiKey: characterApiKey,
+    apiProvider: apiProvider || 'gemini',
+    openrouter: {
+      enabled: openrouter?.enabled || false,
+      apiKey: openrouter?.apiKey,
+      model: openrouter?.model || 'openai/gpt-3.5-turbo'
+    },
+    useCloudService: useCloudService
+  };
 }

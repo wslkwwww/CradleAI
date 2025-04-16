@@ -4,18 +4,47 @@ import { Character, GlobalSettings } from '../shared/types';
 import { CirclePost, CircleComment, CircleLike } from '../shared/types/circle-types';
 import { RelationshipService } from './relationship-service';
 import { CircleScheduler } from './circle-scheduler';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // Add this import
-import { StorageAdapter } from '../NodeST/nodest/utils/storage-adapter'; // Add this import
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { StorageAdapter } from '../NodeST/nodest/utils/storage-adapter';
+import { getUserSettingsGlobally, getApiSettings, getCloudServiceStatus } from '@/utils/settings-helper';
 
 // 创建具有apiKey的单例实例
 let nodeST: NodeST | null = null;
 
 export class CircleService {
-  // 修改 getNodeST 方法以支持 apiSettings
+  // 修改 getNodeST 方法以从全局设置获取API设置
   private static getNodeST(
     apiKey?: string, 
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
   ): NodeST {
+    // Get global settings if not provided
+    if (!apiKey || !apiSettings) {
+      const globalSettings = getUserSettingsGlobally();
+      const cloudEnabled = getCloudServiceStatus();
+      
+      if (globalSettings && globalSettings.chat) {
+        // Use global settings if available
+        if (!apiKey) {
+          apiKey = globalSettings.chat.characterApiKey || '';
+        }
+        
+        if (!apiSettings) {
+          apiSettings = {
+            apiProvider: globalSettings.chat.apiProvider,
+            openrouter: globalSettings.chat.openrouter
+          };
+        }
+        
+        // Log that we're using global settings
+        console.log(`【朋友圈服务】从全局设置获取API配置:`, {
+          provider: globalSettings.chat.apiProvider,
+          hasGeminiKey: !!globalSettings.chat.characterApiKey,
+          hasOpenRouterKey: !!globalSettings.chat.openrouter?.apiKey,
+          cloudEnabled
+        });
+      }
+    }
+    
     // Prepare OpenRouter config if needed
     const openRouterConfig = apiSettings?.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled
         ? {
@@ -51,7 +80,7 @@ export class CircleService {
     return nodeST;
   }
 
-  // 更新现有方法，添加 apiSettings 参数
+  // Update existing methods to use global settings
   static async initCharacterCircle(
     character: Character, 
     apiKey?: string,
@@ -59,6 +88,16 @@ export class CircleService {
   ): Promise<boolean> {
     try {
       console.log(`【朋友圈服务】初始化角色 ${character.name} 的朋友圈`);
+      
+      // Use global settings if not provided
+      if (!apiKey || !apiSettings) {
+        const settings = getApiSettings();
+        apiKey = settings.apiKey || apiKey;
+        apiSettings = apiSettings || {
+          apiProvider: settings.apiProvider,
+          openrouter: settings.openrouter
+        };
+      }
       
       const instance = this.getNodeST(apiKey, apiSettings);
       return await instance.initCharacterCircle(character);
@@ -68,7 +107,7 @@ export class CircleService {
     }
   }
 
-  // 新增：创建朋友圈帖子
+  // 更新其他需要API设置的方法，例如 createNewPost 
   static async createNewPost(
     character: Character,
     content: string,
@@ -76,8 +115,19 @@ export class CircleService {
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
   ): Promise<CircleResponse> {
     try {
-      console.log(`【朋友圈服务】角色 ${character.name} 创建新朋友圈帖子，API Provider: ${apiSettings?.apiProvider || 'gemini'}`);
+      // Get global settings if not provided
+      if (!apiKey || !apiSettings) {
+        const settings = getApiSettings();
+        apiKey = settings.apiKey || apiKey;
+        apiSettings = apiSettings || {
+          apiProvider: settings.apiProvider,
+          openrouter: settings.openrouter
+        };
+      }
       
+      console.log(`【朋友圈服务】角色 ${character.name} 创建新朋友圈帖子，API Provider: ${apiSettings.apiProvider || 'gemini'}`);
+      
+      // Rest of the method remains unchanged
       // 初始化角色的朋友圈（如果尚未初始化）
       const isInitialized = await this.initCharacterCircle(character, apiKey, apiSettings);
       if (!isInitialized) {
@@ -161,15 +211,26 @@ export class CircleService {
     }
   }
 
-  // Improved publishTestPost method to respect targetCharacters
+  // 更新 publishTestPost 方法也使用全局设置
   static async publishTestPost(
     characters: Character[],
     apiKey?: string,
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
   ): Promise<{post: CirclePost | null, author: Character | null}> {
     try {
+      // Get global settings if not provided
+      if (!apiKey || !apiSettings) {
+        const settings = getApiSettings();
+        apiKey = settings.apiKey || apiKey;
+        apiSettings = apiSettings || {
+          apiProvider: settings.apiProvider,
+          openrouter: settings.openrouter
+        };
+      }
+      
       console.log(`【朋友圈服务】尝试发布测试帖子，提供的角色数: ${characters.length}`);
       
+      // Rest of the method remains unchanged
       // Filter characters with circle interaction enabled
       const enabledCharacters = characters.filter(c => c.circleInteraction);
       if (enabledCharacters.length === 0) {
@@ -247,17 +308,28 @@ export class CircleService {
     }
   }
 
-  // Process interaction with a post
+  // Update processCircleInteraction to use global settings
   static async processCircleInteraction(
     character: Character, 
     post: CirclePost,
     apiKey?: string,
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
-    postOptions?: CirclePostOptions // Add postOptions parameter
+    postOptions?: CirclePostOptions
   ): Promise<CircleResponse> {
     try {
+      // Get global settings if not provided
+      if (!apiKey || !apiSettings) {
+        const settings = getApiSettings();
+        apiKey = settings.apiKey || apiKey;
+        apiSettings = apiSettings || {
+          apiProvider: settings.apiProvider,
+          openrouter: settings.openrouter
+        };
+      }
+      
       console.log(`【朋友圈服务】处理角色 ${character.name} 对帖子的互动${postOptions?.content?.images?.length ? "（包含图片）" : ""}`);
       
+      // Rest of the method remains unchanged
       // 检查互动频率限制
       if (!this.checkInteractionLimits(character, post.characterId, 'post')) {
         console.log(`【朋友圈服务】角色 ${character.name} 已达到互动频率限制，跳过对 ${post.characterName} 帖子的回复`);
@@ -371,50 +443,8 @@ export class CircleService {
     }
   }
 
-  /**
-   * Improved version of toggling favorites to ensure post data integrity
-   * This version will not modify the original post content
-   */
-  static async toggleFavoritePost(
-    character: Character,
-    postId: string,
-    isFavorite: boolean
-  ): Promise<boolean> {
-    try {
-      console.log(`【朋友圈服务】${isFavorite ? '收藏' : '取消收藏'}帖子，ID: ${postId}, 角色: ${character.name}`);
-      
-      // Initialize favoritedPosts if it doesn't exist
-      if (!character.favoritedPosts) {
-        character.favoritedPosts = [];
-      }
-      
-      // Update the favoritedPosts array without changing the post content
-      if (isFavorite && !character.favoritedPosts.includes(postId)) {
-        character.favoritedPosts.push(postId);
-      } else if (!isFavorite) {
-        character.favoritedPosts = character.favoritedPosts.filter(id => id !== postId);
-      }
-      
-      // If this is a special 'user-1' character (for storing user favorites),
-      // update the separate AsyncStorage for user favorites
-      if (character.id === 'user-1') {
-        try {
-          await AsyncStorage.setItem('user_favorited_posts', JSON.stringify(character.favoritedPosts));
-          console.log(`【朋友圈服务】已更新用户收藏帖子列表，共 ${character.favoritedPosts.length} 条`);
-        } catch (error) {
-          console.error('【朋友圈服务】更新用户收藏帖子列表失败:', error);
-          return false;
-        }
-      }
-      
-      return true;
-    } catch (error) {
-      console.error(`【朋友圈服务】${isFavorite ? '收藏' : '取消收藏'}帖子失败:`, error);
-      return false;
-    }
-  }
-
-  // Process user comment to a post with apiKey - add isForwarded parameter
+  // Update all other methods that use API settings to use global settings if not provided
+  // Example for processCommentInteraction
   static async processCommentInteraction(
     character: Character,
     post: CirclePost,
@@ -422,9 +452,19 @@ export class CircleService {
     apiKey?: string,
     replyTo?: { userId: string, userName: string },
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
-    isForwarded: boolean = false  // Add new parameter to indicate forwarding
+    isForwarded: boolean = false
   ): Promise<CircleResponse> {
     try {
+      // Get global settings if not provided
+      if (!apiKey || !apiSettings) {
+        const settings = getApiSettings();
+        apiKey = settings.apiKey || apiKey;
+        apiSettings = apiSettings || {
+          apiProvider: settings.apiProvider,
+          openrouter: settings.openrouter
+        };
+      }
+      
       // Special handling for forwarded posts - we'll bypass the usual processing
       if (isForwarded) {
         console.log(`【朋友圈服务】处理转发给角色 ${character.name} 的朋友圈，使用直接转发模式`);
@@ -632,7 +672,7 @@ export class CircleService {
       };
     }
   }
-  
+
   /**
    * Extract conversation thread from post or comments
    * This helps maintain context continuity in conversations

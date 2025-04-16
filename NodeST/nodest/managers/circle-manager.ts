@@ -7,6 +7,7 @@ import { MessageBoxItem, RelationshipMapData } from '../../../shared/types/relat
 import { PromptBuilderService, DEntry, RFrameworkEntry } from '../services/prompt-builder-service';
 import CirclePrompts, { defaultScenePrompt, ScenePromptParams } from '@/prompts/circle-prompts';
 import { StorageAdapter } from '../utils/storage-adapter';
+import { getCloudServiceStatus, getApiSettings } from '../../../utils/settings-helper';
 
 export { CirclePostOptions, CircleResponse };
 export class CircleManager {
@@ -27,6 +28,8 @@ export class CircleManager {
     private static isProcessing = false;
     private static requestInterval = 2000; // 2 seconds between requests
     private static lastRequestTime = 0;
+    // Add cloud service flag
+    private useCloudService: boolean = false;
     
     constructor(
         apiKey?: string,
@@ -37,11 +40,16 @@ export class CircleManager {
     ) {
         this.apiKey = apiKey || '';
         this.openRouterConfig = openRouterConfig;
+        
+        // Check cloud service status from global settings
+        this.useCloudService = getCloudServiceStatus();
+        
         console.log(`【CircleManager】创建实例，apiKey存在: ${!!apiKey}, openRouter配置:`, 
             openRouterConfig ? {
                 hasKey: !!openRouterConfig.apiKey,
                 model: openRouterConfig.model
-            } : 'none'
+            } : 'none',
+            `云服务状态: ${this.useCloudService ? '启用' : '禁用'}`
         );
         
         // 初始化适配器
@@ -64,10 +72,14 @@ export class CircleManager {
             model?: string;
         }
     ): void {
+        // Check cloud service status from global settings
+        this.useCloudService = getCloudServiceStatus();
+        
         console.log(`【CircleManager】更新API Key和配置`, {
             hasGeminiKey: !!apiKey,
             hasOpenRouterKey: !!openRouterConfig?.apiKey,
-            openRouterModel: openRouterConfig?.model
+            openRouterModel: openRouterConfig?.model,
+            useCloudService: this.useCloudService
         });
         
         this.apiKey = apiKey;
@@ -128,6 +140,13 @@ export class CircleManager {
     // 实现真实的API调用
     private async getChatResponse(prompt: string): Promise<string> {
         try {
+            // Check if cloud service is enabled, and handle accordingly
+            if (this.useCloudService) {
+                console.log('【朋友圈】云服务已启用，将使用云端API');
+                // In a real implementation, we would use a cloud service API here
+                // For now, we'll fall back to local adapters
+            }
+            
             console.log('【朋友圈】发送请求到LLM, 使用适配器:', 
                 this.openRouterAdapter ? 'OpenRouter' : 'Gemini'
             );
@@ -163,6 +182,16 @@ export class CircleManager {
         // Set processing flag
         CircleManager.isProcessing = true;
         
+        // Get latest settings in case they changed
+        const apiSettings = getApiSettings();
+        const currentCloudStatus = getCloudServiceStatus();
+        
+        // Update local status if it changed
+        if (this.useCloudService !== currentCloudStatus) {
+            console.log(`【朋友圈】云服务状态已变更: ${this.useCloudService} -> ${currentCloudStatus}`);
+            this.useCloudService = currentCloudStatus;
+        }
+        
         while (CircleManager.requestQueue.length > 0) {
             const now = Date.now();
             const timeSinceLastRequest = now - CircleManager.lastRequestTime;
@@ -186,6 +215,18 @@ export class CircleManager {
                 };
                 
                 let response: string;
+                
+                // Check for cloud service first
+                if (this.useCloudService) {
+                    try {
+                        console.log('【朋友圈】使用云服务发送请求');
+                        // Implement cloud service call here
+                        // For now, fall back to local adapters
+                        throw new Error('Cloud service not implemented yet');
+                    } catch (cloudError) {
+                        console.warn('【朋友圈】云服务请求失败，回退到本地适配器:', cloudError);
+                    }
+                }
                 
                 // Prioritize OpenRouter adapter if available
                 if (this.openRouterAdapter) {
@@ -1215,70 +1256,6 @@ user789-+10-friend
             injection_depth: 1, // 深度1，插入在用户消息之前
             constant: true      // 始终包含此条目
         };
-    }
-
-    // 修正4: 更新buildCirclePrompt方法来正确处理D类条目
-    private buildCirclePromptWithDEntries(
-        framework: CircleRFramework,
-        options: CirclePostOptions,
-        character: Character,
-        relationshipReviewPrompt: string = ''
-    ): any[] {
-        // 构建R框架作为基础
-        const messages = [
-            {
-                role: "user",
-                parts: [{ text: `【角色描述】${framework.base.charDescription}` }]
-            },
-            {
-                role: "user",
-                parts: [{ text: `【角色性格】${framework.base.charPersonality}` }]
-            }
-        ];
-        
-        // 添加D类条目: 消息盒子
-        const chatHistoryEntry = this.createChatHistoryDEntry(character);
-        if (chatHistoryEntry) {
-            messages.push(chatHistoryEntry);
-        }
-        
-        // 添加D类条目: 关系图谱
-        const relationshipMapEntry = this.createRelationshipMapDEntry(character);
-        if (relationshipMapEntry) {
-            messages.push(relationshipMapEntry);
-        }
-        
-        // 添加D类条目: 状态检视提示词
-        if (relationshipReviewPrompt) {
-            const reviewEntry = this.createRelationshipReviewDEntry(relationshipReviewPrompt);
-            if (reviewEntry) {
-                messages.push(reviewEntry);
-            }
-        }
-        
-        // 添加场景提示词作为主要用户消息
-        messages.push({
-            role: "user",
-            parts: [{
-                text: `【当前场景】${framework.circle.scenePrompt}\n
-    【内容】${options.content.text}\n
-    【上下文】${options.content.context || ''}\n
-    请以JSON格式回复，响应格式如下:
-    ${JSON.stringify(framework.circle.responseFormat, null, 2)}`
-            }]
-        });
-        
-        return messages;
-    }
-
-    // 辅助方法: 格式化消息为Gemini请求文本
-    private formatMessagesForGeminiRequest(messages: any[]): string {
-        return messages.map(msg => {
-            if (msg.parts && msg.parts[0] && msg.parts[0].text) {
-                return msg.parts[0].text;
-            }
-            return '';
-        }).join('\n\n');
     }
 
     // 格式化消息盒子内容
