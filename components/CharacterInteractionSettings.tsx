@@ -517,7 +517,7 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
         {
           text: '确定',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             const characterTimes = scheduledTimes[characterId] || [];
             const newTimes = characterTimes.filter(time => time !== timeToRemove);
             
@@ -526,7 +526,8 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
               [characterId]: newTimes
             };
             
-            saveScheduledTimes(newScheduledTimes);
+            // Save updated times
+            await saveScheduledTimes(newScheduledTimes);
             
             // Update the character directly
             const character = characters.find(c => c.id === characterId);
@@ -535,14 +536,52 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
                 ...character,
                 circleScheduledTimes: newTimes
               };
-              updateCharacter(updatedCharacter);
+              await updateCharacter(updatedCharacter);
               
-              // Show confirmation toast
-              Alert.alert('已取消', `已取消 ${timeToRemove} 的定时发布`);
+              // Cancel any pending scheduled posts for this time
+              try {
+                // Import and use the CircleScheduler to cancel the scheduled time
+                const { CircleScheduler } = require('@/services/circle-scheduler');
+                const scheduler = CircleScheduler.getInstance();
+                await scheduler.cancelScheduledTime(character.id, timeToRemove);
+                
+                // Show success confirmation
+                Alert.alert('已取消', `已取消 ${timeToRemove} 的定时发布`);
+              } catch (error) {
+                console.error('取消定时发布失败:', error);
+                // Still show some confirmation since the time was removed from settings
+                Alert.alert('已更新设置', `已从设置中移除 ${timeToRemove} 的定时发布`);
+              }
             }
           }
         }
       ]
+    );
+  };
+
+  // Render each time item with delete button
+  const renderTimeItem = (time: string, index: number, characterId: string) => {
+    return (
+      <Animated.View 
+        key={`${time}-${index}`} 
+        style={styles.timeItem}
+        entering={FadeInDown.delay(index * 100).duration(300)}
+      >
+        <View style={styles.timeDisplay}>
+          <MaterialCommunityIcons 
+            name="clock-time-four-outline" 
+            size={18} 
+            color={theme.colors.accent} 
+          />
+          <Text style={styles.timeText}>{formatTimeForDisplay(time)}</Text>
+        </View>
+        <TouchableOpacity 
+          onPress={() => removeScheduledTime(characterId, time)}
+          style={styles.removeTimeButton}
+        >
+          <Ionicons name="close-circle" size={20} color={theme.colors.danger} />
+        </TouchableOpacity>
+      </Animated.View>
     );
   };
 
@@ -599,28 +638,9 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
             
             <View style={styles.timesList}>
               {characterTimes.length > 0 ? (
-                characterTimes.map((time, index) => (
-                  <Animated.View 
-                    key={`${time}-${index}`} 
-                    style={styles.timeItem}
-                    entering={FadeInDown.delay(index * 100).duration(300)}
-                  >
-                    <View style={styles.timeDisplay}>
-                      <MaterialCommunityIcons 
-                        name="clock-time-four-outline" 
-                        size={18} 
-                        color={theme.colors.accent} 
-                      />
-                      <Text style={styles.timeText}>{formatTimeForDisplay(time)}</Text>
-                    </View>
-                    <TouchableOpacity 
-                      onPress={() => removeScheduledTime(selectedCharacterForSchedule.id, time)}
-                      style={styles.removeTimeButton}
-                    >
-                      <Ionicons name="close-circle" size={20} color={theme.colors.danger} />
-                    </TouchableOpacity>
-                  </Animated.View>
-                ))
+                characterTimes.map((time, index) => 
+                  renderTimeItem(time, index, selectedCharacterForSchedule.id)
+                )
               ) : (
                 <View style={styles.noTimesContainer}>
                   <MaterialCommunityIcons 
@@ -1102,10 +1122,6 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
     );
   }, [expandedCharacterId, loading]);
 
-
-
-
-  
   // Render memory management tab
   const renderMemoryTab = () => {
     return (
@@ -1220,13 +1236,21 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
                         <Text style={styles.scheduleCharacterTimesTitle}>已设置的发布时间:</Text>
                         <View style={styles.scheduleTimeChips}>
                           {characterTimes.map((time, index) => (
-                            <View key={`${time}-${index}`} style={styles.scheduleTimeChip}>
-                              <MaterialCommunityIcons 
-                                name="clock-outline" 
-                                size={14} 
-                                color={theme.colors.accent} 
-                              />
-                              <Text style={styles.scheduleTimeChipText}>{formatTimeForDisplay(time)}</Text>
+                            <View key={`${time}-${index}`} style={styles.scheduleTimeChipContainer}>
+                              <View style={styles.scheduleTimeChip}>
+                                <MaterialCommunityIcons 
+                                  name="clock-outline" 
+                                  size={14} 
+                                  color={theme.colors.accent} 
+                                />
+                                <Text style={styles.scheduleTimeChipText}>{formatTimeForDisplay(time)}</Text>
+                              </View>
+                              <TouchableOpacity
+                                onPress={() => removeScheduledTime(character.id, time)}
+                                style={styles.scheduleTimeDeleteButton}
+                              >
+                                <Ionicons name="close-circle" size={16} color={theme.colors.danger} />
+                              </TouchableOpacity>
                             </View>
                           ))}
                         </View>
@@ -2062,6 +2086,16 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 12,
     marginLeft: 4,
+  },
+  scheduleTimeChipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  scheduleTimeDeleteButton: {
+    marginLeft: 4,
+    padding: 2,
   },
   scheduleNoTimesText: {
     color: theme.colors.textSecondary,

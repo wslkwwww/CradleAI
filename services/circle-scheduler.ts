@@ -842,6 +842,120 @@ export class CircleScheduler {
     
     return generalPrompts[Math.floor(Math.random() * generalPrompts.length)];
   }
+
+  // Add a method to cancel a scheduled time for a character
+  public async cancelScheduledTime(characterId: string, timeToCancel: string): Promise<boolean> {
+    try {
+      console.log(`【CircleScheduler】正在取消角色 ${characterId} 的定时发布时间: ${timeToCancel}`);
+      
+      // First find the character in our cache
+      const characterIndex = this.characterCache.findIndex(c => c.id === characterId);
+      
+      if (characterIndex >= 0) {
+        const character = this.characterCache[characterIndex];
+        
+        // Remove the specified time from the character's scheduled times
+        if (character.circleScheduledTimes) {
+          // Filter out the time to cancel
+          const updatedTimes = character.circleScheduledTimes.filter(time => time !== timeToCancel);
+          character.circleScheduledTimes = updatedTimes;
+          
+          // If the character had lastProcessedTimes, also remove the entry for this time
+          if (character.circleLastProcessedTimes && character.circleLastProcessedTimes[timeToCancel]) {
+            delete character.circleLastProcessedTimes[timeToCancel];
+          }
+          
+          // Update character in cache
+          this.characterCache[characterIndex] = character;
+          
+          // Update our internal scheduledPostsCache
+          if (this.scheduledPostsCache[characterId]) {
+            this.scheduledPostsCache[characterId] = updatedTimes;
+          }
+          
+          // Try to update in FileSystem
+          try {
+            const existingStr = await FileSystem.readAsStringAsync(
+              FileSystem.documentDirectory + 'characters.json'
+            ).catch(() => '[]');
+            
+            if (existingStr && existingStr !== '[]') {
+              const existingCharacters = JSON.parse(existingStr);
+              const updatedCharacters = existingCharacters.map((c: Character) => 
+                c.id === characterId ? {
+                  ...c, 
+                  circleScheduledTimes: updatedTimes,
+                  // Also update the lastProcessedTimes if it exists
+                  circleLastProcessedTimes: character.circleLastProcessedTimes
+                } : c
+              );
+              
+              await FileSystem.writeAsStringAsync(
+                FileSystem.documentDirectory + 'characters.json',
+                JSON.stringify(updatedCharacters),
+                { encoding: FileSystem.EncodingType.UTF8 }
+              );
+              console.log(`【CircleScheduler】已在FileSystem中取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
+            }
+          } catch (fsError) {
+            console.error('【CircleScheduler】更新FileSystem失败:', fsError);
+          }
+          
+          // Also update in AsyncStorage for backward compatibility
+          try {
+            await AsyncStorage.getItem('user_characters').then(async (charactersString) => {
+              if (charactersString) {
+                const characters: Character[] = JSON.parse(charactersString);
+                const charIndex = characters.findIndex(c => c.id === characterId);
+                
+                if (charIndex >= 0) {
+                  if (!characters[charIndex].circleScheduledTimes) {
+                    characters[charIndex].circleScheduledTimes = [];
+                  } else {
+                    characters[charIndex].circleScheduledTimes = updatedTimes;
+                  }
+                  
+                  // Also update lastProcessedTimes
+                  if (characters[charIndex].circleLastProcessedTimes && 
+                      characters[charIndex].circleLastProcessedTimes[timeToCancel]) {
+                    delete characters[charIndex].circleLastProcessedTimes[timeToCancel];
+                  }
+                  
+                  await AsyncStorage.setItem('user_characters', JSON.stringify(characters));
+                  console.log(`【CircleScheduler】已在AsyncStorage中取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
+                }
+              }
+            });
+            
+            // Also update in legacy storage format, if it exists
+            const storedTimes = await AsyncStorage.getItem('character_scheduled_times');
+            if (storedTimes) {
+              const timesObj = JSON.parse(storedTimes);
+              if (timesObj[characterId]) {
+                timesObj[characterId] = timesObj[characterId].filter((t: string) => t !== timeToCancel);
+                await AsyncStorage.setItem('character_scheduled_times', JSON.stringify(timesObj));
+                console.log(`【CircleScheduler】已在旧格式存储中取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
+              }
+            }
+          } catch (asyncError) {
+            console.error('【CircleScheduler】更新AsyncStorage失败:', asyncError);
+          }
+          
+          console.log(`【CircleScheduler】已成功取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
+          return true;
+        } else {
+          console.log(`【CircleScheduler】角色 ${characterId} 没有设置定时发布时间`);
+        }
+      } else {
+        console.error(`【CircleScheduler】未找到角色ID ${characterId}`);
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`【CircleScheduler】取消定时发布时间失败:`, error);
+      return false;
+    }
+  }
 }
 
 // Add a type for update callbacks
