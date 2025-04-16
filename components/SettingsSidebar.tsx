@@ -285,12 +285,28 @@ export default function SettingsSidebar({
 
   const handleAutoMessageToggle = async () => {
     if (selectedCharacter) {
-      const updatedCharacter = {
-        ...selectedCharacter,
-        autoMessage: !isAutoMessageEnabled
-      };
-      await updateCharacter(updatedCharacter);
-      setIsAutoMessageEnabled(!isAutoMessageEnabled);
+      try {
+        // Create a copy of the character with the updated setting
+        const updatedCharacter = {
+          ...selectedCharacter,
+          autoMessage: !isAutoMessageEnabled
+        };
+        
+        // Update state first to reflect the new setting immediately in the UI
+        setIsAutoMessageEnabled(!isAutoMessageEnabled);
+        
+        // Then update the character data in the database
+        await updateCharacter(updatedCharacter);
+        
+        // Notify the user about the change
+        console.log(`Auto messages ${!isAutoMessageEnabled ? 'enabled' : 'disabled'} for ${selectedCharacter.name}`);
+        
+      } catch (error) {
+        // If there's an error, revert the state change
+        setIsAutoMessageEnabled(isAutoMessageEnabled);
+        console.error('Failed to update auto message setting:', error);
+        Alert.alert('Error', 'Failed to update auto message settings');
+      }
     }
   };
 

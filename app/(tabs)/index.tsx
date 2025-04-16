@@ -13,6 +13,8 @@ import {
   KeyboardAvoidingView,
   AppState,
   ActivityIndicator,
+  Animated,
+  Easing
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av'; // Import Video component
 import ChatDialog from '@/components/ChatDialog';
@@ -121,6 +123,10 @@ const App = () => {
   const params = useLocalSearchParams();
   const characterId = params.characterId as string;
   const { user } = useUser(); // 获取用户设置
+
+  // Create animation value for sidebar content shift
+  const contentSlideAnim = useRef(new Animated.Value(0)).current;
+  const SIDEBAR_WIDTH = 280; // Match the sidebar width
 
   // Create a stable memory configuration that won't change on every render
   const memoryConfig = useMemo(() => createStableMemoryConfig(user), []);
@@ -261,8 +267,18 @@ const App = () => {
     setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
   };
 
+  // Modify toggleSidebar to also animate contentSlideAnim
   const toggleSidebar = () => {
-    setIsSidebarVisible(!isSidebarVisible);
+    const newIsVisible = !isSidebarVisible;
+    setIsSidebarVisible(newIsVisible);
+    
+    // Animate the content area
+    Animated.timing(contentSlideAnim, {
+      toValue: newIsVisible ? SIDEBAR_WIDTH : 0,
+      duration: 100, // 100ms as requested
+      easing: Easing.inOut(Easing.ease), // 添加这行
+      useNativeDriver: true, // Use native driver for better performance
+    }).start();
   };
 
   const toggleSaveManager = () => {
@@ -963,7 +979,7 @@ const App = () => {
     }
   };
 
-  // Function to set up auto message timer
+  // Function to set up auto message timer with proper safeguards
   const setupAutoMessageTimer = useCallback(() => {
     // Clear any existing timer
     if (autoMessageTimerRef.current) {
@@ -1002,10 +1018,10 @@ const App = () => {
         autoMessageTimerRef.current = null;
         
         try {
-          // Critical fix: Don't create a loading message first for auto messages
-          // This prevents disrupting the history logic in ChatDialog
-          // Instead, generate the response silently and only add the final result
-          console.log('[App] Generating auto message response silently');
+          // Generate a truly unique message ID for this auto message
+          // Using both timestamp and UUID components to ensure uniqueness
+          const uniqueAutoMsgId = `auto-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+          console.log(`[App] Generating auto message with ID: ${uniqueAutoMsgId}`);
           
           // Call NodeST with special auto-message instruction - note we don't add a loading state message
           const result = await NodeSTManager.processChatMessage({
@@ -1025,16 +1041,20 @@ const App = () => {
           
           // If successful, add the auto message response directly (no loading state)
           if (result.success && result.text) {
-            // Add the auto message as a bot message
+            // Calculate aiIndex before adding the message
+            const aiMessageCount = messages.filter(m => m.sender === 'bot' && !m.isLoading).length;
+            
+            // Add the auto message as a bot message with a guaranteed unique ID
             await addMessage(selectedConversationId, {
-              id: `auto-${Date.now()}`,
+              id: uniqueAutoMsgId,
               text: result.text,
               sender: 'bot',
               timestamp: Date.now(),
-              // Add metadata to mark this as an auto message response
+              // Add metadata to mark this as an auto message response with the correct aiIndex
               metadata: {
                 isAutoMessageResponse: true,
-                aiIndex: messages.filter(m => m.sender === 'bot' && !m.isLoading).length
+                aiIndex: aiMessageCount,
+                autoMessageCreatedAt: Date.now()
               }
             });
             
@@ -1046,7 +1066,6 @@ const App = () => {
             console.log('[App] Auto message sent, now waiting for user reply');
             
             // IMPORTANT: Only update notification badge if notificationEnabled is true
-            // This change ensures the message still appears in chat, just without a notification badge
             if (selectedCharacter.notificationEnabled === true) {
               console.log('[App] Notifications enabled for this character, updating unread count');
               updateUnreadMessagesCount(1);
@@ -1064,6 +1083,44 @@ const App = () => {
     
     console.log(`[App] Auto message timer set for ${autoMessageIntervalRef.current} minutes`);
   }, [selectedCharacter, selectedConversationId, autoMessageEnabled, user?.settings, messages]);
+
+  // Update handleAutoMessageSettings function to properly handle state changes
+  useEffect(() => {
+    // Initialize auto message interval from character settings if available
+    if (selectedCharacter) {
+      const newAutoMessageEnabled = selectedCharacter.autoMessage === true;
+      
+      // Only log and update if the setting has actually changed
+      if (autoMessageEnabled !== newAutoMessageEnabled) {
+        console.log(`[App] Auto message setting changed to: ${newAutoMessageEnabled}`);
+        setAutoMessageEnabled(newAutoMessageEnabled);
+      }
+      
+      // Get the interval directly from the character settings
+      autoMessageIntervalRef.current = selectedCharacter.autoMessageInterval || 5;
+      
+      // Only reset the timer if auto messages are enabled
+      if (newAutoMessageEnabled) {
+        // Set up timer with a small delay to allow state updates to complete
+        setTimeout(() => {
+          setupAutoMessageTimer();
+        }, 100);
+      } else if (autoMessageTimerRef.current) {
+        // Clean up existing timer if auto messages are now disabled
+        clearTimeout(autoMessageTimerRef.current);
+        autoMessageTimerRef.current = null;
+        console.log('[App] Auto message timer cleared due to setting change');
+      }
+    }
+    
+    // Clean up timer on unmount or character change
+    return () => {
+      if (autoMessageTimerRef.current) {
+        clearTimeout(autoMessageTimerRef.current);
+        autoMessageTimerRef.current = null;
+      }
+    };
+  }, [selectedCharacter, setupAutoMessageTimer]);
 
   // Add unread messages counter function
   const updateUnreadMessagesCount = (count: number) => {
@@ -1285,7 +1342,7 @@ const App = () => {
       <MemoryProvider config={memoryConfig}>
         <Mem0Initializer />
         
-        {/* Modified backgroundImage container to conditionally render Video or ImageBackground */}
+        {/* Background container remains static */}
         <View style={styles.backgroundContainer}>
           {selectedCharacter?.dynamicPortraitEnabled && selectedCharacter?.dynamicPortraitVideo ? (
             // Render video background if enabled and video exists
@@ -1345,8 +1402,26 @@ const App = () => {
           )}
         </View>
         
-        {/* Content container placed on top of background */}
-        <View style={styles.contentMainContainer}>
+        {/* Sidebar is positioned absolutely at the root level */}
+        <Sidebar
+          isVisible={isSidebarVisible}
+          conversations={characters}
+          selectedConversationId={selectedConversationId}
+          onSelectConversation={handleSelectConversation}
+          onClose={toggleSidebar}
+          animationValue={contentSlideAnim}
+        />
+        
+        {/* Everything else (content + topbar) gets animated together */}
+        <Animated.View 
+          style={[
+            styles.contentMainContainer,
+            {
+              transform: [{ translateX: contentSlideAnim }],
+              width: '100%',  // Ensure full width
+            }
+          ]}
+        >
           <KeyboardAvoidingView 
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.keyboardAvoidView}
@@ -1368,7 +1443,6 @@ const App = () => {
               <SafeAreaView style={[
                 styles.safeArea,
                 selectedCharacter && styles.transparentBackground,
-                // Add extra styles for background focus mode
                 mode === 'background-focus' && styles.backgroundFocusSafeArea
               ]}>
                 {/* Preview Mode Banner */}
@@ -1447,13 +1521,6 @@ const App = () => {
                 </View>
 
                 {/* Sidebars and overlays */}
-                <Sidebar
-                  isVisible={isSidebarVisible}
-                  conversations={characters}
-                  selectedConversationId={selectedConversationId}
-                  onSelectConversation={handleSelectConversation}
-                  onClose={toggleSidebar}
-                />
                 <SettingsSidebar
                   isVisible={isSettingsSidebarVisible}
                   onClose={toggleSettingsSidebar}
@@ -1504,7 +1571,7 @@ const App = () => {
               />
             </View>
           </KeyboardAvoidingView>
-        </View>
+        </Animated.View>
       </MemoryProvider>
     </View>
   );
@@ -1569,7 +1636,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 1,
+    zIndex: 10, // Lower than sidebar's z-index
   },
   container: {
     flex: 1,

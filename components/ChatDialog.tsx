@@ -44,8 +44,8 @@ const MAX_WIDTH = width * 0.88; // Decreased from 0.9 to 0.88 to add more margin
 const MAX_IMAGE_HEIGHT = 300; // Maximum height for images in chat
 
 // Constants for virtualization
-const INITIAL_LOAD_COUNT = 3; // Initial messages to show
-const BATCH_SIZE = 3; // How many messages to load per batch when scrolling up
+const INITIAL_LOAD_COUNT = 50; // Initial messages to show
+const BATCH_SIZE = 5; // How many messages to load per batch when scrolling up
 
 const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   messages,
@@ -134,25 +134,34 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       return;
     }
 
-    // Key change: Compare with current virtualized messages to detect if we're adding new messages
-    // rather than replacing the entire history
-    const isAddingNewMessages = virtualizedMessages.length > 0 && 
-      messages.length > virtualizedMessages.length &&
-      // Check if the last few messages in the current list match the end of previous list
-      messages[messages.length - virtualizedMessages.length]?.id === virtualizedMessages[0]?.id;
-
-    // Ensure all initial messages have unique IDs
+    // Ensure all messages have unique IDs before processing
     const processedMessages = messages.map(msg => {
+      // If the message already has an ID, preserve it
       if (msg.id) return msg;
       
-      // Generate unique ID
+      // Generate a unique, stable ID for messages without one
+      // Use content hash if possible to maintain stability across renders
+      const contentHash = msg.text ? 
+        msg.text.substring(0, 20).replace(/[^a-z0-9]/gi, '') : 
+        'empty';
+        
       return {
         ...msg,
-        id: `init-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+        id: `gen-${msg.sender}-${msg.timestamp || Date.now()}-${contentHash}-${Math.random().toString(36).substring(2, 7)}`
       };
     });
 
-    // For small batch messages or initial load, show all messages
+    // Check if we're adding new messages or just getting an updated message array
+    // This helps distinguish between actual new messages vs. settings changes
+    const existingMessageIds = new Set(virtualizedMessages.map(m => m.id));
+    const hasNewMessages = processedMessages.some(msg => !existingMessageIds.has(msg.id));
+    const messageCountChanged = processedMessages.length !== virtualizedMessages.length;
+
+    // Key fix: Only treat as "adding" if we have new messages that aren't in our current list
+    const isAddingNewMessages = hasNewMessages && messageCountChanged && 
+      processedMessages.length > virtualizedMessages.length;
+
+    // Small message set - show all
     if (processedMessages.length <= INITIAL_LOAD_COUNT) {
       console.log(`[ChatDialog] Small message set (${processedMessages.length}), showing all messages`);
       setVirtualizedMessages(processedMessages);
@@ -160,51 +169,53 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       return;
     }
 
-    // Critical fix: If we detect we're just adding new messages, append them instead of recreating the list
-    // This preserves history when auto messages come in
+    // Truly adding new messages - keep existing and append new ones
     if (isAddingNewMessages) {
-      console.log(`[ChatDialog] Detected new messages being added (${messages.length} vs ${virtualizedMessages.length}), preserving history`);
+      console.log(`[ChatDialog] New messages detected (${processedMessages.length - virtualizedMessages.length}), appending`);
       
-      // Get just the new messages to append
-      const newMessages = processedMessages.slice(processedMessages.length - (processedMessages.length - virtualizedMessages.length));
+      // Find messages that aren't in our current virtualized list
+      const newMessages = processedMessages.filter(msg => !existingMessageIds.has(msg.id));
       
-      // Append new messages to existing virtualized list
-      setVirtualizedMessages(prevMessages => [...prevMessages, ...newMessages]);
+      // Append only the new messages to avoid duplicates
+      setVirtualizedMessages(prev => [...prev, ...newMessages]);
       return;
     }
     
-    // If user has scrolled and viewed history, keep all messages they've seen
+    // User has scrolled and viewed history - preserve their position and context
     if (userHasScrolled && virtualizedMessages.length > INITIAL_LOAD_COUNT) {
-      console.log(`[ChatDialog] User has scrolled and viewed history, preserving ${virtualizedMessages.length} messages`);
+      // For non-additive changes (like settings change), verify we don't duplicate messages
+      // by comparing the entire arrays instead of just length
       
-      // When total messages become large, ensure we don't lose context
-      // by keeping all currently visible messages plus the new ones
-      const existingIds = new Set(virtualizedMessages.map(msg => msg.id));
-      const newMessages = processedMessages.filter(msg => !existingIds.has(msg.id));
+      // Create ID sets for quick comparison
+      const currentIds = new Set(virtualizedMessages.map(msg => msg.id));
+      const processedIds = new Set(processedMessages.map(msg => msg.id));
       
-      if (newMessages.length > 0) {
-        console.log(`[ChatDialog] Adding ${newMessages.length} new messages to existing ${virtualizedMessages.length}`);
-        setVirtualizedMessages(prev => [...prev, ...newMessages]);
-        return;
+      // If we have the same IDs in both arrays (regardless of order), keep the current view
+      const hasSameMessages = 
+        currentIds.size === processedIds.size && 
+        [...currentIds].every(id => processedIds.has(id));
+        
+      if (hasSameMessages) {
+        console.log(`[ChatDialog] Settings changed but messages are the same, preserving state`);
+        return; // Don't update state if the messages are the same
       }
       
-      // If no new messages found (likely a reset), fall through to default behavior
+      console.log(`[ChatDialog] Messages changed significantly, updating view`);
     }
 
-    // For large conversations starting fresh, only show the most recent messages
+    // Standard initialization for large conversations
     const totalCount = processedMessages.length;
     const endIdx = totalCount;
-    // Start with the last INITIAL_LOAD_COUNT messages or all if less
     const startIdx = Math.max(0, totalCount - INITIAL_LOAD_COUNT);
     
-    console.log(`[ChatDialog] Initializing with ${endIdx - startIdx} messages (${startIdx}-${endIdx} of ${totalCount})`);
+    console.log(`[ChatDialog] Standard initialization with ${endIdx - startIdx} messages`);
     
     setVirtualizedMessages(processedMessages.slice(startIdx, endIdx));
     setHasMoreMessagesToLoad(startIdx > 0);
     
-    // Reset initial scroll flag when messages change significantly
+    // Reset scroll position when messages change significantly
     setInitialScrollDone(false);
-  }, [messages, userHasScrolled]); // Added userHasScrolled to dependencies
+  }, [messages, userHasScrolled]);
 
   // Improved logic for loading more messages
   const loadMoreMessages = useCallback(() => {
@@ -1450,12 +1461,23 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     );
   }, [virtualizedMessages, selectedCharacter, ratedMessages, audioStates]);
 
-  // Modify keyExtractor to ensure absolute uniqueness
+  // Improve the keyExtractor function to guarantee uniqueness
   const keyExtractor = useCallback((item: Message) => {
-    // Ensure the message has an ID, if not generate one
-    const baseId = item.id || `msg-${Math.random().toString(36).substring(2, 9)}`;
-    // Ensure the same message has the same key across render cycles
-    return `${baseId}-${item.sender}-${item.timestamp || Date.now()}`;
+    // First check if the message already has an ID
+    if (!item.id) {
+      console.warn('[ChatDialog] Message missing ID, generating stable one');
+      // Create a stable ID based on content and timestamp
+      return `missing-id-${item.sender}-${item.timestamp || Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    }
+    
+    // For auto messages, ensure we use the uniquely generated ID without any modification
+    if (item.metadata?.isAutoMessageResponse) {
+      return item.id; // Use the original ID which should already be unique
+    }
+    
+    // For normal messages with IDs, create a compound key that guarantees uniqueness
+    // This avoids the "two children with the same key" warning
+    return `${item.id}-${item.sender}${item.metadata?.regenerated ? '-regen' : ''}`;
   }, []);
 
   return (

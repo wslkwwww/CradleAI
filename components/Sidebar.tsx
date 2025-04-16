@@ -9,6 +9,7 @@ import {
   StatusBar,
   Animated,
   Dimensions,
+  Easing
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -26,6 +27,7 @@ interface SidebarProps {
   selectedConversationId: string | null;
   onSelectConversation: (id: string) => void;
   onClose: () => void;
+  animationValue?: Animated.Value;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -34,10 +36,23 @@ const Sidebar: React.FC<SidebarProps> = ({
   selectedConversationId,
   onSelectConversation,
   onClose,
+  animationValue,
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
-  const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
+  
+  // Create a local slide animation value
+  const localSlideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
+  
+  // Animate the sidebar separately from the content
+  useEffect(() => {
+    Animated.timing(localSlideAnim, {
+      toValue: isVisible ? 0 : -SIDEBAR_WIDTH,
+      duration: 100, // Match the animation duration with contentSlideAnim
+      easing: Easing.inOut(Easing.ease), // 添加这行来使用缓和函数
+      useNativeDriver: true,
+    }).start();
+  }, [isVisible, localSlideAnim]);
 
   // 过滤出搜索结果
   const filteredConversations = searchQuery 
@@ -45,24 +60,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         conv.name.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : conversations;
-  
-  // Handle sidebar animation similar to SettingsSidebar
-  useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: isVisible ? 0 : -SIDEBAR_WIDTH,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, [isVisible]);
 
   return (
-    <Animated.View
+    <View
       style={[
-        styles.overlay,
+        styles.sidebarContainer,
         {
-          // Only show the overlay when sidebar is visible
-          opacity: isVisible ? 1 : 0,
-          // Remove from accessibility/touch tree when not visible
           pointerEvents: isVisible ? 'auto' : 'none',
         }
       ]}
@@ -71,8 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         style={[
           styles.sidebar,
           {
-            transform: [{ translateX: slideAnim }],
-            width: SIDEBAR_WIDTH,
+            transform: [{ translateX: localSlideAnim }],
           }
         ]}
       >
@@ -83,7 +85,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* 用新的SearchBar组件替换旧的搜索功能 */}
         <View style={styles.searchContainer}>
           <SearchBar
             placeholder="搜索角色..."
@@ -144,14 +145,25 @@ const Sidebar: React.FC<SidebarProps> = ({
           onPress={onClose}
         />
       )}
-    </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1000,
+  sidebarContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: SIDEBAR_WIDTH,
+    zIndex: 20, // Higher than content but lower than modals
+  },
+  sidebar: {
+    width: SIDEBAR_WIDTH,
+    height: '100%',
+    backgroundColor: "rgba(40, 40, 40, 0.9)",
+    paddingTop: StatusBar.currentHeight || 0,
+    ...theme.shadows.medium,
   },
   overlayTouchable: {
     position: 'absolute',
@@ -159,12 +171,7 @@ const styles = StyleSheet.create({
     left: SIDEBAR_WIDTH,
     height: '100%',
     width: Dimensions.get('window').width - SIDEBAR_WIDTH,
-  },
-  sidebar: {
-    height: '100%',
-    backgroundColor: "rgba(40, 40, 40, 0.9)", // Matching SettingsSidebar background
-    paddingTop: StatusBar.currentHeight || 0,
-    ...theme.shadows.medium,
+    backgroundColor: 'transparent', // Make sure it's transparent
   },
   header: {
     flexDirection: 'row',
@@ -178,7 +185,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: "rgb(255, 224, 195)", // Match accent color from SettingsSidebar
+    color: "rgb(255, 224, 195)",
   },
   closeButton: {
     padding: 8,
@@ -198,7 +205,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   selectedConversation: {
-    backgroundColor: 'rgba(255, 224, 195, 0.2)', // Match accent color with transparency
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
   },
   avatar: {
     width: 48,
