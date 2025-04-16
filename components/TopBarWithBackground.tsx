@@ -144,7 +144,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
                 accessibilityLabel="Memory Control"
               >
                 <MaterialCommunityIcons 
-                  name="brain" 
+                  name="memory" 
                   size={24} 
                   color="#fff" 
                 />

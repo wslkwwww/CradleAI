@@ -118,23 +118,69 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
     }
   };
 
-  // Load scheduled times from AsyncStorage
+  // Load scheduled times from characters
   const loadScheduledTimes = async () => {
     try {
-      const storedTimes = await AsyncStorage.getItem('character_scheduled_times');
-      if (storedTimes) {
-        setScheduledTimes(JSON.parse(storedTimes));
+      const scheduledTimes: Record<string, string[]> = {};
+      
+      // Load times from character objects
+      characters.forEach(character => {
+        if (character.circleScheduledTimes?.length) {
+          scheduledTimes[character.id] = character.circleScheduledTimes;
+        }
+      });
+      
+      // If no times found in characters, try loading from legacy storage
+      if (Object.keys(scheduledTimes).length === 0) {
+        const storedTimes = await AsyncStorage.getItem('character_scheduled_times');
+        if (storedTimes) {
+          const legacyTimes = JSON.parse(storedTimes);
+          setScheduledTimes(legacyTimes);
+          
+          // Migrate legacy times to character objects
+          for (const [characterId, times] of Object.entries(legacyTimes)) {
+            const character = characters.find(c => c.id === characterId);
+            if (character) {
+              const updatedCharacter = {
+                ...character,
+                circleScheduledTimes: times as string[]
+              };
+              updateCharacter(updatedCharacter);
+            }
+          }
+          
+          // Remove legacy storage after migration
+          await AsyncStorage.removeItem('character_scheduled_times');
+          return;
+        }
       }
+      
+      setScheduledTimes(scheduledTimes);
     } catch (error) {
       console.error('加载角色发布时间设置失败:', error);
     }
   };
 
-  // Save scheduled times to AsyncStorage
+  // Save scheduled times to character object
   const saveScheduledTimes = async (newScheduledTimes: Record<string, string[]>) => {
     try {
-      await AsyncStorage.setItem('character_scheduled_times', JSON.stringify(newScheduledTimes));
       setScheduledTimes(newScheduledTimes);
+      
+      // Update times in character objects
+      for (const [idKey, times] of Object.entries(newScheduledTimes)) {
+        // Find character by id or conversationId
+        const character = characters.find(c => c.id === idKey || c.conversationId === idKey);
+        if (character) {
+          const updatedCharacter = {
+            ...character,
+            circleScheduledTimes: times
+          };
+          await updateCharacter(updatedCharacter);
+        }
+      }
+      
+      // For backward compatibility, still save to AsyncStorage
+      await AsyncStorage.setItem('character_scheduled_times', JSON.stringify(newScheduledTimes));
     } catch (error) {
       console.error('保存角色发布时间设置失败:', error);
       Alert.alert('错误', '无法保存时间设置');
@@ -447,20 +493,57 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
       };
       
       saveScheduledTimes(newScheduledTimes);
+      
+      // Update the character directly
+      const updatedCharacter = {
+        ...selectedCharacterForSchedule,
+        circleScheduledTimes: newScheduledTimes[selectedCharacterForSchedule.id]
+      };
+      updateCharacter(updatedCharacter);
     }
   };
 
   // Remove a scheduled time
   const removeScheduledTime = (characterId: string, timeToRemove: string) => {
-    const characterTimes = scheduledTimes[characterId] || [];
-    const newTimes = characterTimes.filter(time => time !== timeToRemove);
-    
-    const newScheduledTimes = {
-      ...scheduledTimes,
-      [characterId]: newTimes
-    };
-    
-    saveScheduledTimes(newScheduledTimes);
+    // Show confirmation dialog before removing
+    Alert.alert(
+      '确认取消',
+      `确定要取消 ${timeToRemove} 的定时发布吗？`,
+      [
+        {
+          text: '取消',
+          style: 'cancel'
+        },
+        {
+          text: '确定',
+          style: 'destructive',
+          onPress: () => {
+            const characterTimes = scheduledTimes[characterId] || [];
+            const newTimes = characterTimes.filter(time => time !== timeToRemove);
+            
+            const newScheduledTimes = {
+              ...scheduledTimes,
+              [characterId]: newTimes
+            };
+            
+            saveScheduledTimes(newScheduledTimes);
+            
+            // Update the character directly
+            const character = characters.find(c => c.id === characterId);
+            if (character) {
+              const updatedCharacter = {
+                ...character,
+                circleScheduledTimes: newTimes
+              };
+              updateCharacter(updatedCharacter);
+              
+              // Show confirmation toast
+              Alert.alert('已取消', `已取消 ${timeToRemove} 的定时发布`);
+            }
+          }
+        }
+      ]
+    );
   };
 
   // Format time for display

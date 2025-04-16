@@ -219,6 +219,8 @@ export interface Character {
   circleInteraction?: boolean;
   circlePostFrequency?: 'low' | 'medium' | 'high';
   circleInteractionFrequency?: 'low' | 'medium' | 'high'; // Controls auto-message timing
+  circleScheduledTimes?: string[]; // Array of scheduled post times in format "HH:MM"
+  circleLastProcessedTimes?: Record<string, string>; // Record of last processed times by timeString
   circleStats?: {
     repliedToCharacters: Record<string, number>;
     repliedToPostsCount: number;

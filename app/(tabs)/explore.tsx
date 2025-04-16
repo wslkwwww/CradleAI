@@ -1237,9 +1237,41 @@ const Explore: React.FC = () => {
       text: string;
       onPress?: () => void;
       style: 'default' | 'cancel' | 'destructive';
-    }> = [];
+    }> = [
+      {
+        text: '取消',
+        style: 'cancel'
+      }
+    ];
     
-
+    // Add delete option for both user posts and character posts
+    options.push({
+      text: '删除',
+      onPress: () => {
+        Alert.alert(
+          '确认删除',
+          '确定要删除这条朋友圈吗？此操作不可恢复。',
+          [
+            { text: '取消', style: 'cancel' },
+            { 
+              text: '删除', 
+              style: 'destructive',
+              onPress: () => handleDeletePost(post.id)
+            }
+          ]
+        );
+      },
+      style: 'destructive'
+    });
+    
+    // Add favorite option for character posts
+    if (isCharacterPost) {
+      options.push({
+        text: post.isFavorited ? '取消收藏' : '收藏',
+        onPress: () => toggleFavorite(post.characterId, post.id),
+        style: 'default'
+      });
+    }
        
     // Show alert with options
     Alert.alert(
@@ -1247,7 +1279,7 @@ const Explore: React.FC = () => {
       '请选择要执行的操作',
       options
     );
-  }, [handleDeletePost]);
+  }, [handleDeletePost, toggleFavorite]);
 
   // Replace the incomplete handleForward function with a proper implementation
   const handleForward = useCallback(async (characterId: string, message: string) => {
