@@ -36,6 +36,20 @@ export class ImageManager {
   }
   
   /**
+   * Static method to cache an image - delegates to the instance method
+   * @param base64Data The base64 data without data URI prefix
+   * @param mimeType The MIME type of the image
+   * @returns Object with paths to both original and WebP versions
+   */
+  public static async cacheImage(base64Data: string, mimeType: string): Promise<{
+    original: string;
+    thumbnail: string;
+    id: string;
+  }> {
+    return ImageManager.getInstance().cacheImage(base64Data, mimeType);
+  }
+
+  /**
    * Initialize the cache directory and load the image registry
    */
   private async initializeCache(): Promise<void> {

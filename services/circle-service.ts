@@ -425,6 +425,20 @@ export class CircleService {
     isForwarded: boolean = false  // Add new parameter to indicate forwarding
   ): Promise<CircleResponse> {
     try {
+      // Special handling for forwarded posts - we'll bypass the usual processing
+      if (isForwarded) {
+        console.log(`【朋友圈服务】处理转发给角色 ${character.name} 的朋友圈，使用直接转发模式`);
+        
+        // Return a simplified success response - the actual processing will be done by the chat system
+        return {
+          success: true,
+          action: { 
+            like: true,
+            comment: '内容已转发到对话窗口' // Placeholder response
+          }
+        };
+      }
+
       // Create context based on the interaction type
       let context = '';
       

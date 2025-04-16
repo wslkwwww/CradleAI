@@ -35,6 +35,9 @@ import ImageViewer from '@/components/ImageViewer';
 import CharacterInteractionSettings from '@/components/CharacterInteractionSettings';
 import { theme } from '@/constants/theme';
 import { CircleScheduler } from '@/services/circle-scheduler';
+import { NodeSTManager } from '@/utils/NodeSTManager';
+import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
+import { ImageManager } from '@/utils/ImageManager';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -487,8 +490,6 @@ const Explore: React.FC = () => {
       Alert.alert('操作失败', '无法完成点赞操作');
     }
   }, [characters, posts, updateCharacter, user]);
-
-
 
   // Add function to handle image selection
   const handleSelectImages = async () => {
@@ -1248,6 +1249,160 @@ const Explore: React.FC = () => {
     );
   }, [handleDeletePost]);
 
+  // Replace the incomplete handleForward function with a proper implementation
+  const handleForward = useCallback(async (characterId: string, message: string) => {
+    if (!selectedPost) return;
+    
+    try {
+      console.log(`【朋友圈】转发帖子给角色 ID: ${characterId}, 附加消息: ${message}`);
+      
+      // Find the target character
+      const character = characters.find(c => c.id === characterId);
+      if (!character) {
+        Alert.alert('转发失败', '未找到所选角色');
+        return;
+      }
+      
+      // Format the forwarded content with a prefix
+      const postAuthor = selectedPost.characterName || "某人";
+      const prefix = message ? `转发自${postAuthor}的朋友圈，附言：${message}\n\n` : `转发自${postAuthor}的朋友圈：\n\n`;
+      const forwardedContent = prefix + selectedPost.content;
+      
+      // Check if post contains images
+      if (selectedPost.images && selectedPost.images.length > 0) {
+        // Handle post with images - we'll need to process each image using the chat system's image handling
+        await handleForwardWithImages(character, forwardedContent, selectedPost.images);
+      } else {
+        // Handle text-only post - use the chat system directly
+        await handleForwardTextOnly(character, forwardedContent);
+      }
+      
+      // Close the forward sheet
+      setIsForwardSheetVisible(false);
+      setSelectedPost(null);
+      
+      // Show success message
+      Alert.alert('转发成功', `已将朋友圈内容转发给${character.name}`);
+      
+    } catch (error) {
+      console.error('【朋友圈】转发失败:', error);
+      Alert.alert('转发失败', error instanceof Error ? error.message : '请检查网络连接');
+    }
+  }, [selectedPost, characters, addMessage]);
+  
+  // Add new helper function to handle text-only forwards
+  const handleForwardTextOnly = async (character: Character, forwardedContent: string) => {
+    try {
+      // First add the message to the chat history
+      await addMessage(character.id, {
+        id: `forward-${Date.now()}`,
+        text: forwardedContent,
+        sender: "user",
+        timestamp: Date.now()
+      });
+      
+      // Then process the message using NodeSTManager
+      const result = await NodeSTManager.processChatMessage({
+        userMessage: forwardedContent,
+        status: '同一角色继续对话', // Reuse the "continue dialogue" mode
+        conversationId: character.id, // Use character ID as conversation ID
+        apiKey: user?.settings?.chat.characterApiKey || '',
+        apiSettings: {
+          apiProvider: user?.settings?.chat.apiProvider || 'gemini',
+          openrouter: user?.settings?.chat.openrouter,
+          useGeminiModelLoadBalancing: user?.settings?.chat.useGeminiModelLoadBalancing,
+          useGeminiKeyRotation: user?.settings?.chat.useGeminiKeyRotation,
+          additionalGeminiKeys: user?.settings?.chat.additionalGeminiKeys
+        },
+        character: character,
+      });
+      
+      if (result.success && result.text) {
+        // Add the character's response to chat history
+        await addMessage(character.id, {
+          id: `forward-response-${Date.now()}`,
+          text: result.text,
+          sender: "bot",
+          timestamp: Date.now()
+        });
+        
+        console.log(`【朋友圈】成功转发文本内容给角色 ${character.name} 并获得响应`);
+      } else {
+        console.error('【朋友圈】转发处理失败:', result.error);
+      }
+    } catch (error) {
+      console.error('【朋友圈】处理文本转发失败:', error);
+      throw error;
+    }
+  };
+
+  // Add new helper function to handle forwards with images
+  const handleForwardWithImages = async (character: Character, forwardedContent: string, images: string[]) => {
+    try {
+      // First add the message to the chat history
+      await addMessage(character.id, {
+        id: `forward-${Date.now()}`,
+        text: forwardedContent,
+        sender: "user",
+        timestamp: Date.now()
+      });
+      
+      // We need to process each image sequentially
+      for (let i = 0; i < images.length; i++) {
+        const imageUrl = images[i];
+        console.log(`【朋友圈】处理转发图片 ${i+1}/${images.length}:`, imageUrl.substring(0, 30) + '...');
+        
+        // Use ImageManager to cache the image if it's a URL
+        let imageCacheId = imageUrl;
+        try {
+          const apiKey = user?.settings?.chat.characterApiKey || '';
+          if (!apiKey) {
+            throw new Error("API密钥未设置");
+          }
+          
+          const geminiAdapter = new GeminiAdapter(apiKey);
+          
+          // Try to cache the image
+          const imageData = await geminiAdapter.fetchImageAsBase64(imageUrl);
+          const cacheResult = await ImageManager.cacheImage(imageData.data, imageData.mimeType);
+          imageCacheId = cacheResult.id;
+          
+          // Add image message to chat
+          await addMessage(character.id, {
+            id: `forward-image-${Date.now()}-${i}`,
+            text: `![转发的图片](image:${imageCacheId})`,
+            sender: "user",
+            timestamp: Date.now()
+          });
+          
+          // Process the image with character
+          const response = await geminiAdapter.analyzeImage(
+            { url: imageUrl },
+            `这是用户转发的朋友圈图片。请分析这张图片并作出回应。注意保持${character.name}的人设口吻。`
+          );
+          
+          if (response) {
+            // Add the character's response
+            await addMessage(character.id, {
+              id: `forward-image-response-${Date.now()}-${i}`,
+              text: response,
+              sender: "bot",
+              timestamp: Date.now()
+            });
+          }
+        } catch (error) {
+          console.error(`【朋友圈】处理图片 ${i+1} 失败:`, error);
+          // Continue with next image even if this one fails
+        }
+      }
+      
+      console.log(`【朋友圈】成功转发带图片的内容给角色 ${character.name}`);
+    } catch (error) {
+      console.error('【朋友圈】处理带图片的转发失败:', error);
+      throw error;
+    }
+  };
+
   // Post rendering
   const renderPost: ListRenderItem<CirclePost> = useCallback(({ item }) => (
     <TouchableOpacity
@@ -1516,10 +1671,6 @@ const Explore: React.FC = () => {
         </View>
       </SafeAreaView>
     );
-  }
-
-  function handleForward(characterId: string, message: string): Promise<void> {
-    throw new Error('Function not implemented.');
   }
 
   return (

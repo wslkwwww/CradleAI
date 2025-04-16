@@ -1,7 +1,7 @@
 import { ImageSourcePropType, ViewStyle, StyleProp } from 'react-native';
 import { User, Character, Message, CirclePost } from '../shared/types';
 import { CradleCharacter } from '../shared/types';
-import { FeedType, FeedData } from '@/NodeST/nodest/services/character-generator-service';
+
 
 // 只保留 Context 相关类型
 export interface CradleSettingsProps {

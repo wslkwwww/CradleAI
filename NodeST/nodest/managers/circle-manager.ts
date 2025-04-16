@@ -779,28 +779,6 @@ export class CircleManager {
         return updatedFramework;
     }
 
-    private buildCirclePrompt(
-        framework: CircleRFramework, 
-        options: CirclePostOptions,
-        relationshipReviewPrompt: string = ''
-    ): string {
-        let prompt = `【角色描述】${framework.base.charDescription}\n
-【角色性格】${framework.base.charPersonality}\n`;
-
-        // 添加关系状态检查提示词（如果有）
-        if (relationshipReviewPrompt) {
-            prompt += `\n${relationshipReviewPrompt}\n`;
-        }
-
-        prompt += `【当前场景】${framework.circle.scenePrompt}\n
-【内容】${options.content.text}\n
-【上下文】${options.content.context || ''}\n
-请以JSON格式回复，响应格式如下:
-${JSON.stringify(framework.circle.responseFormat, null, 2)}`;
-
-        return prompt;
-    }
-
     /**
      * 改进的响应解析方法，确保 thoughts 字段被正确保存
      */

@@ -889,7 +889,7 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'absolute',
     backgroundColor: "rgba(40, 40, 40, 0.9)", // Darker background to match app theme
-    zIndex: 1000,
+    zIndex: 3000,
     height: '100%',
     ...theme.shadows.medium,
   },

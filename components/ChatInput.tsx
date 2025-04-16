@@ -699,10 +699,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  const handleImageUrlInput = () => {
-    setShowActions(false);
-    setShowImageUrlModal(true);
-  };
 
   const handleImageUrlSubmit = () => {
     if (imageUrl.trim()) {
