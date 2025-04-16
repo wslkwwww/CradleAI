@@ -537,6 +537,36 @@ const updateCharacter = async (character: Character) => {
     await saveMessages(newMessagesMap);
   };
 
+  // Add new function to remove a specific message by ID
+  const removeMessage = async (conversationId: string, messageId: string) => {
+    try {
+      setMessagesMap(prevMap => {
+        const currentMessages = prevMap[conversationId] || [];
+        
+        // Filter out the message with the specified ID
+        const updatedMessages = currentMessages.filter(msg => msg.id !== messageId);
+        
+        // If no change, return the original map
+        if (updatedMessages.length === currentMessages.length) {
+          return prevMap;
+        }
+        
+        // Create updated map
+        const updatedMap = {
+          ...prevMap,
+          [conversationId]: updatedMessages
+        };
+        
+        // Save to persistent storage
+        saveMessages(updatedMap);
+        
+        return updatedMap;
+      });
+    } catch (error) {
+      console.error('[CharactersContext] Failed to remove message:', error);
+    }
+  };
+
   // Add loadMemos function
   const loadMemos = async () => {
     try {
@@ -1797,6 +1827,7 @@ const pollImageGenerationTask = async (characterId: string, taskId: string, maxR
         getMessages,
         addMessage,
         clearMessages,
+        removeMessage, // Add the new function to the context
         memos,
         addMemo,
         updateMemo,

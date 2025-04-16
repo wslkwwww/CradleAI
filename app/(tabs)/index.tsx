@@ -132,6 +132,7 @@ const App = () => {
     getMessages,
     addMessage,
     clearMessages,
+    removeMessage, // Add this line to get removeMessage function
   } = useCharacters();
   
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -990,31 +991,8 @@ const App = () => {
       // Clear the "first message sent" flag for this conversation
       if (firstMessageSentRef.current[selectedConversationId]) {
         delete firstMessageSentRef.current[selectedConversationId];
-      }
-      
-      // After a short delay, trigger the first message effect
-      setTimeout(() => {
-        if (selectedCharacter?.jsonData) {
-          try {
-            const characterData = JSON.parse(selectedCharacter.jsonData);
-            if (characterData.roleCard?.first_mes) {
-              addMessage(selectedConversationId, {
-                id: `first-reset-${Date.now()}`,
-                text: characterData.roleCard.first_mes,
-                sender: 'bot',
-                timestamp: Date.now()
-              });
-              firstMessageSentRef.current[selectedConversationId] = true;
-              
-              // Reset auto-message timer
-              lastMessageTimeRef.current = Date.now();
-              setupAutoMessageTimer();
-            }
-          } catch (e) {
-            console.error('Error adding first message after reset:', e);
-          }
-        }
-      }, 300);
+      }     
+
     }
   };
 
@@ -1058,13 +1036,17 @@ const App = () => {
         
         try {
           // Create a loading message first
+          const loadingMessageId = `auto-loading-${Date.now()}`;
           await addMessage(selectedConversationId, {
-            id: `auto-loading-${Date.now()}`,
+            id: loadingMessageId,
             text: '',
             sender: 'bot',
             isLoading: true,
             timestamp: Date.now(),
           });
+          
+          // Update messages state to show loading indicator
+          setMessages(getMessages(selectedConversationId));
           
           // Call NodeST with special auto-message instruction
           const result = await NodeSTManager.processChatMessage({
@@ -1082,28 +1064,34 @@ const App = () => {
             character: selectedCharacter
           });
           
-          // Remove loading message
-          const currentMessages = getMessages(selectedConversationId).filter(
-            msg => !msg.isLoading
-          );
+          // Get current messages
+          const currentMessages = getMessages(selectedConversationId);
           
-          // Clear all messages
-          await clearMessages(selectedConversationId);
-          
-          // Re-add all messages
-          for (const msg of currentMessages) {
-            await addMessage(selectedConversationId, msg);
-          }
+          // FIX: Use removeMessage instead of NodeSTManager.removeMessage
+          // First remove the loading message from the conversation
+          await removeMessage(selectedConversationId, loadingMessageId);
           
           // Add the auto message
           if (result.success && result.text) {
-            // Always add the message to the chat regardless of notification settings
+            const autoMessageId = `auto-${Date.now()}`;
+            // Calculate proper aiIndex by counting existing non-loading bot messages
+            const aiIndex = currentMessages.filter(m => 
+              m.sender === 'bot' && !m.isLoading && !m.metadata?.isErrorMessage
+            ).length;
+            
             await addMessage(selectedConversationId, {
-              id: `auto-${Date.now()}`,
+              id: autoMessageId,
               text: result.text,
               sender: 'bot',
               timestamp: Date.now(),
+              metadata: { 
+                aiIndex,
+                isAutoMessage: true
+              }
             });
+            
+            // Update messages state to reflect the new message
+            setMessages(getMessages(selectedConversationId));
             
             // Update last message time
             lastMessageTimeRef.current = Date.now();
@@ -1113,7 +1101,6 @@ const App = () => {
             console.log('[App] Auto message sent, now waiting for user reply');
             
             // IMPORTANT: Only update notification badge if notificationEnabled is true
-            // This change ensures the message still appears in chat, just without a notification badge
             if (selectedCharacter.notificationEnabled === true) {
               console.log('[App] Notifications enabled for this character, updating unread count');
               updateUnreadMessagesCount(1);

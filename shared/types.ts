@@ -583,7 +583,7 @@ export interface ChatSettings {
     autoRoute?: boolean;
     useBackupModels?: boolean;
     backupModels?: string[];
-    sortingStrategy?: 'price' | 'performance' | 'random';
+    sortingStrategy?: 'price' | 'performance' | 'random' | 'latency' | 'speed';
     dataCollection?: boolean;
     ignoredProviders?: string[];
   };

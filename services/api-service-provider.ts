@@ -2,7 +2,7 @@ import { ApiSettings } from '@/shared/types/api-types';
 import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
 import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
 import { ChatMessage } from '@/shared/types';
-
+import { MessagePart } from '@/shared/types';
 interface ServiceOptions {
   apiProvider?: string;
   openrouter?: {

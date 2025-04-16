@@ -95,7 +95,6 @@ const Profile: React.FC = () => {
           leftIcon="calculator-outline"
           chevron={true}
           onPress={() => router.push('../pages/token-planner')}
-          subtitle="优化您的模型使用成本"
         />
 
         <ListItem

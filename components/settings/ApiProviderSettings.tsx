@@ -33,12 +33,12 @@ const ApiProviderSettings: React.FC<ApiProviderSettingsProps> = ({ settings, onU
   // Default OpenRouter settings if not present
   const openRouterSettings = settings.chat.openrouter || {
     enabled: false,
-    apiKey: '',
+    apiKey: '' ,
     model: 'openai/gpt-3.5-turbo',
     autoRoute: false,
     useBackupModels: true,
     backupModels: [],
-    sortingStrategy: 'price' as const,
+    sortingStrategy: 'price' as 'price' | 'performance' | 'random',
     dataCollection: false,
     ignoredProviders: [],
   };
@@ -233,7 +233,7 @@ const ApiProviderSettings: React.FC<ApiProviderSettingsProps> = ({ settings, onU
           <View style={styles.apiKeyContainer}>
             <TextInput
               style={[styles.input, styles.apiKeyInput]}
-              value={showOpenRouterApiKey ? openRouterSettings.apiKey : '•'.repeat(openRouterSettings.apiKey.length || 10)}
+              value={showOpenRouterApiKey ? openRouterSettings.apiKey ?? '' : '•'.repeat((openRouterSettings.apiKey ?? '').length || 10)}
               onChangeText={(text) => updateOpenRouterSettings({ apiKey: text })}
               secureTextEntry={!showOpenRouterApiKey}
               placeholder="Enter OpenRouter API Key"
@@ -341,48 +341,6 @@ const ApiProviderSettings: React.FC<ApiProviderSettingsProps> = ({ settings, onU
                       disabled={openRouterSettings.autoRoute}
                     />
                   </View>
-
-                  {/* Sorting Strategy */}
-                  <Text style={styles.label}>Sorting Strategy</Text>
-                  <View style={styles.strategyContainer}>
-                    <TouchableOpacity
-                      style={[
-                        styles.strategyButton,
-                        openRouterSettings.sortingStrategy === 'price' && styles.strategyButtonSelected
-                      ]}
-                      onPress={() => updateOpenRouterSettings({ sortingStrategy: 'price' })}
-                    >
-                      <Text style={[
-                        styles.strategyButtonText,
-                        openRouterSettings.sortingStrategy === 'price' && styles.strategyButtonTextSelected
-                      ]}>Price</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.strategyButton,
-                        openRouterSettings.sortingStrategy === 'speed' && styles.strategyButtonSelected
-                      ]}
-                      onPress={() => updateOpenRouterSettings({ sortingStrategy: 'speed' })}
-                    >
-                      <Text style={[
-                        styles.strategyButtonText,
-                        openRouterSettings.sortingStrategy === 'speed' && styles.strategyButtonTextSelected
-                      ]}>Speed</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.strategyButton,
-                        openRouterSettings.sortingStrategy === 'latency' && styles.strategyButtonSelected
-                      ]}
-                      onPress={() => updateOpenRouterSettings({ sortingStrategy: 'latency' })}
-                    >
-                      <Text style={[
-                        styles.strategyButtonText,
-                        openRouterSettings.sortingStrategy === 'latency' && styles.strategyButtonTextSelected
-                      ]}>Latency</Text>
-                    </TouchableOpacity>
-                  </View>
-
                   {/* Data Collection Switch */}
                   <View style={styles.switchContainer}>
                     <View>

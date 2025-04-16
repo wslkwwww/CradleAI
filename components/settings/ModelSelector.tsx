@@ -14,10 +14,10 @@ import { theme } from '@/constants/theme';
 
 interface ModelSelectorProps {
   models?: OpenRouterModel[];
-  selectedModelId: string;
+  selectedModelId: string | undefined;
   onSelectModel: (modelId: string) => void;
   isLoading?: boolean;
-  apiKey: string;
+  apiKey: string | undefined;
   useCloudService?: boolean;
   allowedCloudModels?: string[];
 }

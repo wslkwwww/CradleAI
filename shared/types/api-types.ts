@@ -6,7 +6,7 @@
 
 export interface OpenRouterSettings {
     enabled: boolean;          // 是否启用 OpenRouter
-    apiKey: string;            // OpenRouter API Key
+    apiKey: string ;            // OpenRouter API Key
     model: string;             // 当前选择的模型 ID
     autoRoute?: boolean;        // 是否启用自动路由
     useBackupModels?: boolean;  // 在主模型不可用时使用备用模型

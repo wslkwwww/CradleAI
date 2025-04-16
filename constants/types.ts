@@ -35,6 +35,7 @@ export interface CharactersContextType {
   getMessages: (conversationId: string) => Message[];
   addMessage: (conversationId: string, message: Message) => Promise<void>;
   clearMessages: (conversationId: string) => Promise<void>;
+  removeMessage: (conversationId: string, messageId: string) => Promise<void>;
   memos: Memo[];
   addMemo: (content: string) => Promise<void>;
   updateMemo: (id: string, content: string) => Promise<void>;

@@ -121,7 +121,7 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
               style={[styles.characterActionButton, styles.primaryButton]}
               onPress={navigateToChat}
             >
-              <Ionicons name="chatbubble-outline" size={16} color="#fff" />
+              <Ionicons name="chatbubble-outline" size={16} color="black" />
               <Text style={styles.characterActionButtonText}>聊天</Text>
             </TouchableOpacity>
             
@@ -131,7 +131,7 @@ const CradleCharacterDetail: React.FC<CradleCharacterDetailProps> = ({
                 style={[styles.characterActionButton, styles.secondaryButton]}
                 onPress={onRegenerateImage}
               >
-                <Ionicons name="image-outline" size={16} color="#fff" />
+                <Ionicons name="image-outline" size={16} color="black" />
                 <Text style={styles.characterActionButtonText}>生成图片</Text>
               </TouchableOpacity>
             )}

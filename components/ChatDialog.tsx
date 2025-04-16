@@ -11,7 +11,6 @@ import {
   Modal,
   Alert,
   FlatList,
-  Keyboard,
   Platform,
 } from 'react-native';
 import Animated, {
@@ -26,7 +25,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { parseHtmlText, containsComplexHtml, optimizeHtmlForRendering } from '@/utils/textParser';
-import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageManager from '@/utils/ImageManager';
 import { ttsService, AudioState } from '@/services/ttsService'; // Import the TTS service
@@ -44,8 +42,8 @@ const MAX_WIDTH = width * 0.88; // Decreased from 0.9 to 0.88 to add more margin
 const MAX_IMAGE_HEIGHT = 300; // Maximum height for images in chat
 
 // Constants for virtualization
-const INITIAL_LOAD_COUNT = 5; // Initial messages to show
-const BATCH_SIZE = 5; // How many messages to load per batch when scrolling up
+const INITIAL_LOAD_COUNT = 10; // Initial messages to show
+const BATCH_SIZE = 10; // How many messages to load per batch when scrolling up
 
 const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   messages,
@@ -134,7 +132,9 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       return;
     }
 
-    // Ensure that whenever messages change, reevaluate whether to update virtualized messages
+    // Log to help with debugging
+    console.log(`[ChatDialog] Messages updated, count: ${messages.length}`);
+    
     // For small batch messages or initial load, show all messages
     if (messages.length <= INITIAL_LOAD_COUNT) {
       console.log(`[ChatDialog] Small message set (${messages.length}), showing all messages`);
@@ -155,17 +155,73 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       return;
     }
 
-    // For large conversations, only show the most recent messages
+    // For large conversations, check if we just need to append new messages
+    if (virtualizedMessages.length > 0) {
+      // This means we already have messages loaded, so compare with the incoming messages
+      // Identify new messages that need to be appended (typically auto messages or user responses)
+      
+      // First check if the message array length increased - typical case for new message
+      if (messages.length > virtualizedMessages.length) {
+        // Get the new messages that aren't in virtualizedMessages
+        const lastVirtualizedMessage = virtualizedMessages[virtualizedMessages.length - 1];
+        const lastVirtualizedMessageIndex = messages.findIndex(msg => msg.id === lastVirtualizedMessage.id);
+        
+        if (lastVirtualizedMessageIndex !== -1 && lastVirtualizedMessageIndex < messages.length - 1) {
+          // There are new messages to append
+          const newMessages = messages.slice(lastVirtualizedMessageIndex + 1);
+          console.log(`[ChatDialog] Appending ${newMessages.length} new messages to existing ${virtualizedMessages.length}`);
+          
+          // Append the new messages to our virtualized list
+          setVirtualizedMessages(prevMessages => [...prevMessages, ...newMessages]);
+          return;
+        }
+      }
+      
+      // Check if any messages have been modified (e.g., loading message replaced with real message)
+      const existingIds = new Set(virtualizedMessages.map(msg => msg.id));
+      const updatedMessages = messages.filter(msg => 
+        !existingIds.has(msg.id) || // New message
+        virtualizedMessages.some(vMsg => vMsg.id === msg.id && 
+          (vMsg.isLoading !== msg.isLoading || vMsg.text !== msg.text)) // Changed message
+      );
+      
+      if (updatedMessages.length > 0) {
+        console.log(`[ChatDialog] Found ${updatedMessages.length} new or updated messages`);
+        
+        // Create a map for faster lookups
+        const messageMap = new Map(virtualizedMessages.map(msg => [msg.id, msg]));
+        
+        // Update or append messages
+        const updatedVirtualizedMessages = [...virtualizedMessages];
+        
+        updatedMessages.forEach(updatedMsg => {
+          const existingIndex = updatedVirtualizedMessages.findIndex(msg => msg.id === updatedMsg.id);
+          
+          if (existingIndex !== -1) {
+            // Update existing message
+            updatedVirtualizedMessages[existingIndex] = updatedMsg;
+          } else {
+            // Append new message
+            updatedVirtualizedMessages.push(updatedMsg);
+          }
+        });
+        
+        setVirtualizedMessages(updatedVirtualizedMessages);
+        return;
+      }
+    }
+    
+    // If we reach here, we need to initialize the whole list or rebuild it
+    // Determine range of messages to show initially (most recent ones)
     const totalCount = messages.length;
     const endIdx = totalCount;
-    // Start with the last INITIAL_LOAD_COUNT messages or all if less
     const startIdx = Math.max(0, totalCount - INITIAL_LOAD_COUNT);
     
-    // Ensure all initial messages have unique IDs
+    // Get the initial messages to show
     const initialMessages = messages.slice(startIdx, endIdx).map(msg => {
       if (msg.id) return msg;
       
-      // Generate unique ID
+      // Generate unique ID if needed
       return {
         ...msg,
         id: `init-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
@@ -179,7 +235,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     
     // Reset initial scroll flag when messages change significantly
     setInitialScrollDone(false);
-  }, [messages]); // Key change: only depend on messages array to ensure any message change triggers an update
+  }, [messages]); // Only depend on messages array to ensure updates
 
   // New handler to load more messages when reaching the top of the list
   const loadMoreMessages = useCallback(() => {
@@ -382,7 +438,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   useEffect(() => {
     // Only scroll to bottom on initial load or when a new message arrives
     // and the user hasn't scrolled up yet
-    if (virtualizedMessages.length > 0 && !isLoadingMore && !userHasScrolled) {
+    if (virtualizedMessages.length > 0 && !isLoadingMore && (isNearBottom || !userHasScrolled)) {
       console.log('[ChatDialog] Initial load or new message while at bottom - scrolling to bottom');
       
       // Set the auto-scrolling flag to avoid interference with user scrolling
@@ -399,7 +455,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         }, 100);
       }, 50);
     }
-  }, [virtualizedMessages.length, isLoadingMore, userHasScrolled]);
+  }, [virtualizedMessages.length, isLoadingMore, isNearBottom, userHasScrolled]);
 
   // Update audio states when they change in the service
   const updateAudioState = (messageId: string) => {
