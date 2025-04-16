@@ -132,7 +132,6 @@ const App = () => {
     getMessages,
     addMessage,
     clearMessages,
-    removeMessage, // Add this line to get removeMessage function
   } = useCharacters();
   
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -910,61 +909,6 @@ const App = () => {
     }
   }, [selectedConversationId]);
 
-  // Add functionality to send first message when conversation starts
-  useEffect(() => {
-    const sendFirstMessage = async () => {
-      // Only proceed if we have a selected conversation and character
-      if (!selectedConversationId || !selectedCharacter?.id) return;
-      
-      console.log(`[App] Checking if first message should be sent for ${selectedCharacter.name} (${selectedCharacter.id})`);
-      
-      // Check if we've already sent a first message for this conversation
-      if (firstMessageSentRef.current[selectedConversationId]) {
-        console.log(`[App] First message already sent for this conversation`);
-        return;
-      }
-
-      // Check if the conversation is empty (no messages yet)
-      const currentMessages = getMessages(selectedConversationId);
-      if (currentMessages.length > 0) {
-        // Mark as sent since conversation already has messages
-        console.log(`[App] Conversation already has ${currentMessages.length} messages, marking first message as sent`);
-        firstMessageSentRef.current[selectedConversationId] = true;
-        return;
-      }
-
-      try {
-        // Try to parse character data to get first_mes
-        if (selectedCharacter.jsonData) {
-          const characterData = JSON.parse(selectedCharacter.jsonData);
-          if (characterData.roleCard?.first_mes) {
-            // Send the first message
-            console.log('[App] Sending first message for character:', selectedCharacter.name);
-            await addMessage(selectedConversationId, {
-              id: `first-${Date.now()}`,
-              text: characterData.roleCard.first_mes,
-              sender: 'bot',
-              timestamp: Date.now()
-            });
-            
-            // Mark as sent for this conversation
-            firstMessageSentRef.current[selectedConversationId] = true;
-            console.log(`[App] First message sent and marked for conversation ${selectedConversationId}`);
-          }
-        }
-      } catch (error) {
-        console.error('[App] Error sending first message:', error);
-      }
-    };
-
-    // Delay the first message check slightly to avoid race conditions
-    const timer = setTimeout(() => {
-      sendFirstMessage();
-    }, 300);
-    
-    return () => clearTimeout(timer);
-  }, [selectedConversationId, selectedCharacter, getMessages, addMessage]);
-
   function getCharacterConversationId(selectedConversationId: string): string | undefined {
     // Since we're already using the character ID as the conversation ID throughout the app,
     // we can simply return the selectedConversationId if it exists
@@ -991,8 +935,31 @@ const App = () => {
       // Clear the "first message sent" flag for this conversation
       if (firstMessageSentRef.current[selectedConversationId]) {
         delete firstMessageSentRef.current[selectedConversationId];
-      }     
-
+      }
+      
+      // After a short delay, trigger the first message effect
+      setTimeout(() => {
+        if (selectedCharacter?.jsonData) {
+          try {
+            const characterData = JSON.parse(selectedCharacter.jsonData);
+            if (characterData.roleCard?.first_mes) {
+              addMessage(selectedConversationId, {
+                id: `first-reset-${Date.now()}`,
+                text: characterData.roleCard.first_mes,
+                sender: 'bot',
+                timestamp: Date.now()
+              });
+              firstMessageSentRef.current[selectedConversationId] = true;
+              
+              // Reset auto-message timer
+              lastMessageTimeRef.current = Date.now();
+              setupAutoMessageTimer();
+            }
+          } catch (e) {
+            console.error('Error adding first message after reset:', e);
+          }
+        }
+      }, 300);
     }
   };
 
@@ -1035,20 +1002,12 @@ const App = () => {
         autoMessageTimerRef.current = null;
         
         try {
-          // Create a loading message first
-          const loadingMessageId = `auto-loading-${Date.now()}`;
-          await addMessage(selectedConversationId, {
-            id: loadingMessageId,
-            text: '',
-            sender: 'bot',
-            isLoading: true,
-            timestamp: Date.now(),
-          });
+          // Critical fix: Don't create a loading message first for auto messages
+          // This prevents disrupting the history logic in ChatDialog
+          // Instead, generate the response silently and only add the final result
+          console.log('[App] Generating auto message response silently');
           
-          // Update messages state to show loading indicator
-          setMessages(getMessages(selectedConversationId));
-          
-          // Call NodeST with special auto-message instruction
+          // Call NodeST with special auto-message instruction - note we don't add a loading state message
           const result = await NodeSTManager.processChatMessage({
             userMessage: "[AUTO_MESSAGE] 用户已经一段时间没有回复了。请基于上下文和你的角色设定，主动发起一条合适的消息。这条消息应该自然，不要直接提及用户长时间未回复的事实。",
             status: "同一角色继续对话",
@@ -1064,34 +1023,20 @@ const App = () => {
             character: selectedCharacter
           });
           
-          // Get current messages
-          const currentMessages = getMessages(selectedConversationId);
-          
-          // FIX: Use removeMessage instead of NodeSTManager.removeMessage
-          // First remove the loading message from the conversation
-          await removeMessage(selectedConversationId, loadingMessageId);
-          
-          // Add the auto message
+          // If successful, add the auto message response directly (no loading state)
           if (result.success && result.text) {
-            const autoMessageId = `auto-${Date.now()}`;
-            // Calculate proper aiIndex by counting existing non-loading bot messages
-            const aiIndex = currentMessages.filter(m => 
-              m.sender === 'bot' && !m.isLoading && !m.metadata?.isErrorMessage
-            ).length;
-            
+            // Add the auto message as a bot message
             await addMessage(selectedConversationId, {
-              id: autoMessageId,
+              id: `auto-${Date.now()}`,
               text: result.text,
               sender: 'bot',
               timestamp: Date.now(),
-              metadata: { 
-                aiIndex,
-                isAutoMessage: true
+              // Add metadata to mark this as an auto message response
+              metadata: {
+                isAutoMessageResponse: true,
+                aiIndex: messages.filter(m => m.sender === 'bot' && !m.isLoading).length
               }
             });
-            
-            // Update messages state to reflect the new message
-            setMessages(getMessages(selectedConversationId));
             
             // Update last message time
             lastMessageTimeRef.current = Date.now();
@@ -1101,6 +1046,7 @@ const App = () => {
             console.log('[App] Auto message sent, now waiting for user reply');
             
             // IMPORTANT: Only update notification badge if notificationEnabled is true
+            // This change ensures the message still appears in chat, just without a notification badge
             if (selectedCharacter.notificationEnabled === true) {
               console.log('[App] Notifications enabled for this character, updating unread count');
               updateUnreadMessagesCount(1);
@@ -1117,7 +1063,7 @@ const App = () => {
     }, intervalMs);
     
     console.log(`[App] Auto message timer set for ${autoMessageIntervalRef.current} minutes`);
-  }, [selectedCharacter, selectedConversationId, autoMessageEnabled, user?.settings]);
+  }, [selectedCharacter, selectedConversationId, autoMessageEnabled, user?.settings, messages]);
 
   // Add unread messages counter function
   const updateUnreadMessagesCount = (count: number) => {

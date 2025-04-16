@@ -1236,6 +1236,7 @@ export class GeminiAdapter {
   <websearch>根据最新的网络信息，关于这个问题的专业观点是...</websearch>
 - 确保回复能够同时**有效整合记忆和网络信息**，让内容更加全面和有用。
 - 回复的语气和风格必须与角色人设保持一致。
+- - **不要在回复中使用多组<mem>或<websearch>标签，整个回复只能有一组<mem>或<websearch>标签。**
 </response_guidelines>`;
             
             // 记录融合提示词的长度
@@ -1309,6 +1310,7 @@ export class GeminiAdapter {
 - **根据角色设定，聊天上下文和记忆内容**，输出你对检索记忆的回忆过程，并用<mem></mem>包裹。
   - 示例: <mem>我想起起您上次提到过类似的问题，当时...</mem>
 - 确保回复保持角色人设的一致性。
+- - **不要在回复中使用多组<mem>，整个回复只能有一组<mem>标签。**
 </response_guidelines>`;
             
             // Log prepared prompt

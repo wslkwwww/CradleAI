@@ -11,6 +11,7 @@ import {
   Modal,
   Alert,
   FlatList,
+  Keyboard,
   Platform,
 } from 'react-native';
 import Animated, {
@@ -25,6 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { parseHtmlText, containsComplexHtml, optimizeHtmlForRendering } from '@/utils/textParser';
+import { ratingService } from '@/services/ratingService';
 import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageManager from '@/utils/ImageManager';
 import { ttsService, AudioState } from '@/services/ttsService'; // Import the TTS service
@@ -42,8 +44,8 @@ const MAX_WIDTH = width * 0.88; // Decreased from 0.9 to 0.88 to add more margin
 const MAX_IMAGE_HEIGHT = 300; // Maximum height for images in chat
 
 // Constants for virtualization
-const INITIAL_LOAD_COUNT = 10; // Initial messages to show
-const BATCH_SIZE = 10; // How many messages to load per batch when scrolling up
+const INITIAL_LOAD_COUNT = 3; // Initial messages to show
+const BATCH_SIZE = 3; // How many messages to load per batch when scrolling up
 
 const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   messages,
@@ -132,126 +134,108 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       return;
     }
 
-    // Log to help with debugging
-    console.log(`[ChatDialog] Messages updated, count: ${messages.length}`);
-    
-    // For small batch messages or initial load, show all messages
-    if (messages.length <= INITIAL_LOAD_COUNT) {
-      console.log(`[ChatDialog] Small message set (${messages.length}), showing all messages`);
-      
-      // Ensure all initial messages have unique IDs
-      const processedMessages = messages.map(msg => {
-        if (msg.id) return msg;
-        
-        // Generate unique ID
-        return {
-          ...msg,
-          id: `init-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-        };
-      });
-      
-      setVirtualizedMessages(processedMessages);
-      setHasMoreMessagesToLoad(false);
-      return;
-    }
+    // Key change: Compare with current virtualized messages to detect if we're adding new messages
+    // rather than replacing the entire history
+    const isAddingNewMessages = virtualizedMessages.length > 0 && 
+      messages.length > virtualizedMessages.length &&
+      // Check if the last few messages in the current list match the end of previous list
+      messages[messages.length - virtualizedMessages.length]?.id === virtualizedMessages[0]?.id;
 
-    // For large conversations, check if we just need to append new messages
-    if (virtualizedMessages.length > 0) {
-      // This means we already have messages loaded, so compare with the incoming messages
-      // Identify new messages that need to be appended (typically auto messages or user responses)
-      
-      // First check if the message array length increased - typical case for new message
-      if (messages.length > virtualizedMessages.length) {
-        // Get the new messages that aren't in virtualizedMessages
-        const lastVirtualizedMessage = virtualizedMessages[virtualizedMessages.length - 1];
-        const lastVirtualizedMessageIndex = messages.findIndex(msg => msg.id === lastVirtualizedMessage.id);
-        
-        if (lastVirtualizedMessageIndex !== -1 && lastVirtualizedMessageIndex < messages.length - 1) {
-          // There are new messages to append
-          const newMessages = messages.slice(lastVirtualizedMessageIndex + 1);
-          console.log(`[ChatDialog] Appending ${newMessages.length} new messages to existing ${virtualizedMessages.length}`);
-          
-          // Append the new messages to our virtualized list
-          setVirtualizedMessages(prevMessages => [...prevMessages, ...newMessages]);
-          return;
-        }
-      }
-      
-      // Check if any messages have been modified (e.g., loading message replaced with real message)
-      const existingIds = new Set(virtualizedMessages.map(msg => msg.id));
-      const updatedMessages = messages.filter(msg => 
-        !existingIds.has(msg.id) || // New message
-        virtualizedMessages.some(vMsg => vMsg.id === msg.id && 
-          (vMsg.isLoading !== msg.isLoading || vMsg.text !== msg.text)) // Changed message
-      );
-      
-      if (updatedMessages.length > 0) {
-        console.log(`[ChatDialog] Found ${updatedMessages.length} new or updated messages`);
-        
-        // Create a map for faster lookups
-        const messageMap = new Map(virtualizedMessages.map(msg => [msg.id, msg]));
-        
-        // Update or append messages
-        const updatedVirtualizedMessages = [...virtualizedMessages];
-        
-        updatedMessages.forEach(updatedMsg => {
-          const existingIndex = updatedVirtualizedMessages.findIndex(msg => msg.id === updatedMsg.id);
-          
-          if (existingIndex !== -1) {
-            // Update existing message
-            updatedVirtualizedMessages[existingIndex] = updatedMsg;
-          } else {
-            // Append new message
-            updatedVirtualizedMessages.push(updatedMsg);
-          }
-        });
-        
-        setVirtualizedMessages(updatedVirtualizedMessages);
-        return;
-      }
-    }
-    
-    // If we reach here, we need to initialize the whole list or rebuild it
-    // Determine range of messages to show initially (most recent ones)
-    const totalCount = messages.length;
-    const endIdx = totalCount;
-    const startIdx = Math.max(0, totalCount - INITIAL_LOAD_COUNT);
-    
-    // Get the initial messages to show
-    const initialMessages = messages.slice(startIdx, endIdx).map(msg => {
+    // Ensure all initial messages have unique IDs
+    const processedMessages = messages.map(msg => {
       if (msg.id) return msg;
       
-      // Generate unique ID if needed
+      // Generate unique ID
       return {
         ...msg,
         id: `init-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
       };
     });
+
+    // For small batch messages or initial load, show all messages
+    if (processedMessages.length <= INITIAL_LOAD_COUNT) {
+      console.log(`[ChatDialog] Small message set (${processedMessages.length}), showing all messages`);
+      setVirtualizedMessages(processedMessages);
+      setHasMoreMessagesToLoad(false);
+      return;
+    }
+
+    // Critical fix: If we detect we're just adding new messages, append them instead of recreating the list
+    // This preserves history when auto messages come in
+    if (isAddingNewMessages) {
+      console.log(`[ChatDialog] Detected new messages being added (${messages.length} vs ${virtualizedMessages.length}), preserving history`);
+      
+      // Get just the new messages to append
+      const newMessages = processedMessages.slice(processedMessages.length - (processedMessages.length - virtualizedMessages.length));
+      
+      // Append new messages to existing virtualized list
+      setVirtualizedMessages(prevMessages => [...prevMessages, ...newMessages]);
+      return;
+    }
     
-    console.log(`[ChatDialog] Initializing with ${initialMessages.length} messages (${startIdx}-${endIdx} of ${totalCount})`);
+    // If user has scrolled and viewed history, keep all messages they've seen
+    if (userHasScrolled && virtualizedMessages.length > INITIAL_LOAD_COUNT) {
+      console.log(`[ChatDialog] User has scrolled and viewed history, preserving ${virtualizedMessages.length} messages`);
+      
+      // When total messages become large, ensure we don't lose context
+      // by keeping all currently visible messages plus the new ones
+      const existingIds = new Set(virtualizedMessages.map(msg => msg.id));
+      const newMessages = processedMessages.filter(msg => !existingIds.has(msg.id));
+      
+      if (newMessages.length > 0) {
+        console.log(`[ChatDialog] Adding ${newMessages.length} new messages to existing ${virtualizedMessages.length}`);
+        setVirtualizedMessages(prev => [...prev, ...newMessages]);
+        return;
+      }
+      
+      // If no new messages found (likely a reset), fall through to default behavior
+    }
+
+    // For large conversations starting fresh, only show the most recent messages
+    const totalCount = processedMessages.length;
+    const endIdx = totalCount;
+    // Start with the last INITIAL_LOAD_COUNT messages or all if less
+    const startIdx = Math.max(0, totalCount - INITIAL_LOAD_COUNT);
     
-    setVirtualizedMessages(initialMessages);
+    console.log(`[ChatDialog] Initializing with ${endIdx - startIdx} messages (${startIdx}-${endIdx} of ${totalCount})`);
+    
+    setVirtualizedMessages(processedMessages.slice(startIdx, endIdx));
     setHasMoreMessagesToLoad(startIdx > 0);
     
     // Reset initial scroll flag when messages change significantly
     setInitialScrollDone(false);
-  }, [messages]); // Only depend on messages array to ensure updates
+  }, [messages, userHasScrolled]); // Added userHasScrolled to dependencies
 
-  // New handler to load more messages when reaching the top of the list
+  // Improved logic for loading more messages
   const loadMoreMessages = useCallback(() => {
-    if (isLoadingMore || !hasMoreMessagesToLoad) return;
+    if (isLoadingMore || !hasMoreMessagesToLoad || messages.length === 0) return;
     
     setIsLoadingMore(true);
     console.log(`[ChatDialog] Starting to load more messages. Current count: ${virtualizedMessages.length}`);
     
-    // Correctly calculate the current starting position in the full messages array
-    const currentStartIndex = messages.length - virtualizedMessages.length;
+    // Get the first message ID from current virtualized list to find its position in the full list
+    const firstVisibleMessageId = virtualizedMessages.length > 0 ? virtualizedMessages[0].id : null;
+    
+    if (!firstVisibleMessageId) {
+      setIsLoadingMore(false);
+      return;
+    }
+    
+    // Find the index of the first visible message in the full message array
+    const firstVisibleIndex = messages.findIndex(msg => msg.id === firstVisibleMessageId);
+    
+    if (firstVisibleIndex <= 0) {
+      console.log(`[ChatDialog] Could not find first visible message in full list, or it's already at position 0`);
+      setIsLoadingMore(false);
+      setHasMoreMessagesToLoad(false);
+      return;
+    }
     
     // Calculate the range of additional messages to load
-    const newStartIndex = Math.max(0, currentStartIndex - BATCH_SIZE);
-    const additionalMessages = messages.slice(newStartIndex, currentStartIndex);
+    const newStartIndex = Math.max(0, firstVisibleIndex - BATCH_SIZE);
+    const additionalMessages = messages.slice(newStartIndex, firstVisibleIndex);
     
-    console.log(`[ChatDialog] Loading ${additionalMessages.length} more messages (${newStartIndex}-${currentStartIndex} of ${messages.length})`);
+    console.log(`[ChatDialog] Loading ${additionalMessages.length} more messages (${newStartIndex}-${firstVisibleIndex} of ${messages.length})`);
     
     // If no additional messages to load, exit early
     if (additionalMessages.length === 0) {
@@ -261,8 +245,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     }
     
     // Remember the current first message for maintaining scroll position later
-    const firstItemId = virtualizedMessages.length > 0 ? virtualizedMessages[0].id : null;
-    const firstItem = virtualizedMessages.length > 0 ? virtualizedMessages[0] : null;
+    const firstItem = virtualizedMessages[0];
     
     // Ensure each message has a unique ID to prevent key duplication errors
     const processedAdditionalMessages = additionalMessages.map(msg => {
@@ -296,7 +279,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         setIsLoadingMore(false);
         
         // If there were previous messages, scroll to maintain relative position
-        if (firstItemId && flatListRef.current && processedAdditionalMessages.length > 0) {
+        if (firstItem && flatListRef.current && processedAdditionalMessages.length > 0) {
           // Find the index of the previous first message in the new list
           const maintainIndex = processedAdditionalMessages.length;
           
@@ -438,7 +421,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   useEffect(() => {
     // Only scroll to bottom on initial load or when a new message arrives
     // and the user hasn't scrolled up yet
-    if (virtualizedMessages.length > 0 && !isLoadingMore && (isNearBottom || !userHasScrolled)) {
+    if (virtualizedMessages.length > 0 && !isLoadingMore && !userHasScrolled) {
       console.log('[ChatDialog] Initial load or new message while at bottom - scrolling to bottom');
       
       // Set the auto-scrolling flag to avoid interference with user scrolling
@@ -455,7 +438,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
         }, 100);
       }, 50);
     }
-  }, [virtualizedMessages.length, isLoadingMore, isNearBottom, userHasScrolled]);
+  }, [virtualizedMessages.length, isLoadingMore, userHasScrolled]);
 
   // Update audio states when they change in the service
   const updateAudioState = (messageId: string) => {

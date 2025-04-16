@@ -418,7 +418,9 @@ export class OpenRouterAdapter {
     - 示例: <mem>我想起起您上次提到过类似的问题，当时...</mem>
   - **根据角色设定，聊天上下文和记忆内容**，输出你对联网检索结果的解释，并用<websearch></websearch>包裹。
     - 示例: <websearch>根据网络信息，[相关领域的专家]认为... 这可能对您有帮助。</websearch>
-</response_guidelines>`;
+</response_guidelines>
+  - **不要在回复中使用多组<mem>或<websearch>标签，整个回复只能有一组<mem>或<websearch>标签。**`;
+
       
       // 将搜索结果转换为适当的格式
       let formattedContents = [];
