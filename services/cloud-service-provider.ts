@@ -13,7 +13,7 @@ class CloudServiceProviderClass {
   private enabled: boolean = false;
   private licenseKey: string | null = null;
   private deviceId: string | null = null;
-  private preferredModel: string = 'openai/gpt-3.5-turbo'; // Default model
+  private preferredModel: string = 'gemini-2.0-flash-exp'; // Default model
   private cloudEndpoint: string = API_CONFIG.CLOUD_API_URL || 'https://chat.cradleintro.top';
   private initializationInProgress: boolean = false;
 

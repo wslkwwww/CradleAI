@@ -81,7 +81,7 @@ const ApiSettings = () => {
     user?.settings?.chat?.openrouter?.apiKey || ''
   );
   const [selectedModel, setSelectedModel] = useState(
-    user?.settings?.chat?.openrouter?.model || 'openai/gpt-3.5-turbo'
+    user?.settings?.chat?.openrouter?.model || ''
   );
   const [useBackupModels, setUseBackupModels] = useState(
     user?.settings?.chat?.openrouter?.useBackupModels || false
@@ -127,7 +127,7 @@ const ApiSettings = () => {
     user?.settings?.chat?.useCloudService || false
   );
   const [cloudModel, setCloudModel] = useState(
-    user?.settings?.chat?.cloudModel || 'openai/gpt-3.5-turbo'
+    user?.settings?.chat?.cloudModel || 'gemini-2.0-flash-exp'
   );
 
   // Define the allowed cloud models list
@@ -188,7 +188,7 @@ const ApiSettings = () => {
                   enabled: true,
                   licenseKey: info.licenseKey!,
                   deviceId: info.deviceId!,
-                  preferredModel: user?.settings?.chat?.cloudModel || 'openai/gpt-3.5-turbo'
+                  preferredModel: user?.settings?.chat?.cloudModel || 'gemini-2.0-flash-exp'
                 });
                 console.log('云服务自动初始化成功');
                 updateCloudServiceStatus(true);

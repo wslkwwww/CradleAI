@@ -47,6 +47,9 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
   const [isTimePickerVisible, setTimePickerVisible] = useState(false);
   const [circleMemoryCount, setCircleMemoryCount] = useState<number>(0);
   const [isLoadingCircleMemory, setIsLoadingCircleMemory] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
+  const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+  const [hasGeneratedTodaysDiary, setHasGeneratedTodaysDiary] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -55,6 +58,18 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
 
         const entries = await DiaryService.getDiaryEntriesByCharacterId(character.id);
         setDiaryEntries(entries.sort((a, b) => b.createdAt - a.createdAt));
+        
+        // Check if there's a diary for today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const todaysDiary = entries.find(entry => {
+          const entryDate = new Date(entry.createdAt);
+          entryDate.setHours(0, 0, 0, 0);
+          return entryDate.getTime() === today.getTime();
+        });
+        
+        setHasGeneratedTodaysDiary(!!todaysDiary);
 
         const savedSettings = await DiaryService.getDiarySettings(character.id);
         if (savedSettings) {
@@ -82,6 +97,25 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
 
   const handleGenerateDiary = async () => {
     try {
+      // Check if a diary has already been generated for today
+      if (hasGeneratedTodaysDiary) {
+        Alert.alert(
+          '已存在今日日记',
+          '今天已经生成了日记。你想重新生成今天的日记吗？',
+          [
+            {
+              text: '取消',
+              style: 'cancel',
+            },
+            {
+              text: '重新生成',
+              onPress: () => regenerateTodaysDiary(),
+            },
+          ]
+        );
+        return;
+      }
+
       setIsGenerating(true);
 
       await DiaryService.saveDiarySettings(character.id, settings);
@@ -95,6 +129,7 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
         await DiaryService.updateLastTriggered(character.id);
         setDiaryEntries([entry, ...diaryEntries]);
         setActiveTab('entries');
+        setHasGeneratedTodaysDiary(true);
       } else {
         Alert.alert('生成失败', '无法生成日记条目，请检查API设置后重试');
       }
@@ -103,6 +138,94 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
       Alert.alert('错误', '生成日记时发生错误');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // Function to regenerate today's diary
+  const regenerateTodaysDiary = async () => {
+    try {
+      // Find and remove today's diary entry
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const todaysDiary = diaryEntries.find(entry => {
+        const entryDate = new Date(entry.createdAt);
+        entryDate.setHours(0, 0, 0, 0);
+        return entryDate.getTime() === today.getTime();
+      });
+      
+      if (todaysDiary) {
+        // Delete the existing entry
+        await DiaryService.deleteDiaryEntry(character.id, todaysDiary.id);
+        
+        // Remove from state
+        const updatedEntries = diaryEntries.filter(entry => entry.id !== todaysDiary.id);
+        setDiaryEntries(updatedEntries);
+      }
+      
+      setHasGeneratedTodaysDiary(false);
+      
+      // Now generate a new entry
+      setIsGenerating(true);
+
+      await DiaryService.saveDiarySettings(character.id, settings);
+
+      const entry = await DiaryService.generateDiaryEntry({
+        ...character,
+        diarySettings: settings,
+      });
+
+      if (entry) {
+        await DiaryService.updateLastTriggered(character.id);
+        setDiaryEntries([entry, ...diaryEntries.filter(e => e.id !== todaysDiary?.id)]);
+        setActiveTab('entries');
+        setHasGeneratedTodaysDiary(true);
+      } else {
+        Alert.alert('生成失败', '无法生成日记条目，请检查API设置后重试');
+      }
+    } catch (error) {
+      console.error('[DiaryBook] Error regenerating diary:', error);
+      Alert.alert('错误', '重新生成日记时发生错误');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Function to delete a diary entry
+  const deleteDiaryEntry = async (entryId: string) => {
+    try {
+      setIsDeletingEntry(true);
+      
+      // Call the service to delete the entry
+      await DiaryService.deleteDiaryEntry(character.id, entryId);
+      
+      // Update the state to reflect the deletion
+      const updatedEntries = diaryEntries.filter(entry => entry.id !== entryId);
+      setDiaryEntries(updatedEntries);
+      
+      // Check if the deleted entry was today's entry
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const deletedEntry = diaryEntries.find(entry => entry.id === entryId);
+      if (deletedEntry) {
+        const entryDate = new Date(deletedEntry.createdAt);
+        entryDate.setHours(0, 0, 0, 0);
+        if (entryDate.getTime() === today.getTime()) {
+          setHasGeneratedTodaysDiary(false);
+        }
+      }
+      
+      // Close the confirmation dialog
+      setSelectedEntry(null);
+      
+      // Show success message
+      Alert.alert('删除成功', '日记条目已成功删除');
+    } catch (error) {
+      console.error('[DiaryBook] Error deleting diary entry:', error);
+      Alert.alert('删除失败', '删除日记条目时发生错误');
+    } finally {
+      setIsDeletingEntry(false);
     }
   };
 
@@ -139,6 +262,26 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
     return `${hours}:${minutes}`;
   };
 
+  const showDeleteConfirmation = (entry: DiaryEntry) => {
+    setSelectedEntry(entry);
+    Alert.alert(
+      '确认删除',
+      '确定要删除这条日记吗？此操作无法撤销。',
+      [
+        {
+          text: '取消',
+          style: 'cancel',
+          onPress: () => setSelectedEntry(null),
+        },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => entry && deleteDiaryEntry(entry.id),
+        },
+      ]
+    );
+  };
+
   const renderDiaryEntry = (entry: DiaryEntry) => {
     const date = new Date(entry.createdAt);
     const formattedDate = date.toLocaleDateString('zh-CN');
@@ -147,10 +290,21 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
 
     const hasCircleMemoryWeight = (entry.circleMemoryWeight || 0) > 0;
 
+    // Check if this entry is from today
+    const isToday = () => {
+      const today = new Date();
+      return date.getDate() === today.getDate() &&
+        date.getMonth() === today.getMonth() &&
+        date.getFullYear() === today.getFullYear();
+    };
+
     return (
       <View key={entry.id} style={styles.diaryEntryContainer}>
         <View style={styles.diaryEntryHeader}>
-          <Text style={styles.diaryEntryDate}>{formattedDate} {formattedTime}</Text>
+          <Text style={styles.diaryEntryDate}>
+            {formattedDate} {formattedTime}
+            {isToday() && <Text style={styles.todayIndicator}> (今天)</Text>}
+          </Text>
           <Text style={styles.diaryEntryTimeAgo}>{timeAgo}</Text>
         </View>
 
@@ -181,6 +335,33 @@ const DiaryBook: React.FC<DiaryBookProps> = ({ character, onClose }) => {
 
         <View style={styles.diaryEntryContent}>
           <Text style={styles.diaryEntryText}>{entry.content}</Text>
+        </View>
+        
+        {/* Add Delete Button */}
+        <View style={styles.entryActionsContainer}>
+          {isToday() && (
+            <TouchableOpacity
+              style={styles.regenerateButton}
+              onPress={() => regenerateTodaysDiary()}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="refresh" size={16} color="#fff" />
+                  <Text style={styles.entryActionButtonText}>重新生成</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => showDeleteConfirmation(entry)}
+          >
+            <Ionicons name="trash-outline" size={16} color="#fff" />
+            <Text style={styles.entryActionButtonText}>删除</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -526,6 +707,10 @@ const styles = StyleSheet.create({
     color: '#ccc',
     fontSize: 14,
   },
+  todayIndicator: {
+    color: theme.colors.primary,
+    fontWeight: 'bold',
+  },
   diaryEntryTimeAgo: {
     color: '#999',
     fontSize: 12,
@@ -554,6 +739,36 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     lineHeight: 24,
+  },
+  // Add styles for entry actions container
+  entryActionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+    gap: 10,
+  },
+  // Style for delete button
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(244, 67, 54, 0.8)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 4,
+  },
+  // Style for regenerate button
+  regenerateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(33, 150, 243, 0.8)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 4,
+  },
+  entryActionButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    marginLeft: 4,
   },
   floatingButton: {
     position: 'absolute',

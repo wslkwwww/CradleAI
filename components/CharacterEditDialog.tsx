@@ -11,11 +11,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Keyboard,
-  Switch,
-  Dimensions,
   Image,
-  Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Character, CradleCharacter } from '@/shared/types';
@@ -23,8 +19,6 @@ import { useUser } from '@/constants/UserContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCharacters } from '@/constants/CharactersContext';
-import { theme } from '@/constants/theme';
-
 interface CharacterEditDialogProps {
   isVisible: boolean;
   character: Character | CradleCharacter;
@@ -50,8 +44,14 @@ export default function CharacterEditDialog({
   const { updateCharacter, characters } = useCharacters(); // Add characters to get the full list
   const apiKey = user?.settings?.chat?.characterApiKey || '';
   const apiSettings = {
-    apiProvider: user?.settings?.chat?.apiProvider || 'gemini',
-    openrouter: user?.settings?.chat?.openrouter
+    apiProvider: (user?.settings?.chat?.apiProvider === 'openrouter' ? 'openrouter' : 'gemini') as 'gemini' | 'openrouter',
+    openrouter: user?.settings?.chat?.openrouter && {
+      enabled: true,
+      apiKey: user.settings.chat.openrouter.apiKey || '',
+      model: user.settings.chat.openrouter.model || '',
+    },
+    useCloudService: user?.settings?.chat?.useCloudService,
+    cloudModel: user?.settings?.chat?.cloudModel,
   };
   
   // State for chat UI

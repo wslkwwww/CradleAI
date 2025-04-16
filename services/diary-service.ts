@@ -216,6 +216,37 @@ ${chatContext}
   }
 
   /**
+   * Delete a diary entry from storage
+   * @param characterId The character identifier
+   * @param entryId The entry identifier to delete
+   * @returns True if successful, false otherwise
+   */
+  static async deleteDiaryEntry(characterId: string, entryId: string): Promise<boolean> {
+    try {
+      // Get existing diary entries
+      const entries = await this.getDiaryEntriesByCharacterId(characterId) || [];
+      
+      // Filter out the entry to delete
+      const updatedEntries = entries.filter(entry => entry.id !== entryId);
+      
+      // If no entry was removed (entry not found), return false
+      if (updatedEntries.length === entries.length) {
+        console.warn(`[DiaryService] Attempted to delete non-existent diary entry: ${entryId}`);
+        return false;
+      }
+      
+      // Save the updated entries
+      await this.saveEntriesToStorage(characterId, updatedEntries);
+      
+      console.log(`[DiaryService] Successfully deleted diary entry: ${entryId}`);
+      return true;
+    } catch (error) {
+      console.error('[DiaryService] Error deleting diary entry:', error);
+      return false;
+    }
+  }
+
+  /**
    * Check if a diary entry should be triggered
    */
   static shouldTriggerDiaryEntry(settings: DiarySettings): boolean {

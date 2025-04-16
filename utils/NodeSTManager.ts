@@ -614,6 +614,11 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
         apiKey: string;
         model: string;
       }
+      useCloudService?: boolean;
+      cloudModel?: string;
+      useGeminiModelLoadBalancing?: boolean;
+      useGeminiKeyRotation?: boolean;
+      additionalGeminiKeys?: string[];
     }
   ): Promise<string> {
     try {
@@ -887,6 +892,11 @@ NodeSTManager.generateText = async function(
       enabled: boolean;
       apiKey: string;
       model: string;
+    useCloudService?: boolean;
+    CloudModel?: string;
+    useGeminiModelLoadBalancing?: boolean;
+    useGeminiKeyRotation?: boolean;
+    additionalGeminiKeys?: string[];
     }
   }
 ): Promise<string> {
