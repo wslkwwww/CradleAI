@@ -38,6 +38,7 @@ const GroupSettingsModal: React.FC<{
     dailyMessageLimit: initialSettings?.dailyMessageLimit || 50,
     replyIntervalMinutes: initialSettings?.replyIntervalMinutes || 1,
     referenceMessageLimit: initialSettings?.referenceMessageLimit || 5,
+    timedMessagesEnabled: initialSettings?.timedMessagesEnabled ?? false,
   });
 
   const isOwner = selectedGroup && currentUser && selectedGroup.groupOwnerId === currentUser.id;
@@ -83,37 +84,33 @@ const GroupSettingsModal: React.FC<{
             </TouchableOpacity>
           </View>
 
-
-            <View style={groupSettingsStyles.settingItem}>
-              <Text style={groupSettingsStyles.settingLabel}>每日消息数量限制</Text>
-              <Text style={groupSettingsStyles.settingDescription}>
-                设置角色每天可以发送的最大消息数量
-              </Text>
-              <View style={groupSettingsStyles.settingControl}>
-                <TouchableOpacity
-                  style={groupSettingsStyles.adjustButton}
-                  onPress={() => setSettings(prev => ({
-                    ...prev,
-                    dailyMessageLimit: Math.max(1, prev.dailyMessageLimit - 10)
-                  }))}
-                >
-                  <Ionicons name="remove" size={18} color="#fff" />
-                </TouchableOpacity>
-                <Text style={groupSettingsStyles.settingValue}>
-                  {settings.dailyMessageLimit}
+          <View style={groupSettingsStyles.settingItem}>
+            <View style={groupSettingsStyles.settingToggleRow}>
+              <View style={groupSettingsStyles.settingLabelContainer}>
+                <Text style={groupSettingsStyles.settingLabel}>启用定时消息</Text>
+                <Text style={groupSettingsStyles.settingDescription}>
+                  让角色在群聊无人发言时主动发言
                 </Text>
-                <TouchableOpacity
-                  style={groupSettingsStyles.adjustButton}
-                  onPress={() => setSettings(prev => ({
-                    ...prev,
-                    dailyMessageLimit: Math.min(100, prev.dailyMessageLimit + 10)
-                  }))}
-                >
-                  <Ionicons name="add" size={18} color="#fff" />
-                </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={[
+                  groupSettingsStyles.toggleButton,
+                  settings.timedMessagesEnabled ? groupSettingsStyles.toggleButtonActive : {}
+                ]}
+                onPress={() => setSettings(prev => ({
+                  ...prev,
+                  timedMessagesEnabled: !prev.timedMessagesEnabled
+                }))}
+              >
+                <View style={[
+                  groupSettingsStyles.toggleKnob,
+                  settings.timedMessagesEnabled ? groupSettingsStyles.toggleKnobActive : {}
+                ]} />
+              </TouchableOpacity>
             </View>
+          </View>
 
+          {settings.timedMessagesEnabled && (
             <View style={groupSettingsStyles.settingItem}>
               <Text style={groupSettingsStyles.settingLabel}>回复时间间隔 (分钟)</Text>
               <Text style={groupSettingsStyles.settingDescription}>
@@ -143,46 +140,77 @@ const GroupSettingsModal: React.FC<{
                 </TouchableOpacity>
               </View>
             </View>
+          )}
 
-            <View style={groupSettingsStyles.settingItem}>
-              <Text style={groupSettingsStyles.settingLabel}>参考消息数量限制</Text>
-              <Text style={groupSettingsStyles.settingDescription}>
-                设置角色回复时可以参考的历史消息数量
+          <View style={groupSettingsStyles.settingItem}>
+            <Text style={groupSettingsStyles.settingLabel}>每日消息数量限制</Text>
+            <Text style={groupSettingsStyles.settingDescription}>
+              设置角色每天可以发送的最大消息数量
+            </Text>
+            <View style={groupSettingsStyles.settingControl}>
+              <TouchableOpacity
+                style={groupSettingsStyles.adjustButton}
+                onPress={() => setSettings(prev => ({
+                  ...prev,
+                  dailyMessageLimit: Math.max(1, prev.dailyMessageLimit - 10)
+                }))}
+              >
+                <Ionicons name="remove" size={18} color="#fff" />
+              </TouchableOpacity>
+              <Text style={groupSettingsStyles.settingValue}>
+                {settings.dailyMessageLimit}
               </Text>
-              <View style={groupSettingsStyles.settingControl}>
-                <TouchableOpacity
-                  style={groupSettingsStyles.adjustButton}
-                  onPress={() => setSettings(prev => ({
-                    ...prev,
-                    referenceMessageLimit: Math.max(1, prev.referenceMessageLimit - 1)
-                  }))}
-                >
-                  <Ionicons name="remove" size={18} color="#fff" />
-                </TouchableOpacity>
-                <Text style={groupSettingsStyles.settingValue}>
-                  {settings.referenceMessageLimit}
-                </Text>
-                <TouchableOpacity
-                  style={groupSettingsStyles.adjustButton}
-                  onPress={() => setSettings(prev => ({
-                    ...prev,
-                    referenceMessageLimit: Math.min(10, prev.referenceMessageLimit + 1)
-                  }))}
-                >
-                  <Ionicons name="add" size={18} color="#fff" />
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={groupSettingsStyles.adjustButton}
+                onPress={() => setSettings(prev => ({
+                  ...prev,
+                  dailyMessageLimit: Math.min(100, prev.dailyMessageLimit + 10)
+                }))}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+              </TouchableOpacity>
             </View>
+          </View>
+
+          <View style={groupSettingsStyles.settingItem}>
+            <Text style={groupSettingsStyles.settingLabel}>参考消息数量限制</Text>
+            <Text style={groupSettingsStyles.settingDescription}>
+              设置角色回复时可以参考的历史消息数量
+            </Text>
+            <View style={groupSettingsStyles.settingControl}>
+              <TouchableOpacity
+                style={groupSettingsStyles.adjustButton}
+                onPress={() => setSettings(prev => ({
+                  ...prev,
+                  referenceMessageLimit: Math.max(1, prev.referenceMessageLimit - 1)
+                }))}
+              >
+                <Ionicons name="remove" size={18} color="#fff" />
+              </TouchableOpacity>
+              <Text style={groupSettingsStyles.settingValue}>
+                {settings.referenceMessageLimit}
+              </Text>
+              <TouchableOpacity
+                style={groupSettingsStyles.adjustButton}
+                onPress={() => setSettings(prev => ({
+                  ...prev,
+                  referenceMessageLimit: Math.min(10, prev.referenceMessageLimit + 1)
+                }))}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
 
           <View style={groupSettingsStyles.dangerSection}>
-                <TouchableOpacity
-                  style={groupSettingsStyles.disbandButton}
-                  onPress={handleDisbandGroup}
-                >
-                  <Text style={groupSettingsStyles.disbandButtonText}>解散群聊</Text>
-                </TouchableOpacity>
-              </View>
-                      
+            <TouchableOpacity
+              style={groupSettingsStyles.disbandButton}
+              onPress={handleDisbandGroup}
+            >
+              <Text style={groupSettingsStyles.disbandButtonText}>解散群聊</Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity
             style={groupSettingsStyles.saveButton}
             onPress={() => {
@@ -202,6 +230,7 @@ interface GroupChatSettings {
   dailyMessageLimit: number;
   replyIntervalMinutes: number;
   referenceMessageLimit: number;
+  timedMessagesEnabled: boolean;
 }
 
 interface TopBarWithBackgroundProps {
@@ -248,6 +277,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
     dailyMessageLimit: 50,
     replyIntervalMinutes: 1,
     referenceMessageLimit: 5,
+    timedMessagesEnabled: false,
   });
 
   useEffect(() => {
@@ -309,7 +339,8 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
       scheduler.setGroupSettings(selectedGroup.groupId, {
         dailyMessageLimit: newSettings.dailyMessageLimit,
         replyIntervalMinutes: newSettings.replyIntervalMinutes,
-        referenceMessageLimit: newSettings.referenceMessageLimit
+        referenceMessageLimit: newSettings.referenceMessageLimit,
+        timedMessagesEnabled: newSettings.timedMessagesEnabled,
       });
       
       console.log('[TopBar] Group settings saved to scheduler:', {
@@ -722,6 +753,37 @@ const groupSettingsStyles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(255,59,48,0.9)',
     fontStyle: 'italic',
+  },
+  settingToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  settingLabelContainer: {
+    flex: 1,
+  },
+  toggleButton: {
+    width: 50,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: 'rgba(255, 224, 195, 0.5)',
+  },
+  toggleKnob: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    alignSelf: 'flex-start',
+  },
+  toggleKnobActive: {
+    alignSelf: 'flex-end',
+    backgroundColor: 'rgb(255, 224, 195)',
   },
 });
 

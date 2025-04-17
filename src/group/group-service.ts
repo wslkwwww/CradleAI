@@ -130,6 +130,16 @@ export class GroupService {
       // 保存群组到存储
       await this.saveGroup(newGroup);
       
+      // 创建默认群组设置 - 默认禁用定时消息功能
+      const scheduler = GroupScheduler.getInstance();
+      scheduler.setGroupSettings(newGroup.groupId, {
+        dailyMessageLimit: 50,
+        replyIntervalMinutes: 1,
+        referenceMessageLimit: 5,
+        timedMessagesEnabled: false // 默认禁用定时消息
+      });
+      console.log(`【群聊服务】为新群组 ${newGroup.groupId} 设置默认配置，定时消息功能已禁用`);
+      
       // 发送群组创建消息
       const creationMessage: GroupMessage = {
         messageId: `msg-${Date.now()}`,
@@ -579,6 +589,14 @@ export class GroupService {
       // 如果角色设置了customUserName，则使用该名称来称呼用户，否则使用默认名称
       const userNameForCharacter = character.customUserName || originalMessage.senderName || '用户';
       
+      // 是否是系统触发的消息（如定时消息）
+      const isSystemMessage = originalMessage.senderId === 'system';
+      
+      // 针对不同类型的消息调整提示词
+      let userMessagePart = isSystemMessage 
+        ? `系统提示: "${originalMessage.messageContent}"`
+        : `用户 ${userNameForCharacter} 发送: "${originalMessage.messageContent}"`;
+      
       // 构建提示词
       const prompt = `你是${character.name}. 你正在参与一个主题为 "${group.groupTopic}" 的群聊。
 
@@ -587,7 +605,7 @@ export class GroupService {
 你和用户的私聊记录:
 ${privateChatHistory}
 
-用户 ${userNameForCharacter} 发送: "${originalMessage.messageContent}"
+${userMessagePart}
 
 当前群聊消息记录：
 ${formattedMessages}

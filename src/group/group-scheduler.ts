@@ -1,6 +1,7 @@
 import { Character, GlobalSettings } from '../../shared/types';
 import { Group, GroupMessage } from './group-types';
 import { GroupService } from './group-service';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * 群聊调度器 - 负责管理角色回复的调度和速率限制
@@ -17,6 +18,7 @@ export class GroupScheduler {
   private groupSettings: Record<string, GroupSettings> = {}; // 存储群组设置
   private timedMessagesActive: boolean = true; // 控制是否启用定时消息
   private checkingTimedMessages: boolean = false; // 防止并发检查
+  private lastReplyTimesLoaded: boolean = false; // 标记是否已加载上次回复时间
 
   // 使用单例模式
   public static getInstance(): GroupScheduler {
@@ -31,8 +33,52 @@ export class GroupScheduler {
    */
   private constructor() {
     console.log(`【群聊调度器】初始化群聊调度器实例`);
+    // 加载持久化的设置和上次回复时间
+    this.loadPersistedData();
     // 启动定时消息检查
     this.startTimedMessageCheck();
+  }
+
+  /**
+   * 从AsyncStorage加载持久化数据
+   */
+  private async loadPersistedData(): Promise<void> {
+    try {
+      // 加载群组设置
+      const settingsStr = await AsyncStorage.getItem('group_scheduler_settings');
+      if (settingsStr) {
+        this.groupSettings = JSON.parse(settingsStr);
+        console.log(`【群聊调度器】从存储加载群组设置，共 ${Object.keys(this.groupSettings).length} 个群组`);
+      }
+
+      // 加载上次回复时间
+      const lastReplyTimesStr = await AsyncStorage.getItem('group_scheduler_reply_times');
+      if (lastReplyTimesStr) {
+        this.lastReplyTimes = JSON.parse(lastReplyTimesStr);
+        console.log(`【群聊调度器】从存储加载回复时间记录，共 ${Object.keys(this.lastReplyTimes).length} 条记录`);
+      }
+      
+      this.lastReplyTimesLoaded = true;
+    } catch (error) {
+      console.error(`【群聊调度器】加载持久化数据失败:`, error);
+    }
+  }
+
+  /**
+   * 持久化保存重要数据
+   */
+  private async persistData(): Promise<void> {
+    try {
+      // 保存群组设置
+      await AsyncStorage.setItem('group_scheduler_settings', JSON.stringify(this.groupSettings));
+      
+      // 保存上次回复时间
+      await AsyncStorage.setItem('group_scheduler_reply_times', JSON.stringify(this.lastReplyTimes));
+      
+      console.log(`【群聊调度器】已持久化保存调度器数据`);
+    } catch (error) {
+      console.error(`【群聊调度器】保存持久化数据失败:`, error);
+    }
   }
 
   /**
@@ -46,9 +92,13 @@ export class GroupScheduler {
       JSON.stringify({
         replyInterval: settings.replyIntervalMinutes,
         messageLimit: settings.dailyMessageLimit,
-        refMsgLimit: settings.referenceMessageLimit
+        refMsgLimit: settings.referenceMessageLimit,
+        timedMessagesEnabled: settings.timedMessagesEnabled
       })
     );
+    
+    // 持久化保存设置
+    this.persistData();
   }
 
   /**
@@ -60,7 +110,8 @@ export class GroupScheduler {
     return this.groupSettings[groupId] || {
       dailyMessageLimit: 50,
       replyIntervalMinutes: 1,
-      referenceMessageLimit: 5
+      referenceMessageLimit: 5,
+      timedMessagesEnabled: false // 默认禁用定时消息
     };
   }
 
@@ -90,6 +141,11 @@ export class GroupScheduler {
     try {
       console.log(`【群聊调度器】检查定时消息...`);
       
+      // 确保上次回复时间已加载
+      if (!this.lastReplyTimesLoaded) {
+        await this.loadPersistedData();
+      }
+      
       // 获取当前时间
       const now = Date.now();
       
@@ -104,6 +160,13 @@ export class GroupScheduler {
         
         // 获取群组设置
         const settings = this.groupSettings[groupId];
+        
+        // 如果定时消息功能被禁用，则跳过这个群组
+        if (settings.timedMessagesEnabled === false) {
+          console.log(`【群聊调度器】群组 ${group.groupName} (${groupId}) 的定时消息功能已禁用，跳过检查`);
+          continue;
+        }
+        
         const replyIntervalMs = settings.replyIntervalMinutes * 60 * 1000;
         
         // 获取群组中的角色ID
@@ -122,13 +185,29 @@ export class GroupScheduler {
           // 获取上次回复时间
           const lastReplyTime = this.lastReplyTimes[charGroupKey] || 0;
           
+          // 如果角色从未回复过，记录当前时间并跳过
+          if (lastReplyTime === 0) {
+            console.log(`【群聊调度器】角色 ${character.name} (${character.id}) 在群组 ${group.groupName} 中没有回复记录，初始化时间`);
+            this.lastReplyTimes[charGroupKey] = now;
+            this.persistData(); // 保存更新
+            continue;
+          }
+          
           // 计算时间差
           const timeSinceLastReply = now - lastReplyTime;
           
+          // 详细日志
+          console.log(
+            `【群聊调度器】角色 ${character.name} (${character.id}) 距上次回复: ` +
+            `${(timeSinceLastReply/60000).toFixed(1)}分钟, ` +
+            `设定间隔: ${settings.replyIntervalMinutes}分钟, ` +
+            `上次回复时间: ${new Date(lastReplyTime).toLocaleTimeString()}, ` +
+            `当前时间: ${new Date(now).toLocaleTimeString()}`
+          );
+          
           // 检查是否达到发送间隔
-          if (lastReplyTime > 0 && timeSinceLastReply >= replyIntervalMs) {
+          if (timeSinceLastReply >= replyIntervalMs) {
             console.log(`【群聊调度器】角色 ${character.name} 在群组 ${group.groupName} 中达到定时发送条件`);
-            console.log(`【群聊调度器】距上次回复: ${(timeSinceLastReply/60000).toFixed(1)}分钟, 设定间隔: ${settings.replyIntervalMinutes}分钟`);
             
             // 如果进行中的队列太长，则跳过此次调度
             if (this.queue.length > 10) {
@@ -136,11 +215,23 @@ export class GroupScheduler {
               continue;
             }
             
-            // 调度定时消息任务
-            await this.scheduleTimedMessage(group, character);
-            
-            // 更新上次回复时间
-            this.lastReplyTimes[charGroupKey] = now;
+            try {
+              // 调度定时消息任务
+              await this.scheduleTimedMessage(group, character);
+              
+              // 更新上次回复时间
+              this.lastReplyTimes[charGroupKey] = now;
+              console.log(`【群聊调度器】已更新角色 ${character.name} 的上次回复时间: ${new Date(now).toLocaleTimeString()}`);
+              
+              // 持久化保存更新后的回复时间
+              this.persistData();
+            } catch (error) {
+              console.error(`【群聊调度器】安排 ${character.name} 的定时消息失败:`, error);
+            }
+          } else {
+            console.log(`【群聊调度器】角色 ${character.name} 尚未达到定时发送条件，还需 ${
+              ((replyIntervalMs - timeSinceLastReply)/60000).toFixed(1)
+            } 分钟`);
           }
         }
       }
@@ -165,8 +256,11 @@ export class GroupScheduler {
         return;
       }
 
+      console.log(`【群聊调度器】开始为角色 ${character.name} 安排定时消息任务，群组: ${group.groupName}`);
+
       // 获取最近的几条消息作为上下文
       const contextMessages = recentMessages.slice(-5);
+      console.log(`【群聊调度器】已获取 ${contextMessages.length} 条上下文消息`);
       
       // 创建一个虚拟的"系统"消息，表示这是一个定时触发
       const timedTriggerMessage: GroupMessage = {
@@ -192,11 +286,14 @@ export class GroupScheduler {
         isTimerTriggered: true
       });
 
-      console.log(`【群聊调度器】已添加角色 ${character.name} 的定时消息任务到队列`);
+      console.log(`【群聊调度器】已添加角色 ${character.name} 的定时消息任务到队列，队列长度: ${this.queue.length}`);
 
       // 开始处理队列
       if (!this.isProcessing) {
+        console.log(`【群聊调度器】队列未在处理中，启动队列处理`);
         this.processQueue();
+      } else {
+        console.log(`【群聊调度器】队列已在处理中，定时消息将在当前处理完成后处理`);
       }
     } catch (error) {
       console.error(`【群聊调度器】安排定时消息失败:`, error);
@@ -210,8 +307,17 @@ export class GroupScheduler {
    */
   public recordReplyTime(characterId: string, groupId: string): void {
     const charGroupKey = `${characterId}-${groupId}`;
+    const previousTime = this.lastReplyTimes[charGroupKey];
     this.lastReplyTimes[charGroupKey] = Date.now();
-    console.log(`【群聊调度器】记录角色 ${characterId} 在群组 ${groupId} 的回复时间`);
+    
+    console.log(`【群聊调度器】记录角色 ${characterId} 在群组 ${groupId} 的回复时间: ${
+      new Date(this.lastReplyTimes[charGroupKey]).toLocaleTimeString()
+    }, 之前记录: ${
+      previousTime ? new Date(previousTime).toLocaleTimeString() : '无'
+    }`);
+    
+    // 持久化保存更新后的回复时间
+    this.persistData();
   }
 
   /**
@@ -350,12 +456,15 @@ export class GroupScheduler {
       // 如果是定时触发的消息，添加特殊标记
       let extraPrompt = '';
       if (item.type === 'timed') {
+        console.log(`【群聊调度器】处理定时触发的消息，添加特殊提示词`);
         extraPrompt = `\n\n[TIMED_MESSAGE_INSTRUCTION] 作为角色${item.character.name}，你已经有一段时间没有在群聊中发言了。
 请根据最近的群聊内容，发起一个新的、自然的话题，或者对之前的讨论进行延续。
 你的消息应该看起来自然，不要提及"这里很安静"或"很久没人说话了"之类的内容。
 这条消息应该感觉是你自然而然想要发送的，而不是被系统提醒发送的。`;
       }
 
+      console.log(`【群聊调度器】开始调用GroupService.replyToGroupMessage处理回复`);
+      
       // 调用服务处理回复
       const replyMessage = await GroupService.replyToGroupMessage(
         item.group.groupId,
@@ -367,14 +476,14 @@ export class GroupScheduler {
         extraPrompt // 传递额外提示
       );
 
-      console.log(`【群聊调度器】角色 ${item.character.name} 的回复已处理`);
+      console.log(`【群聊调度器】角色 ${item.character.name} 的回复已处理，结果: ${replyMessage ? '成功' : '失败'}`);
       
       // 记录角色回复时间
       if (replyMessage) {
         this.recordReplyTime(item.character.id, item.group.groupId);
       }
       
-      // 在完成消息处理后，获取最新消息并通知所有监听器（补充消息通知机制）
+      // 在完成消息处理后，获取最新消息并通知所有监听器
       if (replyMessage) {
         // 这一步不是必须的，因为GroupService.replyToGroupMessage中已经调用了saveGroupMessage
         // 但为了确保消息更新通知触发，在这里额外获取并通知一次
@@ -389,6 +498,7 @@ export class GroupScheduler {
     }
 
     // 设置延时处理下一项
+    console.log(`【群聊调度器】设置${this.processingInterval}ms后处理下一项，当前队列长度: ${this.queue.length}`);
     setTimeout(() => this.processQueue(), this.processingInterval);
   }
 
@@ -458,4 +568,5 @@ export interface GroupSettings {
   dailyMessageLimit: number; // 每日消息限制
   replyIntervalMinutes: number; // 回复间隔(分钟)
   referenceMessageLimit: number; // 参考消息数量限制
+  timedMessagesEnabled: boolean; // 是否启用定时消息功能
 }

@@ -3,6 +3,7 @@
 export * from './group-types';
 export * from './group-service';
 export * from './group-manager';
+export { GroupScheduler } from './group-scheduler'; // Only export GroupScheduler to avoid conflict
 
 // 基础API函数导出，方便直接调用
 import { GroupManager } from './group-manager';
