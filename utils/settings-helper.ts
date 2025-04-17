@@ -103,6 +103,10 @@ export function getApiSettings(): {
     model?: string;
   };
   useCloudService: boolean;
+  useGeminiKeyRotation?: boolean;
+  useGeminiModelLoadBalancing?: boolean;
+  additionalGeminiKeys?: string[];
+  cloudModel?: string;
 } {
   const settings = getUserSettingsGlobally();
   if (!settings || !settings.chat) {

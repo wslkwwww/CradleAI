@@ -1,10 +1,13 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Keyboard,
+  Animated,
+  PanResponder,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { WorldBookEntryUI, PresetEntryUI } from '@/constants/types';
@@ -23,18 +26,137 @@ interface WorldBookSectionProps {
     entryOptions?: any,
     onOptionsChange?: (options: any) => void,
     name?: string,
-    onNameChange?: (text: string) => void
+    onNameChange?: (text: string) => void,
+    entryId?: string // Add entryId parameter
   ) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
   onDelete?: (id: string) => void;
 }
+
+// SwipeableEntry component for reuse
+interface SwipeableEntryProps {
+  children: React.ReactNode;
+  onDelete?: () => void;
+  disabled?: boolean;
+}
+
+const SwipeableEntry: React.FC<SwipeableEntryProps> = ({ 
+  children, 
+  onDelete, 
+  disabled = false
+}) => {
+  const pan = useRef(new Animated.Value(0)).current;
+  const deleteButtonWidth = 80;
+  
+  // Use a ref to track the current animated value for comparisons
+  const panValueRef = useRef<number>(0);
+  
+  // Add listener to track the current value
+  useEffect(() => {
+    const id = pan.addListener(({value}) => {
+      panValueRef.current = value;
+    });
+    
+    return () => {
+      pan.removeListener(id);
+    };
+  }, [pan]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 5;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dx < 0) {
+          // Only allow swiping left (negative)
+          pan.setValue(Math.max(gestureState.dx, -deleteButtonWidth));
+        } else if (gestureState.dx > 0 && panValueRef.current < 0) {
+          // Allow swiping right to close
+          pan.setValue(Math.min(0, panValueRef.current + gestureState.dx));
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        // If swiped far enough left, snap to show delete button
+        if (gestureState.dx < -deleteButtonWidth / 2) {
+          Animated.spring(pan, {
+            toValue: -deleteButtonWidth,
+            useNativeDriver: true,
+          }).start();
+        } else {
+          // Otherwise, snap back to original position
+          Animated.spring(pan, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  const resetSwipe = () => {
+    Animated.spring(pan, {
+      toValue: 0,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const handleDelete = () => {
+    Alert.alert(
+      '确认删除',
+      '确定要删除这个条目吗？',
+      [
+        {
+          text: '取消',
+          style: 'cancel',
+          onPress: resetSwipe
+        },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: () => {
+            resetSwipe();
+            onDelete && onDelete();
+          }
+        }
+      ]
+    );
+  };
+
+  if (disabled || !onDelete) {
+    return <View>{children}</View>;
+  }
+
+  return (
+    <View style={styles.swipeContainer}>
+      <Animated.View
+        style={[
+          styles.swipeableContent,
+          { transform: [{ translateX: pan }] }
+        ]}
+        {...panResponder.panHandlers}
+      >
+        {children}
+      </Animated.View>
+      <View style={styles.deleteButtonContainer}>
+        <TouchableOpacity 
+          style={styles.deleteButton}
+          onPress={handleDelete}
+        >
+          <Ionicons name="trash-outline" size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
 
 export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
   entries,
   onAdd,
   onUpdate,
   onViewDetail,
-  onReorder
+  onReorder,
+  onDelete
 }) => {
   // Add a handler for entry press with delayed execution
   const handleEntryPress = useCallback((entry: WorldBookEntryUI) => {
@@ -57,7 +179,8 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
         },
         (options) => onUpdate(entry.id, options),
         entry.name,
-        (name) => onUpdate(entry.id, { name })
+        (name) => onUpdate(entry.id, { name }),
+        entry.id // Pass entry ID
       );
     }, 100);
   }, [onViewDetail, onUpdate]);
@@ -78,39 +201,43 @@ export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
       ) : (
         <View style={styles.entriesList}>
           {entries.map((entry, index) => (
-            <TouchableOpacity
+            <SwipeableEntry 
               key={entry.id}
-              style={[
-                styles.entryItem,
-                entry.disable && styles.disabledEntry
-              ]}
-              activeOpacity={0.7}
-              onPress={() => handleEntryPress(entry)}
+              onDelete={() => onDelete && onDelete(entry.id)}
             >
-              <View style={styles.entryHeader}>
-                <Text style={styles.entryTitle}>
-                  {entry.name || '未命名条目'}
-                </Text>
-                <View style={styles.entryBadges}>
-                  <View style={styles.positionBadge}>
-                    <Text style={styles.positionText}>{entry.position}</Text>
+              <TouchableOpacity
+                style={[
+                  styles.entryItem,
+                  entry.disable && styles.disabledEntry
+                ]}
+                activeOpacity={0.7}
+                onPress={() => handleEntryPress(entry)}
+              >
+                <View style={styles.entryHeader}>
+                  <Text style={styles.entryTitle}>
+                    {entry.name || '未命名条目'}
+                  </Text>
+                  <View style={styles.entryBadges}>
+                    <View style={styles.positionBadge}>
+                      <Text style={styles.positionText}>{entry.position}</Text>
+                    </View>
+                    {entry.disable && (
+                      <View style={styles.disabledBadge}>
+                        <Text style={styles.disabledText}>已禁用</Text>
+                      </View>
+                    )}
+                    {entry.constant && (
+                      <View style={styles.constantBadge}>
+                        <Text style={styles.constantText}>常驻</Text>
+                      </View>
+                    )}
                   </View>
-                  {entry.disable && (
-                    <View style={styles.disabledBadge}>
-                      <Text style={styles.disabledText}>已禁用</Text>
-                    </View>
-                  )}
-                  {entry.constant && (
-                    <View style={styles.constantBadge}>
-                      <Text style={styles.constantText}>常驻</Text>
-                    </View>
-                  )}
                 </View>
-              </View>
-              <Text style={styles.entryPreview} numberOfLines={1}>
-                {entry.content || '无内容'}
-              </Text>
-            </TouchableOpacity>
+                <Text style={styles.entryPreview} numberOfLines={1}>
+                  {entry.content || '无内容'}
+                </Text>
+              </TouchableOpacity>
+            </SwipeableEntry>
           ))}
         </View>
       )}
@@ -131,7 +258,10 @@ interface PresetSectionProps {
     editable?: boolean,
     entryType?: 'worldbook' | 'preset' | 'author_note',
     entryOptions?: any,
-    onOptionsChange?: (options: any) => void
+    onOptionsChange?: (options: any) => void,
+    name?: string,
+    onNameChange?: (text: string) => void,
+    entryId?: string // Add entryId parameter
   ) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
   onDelete?: (id: string) => void;
@@ -143,7 +273,8 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
   onUpdate,
   onMove,
   onViewDetail,
-  onReorder
+  onReorder,
+  onDelete
 }) => {
   // Helper function to reorder entry
   const handleReorder = useCallback((id: string, direction: 'up' | 'down') => {
@@ -173,76 +304,84 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
       ) : (
         <View style={styles.entriesList}>
           {entries.map((entry, index) => (
-            <TouchableOpacity
+            <SwipeableEntry 
               key={entry.id}
-              style={[
-                styles.entryItem,
-                !entry.enable && styles.disabledEntry
-              ]}
-              onPress={() => {
-                onViewDetail(
-                  entry.name || '预设条目',
-                  entry.content,
-                  entry.isEditable ? (text) => onUpdate(entry.id, { content: text }) : undefined,
-                  entry.isEditable,
-                  'preset',
-                  {
-                    enable: entry.enable,
-                    role: entry.role,
-                    insertType: entry.insertType,
-                    depth: entry.depth,
-                    order: entry.order,
-                  },
-                  (options) => onUpdate(entry.id, options)
-                );
-              }}
+              onDelete={entry.isDefault ? undefined : () => onDelete && onDelete(entry.id)}
+              disabled={entry.isDefault} // Disable swipe for default entries
             >
-              <View style={styles.entryHeader}>
-                <Text style={styles.entryTitle}>
-                  {entry.name || entry.identifier || '未命名预设'}
-                </Text>
-                <View style={styles.entryControls}>
-                  <View style={styles.orderBadge}>
-                    <Text style={styles.orderText}>{index + 1}</Text>
-                  </View>
-                  <View style={styles.moveControls}>
-                    <TouchableOpacity
-                      style={[styles.moveButton, index === 0 && styles.disabledButton]}
-                      onPress={() => handleReorder(entry.id, 'up')}
-                      disabled={index === 0}
-                    >
-                      <Ionicons name="chevron-up" size={16} color={index === 0 ? '#555' : '#fff'} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.moveButton, index === entries.length - 1 && styles.disabledButton]}
-                      onPress={() => handleReorder(entry.id, 'down')}
-                      disabled={index === entries.length - 1}
-                    >
-                      <Ionicons name="chevron-down" size={16} color={index === entries.length - 1 ? '#555' : '#fff'} />
-                    </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.entryItem,
+                  !entry.enable && styles.disabledEntry
+                ]}
+                onPress={() => {
+                  onViewDetail(
+                    entry.name || '预设条目',
+                    entry.content,
+                    entry.isEditable ? (text) => onUpdate(entry.id, { content: text }) : undefined,
+                    entry.isEditable,
+                    'preset',
+                    {
+                      enable: entry.enable,
+                      role: entry.role,
+                      insertType: entry.insertType,
+                      depth: entry.depth,
+                      order: entry.order,
+                    },
+                    (options) => onUpdate(entry.id, options),
+                    entry.name,
+                    (name) => onUpdate(entry.id, { name }),
+                    entry.id // Pass entry ID
+                  );
+                }}
+              >
+                <View style={styles.entryHeader}>
+                  <Text style={styles.entryTitle}>
+                    {entry.name || entry.identifier || '未命名预设'}
+                  </Text>
+                  <View style={styles.entryControls}>
+                    <View style={styles.orderBadge}>
+                      <Text style={styles.orderText}>{index + 1}</Text>
+                    </View>
+                    <View style={styles.moveControls}>
+                      <TouchableOpacity
+                        style={[styles.moveButton, index === 0 && styles.disabledButton]}
+                        onPress={() => handleReorder(entry.id, 'up')}
+                        disabled={index === 0}
+                      >
+                        <Ionicons name="chevron-up" size={16} color={index === 0 ? '#555' : '#fff'} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.moveButton, index === entries.length - 1 && styles.disabledButton]}
+                        onPress={() => handleReorder(entry.id, 'down')}
+                        disabled={index === entries.length - 1}
+                      >
+                        <Ionicons name="chevron-down" size={16} color={index === entries.length - 1 ? '#555' : '#fff'} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
-              </View>
-              
-              <View style={styles.entryDetails}>
-                <Text style={styles.entryDetail}>
-                  {entry.role === 'user' ? '用户' : 'AI'} | 
-                  {entry.insertType === 'relative' ? ' 相对位置' : ' 对话式'}
-                  {entry.insertType === 'chat' && ` | 深度: ${entry.depth}`}
-                </Text>
-                <Text style={[styles.entryStatus, entry.enable ? styles.enabledText : styles.disabledText]}>
-                  {entry.enable ? '已启用' : '已禁用'}
-                </Text>
-              </View>
-              
-              {entry.content ? (
-                <Text style={styles.entryPreview} numberOfLines={1}>
-                  {entry.content}
-                </Text>
-              ) : (
-                <Text style={styles.entryEmptyContent}>无内容</Text>
-              )}
-            </TouchableOpacity>
+                
+                <View style={styles.entryDetails}>
+                  <Text style={styles.entryDetail}>
+                    {entry.role === 'user' ? '用户' : 'AI'} | 
+                    {entry.insertType === 'relative' ? ' 相对位置' : ' 对话式'}
+                    {entry.insertType === 'chat' && ` | 深度: ${entry.depth}`}
+                  </Text>
+                  <Text style={[styles.entryStatus, entry.enable ? styles.enabledText : styles.disabledText]}>
+                    {entry.enable ? '已启用' : '已禁用'}
+                  </Text>
+                </View>
+                
+                {entry.content ? (
+                  <Text style={styles.entryPreview} numberOfLines={1}>
+                    {entry.content}
+                  </Text>
+                ) : (
+                  <Text style={styles.entryEmptyContent}>无内容</Text>
+                )}
+              </TouchableOpacity>
+            </SwipeableEntry>
           ))}
         </View>
       )}
@@ -500,5 +639,28 @@ const styles = StyleSheet.create({
   authorNoteEmpty: {
     color: '#888888',
     fontStyle: 'italic',
+  },
+  swipeContainer: {
+    position: 'relative',
+    marginVertical: 6,
+  },
+  swipeableContent: {
+    width: '100%',
+    zIndex: 1,
+  },
+  deleteButtonContainer: {
+    position: 'absolute',
+    top: 12, // Matches the entryItem's top padding
+    right: 0,
+    zIndex: 0,
+  },
+  deleteButton: {
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: 28, // Match the height of the badges 
+    borderRadius: 6,
+    paddingHorizontal: 8,
   },
 });

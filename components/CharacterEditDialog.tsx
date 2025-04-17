@@ -19,6 +19,10 @@ import { useUser } from '@/constants/UserContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCharacters } from '@/constants/CharactersContext';
+import { getApiSettings, addCloudServiceStatusListener } from '@/utils/settings-helper';
+import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
+import { OpenRouterAdapter } from '@/docs/openrouter_cloudservice/ref_code/openrouter-adapter';
+
 interface CharacterEditDialogProps {
   isVisible: boolean;
   character: Character | CradleCharacter;
@@ -34,6 +38,43 @@ interface ChatMessage {
   timestamp: number;
 }
 
+// Helper function to convert API settings to properly typed object
+function getTypedApiSettings() {
+  const settings = getApiSettings();
+  return {
+    apiProvider: settings.apiProvider === 'openrouter' ? 'openrouter' as const : 'gemini' as const,
+    openrouter: settings.openrouter && {
+      enabled: settings.openrouter.enabled,
+      apiKey: settings.openrouter.apiKey || '',
+      model: settings.openrouter.model || '',
+    },
+    useCloudService: settings.useCloudService,
+    cloudModel: settings.cloudModel,
+    useGeminiModelLoadBalancing: settings.useGeminiModelLoadBalancing,
+    useGeminiKeyRotation: settings.useGeminiKeyRotation,
+    additionalGeminiKeys: settings.additionalGeminiKeys,
+  };
+}
+
+// Helper function to get the appropriate adapter based on API settings
+function getAdapter(apiSettings: ReturnType<typeof getTypedApiSettings>, apiKey: string) {
+  if (apiSettings.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled) {
+    console.log('[CharacterEditDialog] Using OpenRouter adapter');
+    return new OpenRouterAdapter(
+      apiKey || apiSettings.openrouter.apiKey || '',
+      apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+    );
+  } else {
+    console.log('[CharacterEditDialog] Using Gemini adapter');
+    return new GeminiAdapter(apiKey, {
+      useModelLoadBalancing: apiSettings.useGeminiModelLoadBalancing,
+      useKeyRotation: apiSettings.useGeminiKeyRotation,
+      additionalKeys: apiSettings.additionalGeminiKeys,
+      primaryModel: apiSettings.cloudModel,
+    });
+  }
+}
+
 export default function CharacterEditDialog({
   isVisible,
   character,
@@ -42,17 +83,25 @@ export default function CharacterEditDialog({
 }: CharacterEditDialogProps) {
   const { user } = useUser();
   const { updateCharacter, characters } = useCharacters(); // Add characters to get the full list
-  const apiKey = user?.settings?.chat?.characterApiKey || '';
-  const apiSettings = {
-    apiProvider: (user?.settings?.chat?.apiProvider === 'openrouter' ? 'openrouter' : 'gemini') as 'gemini' | 'openrouter',
-    openrouter: user?.settings?.chat?.openrouter && {
-      enabled: true,
-      apiKey: user.settings.chat.openrouter.apiKey || '',
-      model: user.settings.chat.openrouter.model || '',
-    },
-    useCloudService: user?.settings?.chat?.useCloudService,
-    cloudModel: user?.settings?.chat?.cloudModel,
-  };
+  
+  // Replace direct API settings extraction with settings-helper and ensure proper typing
+  const [apiSettings, setApiSettings] = useState(getTypedApiSettings());
+  
+  // Add listener for cloud service status changes
+  useEffect(() => {
+    // Get initial API settings with proper typing
+    setApiSettings(getTypedApiSettings());
+    
+    // Add listener for cloud service status changes
+    const removeListener = addCloudServiceStatusListener((enabled) => {
+      console.log('[CharacterEditDialog] Cloud service status changed:', enabled);
+      // Update API settings when cloud service status changes
+      setApiSettings(getTypedApiSettings());
+    });
+    
+    // Clean up listener on unmount
+    return () => removeListener();
+  }, []);
   
   // State for chat UI
   const [input, setInput] = useState('');
@@ -229,12 +278,15 @@ export default function CharacterEditDialog({
         ]);
       }
       
-      // Send to LLM
-      const response = await NodeSTManager.generateText(
-        formattedMessages,
-        apiKey,
-        apiSettings
-      );
+      // Use latest API settings and user API key together
+      const apiKey = user?.settings?.chat?.characterApiKey || '';
+      const currentApiSettings = getTypedApiSettings(); // Get latest settings before request
+      
+      // Get the appropriate adapter based on API settings
+      const adapter = getAdapter(currentApiSettings, apiKey);
+      
+      // Send to LLM using adapter directly
+      const response = await adapter.generateContent(formattedMessages);
       
       // Add bot response to chat
       const botMessage: ChatMessage = {
@@ -397,7 +449,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
 2. 对于不需要修改的部分，可以完全省略
 3. 系统会自动保留原有数据并与你的更新合并
 4. 适当添加注释说明你所做的更改`;
-  };
+};
   
   // Get initial system message for welcoming the user
   const getInitialSystemMessage = () => {
@@ -927,6 +979,10 @@ ${JSON.stringify(characterJsonData, null, 2)}
           throw new Error('角色数据为空，无法应用更改');
         }
         
+        // Get latest API settings before update
+        const apiKey = user?.settings?.chat?.characterApiKey || '';
+        const currentApiSettings = getTypedApiSettings();
+        
         // UPDATED LOGIC: Handle different character types properly
         console.log('[CharacterEditDialog] Character relationships:', characterRelationships);
         setIsProcessing(true);
@@ -961,7 +1017,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
               conversationId: updatedGeneratedCharacter.id,
               status: "更新人设",
               apiKey,
-              apiSettings,
+              apiSettings: currentApiSettings, // Use latest settings
               character: updatedGeneratedCharacter // Pass the whole character object
             });
             
@@ -1023,7 +1079,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
             conversationId: finalCradleCharacter.id,
             status: "更新人设",
             apiKey,
-            apiSettings,
+            apiSettings: currentApiSettings, // Use latest settings
             character: finalCradleCharacter // Pass the character object
           });
           
@@ -1062,7 +1118,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
             conversationId: finalCharacter.id,
             status: "更新人设",
             apiKey,
-            apiSettings,
+            apiSettings: currentApiSettings, // Use latest settings
             character: finalCharacter // Pass the character object directly
           });
           
@@ -1230,13 +1286,16 @@ ${JSON.stringify(characterJsonData, null, 2)}
       // Format messages for LLM
       const formattedMessages = formatMessagesForLLM(updatedMessages);
       
+      // Get latest API settings before request
+      const apiKey = user?.settings?.chat?.characterApiKey || '';
+      const currentApiSettings = getTypedApiSettings();
+      
+      // Get the appropriate adapter based on API settings
+      const adapter = getAdapter(currentApiSettings, apiKey);
+      
       // Send to LLM
       console.log('[CharacterEditDialog] 请求生成角色更新');
-      const response = await NodeSTManager.generateText(
-        formattedMessages,
-        apiKey,
-        apiSettings
-      );
+      const response = await adapter.generateContent(formattedMessages);
       
       // Add bot response to chat
       const botMessage: ChatMessage = {
@@ -1331,12 +1390,15 @@ ${JSON.stringify(characterJsonData, null, 2)}
         parts: [{ text: msg.text }]
       }));
       
+      // Get latest API settings before request
+      const apiKey = user?.settings?.chat?.characterApiKey || '';
+      const currentApiSettings = getTypedApiSettings();
+      
+      // Get the appropriate adapter based on API settings
+      const adapter = getAdapter(currentApiSettings, apiKey);
+      
       // Send to LLM
-      const extractionResponse = await NodeSTManager.generateText(
-        [...simpleHistory, extractionMessage],
-        apiKey,
-        apiSettings
-      );
+      const extractionResponse = await adapter.generateContent([...simpleHistory, extractionMessage]);
       
       // Extract JSON from response
       const jsonMatch = extractionResponse.match(/```json\s*([\s\S]*?)\s*```/);

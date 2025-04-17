@@ -773,27 +773,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       onTtsEnhancerToggle();
     }
   };
-  
-  const handleShowNovelAI = () => {
-    setShowActions(false);
-    if (onShowNovelAI) {
-      onShowNovelAI();
-    }
-  };
-  
-  const handleShowVNDB = () => {
-    setShowActions(false);
-    if (onShowVNDB) {
-      onShowVNDB();
-    }
-  };
-  
-  const handleShowMemoryPanel = () => {
-    setShowActions(false);
-    if (onShowMemoryPanel) {
-      onShowMemoryPanel();
-    }
-  };
+
 
   // Add function to handle content size change
   const handleContentSizeChange = (event: any) => {
@@ -806,7 +786,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Completely redesigned action menu to fix button click issues */}
       {showActions && (
         <View style={styles.actionMenuOverlay}>
           {/* Outer touchable area - closes menu when tapped outside */}
@@ -814,17 +793,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
             <View style={styles.actionMenuBackground} />
           </TouchableWithoutFeedback>
           
-          {/* Menu container that won't close when tapped */}
+          {/* Position the menu directly above the input */}
           <View style={styles.actionMenuContainer}>
+            
             <ScrollView style={styles.actionMenuScroll}>
               <TouchableOpacity 
                 style={styles.actionMenuItem}
                 activeOpacity={0.7}
                 onPress={handleResetConversation}>
                 <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#d9534f" }]}>
-                    <Ionicons name="refresh" size={22} color="#fff" />
-                  </View>
+                  <Ionicons name="refresh" size={18} color="#d9534f" />
                   <Text style={styles.actionMenuItemText}>重置对话</Text>
                 </View>
               </TouchableOpacity>
@@ -834,9 +812,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 activeOpacity={0.7}
                 onPress={openImageOptions}>
                 <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#3498db" }]}>
-                    <Ionicons name="images" size={22} color="#fff" />
-                  </View>
+                  <Ionicons name="images" size={18} color="#3498db" />
                   <Text style={styles.actionMenuItemText}>添加图片</Text>
                 </View>
               </TouchableOpacity>
@@ -846,9 +822,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 activeOpacity={0.7}
                 onPress={openImageGenModal}>
                 <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#9b59b6" }]}>
-                    <Ionicons name="brush" size={22} color="#fff" />
-                  </View>
+                  <Ionicons name="brush" size={18} color="#9b59b6" />
                   <Text style={styles.actionMenuItemText}>生成图片</Text>
                 </View>
               </TouchableOpacity>
@@ -858,9 +832,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 activeOpacity={0.7}
                 onPress={openImageEditGenModal}>
                 <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#8e44ad" }]}>
-                    <Ionicons name="color-wand" size={22} color="#fff" />
-                  </View>
+                  <Ionicons name="color-wand" size={18} color="#8e44ad" />
                   <Text style={styles.actionMenuItemText}>图片修改</Text>
                 </View>
               </TouchableOpacity>
@@ -870,9 +842,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 activeOpacity={0.7}
                 onPress={handleManageImageCache}>
                 <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#e74c3c" }]}>
-                    <Ionicons name="trash-bin" size={22} color="#fff" />
-                  </View>
+                  <Ionicons name="trash-bin" size={18} color="#e74c3c" />
                   <Text style={styles.actionMenuItemText}>图片缓存</Text>
                 </View>
               </TouchableOpacity>
@@ -882,13 +852,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 activeOpacity={0.7}
                 onPress={handleBraveSearchToggle}>
                 <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#3498db" }]}>
-                    <Ionicons name="search" size={22} color="#fff" />
-                    {braveSearchEnabled && <View style={styles.activeIndicator} />}
-                  </View>
+                  <Ionicons name="search" size={18} color="#3498db" />
                   <Text style={styles.actionMenuItemText}>
                     {braveSearchEnabled ? "搜索: 已开启" : "搜索: 已关闭"}
                   </Text>
+                  {braveSearchEnabled && <View style={styles.activeIndicator} />}
                 </View>
               </TouchableOpacity>
               
@@ -897,13 +865,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 activeOpacity={0.7}
                 onPress={handleTtsEnhancerToggle}>
                 <View style={styles.actionMenuItemInner}>
-                  <View style={[styles.actionMenuItemIcon, { backgroundColor: "#9b59b6" }]}>
-                    <Ionicons name="mic" size={22} color="#fff" />
-                    {isTtsEnhancerEnabled && <View style={styles.activeIndicator} />}
-                  </View>
+                  <Ionicons name="mic" size={18} color="#9b59b6" />
                   <Text style={styles.actionMenuItemText}>
                     {isTtsEnhancerEnabled ? "语音增强: 已开启" : "语音增强: 已关闭"}
                   </Text>
+                  {isTtsEnhancerEnabled && <View style={styles.activeIndicator} />}
                 </View>
               </TouchableOpacity>            
             </ScrollView>
@@ -917,9 +883,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onPress={toggleActionMenu}
         >
           <MaterialIcons
-            name={showActions ? "close" : "add"}
+            name={showActions ? "add" : "add"}
             size={24}
-            color={showActions ? "#fff" : theme.colors.primary}
+            color={showActions ? theme.colors.primary : theme.colors.primary}
           />
         </TouchableOpacity>
 
@@ -1151,6 +1117,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
+    height: 'auto', // Allow container to size to content
   },
   inputContainer: {
     flexDirection: 'row',
@@ -1180,78 +1147,75 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   activeButton: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   sendButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   
-  // Completely redesigned action menu styles
+  // Redesigned compact action menu styles
   actionMenuOverlay: {
     position: 'absolute',
-    top: -350, // Position above the input area
+    bottom: '100%', // Position right above the container
     left: 0,
     right: 0,
-    bottom: 0,
     zIndex: 100,
-    justifyContent: 'flex-end',
   },
   actionMenuBackground: {
     position: 'absolute',
-    top: 0,
+    top: -1000, // Extend far up to capture taps anywhere above
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'transparent', // Keep transparent background
+    backgroundColor: 'transparent',
   },
   actionMenuContainer: {
-    maxHeight: 350,
     backgroundColor: 'rgba(40, 40, 40, 0.95)',
-    borderRadius: 16,
+    borderRadius: 12,
     marginHorizontal: 10,
-    marginBottom: 20,
+    marginBottom: 4, // Reduced gap between menu and input
+    paddingBottom: 6,
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
+    maxHeight: 250, // Made slightly smaller to save space
+  },
+  menuCloseButton: {
+    alignSelf: 'center',
+    padding: 6, // Reduced padding to save space
+    marginTop: 2,
+    marginBottom: 2,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
   },
   actionMenuScroll: {
-    maxHeight: 350,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
   actionMenuItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginVertical: 2,
+    paddingVertical: 8, // Reduced padding to make menu more compact
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   actionMenuItemInner: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  actionMenuItemIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
   actionMenuItemText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '400',
+    marginLeft: 12,
+    flex: 1,
   },
   activeIndicator: {
-    position: 'absolute',
-    right: -3,
-    top: -3,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#4CD964',
-    borderWidth: 2,
-    borderColor: 'white',
+    marginRight: 4,
   },
   
   // Keep existing modal styles

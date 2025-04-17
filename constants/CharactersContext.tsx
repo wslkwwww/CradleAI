@@ -5,8 +5,6 @@ import { WorldBookJson,CradleCharacter } from '@/shared/types';
 import * as FileSystem from 'expo-file-system';
 import { useUser } from './UserContext';
 import { Character, Message, CirclePost } from '@/shared/types';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { FeedType } from '@/NodeST/nodest/services/character-generator-service';
 import { CradleService } from '@/NodeST/nodest/services/cradle-service';
 import { downloadAndSaveImage, deleteCharacterImages } from '@/utils/imageUtils';
 import { Feed } from '@/constants/types';
@@ -15,6 +13,7 @@ import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
 import { CharacterGeneratorService } from '@/NodeST/nodest/services/character-generator-service';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { CharacterImage } from '@/shared/types';
+
 const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
 // Initialize CradleService with API key from environment or settings
 const API_KEY = "YOUR_API_KEY_HERE"; // In production, load from secure storage
@@ -22,16 +21,6 @@ const cradleService = new CradleService(API_KEY);
 
 // Initialize the service when app starts
 cradleService.initialize();
-
-interface InteractionStats {
-  messageFrequency: Record<string, number>;
-  messageRatings: Record<string, Array<{ messageId: string; rating: number }>>;
-  circleInteractions: Record<string, {
-    likes: number;
-    favorites: number;
-    comments: Array<{ postId: string; content: string }>;
-  }>;
-}
 
 export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [characters, setCharacters] = useState<Character[]>([]);

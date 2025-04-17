@@ -599,10 +599,6 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
       <SafeAreaView style={styles.fullScreenContainer}>
         <View style={styles.header}>
           <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>记忆管理系统</Text>
-            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <Ionicons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
           </View>
           
           {(character || selectedCharacterId) && (
@@ -627,7 +623,7 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
             <MaterialCommunityIcons
               name="brain"
               size={22}
-              color={activeTab === 'memories' ? '#fff' : '#aaa'}
+              color={activeTab === 'memories' ? 'rgb(255, 224, 195)' : '#aaa'}
             />
             <Text style={[styles.tabText, activeTab === 'memories' && styles.activeTabText]}>
               记忆
@@ -641,7 +637,7 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
             <Ionicons
               name="stats-chart"
               size={22}
-              color={activeTab === 'stats' ? '#fff' : '#aaa'}
+              color={activeTab === 'stats' ? 'rgb(255, 224, 195)' : '#aaa'}
             />
             <Text style={[styles.tabText, activeTab === 'stats' && styles.activeTabText]}>
               统计
@@ -655,7 +651,7 @@ const MemoryProcessingControl: React.FC<MemoryProcessingControlProps> = ({
             <Ionicons
               name="settings-outline"
               size={22}
-              color={activeTab === 'settings' ? '#fff' : '#aaa'}
+              color={activeTab === 'settings' ? 'rgb(255, 224, 195)' : '#aaa'}
             />
             <Text style={[styles.tabText, activeTab === 'settings' && styles.activeTabText]}>
               设置
@@ -855,8 +851,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <Switch
               value={memoryEnabled}
               onValueChange={setMemoryEnabled}
-              trackColor={{ false: '#767577', true: theme.colors.primary }}
-              thumbColor={memoryEnabled ? '#fff' : '#f4f3f4'}
+              trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+              thumbColor={memoryEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
             />
           </View>
           <Text style={styles.settingDescription}>
@@ -879,9 +875,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               step={1}
               value={currentInterval}
               onValueChange={onIntervalChange}
-              minimumTrackTintColor={theme.colors.primary}
-              maximumTrackTintColor="#555"
-              thumbTintColor={theme.colors.primary}
+              minimumTrackTintColor="rgb(255, 224, 195)"
+              maximumTrackTintColor="#767577"
+              thumbTintColor="rgb(255, 224, 195)"
             />
             <Text style={styles.sliderValue}>20</Text>
           </View>
@@ -983,7 +979,7 @@ const MemoriesPanel: React.FC<MemoriesPanelProps> = ({
             <MaterialCommunityIcons 
               name="brain" 
               size={18} 
-              color="#2ecc71" 
+              color="rgb(255, 224, 195)" 
             />
           </View>
           
@@ -1090,7 +1086,7 @@ const MemoriesPanel: React.FC<MemoriesPanelProps> = ({
             disabled={isRefreshing || isLoading}
           >
             {isRefreshing ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color="rgb(255, 224, 195)" />
             ) : (
               <Ionicons name="refresh" size={24} color="#fff" />
             )}
@@ -1107,12 +1103,11 @@ const MemoriesPanel: React.FC<MemoriesPanelProps> = ({
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color="rgb(255, 224, 195)" />
           <Text style={styles.loadingText}>加载记忆中...</Text>
         </View>
       ) : memories.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <MaterialCommunityIcons name="brain" size={60} color="#aaa" />
           <Text style={styles.emptyText}>
             {characterId ? `未找到该角色的记忆` : '请选择角色查看记忆'}
           </Text>
@@ -1162,29 +1157,29 @@ const StatsPanel: React.FC<StatsPanelProps> = ({
   return (
     <ScrollView style={styles.statsScrollView}>
       <View style={styles.statsContainer}>
-        <TouchableOpacity style={styles.refreshStatsButton} onPress={onRefresh}>
+        <TouchableOpacity style={styles.backupButton} onPress={onRefresh}>
           <Ionicons name="refresh" size={20} color="#fff" />
-          <Text style={styles.refreshButtonText}>刷新统计数据</Text>
+          <Text style={styles.backupButtonText}>刷新统计数据</Text>
         </TouchableOpacity>
         
-        <View style={styles.statCard}>
+        <View style={styles.settingSection}>
           <View style={styles.statHeader}>
-            <Ionicons name="analytics-outline" size={24} color={theme.colors.primary} />
-            <Text style={styles.statTitle}>向量数据库统计</Text>
+            <Ionicons name="analytics-outline" size={24} color="rgb(255, 224, 195)" />
+            <Text style={styles.settingSectionTitle}>向量数据库统计</Text>
           </View>
           
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>总记忆数量</Text>
+            <Text style={styles.settingLabel}>总记忆数量</Text>
             <Text style={styles.statValue}>{dbStats.totalCount} 条</Text>
           </View>
           
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>数据库大小</Text>
+            <Text style={styles.settingLabel}>数据库大小</Text>
             <Text style={styles.statValue}>{dbStats.dbSizeMB} MB</Text>
           </View>
           
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>平均记忆大小</Text>
+            <Text style={styles.settingLabel}>平均记忆大小</Text>
             <Text style={styles.statValue}>
               {dbStats.totalCount > 0 
                 ? (parseFloat(dbStats.dbSizeMB) / dbStats.totalCount * 1024).toFixed(2) + ' KB'
@@ -1194,19 +1189,19 @@ const StatsPanel: React.FC<StatsPanelProps> = ({
         </View>
         
         {characterId && (
-          <View style={styles.statCard}>
+          <View style={styles.settingSection}>
             <View style={styles.statHeader}>
-              <MaterialCommunityIcons name="brain" size={24} color={theme.colors.primary} />
-              <Text style={styles.statTitle}>{characterName}的记忆统计</Text>
+              <MaterialCommunityIcons name="brain" size={24} color="rgb(255, 224, 195)" />
+              <Text style={styles.settingSectionTitle}>{characterName}的记忆统计</Text>
             </View>
             
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>记忆数量</Text>
+              <Text style={styles.settingLabel}>记忆数量</Text>
               <Text style={styles.statValue}>{characterMemoryCount} 条</Text>
             </View>
             
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>占总记忆比例</Text>
+              <Text style={styles.settingLabel}>占总记忆比例</Text>
               <Text style={styles.statValue}>
                 {dbStats.totalCount > 0 
                   ? ((characterMemoryCount / dbStats.totalCount) * 100).toFixed(1) + '%'
@@ -1247,26 +1242,26 @@ const StatsPanel: React.FC<StatsPanelProps> = ({
                 </TouchableOpacity>
               </View>
               
-              <Text style={styles.backupDescription}>
+              <Text style={styles.settingDescription}>
                 导出记忆数据到JSON文件，或从备份文件导入记忆
               </Text>
             </View>
           </View>
         )}
         
-        <View style={styles.statCard}>
+        <View style={styles.settingSection}>
           <View style={styles.statHeader}>
-            <Ionicons name="information-circle-outline" size={24} color={theme.colors.primary} />
-            <Text style={styles.statTitle}>建议值</Text>
+            <Ionicons name="information-circle-outline" size={24} color="rgb(255, 224, 195)" />
+            <Text style={styles.settingSectionTitle}>建议值</Text>
           </View>
           
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>最佳数据库大小</Text>
+            <Text style={styles.settingLabel}>最佳数据库大小</Text>
             <Text style={styles.statValue}>&lt; 50 MB</Text>
           </View>
           
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>每个角色记忆</Text>
+            <Text style={styles.settingLabel}>每个角色记忆</Text>
             <Text style={styles.statValue}>50-200 条</Text>
           </View>
           
@@ -1300,22 +1295,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#121212',
   },
   header: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: 'rgba(40, 40, 40, 0.9)',
     paddingTop: 10,
     paddingBottom: 15,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
   },
   closeButton: {
     padding: 5,
@@ -1330,20 +1319,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   memoryCountBadge: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 2,
     marginLeft: 8,
   },
   memoryCountText: {
-    color: '#fff',
+    color: 'rgb(255, 224, 195)',
     fontSize: 12,
     fontWeight: '500',
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: 'rgba(40, 40, 40, 0.9)',
     padding: 8,
     marginBottom: 2,
     borderBottomWidth: 1,
@@ -1358,7 +1347,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   activeTabButton: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    borderColor: 'rgb(255, 224, 195)',
+    borderWidth: 1,
   },
   tabText: {
     color: '#aaa',
@@ -1367,7 +1358,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   activeTabText: {
-    color: '#fff',
+    color: 'rgb(255, 224, 195)',
     fontWeight: 'bold',
   },
   contentContainer: {
@@ -1387,7 +1378,7 @@ const styles = StyleSheet.create({
   searchContainer: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -1399,7 +1390,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   searchButton: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
     paddingHorizontal: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1411,7 +1402,7 @@ const styles = StyleSheet.create({
   refreshButton: {
     width: 44,
     height: 44,
-    backgroundColor: '#2c2c2c',
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1420,7 +1411,7 @@ const styles = StyleSheet.create({
   addButton: {
     width: 44,
     height: 44,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1429,15 +1420,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   memoryItem: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 15,
     marginBottom: 12,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   expandedMemoryItem: {
-    backgroundColor: '#222',
+    backgroundColor: 'rgba(70, 70, 70, 0.8)',
   },
   memoryHeader: {
     flexDirection: 'row',
@@ -1488,7 +1479,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   editAction: {
-    backgroundColor: '#3498db',
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
   },
   deleteAction: {
     backgroundColor: '#e74c3c',
@@ -1520,17 +1511,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
   },
-  createMemoryButton: {
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  createMemoryButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
   
   settingsScrollView: {
     flex: 1,
@@ -1539,13 +1519,13 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   settingsInfoSection: {
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: 10,
-    padding: 12,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 15,
+    padding: 15,
     marginBottom: 16,
   },
   settingsInfoTitle: {
-    color: '#fff',
+    color: 'rgb(255, 224, 195)',
     fontWeight: '600',
     fontSize: 16,
     marginBottom: 8,
@@ -1556,13 +1536,13 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   settingSection: {
-    backgroundColor: 'rgba(30, 30, 30, 0.8)',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 15,
+    padding: 15,
     marginBottom: 16,
   },
   settingSectionTitle: {
-    color: '#fff',
+    color: 'rgb(255, 224, 195)',
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 12,
@@ -1609,7 +1589,7 @@ const styles = StyleSheet.create({
   },
   currentValue: {
     fontSize: 24,
-    color: theme.colors.primary,
+    color: 'rgb(255, 224, 195)',
     fontWeight: 'bold',
     marginLeft: 8,
   },
@@ -1654,35 +1634,13 @@ const styles = StyleSheet.create({
   statsContainer: {
     padding: 16,
   },
-  refreshStatsButton: {
-    backgroundColor: '#2c2c2c',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  refreshButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-    marginLeft: 8,
-  },
-  statCard: {
-    backgroundColor: 'rgba(30, 30, 30, 0.8)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
   statHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
   },
   statTitle: {
-    color: '#fff',
+    color: 'rgb(255, 224, 195)',
     fontSize: 18,
     fontWeight: '600',
     marginLeft: 8,
@@ -1739,11 +1697,13 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   editModalContainer: {
-    backgroundColor: 'white',
+    backgroundColor: '#282828',
     width: '100%',
     maxWidth: 500,
-    borderRadius: 12,
+    borderRadius: 15,
     padding: 20,
+    borderColor: 'rgba(255, 224, 195, 0.3)',
+    borderWidth: 1,
   },
   editModalHeader: {
     flexDirection: 'row',
@@ -1754,14 +1714,14 @@ const styles = StyleSheet.create({
   editModalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: 'rgb(255, 224, 195)',
   },
   editModalInput: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    borderRadius: 12,
     padding: 12,
     fontSize: 16,
-    color: '#333',
+    color: '#fff',
     minHeight: 120,
     textAlignVertical: 'top',
   },
@@ -1773,14 +1733,14 @@ const styles = StyleSheet.create({
   editModalButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 8,
+    borderRadius: 12,
     marginLeft: 10,
   },
   cancelButton: {
-    backgroundColor: '#aaa',
+    backgroundColor: '#555',
   },
   saveButton: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
   },
   editModalButtonText: {
     color: 'white',
@@ -1807,10 +1767,10 @@ const styles = StyleSheet.create({
     flex: 0.48,
   },
   exportButton: {
-    backgroundColor: '#3498db',
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
   },
   importButton: {
-    backgroundColor: '#9b59b6',
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
   },
   backupButtonText: {
     color: '#fff',
@@ -1818,11 +1778,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
-  backupDescription: {
-    color: '#aaa',
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 8,
+  createMemoryButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  createMemoryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 });
 

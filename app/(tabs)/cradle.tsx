@@ -1614,7 +1614,7 @@ const handleSetAsAvatar = async (imageId: string) => {
       {/* Header with simplified design */}
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>摇篮系统</Text>
+          <Text style={styles.headerTitle}>摇篮</Text>
         </View>
         {renderTabs()}
       </View>

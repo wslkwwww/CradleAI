@@ -192,19 +192,6 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
     setLocalContent(newText);
   }, []);
 
-  const handleDelete = useCallback(() => {
-    if (!onDelete) return;
-    
-    // First close the sidebar
-    handleCloseWithKeyboardDismiss();
-    
-    // Execute the delete operation after the sidebar has closed with a delay
-    setTimeout(() => {
-      onDelete();
-    }, 300);
-    
-  }, [onDelete, handleCloseWithKeyboardDismiss]);
-
   const renderEntryOptions = () => {
     if (!entryType || !localOptions) return null;
 
@@ -429,14 +416,6 @@ const DetailSidebar: React.FC<DetailSidebarProps> = ({
               <Text style={styles.title}>{title}</Text>
               <View style={styles.headerButtons}>
 
-                  <TouchableOpacity 
-                    style={[styles.headerButton, styles.deleteButton]}
-                    onPress={handleDelete}
-                    accessibilityLabel="Delete"
-                  >
-                    <Ionicons name="trash-outline" size={22} color={COLOR_DANGER} />
-                  </TouchableOpacity>
-
 
                 <TouchableOpacity 
                   style={styles.headerButton} 
@@ -564,12 +543,6 @@ const styles = StyleSheet.create({
   headerButton: {
     padding: 4,
     marginLeft: 8,
-  },
-  deleteButton: {
-    backgroundColor: 'rgba(255, 82, 82, 0.2)',
-    borderRadius: 4,
-    padding: 6,
-    marginRight: 4, // Add some margin between delete and close buttons
   },
   closeButton: {
     padding: 4,

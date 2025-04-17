@@ -148,11 +148,6 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
                   size={24} 
                   color="#fff" 
                 />
-                {selectedCharacter && (
-                  <View style={styles.actionButtonBadge}>
-                    <Text style={styles.actionButtonBadgeText}></Text>
-                  </View>
-                )}
               </TouchableOpacity>
             )}
             
@@ -272,17 +267,6 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 4,
     position: 'relative',
-  },
-  actionButtonBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4cd964',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   actionButtonBadgeText: {
     color: '#fff',

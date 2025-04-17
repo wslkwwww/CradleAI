@@ -1034,6 +1034,7 @@ const Explore: React.FC = () => {
       <TouchableOpacity 
         style={styles.headerButton}
         onPress={() => setShowInteractionSettings(true)}
+        disabled={isLoading}
       >
         <Ionicons name="settings-outline" size={22} color={theme.colors.buttonText} />
       </TouchableOpacity>
@@ -1042,6 +1043,7 @@ const Explore: React.FC = () => {
       <TouchableOpacity 
         style={styles.headerButton}
         onPress={() => setShowUserPostModal(true)}
+        disabled={isLoading}
       >
         <Feather name="plus" size={24} color={theme.colors.buttonText} />
       </TouchableOpacity>
@@ -1050,10 +1052,10 @@ const Explore: React.FC = () => {
       <TouchableOpacity 
         style={[
           styles.headerButton,
-          publishingPost && styles.headerButtonDisabled
+          (publishingPost || isLoading) && styles.headerButtonDisabled
         ]} 
         onPress={() => setShowPublishCharacterSelector(true)}
-        disabled={publishingPost}
+        disabled={publishingPost || isLoading}
       >
         {publishingPost ? (
           <ActivityIndicator size="small" color={theme.colors.text} />
@@ -1728,19 +1730,26 @@ const Explore: React.FC = () => {
         {/* Circle Tab Content */}
         {activeTab === 'circle' && (
           <>
-            <FlatList
-              ref={flatListRef}
-              data={posts}
-              renderItem={renderPost}
-              keyExtractor={item => item.id}
-              contentContainerStyle={styles.listContainer}
-              keyboardShouldPersistTaps="handled"
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>暂无动态</Text>
-                </View>
-              }
-            />
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text style={styles.loadingText}>加载朋友圈内容中...</Text>
+              </View>
+            ) : (
+              <FlatList
+                ref={flatListRef}
+                data={posts}
+                renderItem={renderPost}
+                keyExtractor={item => item.id}
+                contentContainerStyle={styles.listContainer}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>暂无动态</Text>
+                  </View>
+                }
+              />
+            )}
           </>
         )}      
 
@@ -2002,11 +2011,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   loadingText: {
     color: theme.colors.text,
-    marginTop: 10,
-    fontSize: theme.fontSizes.md,
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '500',
   },
   errorContainer: {
     flex: 1,

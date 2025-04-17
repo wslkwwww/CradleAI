@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import { useColorScheme, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { theme } from '@/constants/theme';
-import { Colors } from '@/constants/Colors';
 import { RegexProvider } from '@/constants/RegexContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { EventRegister } from 'react-native-event-listeners';
@@ -17,9 +15,10 @@ export default function TabLayout() {
   const colorTheme = {
     text: colorScheme === 'dark' ? '#fff' : '#000',
     background: colorScheme === 'dark' ? '#000' : '#fff',
-    tint: colorScheme === 'dark' ? '#fff' : '#2f95dc', 
+    tint: colorScheme === 'dark' ? '#fff' :'rgb(255, 224, 195)',
+    
     tabIconDefault: '#ccc',
-    tabIconSelected: colorScheme === 'dark' ? '#fff' : '#2f95dc',
+    tabIconSelected: colorScheme === 'dark' ? '#fff' :'rgb(255, 224, 195)',
   };
 
   // Load unread messages count on app start

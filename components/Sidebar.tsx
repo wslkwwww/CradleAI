@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,9 @@ import {
   FlatList,
   StatusBar,
   Animated,
-  Dimensions,
-  Easing
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { Character } from '@/shared/types';
 import { useRouter } from 'expo-router';
 import SearchBar from '@/components/SearchBar';
@@ -41,19 +39,15 @@ const Sidebar: React.FC<SidebarProps> = ({
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Create a local slide animation value
-  const localSlideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
+  // Get inverse transform from content's animation value
+  // When content moves right by X, sidebar moves from -SIDEBAR_WIDTH to (-SIDEBAR_WIDTH + X)
+  const sidebarTranslateX = animationValue
+    ? animationValue.interpolate({
+        inputRange: [0, SIDEBAR_WIDTH],
+        outputRange: [-SIDEBAR_WIDTH, 0],
+      })
+    : new Animated.Value(-SIDEBAR_WIDTH);
   
-  // Animate the sidebar separately from the content
-  useEffect(() => {
-    Animated.timing(localSlideAnim, {
-      toValue: isVisible ? 0 : -SIDEBAR_WIDTH,
-      duration: 100, // Match the animation duration with contentSlideAnim
-      easing: Easing.inOut(Easing.ease), // 添加这行来使用缓和函数
-      useNativeDriver: true,
-    }).start();
-  }, [isVisible, localSlideAnim]);
-
   // 过滤出搜索结果
   const filteredConversations = searchQuery 
     ? conversations.filter(conv => 
@@ -74,15 +68,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         style={[
           styles.sidebar,
           {
-            transform: [{ translateX: localSlideAnim }],
+            transform: [{ translateX: sidebarTranslateX }],
           }
         ]}
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>窗口</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color="#fff" />
-          </TouchableOpacity>
+          <Text style={styles.headerTitle}>对话窗口</Text>
         </View>
 
         <View style={styles.searchContainer}>
