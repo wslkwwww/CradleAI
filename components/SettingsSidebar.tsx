@@ -16,7 +16,7 @@ import {
   FlatList,
   ActivityIndicator,
 } from 'react-native';
-import { Character } from '@/shared/types';
+import { Character, UserCustomSetting } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -66,6 +66,300 @@ interface DialogModeSettingsProps {
     backgroundColor: string;
   };
 }
+
+// Add this interface for CustomUserSettingProps
+interface CustomUserSettingProps {
+  character: Character;
+  updateCharacter: (character: Character) => Promise<void>;
+}
+
+// Add this new component for managing custom user settings
+const CustomUserSettingsManager: React.FC<CustomUserSettingProps> = ({ character, updateCharacter }) => {
+  const [isEnabled, setIsEnabled] = useState(character?.hasCustomUserSetting || false);
+  const [isGlobal, setIsGlobal] = useState(character?.customUserSetting?.global || false);
+  const [customSetting, setCustomSetting] = useState<UserCustomSetting>(
+    character?.customUserSetting || {
+      comment: '自设',
+      content: '',
+      disable: false,
+      position: 4,
+      constant: true,
+      key: [],
+      order: 1,
+      depth: 1,
+      vectorized: false,
+      global: false
+    }
+  );
+
+  // Handle toggling the custom setting feature
+  const handleCustomSettingToggle = async () => {
+    try {
+      const updatedCharacter = {
+        ...character,
+        hasCustomUserSetting: !isEnabled
+      };
+      
+      if (!isEnabled && !character.customUserSetting) {
+        updatedCharacter.customUserSetting = customSetting;
+      }
+      
+      // First update the character in memory/database
+      await updateCharacter(updatedCharacter);
+      
+      // Then explicitly persist to AsyncStorage for NodeST to access
+      try {
+        const characterKey = `character_${character.id}`;
+        
+        try {
+          // Try standard approach first
+          await AsyncStorage.setItem(characterKey, JSON.stringify(updatedCharacter));
+          console.log('Custom user setting toggle persisted to AsyncStorage');
+        } catch (storageError) {
+          // If we encounter an error that might be related to the row size, use an alternative approach
+          if (storageError instanceof Error && storageError.message.includes('Row too big')) {
+            console.warn('Row too big error encountered while toggling, using alternative storage approach');
+            
+            // Use separate keys for the flag
+            const hasCustomSettingKey = `character_${character.id}_has_custom`;
+            
+            // Just update the flag - we'll save the complete settings when they save
+            await AsyncStorage.setItem(hasCustomSettingKey, !isEnabled ? 'true' : 'false');
+            
+            // If we're enabling and have default settings, also save them
+            if (!isEnabled && customSetting) {
+              const customSettingKey = `character_${character.id}_custom_setting`;
+              await AsyncStorage.setItem(customSettingKey, JSON.stringify(customSetting));
+            }
+            
+            console.log('Custom user setting toggle saved using alternative approach');
+          } else {
+            // If it's some other error, re-throw it
+            throw storageError;
+          }
+        }
+      } catch (storageError) {
+        console.error('Failed to persist custom setting toggle to AsyncStorage:', storageError);
+      }
+      
+      setIsEnabled(!isEnabled);
+      
+      if (!isEnabled) {
+        Alert.alert('成功', '自设功能已启用');
+      }
+    } catch (error) {
+      console.error('Error toggling custom setting:', error);
+      Alert.alert('错误', '无法更新自设设置');
+    }
+  };
+
+  // Handle setting scope toggle (global vs. character-specific)
+  const handleGlobalToggle = () => {
+    const newGlobal = !isGlobal;
+    setIsGlobal(newGlobal);
+    setCustomSetting({
+      ...customSetting,
+      global: newGlobal
+    });
+  };
+
+  // Save custom setting to character
+  const saveCustomSetting = async () => {
+    try {
+      // Validate content
+      if (!customSetting.content.trim()) {
+        Alert.alert('错误', '自设内容不能为空');
+        return;
+      }
+      
+      const updatedCharacter = {
+        ...character,
+        hasCustomUserSetting: true,
+        customUserSetting: {
+          ...customSetting,
+          global: isGlobal
+        }
+      };
+      
+      // Update character in memory/database
+      await updateCharacter(updatedCharacter);
+      
+      // Then explicitly save to AsyncStorage for NodeST to access
+      try {
+        // If global setting, save to global key
+        if (isGlobal) {
+          await AsyncStorage.setItem('global_user_custom_setting', JSON.stringify({
+            ...customSetting,
+            global: true
+          }));
+          console.log('Global custom user setting saved to AsyncStorage');
+        }
+        
+        // Always save to character-specific storage too
+        const characterKey = `character_${character.id}`;
+        
+        try {
+          // Try standard approach first
+          await AsyncStorage.setItem(characterKey, JSON.stringify(updatedCharacter));
+          console.log('Character custom user setting saved to AsyncStorage');
+        } catch (storageError) {
+          // If we encounter an error that might be related to the row size, use an alternative approach
+          if (storageError instanceof Error && storageError.message.includes('Row too big')) {
+            console.warn('Row too big error encountered, using alternative storage approach');
+            
+            // Use separate keys for the custom setting data and the flag
+            const customSettingKey = `character_${character.id}_custom_setting`;
+            const hasCustomSettingKey = `character_${character.id}_has_custom`;
+            
+            // Save the settings separately
+            await AsyncStorage.setItem(customSettingKey, JSON.stringify({
+              ...customSetting,
+              global: isGlobal
+            }));
+            await AsyncStorage.setItem(hasCustomSettingKey, 'true');
+            
+            console.log('Character custom user setting saved using alternative approach');
+          } else {
+            // If it's some other error, re-throw it
+            throw storageError;
+          }
+        }
+      } catch (storageError) {
+        console.error('Failed to save custom setting to AsyncStorage:', storageError);
+      }
+      
+      Alert.alert('成功', '自设已保存');
+    } catch (error) {
+      console.error('Error saving custom setting:', error);
+      Alert.alert('错误', '无法保存自设');
+    }
+  };
+
+  // Render nothing if feature is disabled
+  if (!isEnabled) {
+    return (
+      <View style={styles.settingItem}>
+        <Text style={styles.settingLabel}>自设功能</Text>
+        <Switch
+          value={isEnabled}
+          onValueChange={handleCustomSettingToggle}
+          trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+          thumbColor={isEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.settingSection}>
+      <View style={styles.settingItem}>
+        <Text style={styles.settingLabel}>自设功能</Text>
+        <Switch
+          value={isEnabled}
+          onValueChange={handleCustomSettingToggle}
+          trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+          thumbColor={isEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+        />
+      </View>
+      
+      <View style={styles.settingItem}>
+        <Text style={styles.settingLabel}>全局应用</Text>
+        <Switch
+          value={isGlobal}
+          onValueChange={handleGlobalToggle}
+          trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+          thumbColor={isGlobal ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+        />
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.settingLabel}>自设标题</Text>
+        <TextInput
+          style={styles.textInput}
+          value={customSetting.comment}
+          onChangeText={(text) => setCustomSetting({ ...customSetting, comment: text })}
+          placeholder="自设标题，默认为'自设'"
+          placeholderTextColor="#999"
+        />
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.settingLabel}>自设内容</Text>
+        <TextInput
+          style={[styles.textInput, { height: 100, textAlignVertical: 'top' }]}
+          value={customSetting.content}
+          onChangeText={(text) => setCustomSetting({ ...customSetting, content: text })}
+          placeholder="输入您对自己的描述和设定"
+          placeholderTextColor="#999"
+          multiline={true}
+        />
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.settingLabel}>插入位置</Text>
+        <View style={styles.rowContainer}>
+          {[0, 1, 2, 3, 4].map((pos) => (
+            <TouchableOpacity
+              key={pos}
+              style={[
+                styles.positionButton,
+                customSetting.position === pos && styles.positionButtonSelected
+              ]}
+              onPress={() => setCustomSetting({ ...customSetting, position: pos as 0 | 1 | 2 | 3 | 4 })}
+            >
+              <Text style={[
+                styles.positionButtonText,
+                customSetting.position === pos && styles.positionButtonTextSelected
+              ]}>
+                {pos}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.settingDescription}>
+          推荐选择 4，代表在对话内按深度动态插入
+        </Text>
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <Text style={styles.settingLabel}>插入深度</Text>
+        <View style={styles.rowContainer}>
+          {[0, 1, 2, 3].map((depth) => (
+            <TouchableOpacity
+              key={depth}
+              style={[
+                styles.positionButton,
+                customSetting.depth === depth && styles.positionButtonSelected
+              ]}
+              onPress={() => setCustomSetting({ ...customSetting, depth: depth })}
+            >
+              <Text style={[
+                styles.positionButtonText,
+                customSetting.depth === depth && styles.positionButtonTextSelected
+              ]}>
+                {depth}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.settingDescription}>
+          0: 在最新消息后，1: 在上一条用户消息前，2+: 在更早消息前
+        </Text>
+      </View>
+      
+      <TouchableOpacity
+        style={styles.applyButton}
+        onPress={saveCustomSetting}
+      >
+        <Text style={styles.applyButtonText}>保存自设</Text>
+      </TouchableOpacity>
+      
+      <Text style={styles.settingDescription}>
+        自设是您对自己的描述，会作为D类条目插入对话中。全局应用时，所有角色都将接收到您的自设。
+      </Text>
+    </View>
+  );
+};
 
 // Modified constructor to set notification state from character
 export default function SettingsSidebar({
@@ -763,6 +1057,14 @@ export default function SettingsSidebar({
             </Text>
           </View>
 
+          {/* Add Custom User Setting Manager - add this before the visual novel settings */}
+          {selectedCharacter && (
+            <CustomUserSettingsManager 
+              character={selectedCharacter} 
+              updateCharacter={updateCharacter} 
+            />
+          )}
+
           {/* Add custom user name setting */}
           <View style={styles.settingSection}>
             <Text style={styles.settingSectionTitle}>基本设置</Text>
@@ -1149,6 +1451,33 @@ const styles = StyleSheet.create({
   colorOptionSelected: {
     borderColor: 'rgb(255, 224, 195)',
     borderWidth: 3,
+  },
+  rowContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: 10,
+  },
+  positionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(60, 60, 60, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  positionButtonSelected: {
+    backgroundColor: 'rgba(255, 224, 195, 0.3)',
+    borderColor: 'rgb(255, 224, 195)',
+    borderWidth: 1,
+  },
+  positionButtonText: {
+    color: '#ddd',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  positionButtonTextSelected: {
+    color: 'rgb(255, 224, 195)',
   },
 });
 

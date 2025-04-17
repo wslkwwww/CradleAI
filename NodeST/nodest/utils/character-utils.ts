@@ -4,8 +4,10 @@ import {
     WorldBookJson, 
     AuthorNoteJson, 
     ChatMessage, 
-    ChatHistoryEntity 
+    ChatHistoryEntity,
+    UserCustomSetting 
 } from '../../../shared/types';
+
 
 export class CharacterUtils {
     static buildRFramework(
@@ -598,6 +600,50 @@ export class CharacterUtils {
             console.error('[CharacterUtils] Error in extractDEntries:', error);
             // Return empty array as fallback
             return [];
+        }
+    }
+
+    /**
+     * Saves a global custom user setting
+     * @param customSetting The custom setting to save globally
+     * @returns Promise that resolves to true if successful
+     */
+    public static async saveGlobalCustomSetting(customSetting: UserCustomSetting): Promise<boolean> {
+        try {
+            // Import AsyncStorage
+            const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+            
+            // Store the setting with the global key
+            await AsyncStorage.setItem('global_user_custom_setting', JSON.stringify({
+                ...customSetting,
+                global: true // Ensure it's marked as global
+            }));
+            
+            console.log('[CharacterUtils] Global custom setting saved');
+            return true;
+        } catch (error) {
+            console.error('[CharacterUtils] Error saving global custom setting:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Gets the global custom user setting if it exists
+     * @returns Promise that resolves to the custom setting or null
+     */
+    public static async getGlobalCustomSetting(): Promise<UserCustomSetting | null> {
+        try {
+            // Import AsyncStorage
+            const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+            
+            // Retrieve the setting
+            const settingData = await AsyncStorage.getItem('global_user_custom_setting');
+            if (!settingData) return null;
+            
+            return JSON.parse(settingData);
+        } catch (error) {
+            console.error('[CharacterUtils] Error getting global custom setting:', error);
+            return null;
         }
     }
 }

@@ -6,12 +6,14 @@ import {
     AuthorNoteJson, 
     Character,
     GlobalSettings,
-    ChatHistoryEntity
+    ChatHistoryEntity,
+    UserCustomSetting
 } from '../../shared/types';
 import { CircleManager, CirclePostOptions, CircleResponse } from './managers/circle-manager';
 import { GroupManager } from '../../src/group/group-manager';
 import { GeminiAdapter } from './utils/gemini-adapter';
 import { OpenRouterAdapter } from './utils/openrouter-adapter';
+import { CharacterUtils } from './utils/character-utils';
 
 export interface ProcessChatResponse {
     success: boolean;
@@ -825,6 +827,33 @@ export class NodeST {
         } catch (error) {
             console.error('【NodeST】生成内容失败:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Sets a global custom user setting
+     * @param customSetting The custom setting to apply globally
+     * @returns Promise that resolves to true if successful
+     */
+    public async setGlobalCustomSetting(customSetting: UserCustomSetting): Promise<boolean> {
+        try {
+            return await CharacterUtils.saveGlobalCustomSetting(customSetting);
+        } catch (error) {
+            console.error('[NodeST] Error setting global custom setting:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Gets the current global custom user setting
+     * @returns Promise that resolves to the custom setting or null
+     */
+    public async getGlobalCustomSetting(): Promise<UserCustomSetting | null> {
+        try {
+            return await CharacterUtils.getGlobalCustomSetting();
+        } catch (error) {
+            console.error('[NodeST] Error getting global custom setting:', error);
+            return null;
         }
     }
 }

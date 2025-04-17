@@ -169,6 +169,20 @@ export interface SidebarItemProps {
 
 // ============= 角色类型 =============
 
+// Add this new interface for custom user settings
+export interface UserCustomSetting {
+  comment: string;      // "自设" title, default is "自设"
+  content: string;      // "自设" content
+  disable: boolean;     // Whether disabled, default is false
+  position: 0 | 1 | 2 | 3 | 4;  // Position to insert, user-selectable
+  constant: boolean;    // Whether constant, default is true
+  key: string[];        // Keywords, default is empty array
+  order: number;        // Sort order, default is 1
+  depth: number;        // Depth, user-selectable
+  vectorized: boolean;  // Whether vectorized, default is false
+  global: boolean;      // Whether this setting is global (applies to all characters)
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -269,6 +283,10 @@ export interface Character {
   // Add diary settings
   diarySettings?: DiarySettings;
   diaryEntries?: DiaryEntry[];
+
+  // Add custom user settings related properties
+  hasCustomUserSetting?: boolean;  // Whether this character uses custom user setting
+  customUserSetting?: UserCustomSetting; // Custom user setting for this character
 }
 
 export interface Message {

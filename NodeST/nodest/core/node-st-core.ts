@@ -574,9 +574,9 @@ export class NodeSTCore {
         conversationId: string,
         userMessage: string,
         apiKey: string,
-        characterId?: string, // Add characterId as optional parameter
-        customUserName?: string, // Add customUserName as optional parameter
-        useToolCalls: boolean = false // Add useToolCalls parameter
+        characterId?: string,
+        customUserName?: string,
+        useToolCalls: boolean = false
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting continueChat:', {
@@ -647,6 +647,112 @@ export class NodeSTCore {
                 worldBook!,
                 authorNote ?? undefined
             );
+            
+            // NEW CODE: Load character data to check for custom user settings
+            if (characterId) {
+                try {
+                    // Try to dynamically import AsyncStorage if not available directly
+                    let AsyncStorage = null;
+                    try {
+                        AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+                    } catch (importError) {
+                        console.log('[NodeSTCore] Unable to import AsyncStorage:', importError);
+                    }
+                    
+                    if (AsyncStorage) {
+                        // Check for global custom user settings first (they're usually smaller)
+                        const globalSettingsKey = 'global_user_custom_setting';
+                        let globalCustomSetting = null;
+                        
+                        try {
+                            const globalSettingsData = await AsyncStorage.getItem(globalSettingsKey);
+                            if (globalSettingsData) {
+                                globalCustomSetting = JSON.parse(globalSettingsData);
+                                if (globalCustomSetting && !globalCustomSetting.disable) {
+                                    console.log('[NodeSTCore] Found global custom user setting:', globalCustomSetting.comment);
+                                    const formattedContent = `The following are some information about the character {{user}} I will be playing.\n\n<{{user}}'s_info>${globalCustomSetting.content}</{{user}}'s_info>`;
+
+                                    // Convert global custom setting to D-entry format
+                                    const globalCustomDEntry: ChatMessage = {
+                                        role: "user",
+                                        parts: [{ text: formattedContent }],
+                                        name: globalCustomSetting.comment || "自设",
+                                        is_d_entry: true,
+                                        position: globalCustomSetting.position || 4,
+                                        injection_depth: globalCustomSetting.depth || 1,
+                                        constant: true
+                                    };
+                                    
+                                    // Add to D-entries array
+                                    dEntries.push(globalCustomDEntry);
+                                    console.log('[NodeSTCore] Added global custom user setting to D-entries');
+                                }
+                            }
+                        } catch (globalSettingError) {
+                            console.error('[NodeSTCore] Error parsing global custom settings:', globalSettingError);
+                        }
+                        
+                        // Check for character-specific custom user setting with error handling for large data
+                        const characterKey = `character_${characterId}`;
+                        try {
+                            // First try the standard approach
+                            const characterData = await AsyncStorage.getItem(characterKey);
+                            if (characterData) {
+                                const character = JSON.parse(characterData);
+                                this.processCharacterCustomSetting(character, dEntries);
+                            }
+                        } catch (error) {
+                            // Type check the error before using it
+                            const largeRowError = error as Error;
+                            // If we hit the "Row too big" error, try with a more specific approach
+                            console.warn('[NodeSTCore] Error with standard character loading, trying alternative approach:', largeRowError.message);
+                            
+                            if (largeRowError instanceof Error && largeRowError.message.includes('Row too big')) {
+                                try {
+                                    // Create smaller keys specifically for the custom setting
+                                    const customSettingKey = `character_${characterId}_custom_setting`;
+                                    const hasCustomSettingKey = `character_${characterId}_has_custom`;
+                                    
+                                    // Get the specific custom setting data
+                                    const customSettingData = await AsyncStorage.getItem(customSettingKey);
+                                    const hasCustomSetting = await AsyncStorage.getItem(hasCustomSettingKey);
+                                    
+                                    if (customSettingData && hasCustomSetting === 'true') {
+                                        const customSetting = JSON.parse(customSettingData);
+                                        
+                                        if (customSetting && !customSetting.disable && !customSetting.global) {
+                                            console.log('[NodeSTCore] Found character-specific custom setting via alternative method:', 
+                                                customSetting.comment);
+                                            
+                                                            // Format the custom setting content with the wrapper
+                                                            const formattedContent = `The following are some information about the character {{user}} I will be playing.\n\n<{{user}}'s_info>${customSetting.content}</{{user}}'s_info>`;
+
+                                                            // Convert to D-entry
+                                                            const characterCustomDEntry: ChatMessage = {
+                                                                role: "user",
+                                                                parts: [{ text: formattedContent }],
+                                                                name: customSetting.comment || "自设",
+                                                                is_d_entry: true,
+                                                                position: customSetting.position || 4,
+                                                                injection_depth: customSetting.depth || 1,
+                                                                constant: true
+                                                            };
+                                            
+                                            dEntries.push(characterCustomDEntry);
+                                            console.log('[NodeSTCore] Added character-specific custom setting to D-entries (alternative method)');
+                                        }
+                                    }
+                                } catch (alternativeError) {
+                                    console.error('[NodeSTCore] Alternative method for loading custom settings failed:', alternativeError);
+                                }
+                            }
+                        }
+                    }
+                } catch (customSettingError) {
+                    console.warn('[NodeSTCore] Error loading custom user settings:', customSettingError);
+                    // Continue without custom settings if there's an error
+                }
+            }
 
             console.log('[NodeSTCore] D-entries for chat:', {
                 totalEntries: dEntries.length,
@@ -654,7 +760,8 @@ export class NodeSTCore {
                     position4: dEntries.filter(d => d.position === 4).length,
                     authorNote: dEntries.filter(d => d.is_author_note).length,
                     position2: dEntries.filter(d => d.position === 2).length,
-                    position3: dEntries.filter(d => d.position === 3).length
+                    position3: dEntries.filter(d => d.position === 3).length,
+                    customSetting: dEntries.filter(d => d.name === "自设" || d.name?.includes("自设")).length
                 }
             });
 
@@ -799,6 +906,35 @@ export class NodeSTCore {
         } catch (error) {
             console.error('[NodeSTCore] Error in continueChat:', error);
             return null;
+        }
+    }
+
+    private processCharacterCustomSetting(character: any, dEntries: ChatMessage[]): void {
+        // Check for character-specific custom user setting
+        if (character.hasCustomUserSetting && 
+            character.customUserSetting && 
+            !character.customUserSetting.disable &&
+            !character.customUserSetting.global) { // Only use character-specific if not global
+            
+            console.log('[NodeSTCore] Found character-specific custom user setting:', character.customUserSetting.comment);
+            
+            // Format the custom setting content with the wrapper
+            const formattedContent = `The following are some information about the character {{user}} I will be playing.\n\n<{{user}}'s_info>${character.customUserSetting.content}</{{user}}'s_info>`;
+            
+            // Convert character custom setting to D-entry format
+            const characterCustomDEntry: ChatMessage = {
+                role: "user",
+                parts: [{ text: formattedContent }],
+                name: character.customUserSetting.comment || "自设",
+                is_d_entry: true,
+                position: character.customUserSetting.position || 4,
+                injection_depth: character.customUserSetting.depth || 1,
+                constant: true
+            };
+            
+            // Add to D-entries array
+            dEntries.push(characterCustomDEntry);
+            console.log('[NodeSTCore] Added character-specific custom user setting to D-entries');
         }
     }
 

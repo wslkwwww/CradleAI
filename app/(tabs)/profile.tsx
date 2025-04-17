@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   StatusBar,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -95,6 +96,23 @@ const Profile: React.FC = () => {
           leftIcon="calculator-outline"
           chevron={true}
           onPress={() => router.push('../pages/token-planner')}
+        />
+
+        {/* Add new option for custom user settings manager */}
+        <ListItem
+          title="自设管理"
+          leftIcon="person-outline"
+          chevron={true}
+          onPress={() => router.push('../pages/custom-settings-manager')}
+          subtitle="管理全局和角色自设"
+        />
+        
+        <ListItem
+          title="存储管理器"
+          leftIcon="folder-open-outline" 
+          chevron={true}
+          onPress={() => router.push('../pages/storage-manager')}
+          subtitle="查看和清理应用存储"
         />
 
         <ListItem
