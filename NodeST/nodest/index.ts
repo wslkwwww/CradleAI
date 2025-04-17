@@ -9,6 +9,10 @@ import {
     ChatHistoryEntity
 } from '../../shared/types';
 import { CircleManager, CirclePostOptions, CircleResponse } from './managers/circle-manager';
+import { GroupManager } from '../../src/group/group-manager';
+import { GeminiAdapter } from './utils/gemini-adapter';
+import { OpenRouterAdapter } from './utils/openrouter-adapter';
+
 export interface ProcessChatResponse {
     success: boolean;
     response?: string;
@@ -31,31 +35,45 @@ export interface ProcessChatRequest {
 export class NodeST {
     private nodeSTCore: NodeSTCore | null = null;
     private circleManager: CircleManager;
+    private groupManager: GroupManager | null = null;
     private apiKey: string = '';
-    
+    private geminiAdapter: GeminiAdapter | null = null;
+    private openRouterAdapter: OpenRouterAdapter | null = null;
 
     constructor(apiKey: string = '') {
-      this.apiKey = apiKey;
-      console.log(`【NodeST】创建新实例，apiKey存在: ${!!apiKey}`);
-      // Initialize CircleManager with apiKey
-      this.circleManager = new CircleManager(apiKey);
+        this.apiKey = apiKey;
+        console.log(`【NodeST】创建新实例，apiKey存在: ${!!apiKey}`);
+        // Initialize CircleManager with apiKey
+        this.circleManager = new CircleManager(apiKey);
+        
+        // Initialize adapters for direct content generation
+        if (apiKey) {
+            this.geminiAdapter = new GeminiAdapter(apiKey);
+        }
     }
   
     setApiKey(apiKey: string): void {
-      console.log(`【NodeST】设置API Key: ${apiKey ? apiKey.substring(0, 5) + '...' : 'undefined'}`);
-      this.apiKey = apiKey;
-      
-      // 如果已经存在核心实例，也更新它的API Key
-      if (this.nodeSTCore) {
-        this.nodeSTCore.updateApiKey(apiKey);
-      }
-      
-      // 如果已经存在圈子管理器，也更新它的API Key
-      // Note: We maintain any existing OpenRouter config when just setting API key
-      if (this.circleManager) {
-        const existingOpenRouterConfig = this.circleManager['openRouterConfig'];
-        this.circleManager.updateApiKey(apiKey, existingOpenRouterConfig);
-      }
+        console.log(`【NodeST】设置API Key: ${apiKey ? apiKey.substring(0, 5) + '...' : 'undefined'}`);
+        this.apiKey = apiKey;
+        
+        // 如果已经存在核心实例，也更新它的API Key
+        if (this.nodeSTCore) {
+            this.nodeSTCore.updateApiKey(apiKey);
+        }
+        
+        // 如果已经存在圈子管理器，也更新它的API Key
+        // Note: We maintain any existing OpenRouter config when just setting API key
+        if (this.circleManager) {
+            const existingOpenRouterConfig = this.circleManager['openRouterConfig'];
+            this.circleManager.updateApiKey(apiKey, existingOpenRouterConfig);
+        }
+        
+        // Update adapters
+        if (this.geminiAdapter) {
+            this.geminiAdapter = new GeminiAdapter(apiKey);
+        } else if (apiKey) {
+            this.geminiAdapter = new GeminiAdapter(apiKey);
+        }
     }
 
     // Add new method for updating API settings
@@ -81,6 +99,20 @@ export class NodeST {
                 : undefined;
                 
             this.circleManager.updateApiKey(apiKey, openRouterConfig);
+        }
+        
+        // Update adapters
+        if (apiSettings?.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled) {
+            this.openRouterAdapter = new OpenRouterAdapter(
+                apiSettings.openrouter.apiKey || '',
+                apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+            );
+            // Clear gemini adapter to avoid conflicts
+            this.geminiAdapter = null;
+        } else {
+            this.geminiAdapter = new GeminiAdapter(apiKey);
+            // Clear openrouter adapter to avoid conflicts
+            this.openRouterAdapter = null;
         }
         
         console.log(`【NodeST】更新API设置:`, {
@@ -748,6 +780,51 @@ export class NodeST {
         } catch (error) {
             console.error('[NodeST] Error deleting character data:', error);
             return false;
+        }
+    }
+
+    /**
+     * 生成文本内容 - 供群聊等功能直接使用
+     * @param prompt 提示词文本
+     * @returns 生成的内容
+     */
+    async generateContent(prompt: string): Promise<string> {
+        try {
+            console.log(`【NodeST】生成内容，提示词长度: ${prompt.length}，使用提供商: ${this.openRouterAdapter ? 'OpenRouter' : 'Gemini'}`);
+            
+            // Check if we have any adapter available
+            if (!this.openRouterAdapter && !this.geminiAdapter) {
+                if (!this.apiKey) {
+                    throw new Error('未设置API密钥，无法生成内容');
+                }
+                // Initialize Gemini adapter if none exists
+                this.geminiAdapter = new GeminiAdapter(this.apiKey);
+            }
+            
+            // Create message content
+            const message = {
+                role: "user",
+                parts: [{ text: prompt }]
+            };
+            
+            let response: string;
+            
+            // Prioritize OpenRouter adapter if available
+            if (this.openRouterAdapter) {
+                console.log('【NodeST】使用OpenRouter适配器生成内容');
+                response = await this.openRouterAdapter.generateContent([message]);
+            } else if (this.geminiAdapter) {
+                console.log('【NodeST】使用Gemini适配器生成内容');
+                response = await this.geminiAdapter.generateContent([message]);
+            } else {
+                throw new Error('没有可用的API适配器');
+            }
+            
+            console.log(`【NodeST】内容生成成功，回复长度: ${response.length}`);
+            return response;
+        } catch (error) {
+            console.error('【NodeST】生成内容失败:', error);
+            throw error;
         }
     }
 }

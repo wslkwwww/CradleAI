@@ -26,6 +26,10 @@ import SaveManager from '@/components/SaveManager'; // Import the SaveManager co
 import NovelAITestModal from '@/components/NovelAITestModal'; // 导入 NovelAI 测试组件
 import VNDBTestModal from '@/src/components/VNDBTestModal'; // 导入 VNDB 测试组件
 import TTSEnhancerModal from '@/components/TTSEnhancerModal'; // Import the new modal component
+import GroupDialog from '@/components/GroupDialog';
+import GroupInput from '@/components/GroupInput';
+import GroupManagementModal from '@/components/GroupManagementModal';
+import { Group, GroupMessage, getUserGroups, getGroupMessages, sendGroupMessage } from '@/src/group';
 import { Message, Character, ChatSave } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext'; // 添加 useUser 导入
@@ -143,6 +147,14 @@ const App = () => {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
 
+  // Group-related state
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupMessages, setGroupMessages] = useState<GroupMessage[]>([]);
+  const [isGroupMode, setIsGroupMode] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<Character[]>([]);
+  const [isGroupManageModalVisible, setIsGroupManageModalVisible] = useState(false);
+
   // UI state
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   const [isSettingsSidebarVisible, setIsSettingsSidebarVisible] = useState(false);
@@ -218,7 +230,25 @@ const App = () => {
   };
   
   // Load saved search preference
-  useEffect(() => {
+useEffect(() => {
+    if (user) {
+      loadUserGroups();
+    }
+  }, [user]);
+
+  const loadUserGroups = async () => {
+    if (!user) return;
+    
+    try {
+      const userGroups = await getUserGroups(user);
+      setGroups(userGroups);
+    } catch (error) {
+      console.error('Failed to load user groups:', error);
+    }
+  };
+
+   // Load saved search preference (来自源1)
+   useEffect(() => {
     const loadSearchPreference = async () => {
       try {
         const savedPref = await AsyncStorage.getItem('braveSearchEnabled');
@@ -229,39 +259,102 @@ const App = () => {
         console.error('[App] Failed to load search preference:', error);
       }
     };
-    
-    loadSearchPreference();
-  }, []);
 
-  // Load TTS enhancer settings when component mounts (only to know if it's enabled)
+    loadSearchPreference();
+  }, []); // 空依赖数组，仅在挂载时运行
+
+  // Load TTS enhancer settings when component mounts (来自源2)
   useEffect(() => {
     const loadTtsEnhancerSettings = async () => {
       try {
+        // 注意：确保 ttsService 在此作用域内可用
         const settings = ttsService.getEnhancerSettings();
         setIsTtsEnhancerEnabled(settings.enabled);
       } catch (error) {
         console.error('[App] Error loading TTS enhancer settings:', error);
       }
     };
-    
+
     loadTtsEnhancerSettings();
-  }, []);
-  
-  // Listen for changes to enhancer settings
+  }, []); // 空依赖数组，仅在挂载时运行
+
+  // Listen for changes to enhancer settings (来自源3)
   useEffect(() => {
     const enhancerSettingsListener = EventRegister.addEventListener(
       'ttsEnhancerSettingsChanged',
       (settings: any) => {
+        // 确保 settings 存在且 enabled 是布尔值
         if (settings && typeof settings.enabled === 'boolean') {
           setIsTtsEnhancerEnabled(settings.enabled);
         }
       }
     );
-    
+
+    // 清理函数：在组件卸载时移除监听器
     return () => {
-      EventRegister.removeEventListener(enhancerSettingsListener as string);
+      // 确保 EventRegister.removeEventListener 接受正确的参数类型
+      if (typeof enhancerSettingsListener === 'string') {
+         EventRegister.removeEventListener(enhancerSettingsListener);
+      } else {
+         console.warn('[App] Failed to remove TTS enhancer listener: Invalid listener ID type.');
+         // 根据 EventRegister 的实际实现可能需要不同的处理
+      }
     };
-  }, []);
+  }, []); // 空依赖数组，监听器设置/清理仅在挂载/卸载时运行
+
+  // Load user groups when user changes (来自目标1)
+  useEffect(() => {
+    if (user) {
+      loadUserGroups();
+    } else {
+      // 可选：如果用户注销，清空组信息
+      setGroups([]);
+      setSelectedGroupId(null); // 如果有选择组ID的状态
+      setGroupMessages([]);
+      setGroupMembers([]);
+    }
+  }, [user]); // 依赖于 user
+
+  // Load group messages and members when a group is selected or groups list changes (来自目标2)
+  useEffect(() => {
+    if (selectedGroupId) {
+      loadGroupMessages(selectedGroupId);
+
+      // Find the group to get member IDs
+      const selectedGroup = groups.find(g => g.groupId === selectedGroupId);
+      if (selectedGroup && characters) { // 确保 characters 也可用
+        // Load member information for all characters in the group
+        const memberCharacters = characters.filter(
+          char => selectedGroup.groupMemberIds && selectedGroup.groupMemberIds.includes(char.id) // 检查 groupMemberIds 是否存在
+        );
+        setGroupMembers(memberCharacters);
+      } else {
+         setGroupMembers([]); // 如果找不到组或没有角色信息，清空成员列表
+      }
+    } else {
+      // 如果没有选择组，清空消息和成员
+      setGroupMessages([]);
+      setGroupMembers([]);
+    }
+  }, [selectedGroupId, groups, characters]); // 依赖于 selectedGroupId, groups, 和 characters
+
+  // --- Helper Functions ---
+
+  // (来自目标代码)
+  const loadGroupMessages = async (groupId: string) => {
+    if (!groupId) return; // 添加检查
+
+    try {
+       // 确保 getGroupMessages 在此作用域内可用
+      const messages = await getGroupMessages(groupId);
+      setGroupMessages(messages);
+    } catch (error) {
+      console.error('Failed to load group messages:', error);
+       // 可以考虑设置错误状态或通知用户
+    }
+  };
+
+  // --- Component Render ---
 
   const toggleSettingsSidebar = () => {
     setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
@@ -524,6 +617,21 @@ const App = () => {
     return messageId;
   };
 
+  const handleSendGroupMessage = async (text: string) => {
+    if (!selectedGroupId || !user) return;
+    
+    try {
+      const newMessage = await sendGroupMessage(user, selectedGroupId, text);
+      if (newMessage) {
+        // Update local state with the new message
+        setGroupMessages(prev => [...prev, newMessage]);
+      }
+    } catch (error) {
+      console.error('Failed to send group message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    }
+  };
+
   const handleRegenerateMessage = async (messageId: string, messageIndex: number) => {
     if (!selectedConversationId) {
       console.warn('No conversation selected for regeneration');
@@ -716,16 +824,26 @@ const App = () => {
   }, [selectedConversationId, getMessages]);
 
   const handleSelectConversation = (id: string) => {
-    setSelectedConversationId(id);
+    // Check if this is a group ID
+    if (id.startsWith('group-')) {
+      setSelectedGroupId(id);
+      setSelectedConversationId(null);
+      setIsGroupMode(true);
+    } else {
+      setSelectedConversationId(id);
+      setSelectedGroupId(null);
+      setIsGroupMode(false);
+    }
+    
     setIsSidebarVisible(false);
     
-    // Add a check - if we're switching to a different conversation that has no messages,
-    // we need to ensure the first message is sent
-    const currentMessages = getMessages(id);
-    if (currentMessages.length === 0 && !firstMessageSentRef.current[id]) {
-      // We don't need to do anything here - the effect will handle sending the first message
-      console.log('[App] Selected conversation has no messages, will send first message');
-    }
+    // Reset animated value when closing sidebar
+    Animated.timing(contentSlideAnim, {
+      toValue: 0,
+      duration: 100,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }).start();
   };
 
   // 修改处理图像的函数
@@ -1335,6 +1453,12 @@ const App = () => {
     });
   }, [getMessages]);
 
+  const handleToggleGroupManage = () => {
+    setIsGroupManageModalVisible(!isGroupManageModalVisible);
+  };
+
+  const selectedGroup = selectedGroupId ? groups.find(g => g.groupId === selectedGroupId) : null;
+
   return (
     <View style={styles.outerContainer}>
       <StatusBar translucent backgroundColor="transparent" />
@@ -1344,7 +1468,7 @@ const App = () => {
         
         {/* Background container remains static */}
         <View style={styles.backgroundContainer}>
-          {selectedCharacter?.dynamicPortraitEnabled && selectedCharacter?.dynamicPortraitVideo ? (
+          {!isGroupMode && selectedCharacter?.dynamicPortraitEnabled && selectedCharacter?.dynamicPortraitVideo ? (
             // Render video background if enabled and video exists
             <>
               <Video
@@ -1392,7 +1516,9 @@ const App = () => {
           ) : (
             // Render static background image if dynamic portrait is disabled or no video
             <ImageBackground
-              source={selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg')}
+              source={isGroupMode 
+                ? require('@/assets/images/group-chat-background.jpg') 
+                : (selectedCharacter ? getBackgroundImage() : require('@/assets/images/default-background.jpg'))}
               style={styles.backgroundImage}
               resizeMode="cover"
             >
@@ -1403,14 +1529,17 @@ const App = () => {
         </View>
         
         {/* Sidebar is positioned absolutely at the root level */}
-        <Sidebar
-          isVisible={isSidebarVisible}
-          conversations={characters}
-          selectedConversationId={selectedConversationId}
-          onSelectConversation={handleSelectConversation}
-          onClose={toggleSidebar}
-          animationValue={contentSlideAnim}
-        />
+        {user && (
+          <Sidebar
+            isVisible={isSidebarVisible}
+            conversations={characters}
+            selectedConversationId={isGroupMode ? selectedGroupId : selectedConversationId}
+            onSelectConversation={handleSelectConversation}
+            onClose={toggleSidebar}
+            animationValue={contentSlideAnim}
+            currentUser={user}
+          />
+        )}
         
         {/* Everything else (content + topbar) gets animated together */}
         <Animated.View 
@@ -1428,25 +1557,27 @@ const App = () => {
           >
             <View style={[
               styles.container,
-              selectedCharacter ? styles.transparentBackground : styles.darkBackground
+              (selectedCharacter || isGroupMode) ? styles.transparentBackground : styles.darkBackground
             ]}>
               <TopBarWithBackground
-                selectedCharacter={selectedCharacter}
-                onAvatarPress={handleAvatarPress}
+                selectedCharacter={!isGroupMode ? selectedCharacter : null}
+                selectedGroup={isGroupMode ? selectedGroup : null}
+                onAvatarPress={isGroupMode ? handleToggleGroupManage : handleAvatarPress}
                 onMemoPress={() => setIsMemoSheetVisible(true)}
                 onSettingsPress={toggleSettingsSidebar}
                 onMenuPress={toggleSidebar}
-                onSaveManagerPress={toggleSaveManager}
+                onSaveManagerPress={isGroupMode ? undefined : toggleSaveManager}
                 showBackground={false}
+                isGroupMode={isGroupMode}
               />
 
               <SafeAreaView style={[
                 styles.safeArea,
-                selectedCharacter && styles.transparentBackground,
+                (selectedCharacter || isGroupMode) && styles.transparentBackground,
                 mode === 'background-focus' && styles.backgroundFocusSafeArea
               ]}>
-                {/* Preview Mode Banner */}
-                {isPreviewMode && previewBannerVisible && (
+                {/* Preview Mode Banner (only show in character chat mode) */}
+                {isPreviewMode && previewBannerVisible && !isGroupMode && (
                   <View style={styles.previewBanner}>
                     <Text style={styles.previewBannerText}>
                       You are previewing a saved chat state
@@ -1471,52 +1602,78 @@ const App = () => {
                 
                 <View style={[
                   styles.contentContainer,
-                  selectedCharacter && styles.transparentBackground,
+                  (selectedCharacter || isGroupMode) && styles.transparentBackground,
                   // Adjust container to accommodate different modes
-                  mode === 'visual-novel' && styles.visualNovelContentContainer,
-                  mode === 'background-focus' && styles.backgroundFocusContentContainer
+                  mode === 'visual-novel' && !isGroupMode && styles.visualNovelContentContainer,
+                  mode === 'background-focus' && !isGroupMode && styles.backgroundFocusContentContainer
                 ]}>
-                  <ChatDialog
-                    messages={messages}
-                    style={StyleSheet.flatten([
-                      styles.chatDialog,
-                      // Empty style for normal mode, specific styles applied within ChatDialog
-                    ])}
-                    selectedCharacter={selectedCharacter}
-                    onRateMessage={handleRateMessage}
-                    onRegenerateMessage={handleRegenerateMessage}
-                    savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
-                    onScrollPositionChange={handleScrollPositionChange}
-                    messageMemoryState={messageMemoryState}
-                    regeneratingMessageId={regeneratingMessageId} // Pass the regenerating message ID
-                    // Note: We're not passing allMessages separately as ChatDialog now handles virtualization internally
-                  />
+                  {/* Conditionally render either ChatDialog or GroupDialog */}
+                  {isGroupMode ? (
+                    <GroupDialog
+                      style={styles.chatDialog}
+                      groupId={selectedGroupId || ''}
+                      messages={groupMessages}
+                      onScrollPositionChange={(groupId, position) => {
+                        // Handle group chat scroll position
+                        setChatScrollPositions(prev => ({
+                          ...prev,
+                          [`group-${groupId}`]: position
+                        }));
+                      }}
+                      currentUser={user || { id: '', name: 'User' }}
+                      groupMembers={groupMembers}
+                    />
+                  ) : (
+                    <ChatDialog
+                      messages={messages}
+                      style={StyleSheet.flatten([styles.chatDialog])}
+                      selectedCharacter={selectedCharacter}
+                      onRateMessage={handleRateMessage}
+                      onRegenerateMessage={handleRegenerateMessage}
+                      savedScrollPosition={selectedCharacter?.id ? chatScrollPositions[selectedCharacter.id] : undefined}
+                      onScrollPositionChange={handleScrollPositionChange}
+                      messageMemoryState={messageMemoryState}
+                      regeneratingMessageId={regeneratingMessageId}
+                    />
+                  )}
                 </View>
 
                 {/* Adjust input bar position for different modes */}
                 <View style={[
                   styles.inputBar,
-                  selectedCharacter && styles.transparentBackground,
-                  // Add specific styles for different modes
-                  mode === 'visual-novel' && styles.visualNovelInputBar,
-                  mode === 'background-focus' && styles.backgroundFocusInputBar
+                  (selectedCharacter || isGroupMode) && styles.transparentBackground,
+                  // Add specific styles for different modes (only in character chat mode)
+                  mode === 'visual-novel' && !isGroupMode && styles.visualNovelInputBar,
+                  mode === 'background-focus' && !isGroupMode && styles.backgroundFocusInputBar
                 ]}>
-                  {selectedCharacter && (
-                    <ChatInput
-                      onSendMessage={handleSendMessage}
-                      selectedConversationId={selectedConversationId}
-                      conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
-                      onResetConversation={handleResetConversation}
-                      selectedCharacter={selectedCharacter}
-                      // Pass search and TTS functionality to ChatInput
-                      braveSearchEnabled={braveSearchEnabled}
-                      toggleBraveSearch={toggleBraveSearch}
-                      isTtsEnhancerEnabled={isTtsEnhancerEnabled}
-                      onTtsEnhancerToggle={handleTtsEnhancerToggle}
-                      onShowNovelAI={() => setIsNovelAITestVisible(true)}
-                      onShowVNDB={() => setIsVNDBTestVisible(true)}
-                      onShowMemoryPanel={toggleMemoryPanel}
-                    />
+                  {/* Conditionally render either ChatInput or GroupInput */}
+                  {isGroupMode ? (
+                    selectedGroup && (
+                      <GroupInput
+                        onSendMessage={handleSendGroupMessage}
+                        groupId={selectedGroupId || ''}
+                        currentUser={user || { id: '', name: 'User' }}
+                        groupMembers={groupMembers}
+                      />
+                    )
+                  ) : (
+                    selectedCharacter && (
+                      <ChatInput
+                        onSendMessage={handleSendMessage}
+                        selectedConversationId={selectedConversationId}
+                        conversationId={selectedConversationId ? getCharacterConversationId(selectedConversationId) ?? '' : ''}
+                        onResetConversation={handleResetConversation}
+                        selectedCharacter={selectedCharacter}
+                        // Pass search and TTS functionality to ChatInput
+                        braveSearchEnabled={braveSearchEnabled}
+                        toggleBraveSearch={toggleBraveSearch}
+                        isTtsEnhancerEnabled={isTtsEnhancerEnabled}
+                        onTtsEnhancerToggle={handleTtsEnhancerToggle}
+                        onShowNovelAI={() => setIsNovelAITestVisible(true)}
+                        onShowVNDB={() => setIsVNDBTestVisible(true)}
+                        onShowMemoryPanel={toggleMemoryPanel}
+                      />
+                    )
                   )}
                 </View>
 
@@ -1528,6 +1685,26 @@ const App = () => {
                 />
                 {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
               </SafeAreaView>
+
+              {/* Group Management Modal */}
+              {isGroupManageModalVisible && selectedGroup && (
+                <GroupManagementModal
+                  visible={isGroupManageModalVisible}
+                  onClose={() => setIsGroupManageModalVisible(false)}
+                  group={selectedGroup}
+                  groupMembers={groupMembers}
+                  allCharacters={characters}
+                  currentUser={user || { id: '', name: 'User' }}
+                  onGroupUpdated={() => {
+                    // Reload groups after update
+                    loadUserGroups();
+                    // Reload current group messages
+                    if (selectedGroupId) {
+                      loadGroupMessages(selectedGroupId);
+                    }
+                  }}
+                />
+              )}
 
               {/* 直接在主视图中渲染 MemoOverlay */}
               <MemoOverlay

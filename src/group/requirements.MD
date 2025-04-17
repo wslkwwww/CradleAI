@@ -1,8 +1,10 @@
 # 需求文档
 
-**核心概念：朋友圈系统集成群聊功能**
+**需求：创建群聊功能的业务层**
 
-我们将群聊视为一种特殊的朋友圈交互模式，其核心逻辑是将朋友圈的功能映射到群聊场景。
+参考朋友圈系统的代码，创建群聊功能的业务层。我们将参考朋友圈交互模式来构建群聊功能
+
+其核心逻辑是将朋友圈的功能映射到群聊场景，并根据需求，创建完整且独立的群聊业务组件。
 
 **功能映射：**
 
@@ -174,7 +176,7 @@ interface Group {
   groupMemberIds: string[]; // 群组成员ID列表 (包含角色和用户ID)
   groupCreatedAt: Date; // 群组创建时间
   groupUpdatedAt: Date; // 群组更新时间
-  groupAvatar?: string; // 群组头像 (可选)
+  groupAvatar?: string; // 群组头像 (群内的所有角色头像)
   groupSettings?: GroupSettings; // 群组设置 (例如，是否允许匿名发言等)
 }
 
@@ -222,23 +224,3 @@ interface Character {
 *   `GroupMessageReaction` 接口定义了用户对消息的反应，例如点赞、表情等。
 *   `Character` 接口（假设已经存在）用于存储角色信息，例如角色名、性格等。
 *   `GroupSettings` 接口定义了群组的设置选项，例如是否允许匿名发言。
-
-# 前端集成
-
-
-*   **Sidebar:**
-    *   在Sidebar 中，增加一个群聊创建按钮，用户命名群聊并创建一个群聊窗口
-    *   创建的群聊窗口会和角色私聊的对话窗口一起显示在`对话窗口`列表之中
-    *   点击群聊窗口时，切换到群对话窗口。
-    *   群聊窗口需要显示群聊名称、群聊头像等信息，群聊头像为群内成员的头像集合，类似微信群，而初始只有用户的头像。
-
-*   **GroupDialog:**
-    *   创建 `GroupDialog` 组件，用于显示群聊对话界面。
-    *   **替代 `Chatdialog`:** 当用户点击 Sidebar 中的群聊入口时，使用 `GroupDialog` 替代 `Chatdialog`。
-    *   **UI 样式:** `GroupDialog` 的 UI 样式应与 `Chatdialog` 保持一致，以便用户无缝切换。
-    *   **Grouptopbar**  在群聊对话界面中，用`Grouptopbar`替换`topbarwithbackground`，但样式保持相同。
-    *   **Grouptopbar展示:**  `GroupDialog` 需要展示群聊名称、以及一个管理按钮，管理按钮进入管理界面，显示群内的所有成员，并支持`拉角色入群`，`移除群内角色`的操作。
-    *   **消息条中没有按钮：** `GroupDialog` 的消息条中不显示按钮（原因可能是群聊互动方式与私聊不同）。
-    *   **Groupinput:**  复用`Chatinput`组件的样式
-    *   **@ 功能支持:**  `Groupinput` 需要支持 @ 功能，用户可以通过输入 `@` 符号来选择要 @ 的用户。
-    *   **分页加载:**  `GroupDialog` 需要复用Chatdialog中分页加载历史消息的功能，以避免一次性加载大量数据导致性能问题。

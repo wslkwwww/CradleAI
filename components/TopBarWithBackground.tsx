@@ -16,15 +16,19 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import RegexToolModal from '@/components/RegexToolModal';
 import MemoryProcessingControl from '@/src/memory/components/MemoryProcessingControl';
+import { Group } from '@/src/group/group-types';
+import { GroupAvatar } from './GroupAvatar';
 
 interface TopBarWithBackgroundProps {
   selectedCharacter: Character | undefined | null;
+  selectedGroup?: Group | null; // Add group prop
   onAvatarPress: () => void;
   onMemoPress: () => void;
   onSettingsPress: () => void;
   onMenuPress: () => void;
-  onSaveManagerPress?: () => void; // New save manager button handler
-  showBackground?: boolean; // 新增属性
+  onSaveManagerPress?: () => void;
+  showBackground?: boolean;
+  isGroupMode?: boolean; // Add flag to indicate group chat mode
 }
 
 const HEADER_HEIGHT = 90; // Fixed height for consistency
@@ -32,12 +36,14 @@ const { width } = Dimensions.get('window');
 
 const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   selectedCharacter,
+  selectedGroup,
   onAvatarPress,
   onMemoPress,
   onSettingsPress,
   onMenuPress,
-  onSaveManagerPress, // Add the new handler
-  showBackground = true, // 默认为 true
+  onSaveManagerPress,
+  showBackground = true,
+  isGroupMode = false, // Default to character mode
 }) => {
   const [scrollY] = useState(new Animated.Value(0));
   const [navbarHeight, setNavbarHeight] = useState(
@@ -80,7 +86,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
         ]}
       >
         {/* Background Image or Gradient */}
-        {showBackground && (selectedCharacter?.backgroundImage ? (
+        {showBackground && (!isGroupMode ? (selectedCharacter?.backgroundImage ? (
           <Image
             source={
               typeof selectedCharacter.backgroundImage === 'string'
@@ -92,6 +98,11 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
         ) : (
           <LinearGradient
             colors={['#333', '#282828']}
+            style={styles.backgroundGradient}
+          />
+        )) : (
+          <LinearGradient
+            colors={['#2c3e50', '#1a2533']}
             style={styles.backgroundGradient}
           />
         ))}
@@ -116,14 +127,24 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               style={styles.avatarContainer} 
               onPress={onAvatarPress}
             >
-              <Image
-                source={
-                  selectedCharacter?.avatar
-                    ? { uri: String(selectedCharacter.avatar) }
-                    : require('@/assets/images/default-avatar.png')
-                }
-                style={styles.avatar}
-              />
+              {isGroupMode && selectedGroup ? (
+                <View style={styles.groupAvatarWrapper}>
+                  <GroupAvatar
+                    members={[]} // Get members from character data based on group member IDs 
+                    size={40}
+                    maxDisplayed={4}
+                  />
+                </View>
+              ) : (
+                <Image
+                  source={
+                    selectedCharacter?.avatar
+                      ? { uri: String(selectedCharacter.avatar) }
+                      : require('@/assets/images/default-avatar.png')
+                  }
+                  style={styles.avatar}
+                />
+              )}
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -131,13 +152,23 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               onPress={onAvatarPress}
             >
               <Text style={styles.characterName} numberOfLines={1}>
-                {selectedCharacter?.name || '选择角色'}
+                {isGroupMode 
+                  ? (selectedGroup?.groupName || '群聊')
+                  : (selectedCharacter?.name || '选择角色')}
               </Text>
+              
+              {/* Add group topic as subtitle */}
+              {isGroupMode && selectedGroup?.groupTopic && (
+                <Text style={styles.groupTopic} numberOfLines={1}>
+                  {selectedGroup.groupTopic}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
 
           <View style={styles.actions}>
-            {selectedCharacter && (
+            {/* Show memory control button only in character mode */}
+            {!isGroupMode && selectedCharacter && (
               <TouchableOpacity 
                 style={styles.actionButton} 
                 onPress={handleMemoryControlPress}
@@ -151,6 +182,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               </TouchableOpacity>
             )}
             
+            {/* Show memo button in both modes */}
             <TouchableOpacity 
               style={styles.actionButton} 
               onPress={onMemoPress}
@@ -158,6 +190,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               <MaterialCommunityIcons name="notebook-outline" size={24} color="#fff" />
             </TouchableOpacity>
             
+            {/* Show settings button in both modes */}
             <TouchableOpacity 
               style={styles.actionButton} 
               onPress={onSettingsPress}
@@ -165,23 +198,32 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               <Ionicons name="settings-outline" size={24} color="#fff" />
             </TouchableOpacity>
 
-            {/* New Save Manager Button */}
-            {onSaveManagerPress && (
+            {/* Show save manager button only in character mode */}
+            {!isGroupMode && onSaveManagerPress && (
               <TouchableOpacity onPress={onSaveManagerPress} style={styles.actionButton}>
                 <Ionicons name="bookmark-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            )}
+            
+            {/* Show manage button only in group mode */}
+            {isGroupMode && (
+              <TouchableOpacity onPress={onAvatarPress} style={styles.actionButton}>
+                <Ionicons name="people" size={24} color="#fff" />
               </TouchableOpacity>
             )}
           </View>
         </View>
       </Animated.View>
       
-      {/* Memory Processing Control Modal */}
-      <MemoryProcessingControl 
-        visible={isMemoryControlVisible}
-        onClose={() => setIsMemoryControlVisible(false)}
-        characterId={selectedCharacter?.id}
-        conversationId={selectedCharacter ? `conversation-${selectedCharacter.id}` : undefined}
-      />
+      {/* Memory Processing Control Modal - only available in character mode */}
+      {!isGroupMode && (
+        <MemoryProcessingControl 
+          visible={isMemoryControlVisible}
+          onClose={() => setIsMemoryControlVisible(false)}
+          characterId={selectedCharacter?.id}
+          conversationId={selectedCharacter ? `conversation-${selectedCharacter.id}` : undefined}
+        />
+      )}
       
       {/* Keep the RegexToolModal for use in other screens */}
       <RegexToolModal 
@@ -193,6 +235,20 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
 };
 
 const styles = StyleSheet.create({
+  groupAvatarWrapper: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupTopic: {
+    color: '#ccc',
+    fontSize: 12,
+    marginTop: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
   container: {
     position: 'absolute',
     top: 0,
@@ -267,11 +323,6 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 4,
     position: 'relative',
-  },
-  actionButtonBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 'bold',
   },
 });
 
