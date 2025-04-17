@@ -503,55 +503,51 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
     }
   };
 
-  // Remove a scheduled time
+  // Remove a scheduled time - updating this function to improve UX
   const removeScheduledTime = (characterId: string, timeToRemove: string) => {
     // Show confirmation dialog before removing
     Alert.alert(
-      '确认取消',
-      `确定要取消 ${timeToRemove} 的定时发布吗？`,
+      '确认取消定时发布',
+      `确定要取消 ${formatTimeForDisplay(timeToRemove)} 的定时发布任务吗？`,
       [
         {
           text: '取消',
           style: 'cancel'
         },
         {
-          text: '确定',
+          text: '确定删除',
           style: 'destructive',
           onPress: async () => {
-            const characterTimes = scheduledTimes[characterId] || [];
-            const newTimes = characterTimes.filter(time => time !== timeToRemove);
-            
-            const newScheduledTimes = {
-              ...scheduledTimes,
-              [characterId]: newTimes
-            };
-            
-            // Save updated times
-            await saveScheduledTimes(newScheduledTimes);
-            
-            // Update the character directly
-            const character = characters.find(c => c.id === characterId);
-            if (character) {
-              const updatedCharacter = {
-                ...character,
-                circleScheduledTimes: newTimes
-              };
-              await updateCharacter(updatedCharacter);
+            try {
+              // Set loading state (optional - you could add a loading indicator)
+              setLoading(characterId);
               
-              // Cancel any pending scheduled posts for this time
-              try {
-                // Import and use the CircleScheduler to cancel the scheduled time
-                const { CircleScheduler } = require('@/services/circle-scheduler');
-                const scheduler = CircleScheduler.getInstance();
-                await scheduler.cancelScheduledTime(character.id, timeToRemove);
-                
-                // Show success confirmation
-                Alert.alert('已取消', `已取消 ${timeToRemove} 的定时发布`);
-              } catch (error) {
-                console.error('取消定时发布失败:', error);
-                // Still show some confirmation since the time was removed from settings
-                Alert.alert('已更新设置', `已从设置中移除 ${timeToRemove} 的定时发布`);
+              const characterTimes = scheduledTimes[characterId] || [];
+              const newTimes = characterTimes.filter(time => time !== timeToRemove);
+              
+              const newScheduledTimes = {
+                ...scheduledTimes,
+                [characterId]: newTimes
+              };
+              
+              await saveScheduledTimes(newScheduledTimes);
+              
+              // Update the character directly
+              const character = characters.find(c => c.id === characterId);
+              if (character) {
+                const updatedCharacter = {
+                  ...character,
+                  circleScheduledTimes: newTimes
+                };
+                await updateCharacter(updatedCharacter);
+
+                Alert.alert('已删除', `已成功取消 ${formatTimeForDisplay(timeToRemove)} 的定时发布任务`);
               }
+            } catch (error) {
+              console.error('删除定时发布任务失败:', error);
+              Alert.alert('错误', '无法删除定时发布任务，请稍后再试');
+            } finally {
+              setLoading(null);
             }
           }
         }
@@ -576,8 +572,8 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
           <Text style={styles.timeText}>{formatTimeForDisplay(time)}</Text>
         </View>
         <TouchableOpacity 
-          onPress={() => removeScheduledTime(characterId, time)}
           style={styles.removeTimeButton}
+          onPress={() => removeScheduledTime(characterId, time)}
         >
           <Ionicons name="close-circle" size={20} color={theme.colors.danger} />
         </TouchableOpacity>
@@ -601,11 +597,12 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
     }
   };
 
-  // Render scheduled times modal
+  // Render scheduled times modal - improving the UI for better user experience
   const renderScheduleModal = () => {
     if (!selectedCharacterForSchedule) return null;
     
     const characterTimes = scheduledTimes[selectedCharacterForSchedule.id] || [];
+    const isLoading = loading === selectedCharacterForSchedule.id;
     
     return (
       <Modal
@@ -627,6 +624,7 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
               <TouchableOpacity 
                 onPress={() => setIsScheduleModalVisible(false)} 
                 style={styles.closeButton}
+                disabled={isLoading}
               >
                 <Ionicons name="close" size={24} color={theme.colors.text} />
               </TouchableOpacity>
@@ -634,9 +632,17 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
             
             <Text style={styles.scheduleDescription}>
               设置角色每天自动发布朋友圈的固定时间。每天到达设定时间点，角色将自动发布朋友圈内容。
+              点击时间右侧的删除按钮可取消定时发布。
             </Text>
             
-            <View style={styles.timesList}>
+            {isLoading && (
+              <View style={styles.scheduleLoading}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text style={styles.scheduleLoadingText}>处理中...</Text>
+              </View>
+            )}
+            
+            <ScrollView style={styles.timesList}>
               {characterTimes.length > 0 ? (
                 characterTimes.map((time, index) => 
                   renderTimeItem(time, index, selectedCharacterForSchedule.id)
@@ -654,11 +660,12 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
                   </Text>
                 </View>
               )}
-            </View>
+            </ScrollView>
             
             <TouchableOpacity 
               style={styles.addTimeButton}
               onPress={addScheduledTime}
+              disabled={isLoading}
             >
               <AntDesign name="plus" size={18} color={theme.colors.black} />
               <Text style={styles.addTimeText}>添加新时间</Text>
@@ -1849,9 +1856,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   timesList: {
-    padding: 16,
-    paddingTop: 0,
-    flex: 1,
+    maxHeight: 300, // Ensure scrollable with many times
   },
   timeItem: {
     flexDirection: 'row',
@@ -1865,6 +1870,7 @@ const styles = StyleSheet.create({
   timeDisplay: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   timeText: {
     color: theme.colors.text,
@@ -1872,7 +1878,21 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   removeTimeButton: {
-    padding: 4,
+    padding: 8,  // Increased touch target size
+    marginLeft: 8,
+    backgroundColor: 'rgba(255, 59, 48, 0.1)', // Subtle background for the button
+    borderRadius: 20,
+  },
+  scheduleLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  scheduleLoadingText: {
+    color: theme.colors.textSecondary,
+    marginLeft: 8,
+    fontSize: 14,
   },
   addTimeButton: {
     backgroundColor: theme.colors.primary,

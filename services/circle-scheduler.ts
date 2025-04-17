@@ -584,124 +584,132 @@ export class CircleScheduler {
             console.error(`【CircleScheduler】发送通知失败:`, notificationError);
           }
           
-          // Save the post to storage to ensure it appears in the timeline
-          try {
-            // Load existing posts with careful error handling
-            let posts = [];
+          // Check if the post was already created by CircleService
+          // If response contains a postId, it means CircleService already saved it
+          if (!response.post) {
+            console.log(`【CircleScheduler】帖子没有ID，需要手动保存到存储`);
+            
+            // Save the post to storage to ensure it appears in the timeline
             try {
-              const postsString = await AsyncStorage.getItem('circle_posts');
-              if (postsString) {
-                posts = JSON.parse(postsString);
-                // Verify it's an array
-                if (!Array.isArray(posts)) {
-                  console.error('【CircleScheduler】circle_posts不是一个数组，重置为空数组');
-                  posts = [];
+              // Load existing posts with careful error handling
+              let posts = [];
+              try {
+                const postsString = await AsyncStorage.getItem('circle_posts');
+                if (postsString) {
+                  posts = JSON.parse(postsString);
+                  // Verify it's an array
+                  if (!Array.isArray(posts)) {
+                    console.error('【CircleScheduler】circle_posts不是一个数组，重置为空数组');
+                    posts = [];
+                  }
                 }
+              } catch (loadError) {
+                console.error('【CircleScheduler】加载已有帖子失败:', loadError);
+                posts = []; // Reset to empty array on error
               }
-            } catch (loadError) {
-              console.error('【CircleScheduler】加载已有帖子失败:', loadError);
-              posts = []; // Reset to empty array on error
-            }
-            
-            // Create a new post object
-            const newPost = {
-              id: `post-${Date.now()}-${item.character.id}`,
-              characterId: item.character.id,
-              characterName: item.character.name,
-              characterAvatar: item.character.avatar || null,
-              content: postContent,
-              createdAt: new Date().toISOString(),
-              comments: [],
-              likes: 0,
-              likedBy: [],
-              hasLiked: false
-            };
-            
-            // Add the new post to the beginning of the array
-            posts.unshift(newPost);
-            
-            // Save back to AsyncStorage with error handling
-            try {
-              await AsyncStorage.setItem('circle_posts', JSON.stringify(posts));
-              console.log(`【CircleScheduler】已保存定时帖子到存储`);
-            } catch (saveError) {
-              console.error('【CircleScheduler】保存帖子到存储失败:', saveError);
-            }
-            
-            // Add to the character's circlePosts property
-            // Instead of using AsyncStorage 'characters' key, use the character from cache
-            try {
-              // Find the character in cache by ID
-              const charIndex = this.characterCache.findIndex(c => c.id === item.character.id);
               
-              if (charIndex >= 0) {
-                // Get the character from cache
-                const character = this.characterCache[charIndex];
-                
-                // Add post to character's posts
-                if (!character.circlePosts) {
-                  character.circlePosts = [];
-                }
-                
-                character.circlePosts.unshift(newPost);
-                
-                // Update character in cache
-                this.characterCache[charIndex] = character;
-                
-                // Save updated character back to FileSystem
-                try {
-                  const existingStr = await FileSystem.readAsStringAsync(
-                    FileSystem.documentDirectory + 'characters.json'
-                  ).catch(() => '[]');
-                  
-                  if (existingStr && existingStr !== '[]') {
-                    const existingCharacters = JSON.parse(existingStr);
-                    const updatedCharacters = existingCharacters.map((c: Character) => 
-                      c.id === character.id ? {...c, circlePosts: character.circlePosts} : c
-                    );
-                    
-                    await FileSystem.writeAsStringAsync(
-                      FileSystem.documentDirectory + 'characters.json',
-                      JSON.stringify(updatedCharacters),
-                      { encoding: FileSystem.EncodingType.UTF8 }
-                    );
-                    console.log(`【CircleScheduler】已将帖子添加到FileSystem的角色 ${character.name} 帖子列表`);
-                  }
-                } catch (fsError) {
-                  console.error('【CircleScheduler】更新FileSystem中的角色帖子列表失败:', fsError);
-                }
-                
-                // For backward compatibility, also try to update in AsyncStorage
-                try {
-                  const charactersString = await AsyncStorage.getItem('user_characters');
-                  if (charactersString) {
-                    const characters = JSON.parse(charactersString);
-                    const characterIndex = characters.findIndex((c: Character) => c.id === item.character.id);
-                    
-                    if (characterIndex >= 0) {
-                      // Add post to character's posts
-                      if (!characters[characterIndex].circlePosts) {
-                        characters[characterIndex].circlePosts = [];
-                      }
-                      
-                      characters[characterIndex].circlePosts.unshift(newPost);
-                      
-                      // Save updated characters
-                      await AsyncStorage.setItem('user_characters', JSON.stringify(characters));
-                      console.log(`【CircleScheduler】已将帖子添加到AsyncStorage中角色 ${item.character.name} 的帖子列表`);
-                    }
-                  }
-                } catch (asyncError) {
-                  console.error('【CircleScheduler】更新AsyncStorage中的角色帖子列表失败:', asyncError);
-                }
-              } else {
-                console.error(`【CircleScheduler】在缓存中未找到角色 ${item.character.id}，无法更新角色的帖子列表`);
+              // Create a new post object
+              const newPost = {
+                id: `post-${Date.now()}-${item.character.id}`,
+                characterId: item.character.id,
+                characterName: item.character.name,
+                characterAvatar: item.character.avatar || null,
+                content: postContent,
+                createdAt: new Date().toISOString(),
+                comments: [],
+                likes: 0,
+                likedBy: [],
+                hasLiked: false
+              };
+              
+              // Add the new post to the beginning of the array
+              posts.unshift(newPost);
+              
+              // Save back to AsyncStorage with error handling
+              try {
+                await AsyncStorage.setItem('circle_posts', JSON.stringify(posts));
+                console.log(`【CircleScheduler】已保存定时帖子到存储`);
+              } catch (saveError) {
+                console.error('【CircleScheduler】保存帖子到存储失败:', saveError);
               }
-            } catch (characterUpdateError) {
-              console.error('【CircleScheduler】更新角色帖子列表失败:', characterUpdateError);
+              
+              // Add to the character's circlePosts property
+              // Instead of using AsyncStorage 'characters' key, use the character from cache
+              try {
+                // Find the character in cache by ID
+                const charIndex = this.characterCache.findIndex(c => c.id === item.character.id);
+                
+                if (charIndex >= 0) {
+                  // Get the character from cache
+                  const character = this.characterCache[charIndex];
+                  
+                  // Add post to character's posts
+                  if (!character.circlePosts) {
+                    character.circlePosts = [];
+                  }
+                  
+                  character.circlePosts.unshift(newPost);
+                  
+                  // Update character in cache
+                  this.characterCache[charIndex] = character;
+                  
+                  // Save updated character back to FileSystem
+                  try {
+                    const existingStr = await FileSystem.readAsStringAsync(
+                      FileSystem.documentDirectory + 'characters.json'
+                    ).catch(() => '[]');
+                    
+                    if (existingStr && existingStr !== '[]') {
+                      const existingCharacters = JSON.parse(existingStr);
+                      const updatedCharacters = existingCharacters.map((c: Character) => 
+                        c.id === character.id ? {...c, circlePosts: character.circlePosts} : c
+                      );
+                      
+                      await FileSystem.writeAsStringAsync(
+                        FileSystem.documentDirectory + 'characters.json',
+                        JSON.stringify(updatedCharacters),
+                        { encoding: FileSystem.EncodingType.UTF8 }
+                      );
+                      console.log(`【CircleScheduler】已将帖子添加到FileSystem的角色 ${character.name} 帖子列表`);
+                    }
+                  } catch (fsError) {
+                    console.error('【CircleScheduler】更新FileSystem中的角色帖子列表失败:', fsError);
+                  }
+                  
+                  // For backward compatibility, also try to update in AsyncStorage
+                  try {
+                    const charactersString = await AsyncStorage.getItem('user_characters');
+                    if (charactersString) {
+                      const characters = JSON.parse(charactersString);
+                      const characterIndex = characters.findIndex((c: Character) => c.id === item.character.id);
+                      
+                      if (characterIndex >= 0) {
+                        // Add post to character's posts
+                        if (!characters[characterIndex].circlePosts) {
+                          characters[characterIndex].circlePosts = [];
+                        }
+                        
+                        characters[characterIndex].circlePosts.unshift(newPost);
+                        
+                        // Save updated characters
+                        await AsyncStorage.setItem('user_characters', JSON.stringify(characters));
+                        console.log(`【CircleScheduler】已将帖子添加到AsyncStorage中角色 ${item.character.name} 的帖子列表`);
+                      }
+                    }
+                  } catch (asyncError) {
+                    console.error('【CircleScheduler】更新AsyncStorage中的角色帖子列表失败:', asyncError);
+                  }
+                } else {
+                  console.error(`【CircleScheduler】在缓存中未找到角色 ${item.character.id}，无法更新角色的帖子列表`);
+                }
+              } catch (characterUpdateError) {
+                console.error('【CircleScheduler】更新角色帖子列表失败:', characterUpdateError);
+              }
+            } catch (saveError) {
+              console.error(`【CircleScheduler】保存帖子失败:`, saveError);
             }
-          } catch (saveError) {
-            console.error(`【CircleScheduler】保存帖子失败:`, saveError);
+          } else {
+            console.log(`【CircleScheduler】帖子已由CircleService保存，ID: ${response.post}`);
           }
         }
       } else {
@@ -841,120 +849,6 @@ export class CircleScheduler {
     ];
     
     return generalPrompts[Math.floor(Math.random() * generalPrompts.length)];
-  }
-
-  // Add a method to cancel a scheduled time for a character
-  public async cancelScheduledTime(characterId: string, timeToCancel: string): Promise<boolean> {
-    try {
-      console.log(`【CircleScheduler】正在取消角色 ${characterId} 的定时发布时间: ${timeToCancel}`);
-      
-      // First find the character in our cache
-      const characterIndex = this.characterCache.findIndex(c => c.id === characterId);
-      
-      if (characterIndex >= 0) {
-        const character = this.characterCache[characterIndex];
-        
-        // Remove the specified time from the character's scheduled times
-        if (character.circleScheduledTimes) {
-          // Filter out the time to cancel
-          const updatedTimes = character.circleScheduledTimes.filter(time => time !== timeToCancel);
-          character.circleScheduledTimes = updatedTimes;
-          
-          // If the character had lastProcessedTimes, also remove the entry for this time
-          if (character.circleLastProcessedTimes && character.circleLastProcessedTimes[timeToCancel]) {
-            delete character.circleLastProcessedTimes[timeToCancel];
-          }
-          
-          // Update character in cache
-          this.characterCache[characterIndex] = character;
-          
-          // Update our internal scheduledPostsCache
-          if (this.scheduledPostsCache[characterId]) {
-            this.scheduledPostsCache[characterId] = updatedTimes;
-          }
-          
-          // Try to update in FileSystem
-          try {
-            const existingStr = await FileSystem.readAsStringAsync(
-              FileSystem.documentDirectory + 'characters.json'
-            ).catch(() => '[]');
-            
-            if (existingStr && existingStr !== '[]') {
-              const existingCharacters = JSON.parse(existingStr);
-              const updatedCharacters = existingCharacters.map((c: Character) => 
-                c.id === characterId ? {
-                  ...c, 
-                  circleScheduledTimes: updatedTimes,
-                  // Also update the lastProcessedTimes if it exists
-                  circleLastProcessedTimes: character.circleLastProcessedTimes
-                } : c
-              );
-              
-              await FileSystem.writeAsStringAsync(
-                FileSystem.documentDirectory + 'characters.json',
-                JSON.stringify(updatedCharacters),
-                { encoding: FileSystem.EncodingType.UTF8 }
-              );
-              console.log(`【CircleScheduler】已在FileSystem中取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
-            }
-          } catch (fsError) {
-            console.error('【CircleScheduler】更新FileSystem失败:', fsError);
-          }
-          
-          // Also update in AsyncStorage for backward compatibility
-          try {
-            await AsyncStorage.getItem('user_characters').then(async (charactersString) => {
-              if (charactersString) {
-                const characters: Character[] = JSON.parse(charactersString);
-                const charIndex = characters.findIndex(c => c.id === characterId);
-                
-                if (charIndex >= 0) {
-                  if (!characters[charIndex].circleScheduledTimes) {
-                    characters[charIndex].circleScheduledTimes = [];
-                  } else {
-                    characters[charIndex].circleScheduledTimes = updatedTimes;
-                  }
-                  
-                  // Also update lastProcessedTimes
-                  if (characters[charIndex].circleLastProcessedTimes && 
-                      characters[charIndex].circleLastProcessedTimes[timeToCancel]) {
-                    delete characters[charIndex].circleLastProcessedTimes[timeToCancel];
-                  }
-                  
-                  await AsyncStorage.setItem('user_characters', JSON.stringify(characters));
-                  console.log(`【CircleScheduler】已在AsyncStorage中取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
-                }
-              }
-            });
-            
-            // Also update in legacy storage format, if it exists
-            const storedTimes = await AsyncStorage.getItem('character_scheduled_times');
-            if (storedTimes) {
-              const timesObj = JSON.parse(storedTimes);
-              if (timesObj[characterId]) {
-                timesObj[characterId] = timesObj[characterId].filter((t: string) => t !== timeToCancel);
-                await AsyncStorage.setItem('character_scheduled_times', JSON.stringify(timesObj));
-                console.log(`【CircleScheduler】已在旧格式存储中取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
-              }
-            }
-          } catch (asyncError) {
-            console.error('【CircleScheduler】更新AsyncStorage失败:', asyncError);
-          }
-          
-          console.log(`【CircleScheduler】已成功取消角色 ${characterId} 的定时发布时间 ${timeToCancel}`);
-          return true;
-        } else {
-          console.log(`【CircleScheduler】角色 ${characterId} 没有设置定时发布时间`);
-        }
-      } else {
-        console.error(`【CircleScheduler】未找到角色ID ${characterId}`);
-      }
-      
-      return false;
-    } catch (error) {
-      console.error(`【CircleScheduler】取消定时发布时间失败:`, error);
-      return false;
-    }
   }
 }
 
