@@ -3,11 +3,11 @@
 export * from './group-types';
 export * from './group-service';
 export * from './group-manager';
-export * from './group-scheduler';
 
 // 基础API函数导出，方便直接调用
 import { GroupManager } from './group-manager';
 import { GroupService } from './group-service';
+import { GroupScheduler, GroupSettings } from './group-scheduler';
 import { Character, User } from '../../shared/types';
 import { Group, GroupMessage } from './group-types';
 
@@ -103,4 +103,28 @@ export async function disbandGroup(
 ): Promise<boolean> {
   const manager = new GroupManager(user);
   return await manager.disbandGroup(groupId);
+}
+
+/**
+ * 更新群聊设置
+ * @param groupId 群聊ID
+ * @param settings 群聊设置
+ */
+export function updateGroupSettings(
+  groupId: string,
+  settings: GroupSettings
+): void {
+  const scheduler = GroupScheduler.getInstance();
+  scheduler.setGroupSettings(groupId, settings);
+}
+
+/**
+ * 获取群聊设置
+ * @param groupId 群聊ID
+ */
+export function getGroupSettings(
+  groupId: string
+): GroupSettings {
+  const scheduler = GroupScheduler.getInstance();
+  return scheduler.getGroupSettings(groupId);
 }

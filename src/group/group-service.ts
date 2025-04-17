@@ -297,7 +297,8 @@ export class GroupService {
     originalMessage: GroupMessage,
     groupMessages: GroupMessage[],
     apiKey?: string,
-    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>
+    apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter'>,
+    extraPrompt?: string // 新增：额外提示词参数
   ): Promise<GroupMessage | null> {
     try {
       console.log(`【群聊服务】角色 ${character.name} 回复群聊消息`);
@@ -326,7 +327,7 @@ export class GroupService {
       }
       
       // 构建提示词
-      const prompt = await this.buildGroupReplyPrompt(group, character, originalMessage, groupMessages);
+      const prompt = await this.buildGroupReplyPrompt(group, character, originalMessage, groupMessages, extraPrompt);
       
       // 获取角色回复
       const instance = this.getNodeST(apiKey, apiSettings);
@@ -348,6 +349,11 @@ export class GroupService {
       // 处理@提及
       const processedResponse = this.processAtMentions(response, group);
       
+      // 过滤系统消息ID，如果是定时触发的系统消息，不设置回复ID
+      const replyToMessageId = originalMessage.senderId === "system" && 
+        originalMessage.messageId.startsWith("timed-") ? 
+        undefined : originalMessage.messageId;
+      
       // 创建回复消息对象
       const replyMessage: GroupMessage = {
         messageId: `msg-${Date.now()}`,
@@ -358,7 +364,7 @@ export class GroupService {
         messageType: 'text',
         messageCreatedAt: new Date(),
         messageUpdatedAt: new Date(),
-        replyToMessageId: originalMessage.messageId
+        replyToMessageId
       };
       
       // 更新角色最后回复时间和计数
@@ -550,7 +556,8 @@ export class GroupService {
     group: Group,
     character: Character,
     originalMessage: GroupMessage,
-    groupMessages: GroupMessage[]
+    groupMessages: GroupMessage[],
+    extraPrompt?: string // 新增：额外提示词参数
   ): Promise<string> {
     try {
       // 获取最近的聊天历史
@@ -600,7 +607,7 @@ ${formattedMessages}
     * 直接发送新的消息，对群聊进行补充，或者对其他角色的消息进行评论 (不需要 @ 任何角色)。
     *  @ 某个或多个其他角色，对他们的消息进行回复或提问。
 
-4. 你的回复应该符合你的角色设定，并且与群聊主题相关。`;
+4. 你的回复应该符合你的角色设定，并且与群聊主题相关。${extraPrompt || ''}`;
       
       return prompt;
     } catch (error) {
@@ -835,7 +842,7 @@ ${formattedMessages}
   /**
    * 根据ID列表获取角色列表
    */
-  private static async getCharactersByIds(characterIds: string[]): Promise<Character[]> {
+  public static async getCharactersByIds(characterIds: string[]): Promise<Character[]> {
     try {
       console.log(`【群聊服务】尝试获取角色信息，ID数量: ${characterIds.length}`);
       const characters: Character[] = [];

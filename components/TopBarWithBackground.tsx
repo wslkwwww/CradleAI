@@ -23,6 +23,7 @@ import { Group } from '@/src/group/group-types';
 import { GroupAvatar } from './GroupAvatar';
 import { CharacterLoader } from '@/src/utils/character-loader';
 import { disbandGroup as disbandGroupAction } from '@/src/group';
+import { GroupScheduler } from '@/src/group/group-scheduler';
 
 const GroupSettingsModal: React.FC<{
   visible: boolean;
@@ -298,10 +299,28 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
 
   const handleSaveGroupSettings = (newSettings: GroupChatSettings) => {
     setGroupSettings(newSettings);
+    
+    // 保存设置到GroupScheduler
+    if (selectedGroup) {
+      // 获取GroupScheduler实例
+      const scheduler = GroupScheduler.getInstance();
+      
+      // 更新群组设置
+      scheduler.setGroupSettings(selectedGroup.groupId, {
+        dailyMessageLimit: newSettings.dailyMessageLimit,
+        replyIntervalMinutes: newSettings.replyIntervalMinutes,
+        referenceMessageLimit: newSettings.referenceMessageLimit
+      });
+      
+      console.log('[TopBar] Group settings saved to scheduler:', {
+        groupId: selectedGroup.groupId,
+        settings: newSettings
+      });
+    }
+    
     if (onGroupSettingsChange) {
       onGroupSettingsChange(newSettings);
     }
-    console.log('[TopBar] Group settings saved:', newSettings);
   };
 
   const handleDisbandGroup = async () => {
