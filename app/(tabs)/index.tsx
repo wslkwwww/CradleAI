@@ -131,6 +131,8 @@ const App = () => {
 
   // Create animation value for sidebar content shift
   const contentSlideAnim = useRef(new Animated.Value(0)).current;
+  // Add a new animation value for settings sidebar
+  const settingsSlideAnim = useRef(new Animated.Value(0)).current;
   const SIDEBAR_WIDTH = 280; // Match the sidebar width
 
   // Create a stable memory configuration that won't change on every render
@@ -410,8 +412,18 @@ useEffect(() => {
 
   // --- Component Render ---
 
+  // Modify toggleSettingsSidebar to animate settingsSlideAnim
   const toggleSettingsSidebar = () => {
-    setIsSettingsSidebarVisible(!isSettingsSidebarVisible);
+    const newIsVisible = !isSettingsSidebarVisible;
+    setIsSettingsSidebarVisible(newIsVisible);
+    
+    // Animate the content area and settings sidebar
+    Animated.timing(settingsSlideAnim, {
+      toValue: newIsVisible ? SIDEBAR_WIDTH : 0,
+      duration: 300, // Use consistent duration of 300ms for all sidebar animations
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }).start();
   };
 
   // Modify toggleSidebar to also animate contentSlideAnim
@@ -422,8 +434,8 @@ useEffect(() => {
     // Animate the content area
     Animated.timing(contentSlideAnim, {
       toValue: newIsVisible ? SIDEBAR_WIDTH : 0,
-      duration: 100, // 100ms as requested
-      easing: Easing.inOut(Easing.ease), // 添加这行
+      duration: 300, // Update to match the settings sidebar animation duration (300ms)
+      easing: Easing.inOut(Easing.ease),
       useNativeDriver: true, // Use native driver for better performance
     }).start();
   };
@@ -891,10 +903,10 @@ useEffect(() => {
     
     setIsSidebarVisible(false);
     
-    // Reset animated value when closing sidebar
+    // Reset animated value when closing sidebar with the consistent animation timing
     Animated.timing(contentSlideAnim, {
       toValue: 0,
-      duration: 100,
+      duration: 300, // Updated to 300ms for consistency
       easing: Easing.inOut(Easing.ease),
       useNativeDriver: true,
     }).start();
@@ -1596,12 +1608,27 @@ useEffect(() => {
           />
         )}
         
+        {/* SettingsSidebar moved outside the content container, positioned at the root level */}
+        {selectedCharacter && (
+          <SettingsSidebar
+            isVisible={isSettingsSidebarVisible}
+            onClose={toggleSettingsSidebar}
+            selectedCharacter={selectedCharacter}
+            animationValue={settingsSlideAnim}
+          />
+        )}
+        
         {/* Everything else (content + topbar) gets animated together */}
         <Animated.View 
           style={[
             styles.contentMainContainer,
             {
-              transform: [{ translateX: contentSlideAnim }],
+              transform: [{ 
+                translateX: Animated.add(
+                  contentSlideAnim,
+                  Animated.multiply(settingsSlideAnim, -1) // Negative value to move left
+                ) 
+              }],
               width: '100%',  // Ensure full width
             }
           ]}
@@ -1734,11 +1761,6 @@ useEffect(() => {
                 </View>
 
                 {/* Sidebars and overlays */}
-                <SettingsSidebar
-                  isVisible={isSettingsSidebarVisible}
-                  onClose={toggleSettingsSidebar}
-                  selectedCharacter={selectedCharacter}
-                />
                 {isSettingsSidebarVisible && <View style={styles.modalOverlay} />}
               </SafeAreaView>
 

@@ -38,6 +38,7 @@ interface SettingsSideBarProps {
   isVisible: boolean;
   onClose: () => void;
   selectedCharacter: Character | undefined | null;
+  animationValue?: Animated.Value; // Add animation value prop
 }
 
 // Add this interface for CircleInteractionSettings props
@@ -71,8 +72,9 @@ export default function SettingsSidebar({
   isVisible,
   onClose,
   selectedCharacter,
+  animationValue, // Add animation value parameter
 }: SettingsSideBarProps) {
-  const slideAnim = useRef(new Animated.Value(SIDEBAR_WIDTH_EXPANDED)).current;
+  // Remove the slideAnim since we'll use the provided animationValue instead
   const slideYAnim = useRef(new Animated.Value(0)).current; // 用于向下滑动动画
   const { updateCharacter } = useCharacters();
   const { mode, setMode, visualNovelSettings, updateVisualNovelSettings } = useDialogMode();
@@ -191,15 +193,8 @@ export default function SettingsSidebar({
     }
   }, [selectedCharacter?.id, selectedCharacter?.customUserName, selectedCharacter?.name]);
 
-  // Handle sidebar animation
+  // Reset Y position when visibility changes
   useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: isVisible ? 0 : SIDEBAR_WIDTH_EXPANDED,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-    
-    // 重置Y轴位置
     if (isVisible) {
       slideYAnim.setValue(0);
     }
@@ -251,11 +246,6 @@ export default function SettingsSidebar({
         setIsMemorySummaryEnabled(!isMemorySummaryEnabled);
         
         if (!isMemorySummaryEnabled) {
-          Alert.alert(
-            '记忆总结已启用', 
-            `当聊天记录达到 ${summaryThreshold} 字符时，系统将自动总结对话内容，帮助角色记住重要信息。这对长对话特别有用。`,
-            [{ text: '知道了', style: 'default' }]
-          );
         }
       } catch (error) {
         console.error('Error saving memory settings:', error);
@@ -494,45 +484,77 @@ export default function SettingsSidebar({
   const MemorySummarySettings: React.FC<MemorySummarySettingsProps> = ({ character }) => {
     if (!isMemorySummaryEnabled) return null;
     
+    // Add local state to validate user input
+    const [thresholdInput, setThresholdInput] = useState(summaryThreshold.toString());
+    const [lengthInput, setLengthInput] = useState(summaryLength.toString());
+    
+    // Validate and update the threshold value
+    const handleThresholdChange = (value: string) => {
+      // Allow only numeric input
+      if (/^\d*$/.test(value)) {
+        setThresholdInput(value);
+      }
+    };
+    
+    // Validate and update the length value
+    const handleLengthChange = (value: string) => {
+      // Allow only numeric input
+      if (/^\d*$/.test(value)) {
+        setLengthInput(value);
+      }
+    };
+    
+    // Apply the values when user confirms
+    const applyValues = () => {
+      const newThreshold = parseInt(thresholdInput, 10);
+      const newLength = parseInt(lengthInput, 10);
+      
+      // Validate ranges
+      const validThreshold = Math.min(10000, Math.max(3000, isNaN(newThreshold) ? 6000 : newThreshold));
+      const validLength = Math.min(2000, Math.max(500, isNaN(newLength) ? 1000 : newLength));
+      
+      // Update parent state values
+      setSummaryThreshold(validThreshold);
+      setSummaryLength(validLength);
+      
+      // Update input fields with validated values
+      setThresholdInput(validThreshold.toString());
+      setLengthInput(validLength.toString());
+    };
+    
     return (
       <View style={styles.settingSection}>
         <Text style={styles.settingSectionTitle}>记忆总结设置</Text>
         
-        <View style={styles.sliderContainer}>
-          <Text style={styles.settingLabel}>总结阈值：{summaryThreshold} 字符</Text>
-          <Slider
-            style={styles.slider}
-            minimumValue={3000}
-            maximumValue={10000}
-            step={1000}
-            value={summaryThreshold}
-            onValueChange={setSummaryThreshold}
-            minimumTrackTintColor="rgb(255, 224, 195)"
-            maximumTrackTintColor="#767577"
-            thumbTintColor="rgb(255, 224, 195)"
+        <View style={styles.inputContainer}>
+          <Text style={styles.settingLabel}>总结阈值 (3000-10000 字符)</Text>
+          <TextInput
+            style={styles.textInput}
+            value={thresholdInput}
+            onChangeText={handleThresholdChange}
+            placeholder="例如：6000"
+            placeholderTextColor="#999"
+            keyboardType="numeric"
+            onBlur={applyValues}
           />
-          <Text style={styles.sliderRangeText}>
-            <Text style={styles.sliderMinText}>较少 (3000)</Text>
-            <Text style={styles.sliderMaxText}>较多 (10000)</Text>
+          <Text style={styles.settingDescription}>
+            当对话达到此字符数时，系统将自动总结对话内容
           </Text>
         </View>
         
-        <View style={styles.sliderContainer}>
-          <Text style={styles.settingLabel}>总结长度：{summaryLength} 字符</Text>
-          <Slider
-            style={styles.slider}
-            minimumValue={500}
-            maximumValue={2000}
-            step={100}
-            value={summaryLength}
-            onValueChange={setSummaryLength}
-            minimumTrackTintColor="rgb(255, 224, 195)"
-            maximumTrackTintColor="#767577"
-            thumbTintColor="rgb(255, 224, 195)"
+        <View style={styles.inputContainer}>
+          <Text style={styles.settingLabel}>总结长度 (500-2000 字符)</Text>
+          <TextInput
+            style={styles.textInput}
+            value={lengthInput}
+            onChangeText={handleLengthChange}
+            placeholder="例如：1000"
+            placeholderTextColor="#999"
+            keyboardType="numeric"
+            onBlur={applyValues}
           />
-          <Text style={styles.sliderRangeText}>
-            <Text style={styles.sliderMinText}>简洁 (500)</Text>
-            <Text style={styles.sliderMaxText}>详细 (2000)</Text>
+          <Text style={styles.settingDescription}>
+            生成的记忆总结的最大长度
           </Text>
         </View>
         
@@ -629,268 +651,290 @@ export default function SettingsSidebar({
     );
   };
 
+  // Calculate the translateX value based on the provided animation value or fallback
+  const sidebarTranslateX = animationValue
+    ? animationValue.interpolate({
+        inputRange: [0, SIDEBAR_WIDTH_EXPANDED],
+        outputRange: [SIDEBAR_WIDTH_EXPANDED, 0], // Reversed for right side positioning
+      })
+    : new Animated.Value(SIDEBAR_WIDTH_EXPANDED);
+
   return (
-    <Animated.View
+    <View
       style={[
-        styles.sidebar,
+        styles.sidebarContainer,
         {
-          transform: [
-            { translateX: slideAnim },
-            { translateY: slideYAnim }
-          ],
-          width: SIDEBAR_WIDTH_EXPANDED,
-          right: 0,
-          left: 'auto',
-          opacity: isVisible ? 1 : 0,
           pointerEvents: isVisible ? 'auto' : 'none',
-        },
+        }
       ]}
     >
-      {/* 添加滑动手势处理区域 */}
-      <View 
-        style={styles.swipeHandle}
-        {...panResponder.panHandlers}
+      <Animated.View
+        style={[
+          styles.sidebar,
+          {
+            transform: [
+              { translateX: sidebarTranslateX },
+              { translateY: slideYAnim }
+            ],
+          }
+        ]}
       >
-        <View style={styles.handleBar} />
-      </View>
-      
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.settingsContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.title}>角色设置</Text>
-
-        {/* Add dialog mode settings section */}
-        <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>对话模式</Text>
-          
-          <TouchableOpacity 
-            style={[
-              styles.modeButton,
-              mode === 'normal' && styles.modeButtonSelected
-            ]}
-            onPress={() => handleModeChange('normal')}
-          >
-            <MaterialIcons 
-              name="chat" 
-              size={24} 
-              color={mode === 'normal' ? "rgb(255, 224, 195)" : "#aaa"} 
-            />
-            <Text style={[
-              styles.modeButtonText,
-              mode === 'normal' && styles.modeButtonTextSelected
-            ]}>
-              常规模式
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.modeButton,
-              mode === 'background-focus' && styles.modeButtonSelected
-            ]}
-            onPress={() => handleModeChange('background-focus')}
-          >
-            <MaterialIcons 
-              name="image" 
-              size={24} 
-              color={mode === 'background-focus' ? "rgb(255, 224, 195)" : "#aaa"} 
-            />
-            <Text style={[
-              styles.modeButtonText,
-              mode === 'background-focus' && styles.modeButtonTextSelected
-            ]}>
-              背景强调模式
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.modeButton,
-              mode === 'visual-novel' && styles.modeButtonSelected
-            ]}
-            onPress={() => handleModeChange('visual-novel')}
-          >
-            <MaterialIcons 
-              name="menu-book" 
-              size={24} 
-              color={mode === 'visual-novel' ? "rgb(255, 224, 195)" : "#aaa"} 
-            />
-            <Text style={[
-              styles.modeButtonText,
-              mode === 'visual-novel' && styles.modeButtonTextSelected
-            ]}>
-              视觉小说模式
-            </Text>
-          </TouchableOpacity>
-          
-          <Text style={styles.settingDescription}>
-            选择不同的对话模式可以更改聊天的显示方式。背景强调模式会限制聊天区域高度以显示更多背景，视觉小说模式则会以Galgame风格显示对话。
-          </Text>
+        {/* Add swipe handle */}
+        <View 
+          style={styles.swipeHandle}
+          {...panResponder.panHandlers}
+        >
+          <View style={styles.handleBar} />
         </View>
+        
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.settingsContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.title}>角色设置</Text>
 
-        {/* Add custom user name setting */}
-        <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>基本设置</Text>
-          
-          <View style={styles.inputContainer}>
-            <Text style={styles.settingLabel}>角色对我的称呼</Text>
-            <TextInput
-              style={styles.textInput}
-              value={customUserName}
-              onChangeText={handleCustomUserNameChange}
-              placeholder="设置角色如何称呼你"
-              placeholderTextColor="#999"
-            />
-            <TouchableOpacity
-              style={styles.saveButton}
-              onPress={saveCustomUserName}
+          {/* Add dialog mode settings section */}
+          <View style={styles.settingSection}>
+            <Text style={styles.settingSectionTitle}>对话模式</Text>
+            
+            <TouchableOpacity 
+              style={[
+                styles.modeButton,
+                mode === 'normal' && styles.modeButtonSelected
+              ]}
+              onPress={() => handleModeChange('normal')}
             >
-              <Text style={styles.saveButtonText}>保存</Text>
+              <MaterialIcons 
+                name="chat" 
+                size={24} 
+                color={mode === 'normal' ? "rgb(255, 224, 195)" : "#aaa"} 
+              />
+              <Text style={[
+                styles.modeButtonText,
+                mode === 'normal' && styles.modeButtonTextSelected
+              ]}>
+                常规模式
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.modeButton,
+                mode === 'background-focus' && styles.modeButtonSelected
+              ]}
+              onPress={() => handleModeChange('background-focus')}
+            >
+              <MaterialIcons 
+                name="image" 
+                size={24} 
+                color={mode === 'background-focus' ? "rgb(255, 224, 195)" : "#aaa"} 
+              />
+              <Text style={[
+                styles.modeButtonText,
+                mode === 'background-focus' && styles.modeButtonTextSelected
+              ]}>
+                背景强调模式
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.modeButton,
+                mode === 'visual-novel' && styles.modeButtonSelected
+              ]}
+              onPress={() => handleModeChange('visual-novel')}
+            >
+              <MaterialIcons 
+                name="menu-book" 
+                size={24} 
+                color={mode === 'visual-novel' ? "rgb(255, 224, 195)" : "#aaa"} 
+              />
+              <Text style={[
+                styles.modeButtonText,
+                mode === 'visual-novel' && styles.modeButtonTextSelected
+              ]}>
+                视觉小说模式
+              </Text>
             </TouchableOpacity>
             
             <Text style={styles.settingDescription}>
-              设置后，角色将用这个名字称呼你
+              选择不同的对话模式可以更改聊天的显示方式。背景强调模式会限制聊天区域高度以显示更多背景，视觉小说模式则会以Galgame风格显示对话。
             </Text>
           </View>
-        </View>
 
-        {/* Add dynamic portrait video settings */}
-        <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>视觉设置</Text>
-          
-          <View style={styles.settingItem}>
-            <Text style={styles.settingLabel}>动态立绘</Text>
-            <Switch
-              value={isDynamicPortraitEnabled}
-              onValueChange={handleDynamicPortraitToggle}
-              trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
-              thumbColor={isDynamicPortraitEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
-            />
+          {/* Add custom user name setting */}
+          <View style={styles.settingSection}>
+            <Text style={styles.settingSectionTitle}>基本设置</Text>
+            
+            <View style={styles.inputContainer}>
+              <Text style={styles.settingLabel}>角色对我的称呼</Text>
+              <TextInput
+                style={styles.textInput}
+                value={customUserName}
+                onChangeText={handleCustomUserNameChange}
+                placeholder="设置角色如何称呼你"
+                placeholderTextColor="#999"
+              />
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={saveCustomUserName}
+              >
+                <Text style={styles.saveButtonText}>保存</Text>
+              </TouchableOpacity>
+              
+              <Text style={styles.settingDescription}>
+                设置后，角色将用这个名字称呼你
+              </Text>
+            </View>
           </View>
-          
-          {isDynamicPortraitEnabled && (
+
+          {/* Add dynamic portrait video settings */}
+          <View style={styles.settingSection}>
+            <Text style={styles.settingSectionTitle}>视觉设置</Text>
+            
+            <View style={styles.settingItem}>
+              <Text style={styles.settingLabel}>动态立绘</Text>
+              <Switch
+                value={isDynamicPortraitEnabled}
+                onValueChange={handleDynamicPortraitToggle}
+                trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+                thumbColor={isDynamicPortraitEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+              />
+            </View>
+            
+            {isDynamicPortraitEnabled && (
+              <TouchableOpacity
+                style={styles.backgroundButton}
+                onPress={handleSelectDynamicPortrait}
+              >
+                <MaterialIcons name="videocam" size={24} color="#fff" />
+                <Text style={styles.backgroundButtonText}>
+                  {selectedCharacter?.dynamicPortraitVideo ? '更换动态立绘' : '选择动态立绘'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            
+            <Text style={styles.settingDescription}>
+              动态立绘使用视频文件代替静态背景图，为角色提供更生动的表现。
+            </Text>
+            
             <TouchableOpacity
               style={styles.backgroundButton}
-              onPress={handleSelectDynamicPortrait}
+              onPress={handleBackgroundChange}
             >
-              <MaterialIcons name="videocam" size={24} color="#fff" />
-              <Text style={styles.backgroundButtonText}>
-                {selectedCharacter?.dynamicPortraitVideo ? '更换动态立绘' : '选择动态立绘'}
-              </Text>
+              <MaterialIcons name="image" size={24} color="#fff" />
+              <Text style={styles.backgroundButtonText}>更换聊天背景</Text>
             </TouchableOpacity>
-          )}
-          
-          <Text style={styles.settingDescription}>
-            动态立绘使用视频文件代替静态背景图，为角色提供更生动的表现。
-          </Text>
-          
-          <TouchableOpacity
-            style={styles.backgroundButton}
-            onPress={handleBackgroundChange}
-          >
-            <MaterialIcons name="image" size={24} color="#fff" />
-            <Text style={styles.backgroundButtonText}>更换聊天背景</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Replace Permanent Memory with Memory Summary */}
-        <View style={styles.settingItem}>
-          <Text style={styles.settingLabel}>记忆总结</Text>
-          <Switch
-            value={isMemorySummaryEnabled}
-            onValueChange={handleMemorySummaryToggle}
-            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
-            thumbColor={isMemorySummaryEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
-          />
-        </View>
-
-        <View style={styles.settingItem}>
-          <Text style={styles.settingLabel}>主动消息</Text>
-          <Switch
-            value={isAutoMessageEnabled}
-            onValueChange={handleAutoMessageToggle}
-            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
-            thumbColor={isAutoMessageEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
-          />
-        </View>
-
-        {/* Add auto message timing settings when enabled */}
-        {isAutoMessageEnabled && (
-          <View style={styles.sliderContainer}>
-            <Text style={styles.settingLabel}>主动消息触发时间：{autoMessageInterval} 分钟</Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={1}
-              maximumValue={30}
-              step={1}
-              value={autoMessageInterval}
-              onValueChange={setAutoMessageInterval}
-              onSlidingComplete={handleAutoMessageIntervalChange}
-              minimumTrackTintColor="rgb(255, 224, 195)"
-              maximumTrackTintColor="#767577"
-              thumbTintColor="rgb(255, 224, 195)"
-            />
-            <Text style={styles.sliderRangeText}>
-              <Text style={styles.sliderMinText}>较短 (1分钟)</Text>
-              <Text style={styles.sliderMaxText}>较长 (30分钟)</Text>
-            </Text>
           </View>
-        )}
 
-        <View style={styles.settingItem}>
-          <Text style={styles.settingLabel}>消息提醒</Text>
-          <Switch
-            value={isNotificationEnabled}
-            onValueChange={handleNotificationToggle}
-            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
-            thumbColor={isNotificationEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
+          {/* Replace Permanent Memory with Memory Summary */}
+          <View style={styles.settingItem}>
+            <Text style={styles.settingLabel}>记忆总结</Text>
+            <Switch
+              value={isMemorySummaryEnabled}
+              onValueChange={handleMemorySummaryToggle}
+              trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+              thumbColor={isMemorySummaryEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+            />
+          </View>
+
+          <View style={styles.settingItem}>
+            <Text style={styles.settingLabel}>主动消息</Text>
+            <Switch
+              value={isAutoMessageEnabled}
+              onValueChange={handleAutoMessageToggle}
+              trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+              thumbColor={isAutoMessageEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
+            />
+          </View>
+
+          {/* Add auto message timing settings when enabled */}
+          {isAutoMessageEnabled && (
+            <View style={styles.sliderContainer}>
+              <Text style={styles.settingLabel}>主动消息触发时间：{autoMessageInterval} 分钟</Text>
+              <Slider
+                style={styles.slider}
+                minimumValue={1}
+                maximumValue={30}
+                step={1}
+                value={autoMessageInterval}
+                onValueChange={setAutoMessageInterval}
+                onSlidingComplete={handleAutoMessageIntervalChange}
+                minimumTrackTintColor="rgb(255, 224, 195)"
+                maximumTrackTintColor="#767577"
+                thumbTintColor="rgb(255, 224, 195)"
+              />
+              <Text style={styles.sliderRangeText}>
+                <Text style={styles.sliderMinText}>较短 (1分钟)</Text>
+                <Text style={styles.sliderMaxText}>较长 (30分钟)</Text>
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.settingItem}>
+            <Text style={styles.settingLabel}>消息提醒</Text>
+            <Switch
+              value={isNotificationEnabled}
+              onValueChange={handleNotificationToggle}
+              trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+              thumbColor={isNotificationEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
+            />
+          </View>
+
+          <View style={styles.settingItem}>
+            <Text style={styles.settingLabel}>朋友圈互动</Text>
+            <Switch
+              value={isCircleInteractionEnabled}
+              onValueChange={handleCircleInteractionToggle}
+              trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
+              thumbColor={isCircleInteractionEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
+            />
+          </View>
+
+          {selectedCharacter && isMemorySummaryEnabled && (
+            <MemorySummarySettings character={selectedCharacter} updateCharacter={updateCharacter} />
+          )}
+
+          {/* Render visual novel settings when that mode is selected */}
+          <VisualNovelSettings 
+            visualNovelSettings={visualNovelSettings}
+            updateVisualNovelSettings={updateVisualNovelSettings}
           />
-        </View>
 
-        <View style={styles.settingItem}>
-          <Text style={styles.settingLabel}>朋友圈互动</Text>
-          <Switch
-            value={isCircleInteractionEnabled}
-            onValueChange={handleCircleInteractionToggle}
-            trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }} // 修改：使用米黄色
-            thumbColor={isCircleInteractionEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'} // 修改：使用米黄色
-          />
-        </View>
-
-        {selectedCharacter && isMemorySummaryEnabled && (
-          <MemorySummarySettings character={selectedCharacter} updateCharacter={updateCharacter} />
-        )}
-
-        {/* Render visual novel settings when that mode is selected */}
-        <VisualNovelSettings 
-          visualNovelSettings={visualNovelSettings}
-          updateVisualNovelSettings={updateVisualNovelSettings}
-        />
-
-        {/* 添加一些底部间距 */}
-        <View style={styles.bottomPadding} />
-      </ScrollView>
-
+          {/* 添加一些底部间距 */}
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+      </Animated.View>
+      
       {isVisible && (
         <TouchableOpacity
-          style={styles.overlay}
+          style={styles.overlayTouchable}
           activeOpacity={1}
           onPress={onClose}
         />
       )}
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  sidebar: {
-    flex: 1,
+  sidebarContainer: {
     position: 'absolute',
-    backgroundColor: "rgba(40, 40, 40, 0.9)", // Darker background to match app theme
-    zIndex: 3000,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: SIDEBAR_WIDTH_EXPANDED,
+    zIndex: 3000, // Keep high z-index to stay above other elements
+  },
+  sidebar: {
+    width: SIDEBAR_WIDTH_EXPANDED,
     height: '100%',
+    backgroundColor: "rgba(40, 40, 40, 0.9)", // Darker background to match app theme
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
     ...theme.shadows.medium,
   },
   scrollView: {
@@ -922,12 +966,13 @@ const styles = StyleSheet.create({
     color: "#fff", // White text for better contrast
     fontWeight: '500',
   },
-  overlay: {
+  overlayTouchable: {
     position: 'absolute',
     top: 0,
     right: SIDEBAR_WIDTH_EXPANDED,
     height: '100%',
     width: Dimensions.get('window').width - SIDEBAR_WIDTH_EXPANDED,
+    backgroundColor: 'transparent',
   },
   title: {
     fontSize: 20,
