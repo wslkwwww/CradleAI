@@ -568,6 +568,10 @@ export class GroupService {
       // 获取角色与用户的私聊记录
       const privateChatHistory = await this.getPrivateChatHistory(character.id, originalMessage.senderId);
       
+      // 确定用户的称呼（使用角色中的自定义用户名）
+      // 如果角色设置了customUserName，则使用该名称来称呼用户，否则使用默认名称
+      const userNameForCharacter = character.customUserName || originalMessage.senderName || '用户';
+      
       // 构建提示词
       const prompt = `你是${character.name}. 你正在参与一个主题为 "${group.groupTopic}" 的群聊。
 
@@ -576,7 +580,7 @@ export class GroupService {
 你和用户的私聊记录:
 ${privateChatHistory}
 
-用户 ${originalMessage.senderName} 发送: "${originalMessage.messageContent}"
+用户 ${userNameForCharacter} 发送: "${originalMessage.messageContent}"
 
 当前群聊消息记录：
 ${formattedMessages}
@@ -680,6 +684,54 @@ ${formattedMessages}
   }
 
   /**
+   * 解散群组
+   * @param groupId 群组ID
+   * @param userId 执行解散操作的用户ID（必须是群主）
+   */
+  static async disbandGroup(groupId: string, userId: string): Promise<boolean> {
+    try {
+      console.log(`【群聊服务】尝试解散群组，ID: ${groupId}, 用户ID: ${userId}`);
+      
+      // 获取群组信息
+      const group = await this.getGroupById(groupId);
+      
+      if (!group) {
+        console.error(`【群聊服务】解散群组失败: 找不到群组 ${groupId}`);
+        return false;
+      }
+      
+      // 验证执行操作的用户是否是群主
+      if (group.groupOwnerId !== userId) {
+        console.error(`【群聊服务】解散群组失败: 用户 ${userId} 不是群主`);
+        return false;
+      }
+      
+      // 获取所有群组
+      const groups = await this.getGroups();
+      
+      // 过滤掉要解散的群组
+      const updatedGroups = groups.filter(g => g.groupId !== groupId);
+      
+      // 保存更新后的群组列表
+      await AsyncStorage.setItem('user_groups', JSON.stringify(updatedGroups));
+      
+      // 清理群组消息
+      await AsyncStorage.removeItem(`group_messages_${groupId}`);
+      
+      // 清理群组成员角色数据
+      for (const memberId of group.groupMemberIds) {
+        await AsyncStorage.removeItem(`group_character_${groupId}_${memberId}`);
+      }
+      
+      console.log(`【群聊服务】成功解散群组, ID: ${groupId}`);
+      return true;
+    } catch (error) {
+      console.error(`【群聊服务】解散群组失败:`, error);
+      return false;
+    }
+  }
+
+  /**
    * 添加群聊消息监听器
    */
   static addMessageListener(groupId: string, listener: (messages: GroupMessage[]) => void): () => void {
@@ -719,14 +771,20 @@ ${formattedMessages}
     
     console.log(`【群聊服务】通知群组 ${groupId} 的 ${this.messageListeners[groupId].length} 个监听器，消息数: ${messages.length}`);
     
-    // 通知所有监听器
-    this.messageListeners[groupId].forEach(listener => {
-      try {
-        listener([...messages]); // 传递消息副本，避免外部修改
-      } catch (error) {
-        console.error(`【群聊服务】通知消息监听器时出错:`, error);
-      }
-    });
+    // Ensure we're copying the messages to avoid reference issues
+    const messagesCopy = JSON.parse(JSON.stringify(messages));
+    
+    // Use setTimeout to ensure notification happens in an async manner
+    setTimeout(() => {
+      // Notify all listeners
+      this.messageListeners[groupId].forEach(listener => {
+        try {
+          listener(messagesCopy);
+        } catch (error) {
+          console.error(`【群聊服务】通知消息监听器时出错:`, error);
+        }
+      });
+    }, 0);
   }
 
   /**
@@ -760,8 +818,14 @@ ${formattedMessages}
    */
   static async getGroupMessages(groupId: string): Promise<GroupMessage[]> {
     try {
+      console.log(`【群聊服务】获取群组消息，ID: ${groupId}`);
       const storedMessages = await AsyncStorage.getItem(`group_messages_${groupId}`);
-      return storedMessages ? JSON.parse(storedMessages) : [];
+      const messages = storedMessages ? JSON.parse(storedMessages) : [];
+      
+      // Debug log to track if messages are being successfully retrieved
+      console.log(`【群聊服务】成功获取到 ${messages.length} 条群组消息`);
+      
+      return messages;
     } catch (error) {
       console.error(`【群聊服务】获取群组消息失败:`, error);
       return [];

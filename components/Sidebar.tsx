@@ -35,6 +35,7 @@ export interface SidebarProps {
   onClose: () => void;
   animationValue?: Animated.Value;
   currentUser: User;
+  disbandedGroups?: string[]; // 添加被解散的群组ID列表
 }
 
 interface ConversationItem {
@@ -53,6 +54,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   animationValue,
   currentUser,
+  disbandedGroups = [], // 默认为空数组
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,12 +75,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (currentUser) {
       loadUserGroups();
     }
-  }, [currentUser]);
+  }, [currentUser, disbandedGroups]); // 添加disbandedGroups作为依赖项，当有群组解散时重新加载
   
   const loadUserGroups = async () => {
     try {
       const groups = await getUserGroups(currentUser);
-      setUserGroups(groups);
+      // 过滤掉已解散的群组
+      const filteredGroups = groups.filter(group => !disbandedGroups.includes(group.groupId));
+      setUserGroups(filteredGroups);
+      console.log(`[Sidebar] 加载用户群组: ${filteredGroups.length}个群组`);
     } catch (error) {
       console.error('Failed to load user groups:', error);
     }
@@ -130,7 +135,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       );
       
       if (newGroup) {
-        setUserGroups(prevGroups => [...prevGroups, newGroup]);
+        console.log('Successfully created group:', newGroup.groupId);
+        
+        // Update groups and clean form
+        await loadUserGroups(); // Reload all groups instead of just adding to state
         setGroupModalVisible(false);
         
         setGroupName('');
@@ -204,6 +212,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 selectedConversationId === item.id && styles.selectedConversation,
               ]}
               onPress={() => {
+                console.log(`Selecting conversation: ${item.id}, isGroup: ${item.isGroup}`);
                 onSelectConversation(item.id);
                 onClose();
               }}

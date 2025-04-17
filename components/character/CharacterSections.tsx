@@ -81,13 +81,13 @@ const SwipeableEntry: React.FC<SwipeableEntryProps> = ({
         if (gestureState.dx < -deleteButtonWidth / 2) {
           Animated.spring(pan, {
             toValue: -deleteButtonWidth,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start();
         } else {
           // Otherwise, snap back to original position
           Animated.spring(pan, {
             toValue: 0,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start();
         }
       },

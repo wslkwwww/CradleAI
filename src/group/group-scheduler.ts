@@ -147,7 +147,7 @@ export class GroupScheduler {
       );
 
       // 调用服务处理回复
-      await GroupService.replyToGroupMessage(
+      const replyMessage = await GroupService.replyToGroupMessage(
         item.group.groupId,
         item.character,
         item.originalMessage,
@@ -157,6 +157,17 @@ export class GroupScheduler {
       );
 
       console.log(`【群聊调度器】角色 ${item.character.name} 的回复已处理`);
+      
+      // 在完成消息处理后，获取最新消息并通知所有监听器（补充消息通知机制）
+      if (replyMessage) {
+        // 这一步不是必须的，因为GroupService.replyToGroupMessage中已经调用了saveGroupMessage
+        // 但为了确保消息更新通知触发，在这里额外获取并通知一次
+        const updatedMessages = await GroupService.getGroupMessages(item.group.groupId);
+        // 手动调用通知函数，确保监听器收到更新
+        if (typeof GroupService['notifyMessageListeners'] === 'function') {
+          GroupService['notifyMessageListeners'](item.group.groupId, updatedMessages);
+        }
+      }
     } catch (error) {
       console.error(`【群聊调度器】处理角色 ${item.character.name} 的回复失败:`, error);
     }

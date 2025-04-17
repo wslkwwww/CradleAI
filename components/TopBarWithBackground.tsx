@@ -9,6 +9,9 @@ import {
   Platform,
   StatusBar,
   Animated,
+  Modal,
+  ScrollView,
+  Alert,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
@@ -18,20 +21,204 @@ import RegexToolModal from '@/components/RegexToolModal';
 import MemoryProcessingControl from '@/src/memory/components/MemoryProcessingControl';
 import { Group } from '@/src/group/group-types';
 import { GroupAvatar } from './GroupAvatar';
+import { CharacterLoader } from '@/src/utils/character-loader';
+import { disbandGroup as disbandGroupAction } from '@/src/group';
+
+const GroupSettingsModal: React.FC<{
+  visible: boolean;
+  onClose: () => void;
+  onSave: (settings: GroupChatSettings) => void;
+  initialSettings?: GroupChatSettings;
+  selectedGroup?: Group | null;
+  currentUser?: any;
+  onDisbandGroup?: () => void;
+}> = ({ visible, onClose, onSave, initialSettings, selectedGroup, currentUser, onDisbandGroup }) => {
+  const [settings, setSettings] = useState<GroupChatSettings>({
+    dailyMessageLimit: initialSettings?.dailyMessageLimit || 50,
+    replyIntervalMinutes: initialSettings?.replyIntervalMinutes || 1,
+    referenceMessageLimit: initialSettings?.referenceMessageLimit || 5,
+  });
+
+  const isOwner = selectedGroup && currentUser && selectedGroup.groupOwnerId === currentUser.id;
+
+  const handleDisbandGroup = () => {
+    if (!selectedGroup) return;
+
+    Alert.alert(
+      "解散群聊",
+      `确定要解散群聊"${selectedGroup.groupName}"吗？此操作不可撤销，所有群聊消息将被永久删除。`,
+      [
+        {
+          text: "取消",
+          style: "cancel"
+        },
+        {
+          text: "确定解散",
+          style: "destructive",
+          onPress: () => {
+            onClose();
+            if (onDisbandGroup) {
+              onDisbandGroup();
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={groupSettingsStyles.modalOverlay}>
+        <View style={groupSettingsStyles.modalContent}>
+          <View style={groupSettingsStyles.modalHeader}>
+            <Text style={groupSettingsStyles.modalTitle}>群聊设置</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+
+
+            <View style={groupSettingsStyles.settingItem}>
+              <Text style={groupSettingsStyles.settingLabel}>每日消息数量限制</Text>
+              <Text style={groupSettingsStyles.settingDescription}>
+                设置角色每天可以发送的最大消息数量
+              </Text>
+              <View style={groupSettingsStyles.settingControl}>
+                <TouchableOpacity
+                  style={groupSettingsStyles.adjustButton}
+                  onPress={() => setSettings(prev => ({
+                    ...prev,
+                    dailyMessageLimit: Math.max(1, prev.dailyMessageLimit - 10)
+                  }))}
+                >
+                  <Ionicons name="remove" size={18} color="#fff" />
+                </TouchableOpacity>
+                <Text style={groupSettingsStyles.settingValue}>
+                  {settings.dailyMessageLimit}
+                </Text>
+                <TouchableOpacity
+                  style={groupSettingsStyles.adjustButton}
+                  onPress={() => setSettings(prev => ({
+                    ...prev,
+                    dailyMessageLimit: Math.min(100, prev.dailyMessageLimit + 10)
+                  }))}
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={groupSettingsStyles.settingItem}>
+              <Text style={groupSettingsStyles.settingLabel}>回复时间间隔 (分钟)</Text>
+              <Text style={groupSettingsStyles.settingDescription}>
+                设置角色两次回复之间的最小时间间隔
+              </Text>
+              <View style={groupSettingsStyles.settingControl}>
+                <TouchableOpacity
+                  style={groupSettingsStyles.adjustButton}
+                  onPress={() => setSettings(prev => ({
+                    ...prev,
+                    replyIntervalMinutes: Math.max(0.5, prev.replyIntervalMinutes - 0.5)
+                  }))}
+                >
+                  <Ionicons name="remove" size={18} color="#fff" />
+                </TouchableOpacity>
+                <Text style={groupSettingsStyles.settingValue}>
+                  {settings.replyIntervalMinutes}
+                </Text>
+                <TouchableOpacity
+                  style={groupSettingsStyles.adjustButton}
+                  onPress={() => setSettings(prev => ({
+                    ...prev,
+                    replyIntervalMinutes: Math.min(10, prev.replyIntervalMinutes + 0.5)
+                  }))}
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={groupSettingsStyles.settingItem}>
+              <Text style={groupSettingsStyles.settingLabel}>参考消息数量限制</Text>
+              <Text style={groupSettingsStyles.settingDescription}>
+                设置角色回复时可以参考的历史消息数量
+              </Text>
+              <View style={groupSettingsStyles.settingControl}>
+                <TouchableOpacity
+                  style={groupSettingsStyles.adjustButton}
+                  onPress={() => setSettings(prev => ({
+                    ...prev,
+                    referenceMessageLimit: Math.max(1, prev.referenceMessageLimit - 1)
+                  }))}
+                >
+                  <Ionicons name="remove" size={18} color="#fff" />
+                </TouchableOpacity>
+                <Text style={groupSettingsStyles.settingValue}>
+                  {settings.referenceMessageLimit}
+                </Text>
+                <TouchableOpacity
+                  style={groupSettingsStyles.adjustButton}
+                  onPress={() => setSettings(prev => ({
+                    ...prev,
+                    referenceMessageLimit: Math.min(10, prev.referenceMessageLimit + 1)
+                  }))}
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+          <View style={groupSettingsStyles.dangerSection}>
+                <TouchableOpacity
+                  style={groupSettingsStyles.disbandButton}
+                  onPress={handleDisbandGroup}
+                >
+                  <Text style={groupSettingsStyles.disbandButtonText}>解散群聊</Text>
+                </TouchableOpacity>
+              </View>
+                      
+          <TouchableOpacity
+            style={groupSettingsStyles.saveButton}
+            onPress={() => {
+              onSave(settings);
+              onClose();
+            }}
+          >
+            <Text style={groupSettingsStyles.saveButtonText}>保存设置</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+interface GroupChatSettings {
+  dailyMessageLimit: number;
+  replyIntervalMinutes: number;
+  referenceMessageLimit: number;
+}
 
 interface TopBarWithBackgroundProps {
   selectedCharacter: Character | undefined | null;
-  selectedGroup?: Group | null; // Add group prop
+  selectedGroup?: Group | null;
   onAvatarPress: () => void;
   onMemoPress: () => void;
   onSettingsPress: () => void;
   onMenuPress: () => void;
   onSaveManagerPress?: () => void;
   showBackground?: boolean;
-  isGroupMode?: boolean; // Add flag to indicate group chat mode
+  isGroupMode?: boolean;
+  onGroupSettingsChange?: (settings: GroupChatSettings) => void;
+  currentUser?: any;
+  onGroupDisbanded?: (groupId: string) => void;
 }
 
-const HEADER_HEIGHT = 90; // Fixed height for consistency
+const HEADER_HEIGHT = 90;
 const { width } = Dimensions.get('window');
 
 const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
@@ -43,7 +230,10 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   onMenuPress,
   onSaveManagerPress,
   showBackground = true,
-  isGroupMode = false, // Default to character mode
+  isGroupMode = false,
+  onGroupSettingsChange,
+  currentUser,
+  onGroupDisbanded,
 }) => {
   const [scrollY] = useState(new Animated.Value(0));
   const [navbarHeight, setNavbarHeight] = useState(
@@ -51,26 +241,89 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   );
   const [isRegexModalVisible, setIsRegexModalVisible] = useState(false);
   const [isMemoryControlVisible, setIsMemoryControlVisible] = useState(false);
+  const [isGroupSettingsVisible, setGroupSettingsVisible] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<Character[]>([]);
+  const [groupSettings, setGroupSettings] = useState<GroupChatSettings>({
+    dailyMessageLimit: 50,
+    replyIntervalMinutes: 1,
+    referenceMessageLimit: 5,
+  });
 
-  // Calculate header opacity based on scroll position
+  useEffect(() => {
+    if (isGroupMode && selectedGroup) {
+      const loadGroupMembers = async () => {
+        try {
+          const characterIds = selectedGroup.groupMemberIds.filter(
+            id => id !== selectedGroup.groupOwnerId
+          );
+
+          if (characterIds.length > 0) {
+            const characters = await CharacterLoader.loadCharactersByIds(characterIds);
+            setGroupMembers(characters);
+            console.log(`【TopBar】已加载${characters.length}个群组成员`);
+          } else {
+            setGroupMembers([]);
+          }
+        } catch (error) {
+          console.error('【TopBar】加载群组成员信息失败:', error);
+          setGroupMembers([]);
+        }
+      };
+
+      loadGroupMembers();
+    }
+  }, [isGroupMode, selectedGroup]);
+
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, 50],
     outputRange: [0.85, 1],
     extrapolate: 'clamp',
   });
 
-  // Set up safe area insets
   useEffect(() => {
     if (Platform.OS === 'ios') {
-      // On iOS we can use a fixed value for the status bar
       setNavbarHeight(44);
     }
   }, []);
 
-  // Handle memory control button press
   const handleMemoryControlPress = () => {
     setIsMemoryControlVisible(true);
     console.log('[TopBar] Opening memory control panel');
+  };
+
+  const handleGroupSettingsPress = () => {
+    setGroupSettingsVisible(true);
+    console.log('[TopBar] Opening group settings panel');
+  };
+
+  const handleSaveGroupSettings = (newSettings: GroupChatSettings) => {
+    setGroupSettings(newSettings);
+    if (onGroupSettingsChange) {
+      onGroupSettingsChange(newSettings);
+    }
+    console.log('[TopBar] Group settings saved:', newSettings);
+  };
+
+  const handleDisbandGroup = async () => {
+    if (!selectedGroup || !currentUser) return;
+
+    try {
+      console.log('[TopBar] 正在解散群聊:', selectedGroup.groupId);
+      const success = await disbandGroupAction(currentUser, selectedGroup.groupId);
+
+      if (success) {
+        console.log('[TopBar] 群聊已成功解散');
+        if (onGroupDisbanded) {
+          onGroupDisbanded(selectedGroup.groupId);
+        }
+      } else {
+        console.error('[TopBar] 解散群聊失败');
+        Alert.alert('操作失败', '解散群聊失败，请重试。');
+      }
+    } catch (error) {
+      console.error('[TopBar] 解散群聊出错:', error);
+      Alert.alert('操作失败', '解散群聊时发生错误，请重试。');
+    }
   };
 
   return (
@@ -85,7 +338,6 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
           },
         ]}
       >
-        {/* Background Image or Gradient */}
         {showBackground && (!isGroupMode ? (selectedCharacter?.backgroundImage ? (
           <Image
             source={
@@ -107,30 +359,27 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
           />
         ))}
 
-        {/* Blur Overlay */}
         {showBackground && <BlurView intensity={80} style={styles.blurView} tint="dark" />}
-        
-        {/* Dark Overlay */}
+
         {showBackground && <View style={styles.overlay} />}
 
-        {/* Content */}
         <View style={styles.content}>
-          <TouchableOpacity 
-            style={styles.menuButton} 
+          <TouchableOpacity
+            style={styles.menuButton}
             onPress={onMenuPress}
           >
             <Ionicons name="menu" size={26} color="#fff" />
           </TouchableOpacity>
 
           <View style={styles.characterInfo}>
-            <TouchableOpacity 
-              style={styles.avatarContainer} 
+            <TouchableOpacity
+              style={styles.avatarContainer}
               onPress={onAvatarPress}
             >
               {isGroupMode && selectedGroup ? (
                 <View style={styles.groupAvatarWrapper}>
                   <GroupAvatar
-                    members={[]} // Get members from character data based on group member IDs 
+                    members={groupMembers}
                     size={40}
                     maxDisplayed={4}
                   />
@@ -146,18 +395,17 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
                 />
               )}
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.nameContainer}
               onPress={onAvatarPress}
             >
               <Text style={styles.characterName} numberOfLines={1}>
-                {isGroupMode 
+                {isGroupMode
                   ? (selectedGroup?.groupName || '群聊')
                   : (selectedCharacter?.name || '选择角色')}
               </Text>
-              
-              {/* Add group topic as subtitle */}
+
               {isGroupMode && selectedGroup?.groupTopic && (
                 <Text style={styles.groupTopic} numberOfLines={1}>
                   {selectedGroup.groupTopic}
@@ -167,66 +415,76 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
           </View>
 
           <View style={styles.actions}>
-            {/* Show memory control button only in character mode */}
             {!isGroupMode && selectedCharacter && (
-              <TouchableOpacity 
-                style={styles.actionButton} 
+              <TouchableOpacity
+                style={styles.actionButton}
                 onPress={handleMemoryControlPress}
                 accessibilityLabel="Memory Control"
               >
-                <MaterialCommunityIcons 
-                  name="memory" 
-                  size={24} 
-                  color="#fff" 
+                <MaterialCommunityIcons
+                  name="memory"
+                  size={24}
+                  color="#fff"
                 />
               </TouchableOpacity>
             )}
-            
-            {/* Show memo button in both modes */}
-            <TouchableOpacity 
-              style={styles.actionButton} 
-              onPress={onMemoPress}
-            >
-              <MaterialCommunityIcons name="notebook-outline" size={24} color="#fff" />
-            </TouchableOpacity>
-            
-            {/* Show settings button in both modes */}
-            <TouchableOpacity 
-              style={styles.actionButton} 
-              onPress={onSettingsPress}
+
+            {!isGroupMode && (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={onMemoPress}
+              >
+                <MaterialCommunityIcons name="notebook-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={isGroupMode ? handleGroupSettingsPress : onSettingsPress}
             >
               <Ionicons name="settings-outline" size={24} color="#fff" />
             </TouchableOpacity>
 
-            {/* Show save manager button only in character mode */}
             {!isGroupMode && onSaveManagerPress && (
               <TouchableOpacity onPress={onSaveManagerPress} style={styles.actionButton}>
                 <Ionicons name="bookmark-outline" size={24} color="#fff" />
               </TouchableOpacity>
             )}
-            
-            {/* Show manage button only in group mode */}
+
             {isGroupMode && (
-              <TouchableOpacity onPress={onAvatarPress} style={styles.actionButton}>
+              <TouchableOpacity
+                onPress={onAvatarPress}
+                style={[styles.actionButton, styles.groupManageButton]}
+              >
                 <Ionicons name="people" size={24} color="#fff" />
               </TouchableOpacity>
             )}
           </View>
         </View>
       </Animated.View>
-      
-      {/* Memory Processing Control Modal - only available in character mode */}
+
       {!isGroupMode && (
-        <MemoryProcessingControl 
+        <MemoryProcessingControl
           visible={isMemoryControlVisible}
           onClose={() => setIsMemoryControlVisible(false)}
           characterId={selectedCharacter?.id}
           conversationId={selectedCharacter ? `conversation-${selectedCharacter.id}` : undefined}
         />
       )}
-      
-      {/* Keep the RegexToolModal for use in other screens */}
-      <RegexToolModal 
+
+      {isGroupMode && (
+        <GroupSettingsModal
+          visible={isGroupSettingsVisible}
+          onClose={() => setGroupSettingsVisible(false)}
+          onSave={handleSaveGroupSettings}
+          initialSettings={groupSettings}
+          selectedGroup={selectedGroup}
+          currentUser={currentUser}
+          onDisbandGroup={handleDisbandGroup}
+        />
+      )}
+
+      <RegexToolModal
         visible={isRegexModalVisible}
         onClose={() => setIsRegexModalVisible(false)}
       />
@@ -276,7 +534,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '100%',
     height: '100%',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)', // Dark overlay
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   content: {
     flex: 1,
@@ -323,6 +581,128 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 4,
     position: 'relative',
+  },
+  groupManageButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.2)',
+    borderRadius: 20,
+    padding: 8,
+    marginLeft: 8,
+    zIndex: 5,
+  },
+});
+
+const groupSettingsStyles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    maxHeight: '100%',
+    backgroundColor: 'rgba(40, 40, 40, 0.95)',
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    paddingBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  settingsContainer: {
+    flex: 1,
+    maxHeight: 300,
+  },
+  settingItem: {
+    marginVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    paddingBottom: 15,
+  },
+  settingLabel: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+    marginBottom: 5,
+  },
+  settingDescription: {
+    fontSize: 12,
+    color: '#bbb',
+    marginBottom: 10,
+  },
+  settingControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adjustButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingValue: {
+    fontSize: 18,
+    color: 'rgb(255, 224, 195)',
+    marginHorizontal: 15,
+    width: 40,
+    textAlign: 'center',
+  },
+  saveButton: {
+    backgroundColor: 'rgb(255, 224, 195)',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  saveButtonText: {
+    color: '#333',
+    fontWeight: 'bold',
+  },
+  dangerSection: {
+  },
+  dangerSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'rgba(255,59,48,0.9)',
+    marginBottom: 10,
+  },
+  disbandButton: {
+    backgroundColor: 'rgba(255,59,48,0.7)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    marginVertical: 10,
+  },
+  disbandButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  dangerDescription: {
+    fontSize: 12,
+    color: 'rgba(255,59,48,0.9)',
+    fontStyle: 'italic',
   },
 });
 

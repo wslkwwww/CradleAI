@@ -32,6 +32,7 @@ interface GroupDialogProps {
   onScrollPositionChange?: (groupId: string, position: number) => void;
   currentUser: User;
   groupMembers: Character[];
+  isGroupDisbanded?: boolean; // 添加群组是否已解散的标志
 }
 
 // Constants for virtualization
@@ -48,6 +49,7 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
   onScrollPositionChange,
   currentUser,
   groupMembers,
+  isGroupDisbanded = false, // 默认为false
 }) => {
   // Reference to FlatList for scrolling
   const flatListRef = useRef<FlatList>(null);
@@ -83,6 +85,21 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
   // Character profile cache for message display
   const [characterProfiles, setCharacterProfiles] = useState<Record<string, Character>>({});
 
+  // 添加本地消息状态，以便从服务更新
+  const [localMessages, setLocalMessages] = useState<GroupMessage[]>([]);
+
+  // 初始化本地消息
+  useEffect(() => {
+    // 如果群组已解散，则清空本地消息
+    if (isGroupDisbanded) {
+      console.log(`[GroupDialog] 群组 ${groupId} 已解散，清空消息`);
+      setLocalMessages([]);
+      return;
+    }
+    
+    setLocalMessages(messages);
+  }, [messages, isGroupDisbanded]);
+
   // Update current group ID when it changes
   useEffect(() => {
     if (groupId && groupId !== currentGroupId) {
@@ -101,16 +118,59 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
     setCharacterProfiles(profiles);
   }, [groupMembers]);
 
-  // Load and process messages
+  // Enhance the message listener effect to properly handle group changes:
   useEffect(() => {
-    if (messages.length === 0) {
+    if (!groupId || isGroupDisbanded) return; // 如果群组已解散，不订阅消息
+    
+    console.log(`[GroupDialog] 开始订阅群组 ${groupId} 的消息更新`);
+    
+    // 订阅消息更新
+    const unsubscribe = GroupService.addMessageListener(groupId, (updatedMessages) => {
+      // 如果群组已解散，不更新消息
+      if (isGroupDisbanded) {
+        console.log(`[GroupDialog] 群组 ${groupId} 已解散，不更新消息`);
+        return;
+      }
+      
+      console.log(`[GroupDialog] 收到群组 ${groupId} 的消息更新，消息数: ${updatedMessages.length}`);
+      
+      // 更新本地消息状态，而不仅是打印日志
+      setLocalMessages(updatedMessages);
+      
+      // 检查更新的消息是否与当前显示的消息不同
+      if (updatedMessages.length !== localMessages.length) {
+        // 如果用户在底部，重置用户滚动状态以触发自动滚动
+        if (isNearBottom) {
+          setUserHasScrolled(false);
+        }
+      }
+    });
+    
+    // 清理函数 - make sure to cleanup the previous listener when the group changes
+    return () => {
+      console.log(`[GroupDialog] 取消订阅群组 ${groupId} 的消息更新`);
+      unsubscribe();
+    };
+  }, [groupId, isNearBottom, isGroupDisbanded]); // 添加isGroupDisbanded作为依赖项
+
+  // Reset local messages when the group changes
+  useEffect(() => {
+    if (messages.length > 0 && groupId) {
+      console.log(`[GroupDialog] Group changed or initial messages received, updating local messages for ${groupId}`);
+      setLocalMessages(messages);
+    }
+  }, [groupId, messages]);
+
+  // 修改数据源，使用localMessages代替传入的messages
+  useEffect(() => {
+    if (localMessages.length === 0) {
       setVirtualizedMessages([]);
       setHasMoreMessagesToLoad(false);
       return;
     }
 
     // Ensure all messages have unique IDs before processing
-    const processedMessages = messages.map(msg => {
+    const processedMessages = localMessages.map(msg => {
       if (msg.messageId) return msg;
       
       // Generate a stable ID for messages without one
@@ -152,25 +212,6 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
       setVirtualizedMessages(prev => [...prev, ...newMessages]);
       return;
     }
-    
-    // User has scrolled and viewed history - preserve their position and context
-    if (userHasScrolled && virtualizedMessages.length > INITIAL_LOAD_COUNT) {
-      // For non-additive changes, verify we don't duplicate messages by comparing arrays
-      const currentIds = new Set(virtualizedMessages.map(msg => msg.messageId));
-      const processedIds = new Set(processedMessages.map(msg => msg.messageId));
-      
-      // If we have the same IDs in both arrays (regardless of order), keep the current view
-      const hasSameMessages = 
-        currentIds.size === processedIds.size && 
-        [...currentIds].every(id => processedIds.has(id));
-        
-      if (hasSameMessages) {
-        console.log(`[GroupDialog] Settings changed but messages are the same, preserving state`);
-        return; // Don't update state if messages are the same
-      }
-      
-      console.log(`[GroupDialog] Messages changed significantly, updating view`);
-    }
 
     // Standard initialization for large conversations
     const totalCount = processedMessages.length;
@@ -184,39 +225,11 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
     
     // Reset scroll position when messages change significantly
     setInitialScrollDone(false);
-  }, [messages, userHasScrolled]);
-
-  // 添加订阅机制
-  useEffect(() => {
-    if (!groupId) return;
-    
-    console.log(`[GroupDialog] 开始订阅群组 ${groupId} 的消息更新`);
-    
-    // 订阅消息更新
-    const unsubscribe = GroupService.addMessageListener(groupId, (updatedMessages) => {
-      console.log(`[GroupDialog] 收到群组 ${groupId} 的消息更新，消息数: ${updatedMessages.length}`);
-      
-      // 检查更新的消息是否与当前显示的消息不同
-      if (updatedMessages.length !== messages.length) {
-        // 重置状态以确保滚动到底部
-        if (isNearBottom) {
-          setUserHasScrolled(false);
-        }
-        
-        // 新消息时自动滚动到底部的操作会在messages更新的useEffect中处理
-      }
-    });
-    
-    // 清理函数
-    return () => {
-      console.log(`[GroupDialog] 取消订阅群组 ${groupId} 的消息更新`);
-      unsubscribe();
-    };
-  }, [groupId, messages.length, isNearBottom]);
+  }, [localMessages, userHasScrolled]); // 将依赖从messages改为localMessages
 
   // Load more messages when scrolling up
   const loadMoreMessages = useCallback(() => {
-    if (isLoadingMore || !hasMoreMessagesToLoad || messages.length === 0) return;
+    if (isLoadingMore || !hasMoreMessagesToLoad || localMessages.length === 0) return;
     
     setIsLoadingMore(true);
     console.log(`[GroupDialog] Starting to load more messages. Current count: ${virtualizedMessages.length}`);
@@ -230,7 +243,7 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
     }
     
     // Find the index of the first visible message in the full message array
-    const firstVisibleIndex = messages.findIndex(msg => msg.messageId === firstVisibleMessageId);
+    const firstVisibleIndex = localMessages.findIndex(msg => msg.messageId === firstVisibleMessageId);
     
     if (firstVisibleIndex <= 0) {
       console.log(`[GroupDialog] Could not find first visible message in full list, or it's already at position 0`);
@@ -241,9 +254,9 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
     
     // Calculate the range of additional messages to load
     const newStartIndex = Math.max(0, firstVisibleIndex - BATCH_SIZE);
-    const additionalMessages = messages.slice(newStartIndex, firstVisibleIndex);
+    const additionalMessages = localMessages.slice(newStartIndex, firstVisibleIndex);
     
-    console.log(`[GroupDialog] Loading ${additionalMessages.length} more messages (${newStartIndex}-${firstVisibleIndex} of ${messages.length})`);
+    console.log(`[GroupDialog] Loading ${additionalMessages.length} more messages (${newStartIndex}-${firstVisibleIndex} of ${localMessages.length})`);
     
     // If no additional messages to load, exit early
     if (additionalMessages.length === 0) {
@@ -301,7 +314,7 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
         }
       }, 100);
     }, 300);
-  }, [isLoadingMore, hasMoreMessagesToLoad, messages, virtualizedMessages]);
+  }, [isLoadingMore, hasMoreMessagesToLoad, localMessages, virtualizedMessages]);
 
   // Handle scroll events
   const handleUserScroll = (event: any) => {
@@ -531,6 +544,21 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
 
   // Render empty state when no messages
   const renderEmptyState = () => {
+    // 如果群组已解散，显示解散信息
+    if (isGroupDisbanded) {
+      return (
+        <View style={styles.emptyStateContainer}>
+          <Ionicons name="alert-circle-outline" size={60} color="#777" />
+          <Text style={styles.emptyStateTitle}>
+            群聊已解散
+          </Text>
+          <Text style={styles.emptyStateSubtitle}>
+            此群聊已被群主解散，无法继续聊天
+          </Text>
+        </View>
+      );
+    }
+    
     return (
       <View style={styles.emptyStateContainer}>
         <Ionicons name="chatbubbles-outline" size={60} color="#777" />
@@ -594,7 +622,7 @@ const GroupDialog: React.FC<GroupDialogProps> = ({
 
   return (
     <>
-      {messages.length === 0 ? (
+      {localMessages.length === 0 ? ( // 修改这里使用localMessages
         <View style={[styles.container, style, styles.emptyContent]}>
           {renderEmptyState()}
         </View>

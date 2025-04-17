@@ -289,6 +289,30 @@ export class GroupManager {
   }
 
   /**
+   * 解散群聊
+   */
+  async disbandGroup(groupId: string): Promise<boolean> {
+    try {
+      console.log(`【群聊管理器】解散群聊，群组ID: ${groupId}`);
+      
+      // 获取群组信息进行日志记录
+      const group = await GroupService.getGroupById(groupId);
+      if (group) {
+        console.log(`【群聊管理器】要解散的群组信息: ${group.groupName}, 成员数: ${group.groupMemberIds.length}`);
+      } else {
+        console.warn(`【群聊管理器】未找到群组: ${groupId}`);
+        return false;
+      }
+      
+      // 使用Group Service解散群组
+      return await GroupService.disbandGroup(groupId, this.user.id);
+    } catch (error) {
+      console.error(`【群聊管理器】解散群聊失败:`, error);
+      return false;
+    }
+  }
+
+  /**
    * 更新群聊设置
    */
   async updateGroupSettings(

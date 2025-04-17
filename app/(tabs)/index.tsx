@@ -44,6 +44,7 @@ import '@/src/memory/utils/polyfills';
 import Mem0Service from '@/src/memory/services/Mem0Service';
 import { ttsService } from '@/services/ttsService';
 import { useDialogMode } from '@/constants/DialogModeContext';
+import { CharacterLoader } from '@/src/utils/character-loader'; // Import CharacterLoader
 
 // Create a stable memory configuration outside the component
 type MemoryConfig = {
@@ -154,6 +155,7 @@ const App = () => {
   const [isGroupMode, setIsGroupMode] = useState(false);
   const [groupMembers, setGroupMembers] = useState<Character[]>([]);
   const [isGroupManageModalVisible, setIsGroupManageModalVisible] = useState(false);
+  const [disbandedGroups, setDisbandedGroups] = useState<string[]>([]);
 
   // UI state
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
@@ -241,7 +243,10 @@ useEffect(() => {
     
     try {
       const userGroups = await getUserGroups(user);
-      setGroups(userGroups);
+      // Filter out disbanded groups
+      const filteredGroups = userGroups.filter(group => !disbandedGroups.includes(group.groupId));
+      setGroups(filteredGroups);
+      console.log(`[Index] Loaded ${filteredGroups.length} groups (filtered from ${userGroups.length})`);
     } catch (error) {
       console.error('Failed to load user groups:', error);
     }
@@ -315,28 +320,50 @@ useEffect(() => {
     }
   }, [user]); // 依赖于 user
 
-  // Load group messages and members when a group is selected or groups list changes (来自目标2)
+  // Load group messages and members when a group is selected or groups list changes
   useEffect(() => {
     if (selectedGroupId) {
       loadGroupMessages(selectedGroupId);
 
       // Find the group to get member IDs
       const selectedGroup = groups.find(g => g.groupId === selectedGroupId);
-      if (selectedGroup && characters) { // 确保 characters 也可用
-        // Load member information for all characters in the group
-        const memberCharacters = characters.filter(
-          char => selectedGroup.groupMemberIds && selectedGroup.groupMemberIds.includes(char.id) // 检查 groupMemberIds 是否存在
+      if (selectedGroup && characters) {
+        // Only load character members (exclude the current user)
+        const characterMemberIds = selectedGroup.groupMemberIds?.filter(
+          id => id !== user?.id
+        ) || [];
+        
+        // First try to find characters in the loaded characters array
+        let memberCharacters = characters.filter(
+          char => characterMemberIds.includes(char.id)
         );
-        setGroupMembers(memberCharacters);
+        
+        // If we didn't find all members, try to load the missing ones
+        if (memberCharacters.length < characterMemberIds.length) {
+          console.log(`[Index] Found ${memberCharacters.length} of ${characterMemberIds.length} group members, loading missing ones...`);
+          
+          // Load missing members in the background
+          CharacterLoader.loadCharactersByIds(characterMemberIds)
+            .then(loadedMembers => {
+              if (loadedMembers && loadedMembers.length > 0) {
+                console.log(`[Index] Successfully loaded ${loadedMembers.length} group members`);
+                setGroupMembers(loadedMembers);
+              }
+            })
+            .catch(error => {
+              console.error('[Index] Error loading missing group members:', error);
+            });
+        } else {
+          setGroupMembers(memberCharacters);
+        }
       } else {
-         setGroupMembers([]); // 如果找不到组或没有角色信息，清空成员列表
+        setGroupMembers([]);
       }
     } else {
-      // 如果没有选择组，清空消息和成员
       setGroupMessages([]);
       setGroupMembers([]);
     }
-  }, [selectedGroupId, groups, characters]); // 依赖于 selectedGroupId, groups, 和 characters
+  }, [selectedGroupId, groups, characters, user?.id]);
 
   // --- Helper Functions ---
 
@@ -353,6 +380,33 @@ useEffect(() => {
        // 可以考虑设置错误状态或通知用户
     }
   };
+
+  // Add function to handle group disbanded
+  const handleGroupDisbanded = useCallback((groupId: string) => {
+    console.log(`[Index] Group disbanded: ${groupId}`);
+    
+    // Add to disbanded groups list
+    setDisbandedGroups(prev => [...prev, groupId]);
+    
+    // If the current group is the one disbanded, clear it
+    if (selectedGroupId === groupId) {
+      setSelectedGroupId(null);
+      setGroupMessages([]);
+      setIsGroupMode(false);
+      
+      // If there's a character selected previously, switch back to it
+      if (selectedConversationId) {
+        console.log(`[Index] Switching back to character conversation: ${selectedConversationId}`);
+      } else if (conversations.length > 0) {
+        // If no previous character conversation, select the first available one
+        setSelectedConversationId(conversations[0].id);
+        console.log(`[Index] Switching to first available character: ${conversations[0].id}`);
+      }    
+    }
+    
+    // Reload groups to refresh the list
+    loadUserGroups();
+  }, [selectedGroupId, selectedConversationId, conversations]);
 
   // --- Component Render ---
 
@@ -1538,6 +1592,7 @@ useEffect(() => {
             onClose={toggleSidebar}
             animationValue={contentSlideAnim}
             currentUser={user}
+            disbandedGroups={disbandedGroups} // Pass disbanded groups to Sidebar
           />
         )}
         
@@ -1569,6 +1624,8 @@ useEffect(() => {
                 onSaveManagerPress={isGroupMode ? undefined : toggleSaveManager}
                 showBackground={false}
                 isGroupMode={isGroupMode}
+                currentUser={user} // Pass current user for permission checks
+                onGroupDisbanded={handleGroupDisbanded} // Pass the disband callback
               />
 
               <SafeAreaView style={[
@@ -1607,7 +1664,7 @@ useEffect(() => {
                   mode === 'visual-novel' && !isGroupMode && styles.visualNovelContentContainer,
                   mode === 'background-focus' && !isGroupMode && styles.backgroundFocusContentContainer
                 ]}>
-                  {/* Conditionally render either ChatDialog or GroupDialog */}
+                  {/* Conditionally render either GroupDialog or ChatDialog */}
                   {isGroupMode ? (
                     <GroupDialog
                       style={styles.chatDialog}
@@ -1622,6 +1679,7 @@ useEffect(() => {
                       }}
                       currentUser={user || { id: '', name: 'User' }}
                       groupMembers={groupMembers}
+                      isGroupDisbanded={disbandedGroups.includes(selectedGroupId || '')} // Pass disbanded status
                     />
                   ) : (
                     <ChatDialog
@@ -1648,14 +1706,12 @@ useEffect(() => {
                 ]}>
                   {/* Conditionally render either ChatInput or GroupInput */}
                   {isGroupMode ? (
-                    selectedGroup && (
-                      <GroupInput
-                        onSendMessage={handleSendGroupMessage}
-                        groupId={selectedGroupId || ''}
-                        currentUser={user || { id: '', name: 'User' }}
-                        groupMembers={groupMembers}
-                      />
-                    )
+                    <GroupInput
+                      onSendMessage={handleSendGroupMessage}
+                      groupId={selectedGroupId || ''}
+                      currentUser={user || { id: '', name: 'User' }}
+                      groupMembers={groupMembers}
+                    />
                   ) : (
                     selectedCharacter && (
                       <ChatInput

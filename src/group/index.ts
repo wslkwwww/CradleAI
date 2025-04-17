@@ -91,3 +91,16 @@ export function removeGroupMessageListener(
 ): void {
   GroupService.removeMessageListener(groupId, listener);
 }
+
+/**
+ * 解散群聊
+ * @param user 当前用户
+ * @param groupId 群聊ID
+ */
+export async function disbandGroup(
+  user: User,
+  groupId: string
+): Promise<boolean> {
+  const manager = new GroupManager(user);
+  return await manager.disbandGroup(groupId);
+}

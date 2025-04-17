@@ -850,7 +850,7 @@ const ApiSettings = () => {
                         color="#4CAF50"
                       /> 已激活
                     </Text>
-                    <Text style={styles.licenseInfoText}>
+                    {/* <Text style={styles.licenseInfoText}>
                       计划: {licenseInfo.planId || '标准版'}
                     </Text>
                     <Text style={styles.licenseInfoText}>
@@ -864,10 +864,10 @@ const ApiSettings = () => {
                     <Text style={styles.licenseInfoText}>
                       已绑定设备数: {licenseInfo.deviceCount || 1}/3
                     </Text>
-                    {/* 添加设备ID显示，方便测试 */}
+
                     <Text style={styles.licenseInfoText}>
                       设备ID: {licenseInfo.deviceId ? `${licenseInfo.deviceId.substring(0, 8)}...` : '未知'}
-                    </Text>
+                    </Text> */}
 
                     <View style={styles.cloudServiceContainer}>
                       <Text style={styles.cloudServiceLabel}>启用云服务</Text>
