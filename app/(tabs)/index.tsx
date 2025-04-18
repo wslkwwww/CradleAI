@@ -1653,6 +1653,7 @@ useEffect(() => {
                 isGroupMode={isGroupMode}
                 currentUser={user} // Pass current user for permission checks
                 onGroupDisbanded={handleGroupDisbanded} // Pass the disband callback
+                isEmpty={!isGroupMode && (!selectedCharacter || messages.length === 0)} // Pass empty state
               />
 
               <SafeAreaView style={[

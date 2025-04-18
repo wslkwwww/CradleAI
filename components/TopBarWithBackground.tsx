@@ -321,6 +321,7 @@ interface TopBarWithBackgroundProps {
   onGroupSettingsChange?: (settings: GroupChatSettings) => void;
   currentUser?: any;
   onGroupDisbanded?: (groupId: string) => void;
+  isEmpty?: boolean; // Add new prop to indicate empty state
 }
 
 const HEADER_HEIGHT = 90;
@@ -339,6 +340,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
   onGroupSettingsChange,
   currentUser,
   onGroupDisbanded,
+  isEmpty = false, // Default to false for backward compatibility
 }) => {
   const [scrollY] = useState(new Animated.Value(0));
   const [navbarHeight, setNavbarHeight] = useState(
@@ -544,51 +546,60 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
             <Ionicons name="menu" size={26} color="#fff" />
           </TouchableOpacity>
 
-          <View style={styles.characterInfo}>
-            <TouchableOpacity
-              style={styles.avatarContainer}
-              onPress={onAvatarPress}
-            >
-              {isGroupMode && selectedGroup ? (
-                <View style={styles.groupAvatarWrapper}>
-                  <GroupAvatar
-                    members={groupMembers}
-                    size={40}
-                    maxDisplayed={4}
+          {/* Only show character info when not in empty state or in group mode */}
+          {(!isEmpty || isGroupMode) && (
+            <View style={styles.characterInfo}>
+              <TouchableOpacity
+                style={styles.avatarContainer}
+                onPress={onAvatarPress}
+              >
+                {isGroupMode && selectedGroup ? (
+                  <View style={styles.groupAvatarWrapper}>
+                    <GroupAvatar
+                      members={groupMembers}
+                      size={40}
+                      maxDisplayed={4}
+                    />
+                  </View>
+                ) : (
+                  <Image
+                    source={
+                      selectedCharacter?.avatar
+                        ? { uri: String(selectedCharacter.avatar) }
+                        : require('@/assets/images/default-avatar.png')
+                    }
+                    style={styles.avatar}
                   />
-                </View>
-              ) : (
-                <Image
-                  source={
-                    selectedCharacter?.avatar
-                      ? { uri: String(selectedCharacter.avatar) }
-                      : require('@/assets/images/default-avatar.png')
-                  }
-                  style={styles.avatar}
-                />
-              )}
-            </TouchableOpacity>
+                )}
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.nameContainer}
-              onPress={onAvatarPress}
-            >
-              <Text style={styles.characterName} numberOfLines={1}>
-                {isGroupMode
-                  ? (selectedGroup?.groupName || '群聊')
-                  : (selectedCharacter?.name || '选择角色')}
-              </Text>
-
-              {isGroupMode && selectedGroup?.groupTopic && (
-                <Text style={styles.groupTopic} numberOfLines={1}>
-                  {selectedGroup.groupTopic}
+              <TouchableOpacity
+                style={styles.nameContainer}
+                onPress={onAvatarPress}
+              >
+                <Text style={styles.characterName} numberOfLines={1}>
+                  {isGroupMode
+                    ? (selectedGroup?.groupName || '群聊')
+                    : (selectedCharacter?.name || '选择角色')}
                 </Text>
-              )}
-            </TouchableOpacity>
-          </View>
+
+                {isGroupMode && selectedGroup?.groupTopic && (
+                  <Text style={styles.groupTopic} numberOfLines={1}>
+                    {selectedGroup.groupTopic}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Empty placeholder div to maintain layout when character info is hidden */}
+          {isEmpty && !isGroupMode && (
+            <View style={styles.emptySpace} />
+          )}
 
           <View style={styles.actions}>
-            {!isGroupMode && selectedCharacter && (
+            {/* Only show memory control button if not in empty state and not in group mode */}
+            {!isEmpty && !isGroupMode && selectedCharacter && (
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={handleMemoryControlPress}
@@ -602,7 +613,8 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               </TouchableOpacity>
             )}
 
-            {!isGroupMode && (
+            {/* Only show memo button if not in empty state and not in group mode */}
+            {!isEmpty && !isGroupMode && (
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={onMemoPress}
@@ -611,19 +623,24 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={isGroupMode ? handleGroupSettingsPress : onSettingsPress}
-            >
-              <Ionicons name="settings-outline" size={24} color="#fff" />
-            </TouchableOpacity>
+            {/* Show settings button in group mode or if not empty in character mode */}
+            {(isGroupMode || !isEmpty) && (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={isGroupMode ? handleGroupSettingsPress : onSettingsPress}
+              >
+                <Ionicons name="settings-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            )}
 
-            {!isGroupMode && onSaveManagerPress && (
+            {/* Only show save manager button if not in empty state and not in group mode */}
+            {!isEmpty && !isGroupMode && onSaveManagerPress && (
               <TouchableOpacity onPress={onSaveManagerPress} style={styles.actionButton}>
                 <Ionicons name="bookmark-outline" size={24} color="#fff" />
               </TouchableOpacity>
             )}
 
+            {/* Always show group manage button in group mode, even when empty */}
             {isGroupMode && (
               <TouchableOpacity
                 onPress={onAvatarPress}
@@ -762,6 +779,9 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 8,
     zIndex: 5,
+  },
+  emptySpace: {
+    flex: 1, // Take up the same space as characterInfo would
   },
 });
 
