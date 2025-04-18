@@ -11,7 +11,8 @@ import {
   Dimensions,
   Modal,
   ScrollView,
-  TextInput
+  TextInput,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Character, User } from '@/shared/types';
@@ -35,7 +36,8 @@ export interface SidebarProps {
   onClose: () => void;
   animationValue?: Animated.Value;
   currentUser: User;
-  disbandedGroups?: string[]; // 添加被解散的群组ID列表
+  disbandedGroups?: string[];
+  onGroupsUpdated?: (groups: Group[]) => void; // Add this line
 }
 
 interface ConversationItem {
@@ -54,7 +56,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   animationValue,
   currentUser,
-  disbandedGroups = [], // 默认为空数组
+  disbandedGroups = [],
+  onGroupsUpdated, // Add this line
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,6 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [groupName, setGroupName] = useState('');
   const [groupTopic, setGroupTopic] = useState('');
   const [selectedCharacters, setSelectedCharacters] = useState<Character[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   
   const sidebarTranslateX = animationValue
     ? animationValue.interpolate({
@@ -75,12 +79,11 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (currentUser) {
       loadUserGroups();
     }
-  }, [currentUser, disbandedGroups]); // 添加disbandedGroups作为依赖项，当有群组解散时重新加载
+  }, [currentUser, disbandedGroups]);
   
   const loadUserGroups = async () => {
     try {
       const groups = await getUserGroups(currentUser);
-      // 过滤掉已解散的群组
       const filteredGroups = groups.filter(group => !disbandedGroups.includes(group.groupId));
       setUserGroups(filteredGroups);
       console.log(`[Sidebar] 加载用户群组: ${filteredGroups.length}个群组`);
@@ -127,6 +130,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
     
     try {
+      setIsLoading(true);
+      
       const newGroup = await createUserGroup(
         currentUser,
         groupName,
@@ -135,25 +140,39 @@ const Sidebar: React.FC<SidebarProps> = ({
       );
       
       if (newGroup) {
-        console.log('Successfully created group:', newGroup.groupId);
+        console.log('[Sidebar] Successfully created group:', newGroup.groupId);
         
-        // Update groups and clean form
-        await loadUserGroups(); // Reload all groups instead of just adding to state
+        // Close the modal first
         setGroupModalVisible(false);
         
+        // Clear form fields
         setGroupName('');
         setGroupTopic('');
         setSelectedCharacters([]);
         
-        // Ensure group characters are immediately available by adding a small delay
-        // before allowing interaction with the newly created group
+        // Explicitly reload all user groups to ensure state is fresh
+        const updatedGroups = await getUserGroups(currentUser);
+        setUserGroups(updatedGroups);
+        console.log(`[Sidebar] Explicitly reloaded ${updatedGroups.length} groups after creation`);
+        
+        // Add a delay before selecting the conversation to ensure proper rendering
         setTimeout(() => {
-          console.log('[Sidebar] New group ready for management:', newGroup.groupId);
-        }, 500);
+          // Select the newly created group
+          console.log('[Sidebar] Selecting newly created group:', newGroup.groupId);
+          onSelectConversation(newGroup.groupId);
+          onClose();
+          
+          // Notify parent that groups have been updated
+          if (onGroupsUpdated) {
+            onGroupsUpdated(updatedGroups);
+          }
+        }, 300);
       }
     } catch (error) {
-      console.error('Failed to create group:', error);
+      console.error('[Sidebar] Failed to create group:', error);
       alert('创建群聊失败，请重试');
+    } finally {
+      setIsLoading(false);
     }
   };
   
@@ -334,10 +353,15 @@ const Sidebar: React.FC<SidebarProps> = ({
               </ScrollView>
               
               <TouchableOpacity
-                style={styles.createButton}
+                style={[styles.createButton, isLoading && styles.disabledButton]}
                 onPress={handleCreateGroup}
+                disabled={isLoading}
               >
-                <Text style={styles.createButtonText}>创建群聊</Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#333" />
+                ) : (
+                  <Text style={styles.createButtonText}>创建群聊</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -545,6 +569,9 @@ const styles = StyleSheet.create({
   createButtonText: {
     color: '#333',
     fontWeight: 'bold',
+  },
+  disabledButton: {
+    backgroundColor: 'rgba(255, 224, 195, 0.5)',
   },
 });
 

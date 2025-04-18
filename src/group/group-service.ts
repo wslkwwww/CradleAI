@@ -83,7 +83,7 @@ export class GroupService {
 
   /**
    * 创建一个新群聊
-   * @param groupName 群聊名称
+* @param groupName 群聊名称
    * @param groupTopic 群聊主题
    * @param owner 群主（用户）
    * @param characters 初始角色列表
@@ -130,15 +130,32 @@ export class GroupService {
       // 保存群组到存储
       await this.saveGroup(newGroup);
       
+      // 确保立即获取所有群组，以确认新群组已经保存
+      const allGroups = await this.getGroups();
+      const savedGroup = allGroups.find(g => g.groupId === newGroup.groupId);
+      
+      if (!savedGroup) {
+        console.error(`【群聊服务】创建群聊失败: 群组未保存到存储`);
+        return null;
+      }
+      
+      console.log(`【群聊服务】成功保存群组: ${newGroup.groupId}, 当前共有 ${allGroups.length} 个群组`);
+      
       // 创建默认群组设置 - 默认禁用定时消息功能
       const scheduler = GroupScheduler.getInstance();
-      scheduler.setGroupSettings(newGroup.groupId, {
+      const defaultSettings = {
         dailyMessageLimit: 50,
         replyIntervalMinutes: 1,
         referenceMessageLimit: 5,
         timedMessagesEnabled: false // 默认禁用定时消息
-      });
+      };
+      
+      scheduler.setGroupSettings(newGroup.groupId, defaultSettings);
       console.log(`【群聊服务】为新群组 ${newGroup.groupId} 设置默认配置，定时消息功能已禁用`);
+      
+      // 额外确保设置被保存到AsyncStorage
+      const settingsKey = `group_settings_${newGroup.groupId}`;
+      await AsyncStorage.setItem(settingsKey, JSON.stringify(defaultSettings));
       
       // 发送群组创建消息
       const creationMessage: GroupMessage = {
@@ -154,17 +171,91 @@ export class GroupService {
       
       // 存储群消息
       await this.saveGroupMessage(newGroup.groupId, creationMessage);
+      console.log(`【群聊服务】已添加群组创建消息`);
 
       // 为每个角色初始化
       for (const character of characters) {
         await this.initCharacterForGroup(character.id, newGroup.groupId, apiKey, apiSettings);
       }
       
+      // 添加小延迟确保所有异步操作完成
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       console.log(`【群聊服务】成功创建群聊: ${groupName}, ID: ${newGroup.groupId}`);
       return newGroup;
     } catch (error) {
       console.error(`【群聊服务】创建群聊失败:`, error);
       return null;
+    }
+  }
+
+  /**
+   * 根据ID获取群组
+   */
+  static async getGroupById(groupId: string): Promise<Group | null> {
+    try {
+      console.log(`【群聊服务】获取群组, ID: ${groupId}`);
+      const groups = await this.getGroups();
+      const group = groups.find(g => g.groupId === groupId) || null;
+      
+      if (!group) {
+        console.warn(`【群聊服务】未找到群组: ${groupId}`);
+        return null;
+      }
+      
+      // 确保群组有必要的字段
+      group.groupSettings = group.groupSettings || {
+        allowAnonymous: false,
+        requireApproval: false,
+        maxMembers: 20
+      };
+      
+      return group;
+    } catch (error) {
+      console.error(`【群聊服务】获取群组失败:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 保存群组到存储
+   */
+  private static async saveGroup(group: Group): Promise<void> {
+    try {
+      console.log(`【群聊服务】保存群组, ID: ${group.groupId}, 名称: ${group.groupName}`);
+      
+      // 获取现有群组列表
+      const groups = await this.getGroups();
+      
+      // 查找是否已存在相同ID的群组
+      const existingIndex = groups.findIndex(g => g.groupId === group.groupId);
+      
+      if (existingIndex >= 0) {
+        // 更新现有群组
+        console.log(`【群聊服务】更新现有群组: ${group.groupId}`);
+        groups[existingIndex] = group;
+      } else {
+        // 添加新群组
+        console.log(`【群聊服务】添加新群组: ${group.groupId}`);
+        groups.push(group);
+      }
+      
+      // 保存更新后的群组列表
+      await AsyncStorage.setItem('user_groups', JSON.stringify(groups));
+      console.log(`【群聊服务】保存群组成功, 当前共有 ${groups.length} 个群组`);
+      
+      // Double-check that the group was saved correctly
+      const updatedGroups = await this.getGroups();
+      const savedGroup = updatedGroups.find(g => g.groupId === group.groupId);
+      
+      if (!savedGroup) {
+        console.error(`【群聊服务】保存群组失败: 保存后无法找到群组 ${group.groupId}`);
+      } else {
+        console.log(`【群聊服务】验证群组保存成功: ${group.groupId}`);
+      }
+    } catch (error) {
+      console.error(`【群聊服务】保存群组失败:`, error);
+      throw error;
     }
   }
 
@@ -202,6 +293,24 @@ export class GroupService {
       // 保存角色群聊数据
       const storageKey = `group_character_${groupId}_${characterId}`;
       await AsyncStorage.setItem(storageKey, JSON.stringify(characterGroupData));
+      
+      // Initialize group settings if they don't exist
+      const settingsKey = `group_settings_${groupId}`;
+      const existingSettings = await AsyncStorage.getItem(settingsKey);
+      
+      if (!existingSettings) {
+        // Create default settings
+        const defaultSettings = {
+          dailyMessageLimit: 50,
+          replyIntervalMinutes: 1,
+          referenceMessageLimit: 5,
+          timedMessagesEnabled: false
+        };
+        
+        // Save settings
+        await AsyncStorage.setItem(settingsKey, JSON.stringify(defaultSettings));
+        console.log(`【群聊服务】为群组 ${groupId} 创建默认设置`);
+      }
       
       console.log(`【群聊服务】成功初始化角色 ${characterId} 的群聊框架`);
       return true;
@@ -659,32 +768,7 @@ ${formattedMessages}
     }
   }
 
-  /**
-   * 保存群组到存储
-   */
-  private static async saveGroup(group: Group): Promise<void> {
-    try {
-      // 获取现有群组列表
-      const groups = await this.getGroups();
-      
-      // 查找是否已存在相同ID的群组
-      const existingIndex = groups.findIndex(g => g.groupId === group.groupId);
-      
-      if (existingIndex >= 0) {
-        // 更新现有群组
-        groups[existingIndex] = group;
-      } else {
-        // 添加新群组
-        groups.push(group);
-      }
-      
-      // 保存更新后的群组列表
-      await AsyncStorage.setItem('user_groups', JSON.stringify(groups));
-    } catch (error) {
-      console.error(`【群聊服务】保存群组失败:`, error);
-      throw error;
-    }
-  }
+
 
   /**
    * 保存群聊消息
@@ -874,18 +958,7 @@ ${formattedMessages}
     }
   }
 
-  /**
-   * 根据ID获取群组
-   */
-  static async getGroupById(groupId: string): Promise<Group | null> {
-    try {
-      const groups = await this.getGroups();
-      return groups.find(g => g.groupId === groupId) || null;
-    } catch (error) {
-      console.error(`【群聊服务】获取群组失败:`, error);
-      return null;
-    }
-  }
+
 
   /**
    * 获取群组的消息列表

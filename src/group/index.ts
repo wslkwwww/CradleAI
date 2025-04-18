@@ -25,24 +25,78 @@ export async function createUserGroup(
   groupTopic: string,
   characters: Character[] = []
 ): Promise<Group | null> {
-  const manager = new GroupManager(user);
-  const newGroup = await manager.createGroup(groupName, groupTopic, characters);
-  
-  // Ensure character data is properly loaded for immediate use
-  if (newGroup && characters.length > 0) {
-    console.log(`[createUserGroup] New group created with ${characters.length} characters, ensuring data consistency`);
+  try {
+    console.log(`[createUserGroup] Starting group creation: ${groupName}`);
+    const manager = new GroupManager(user);
+    const newGroup = await manager.createGroup(groupName, groupTopic, characters);
     
-    // Validate character data is immediately available
-    try {
-      // Force an immediate storage update to ensure consistency
-      const characterIds = newGroup.groupMemberIds.filter(id => id !== user.id);
-      await GroupService.getCharactersByIds(characterIds);
-    } catch (error) {
-      console.error('[createUserGroup] Error validating character data:', error);
+    if (!newGroup) {
+      console.error('[createUserGroup] Failed to create group');
+      return null;
     }
+    
+    console.log(`[createUserGroup] Group created with ID: ${newGroup.groupId}`);
+    
+    // Ensure character data is properly loaded for immediate use
+    if (characters.length > 0) {
+      console.log(`[createUserGroup] Ensuring data consistency for ${characters.length} characters`);
+      
+      try {
+        // Force an immediate storage update to ensure consistency
+        const characterIds = newGroup.groupMemberIds.filter(id => id !== user.id);
+        const characterData = await GroupService.getCharactersByIds(characterIds);
+        
+        if (characterData.length !== characterIds.length) {
+          console.warn(`[createUserGroup] Not all character data was loaded properly. Expected ${characterIds.length}, got ${characterData.length}`);
+        }
+        
+        // Initialize group settings explicitly and ensure they're available immediately
+        const scheduler = GroupScheduler.getInstance();
+        const defaultSettings = {
+          dailyMessageLimit: 50,
+          replyIntervalMinutes: 1,
+          referenceMessageLimit: 5,
+          timedMessagesEnabled: false
+        };
+        
+        // Set settings in the scheduler
+        scheduler.setGroupSettings(newGroup.groupId, defaultSettings);
+        
+        // Force save the settings to ensure they're available immediately
+        const storageKey = `group_settings_${newGroup.groupId}`;
+        await AsyncStorage.setItem(storageKey, JSON.stringify(defaultSettings));
+        
+        console.log(`[createUserGroup] Explicitly initialized and saved group settings for ${newGroup.groupId}`);
+        
+        // Explicitly force a refresh of the group data in storage to ensure it's immediately available
+        const allGroups = await GroupService.getGroups();
+        const thisGroup = allGroups.find(g => g.groupId === newGroup.groupId);
+        
+        if (thisGroup) {
+          // Make sure the group is fully initialized
+          thisGroup.groupSettings = thisGroup.groupSettings || {
+            allowAnonymous: false,
+            requireApproval: false,
+            maxMembers: 20
+          };
+          
+          // Save back to ensure it's fully initialized
+          await GroupService['saveGroup'](thisGroup);
+          console.log(`[createUserGroup] Refreshed group data in storage`);
+        }
+        
+        // Add a small delay to ensure all async operations complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        console.error('[createUserGroup] Error ensuring data consistency:', error);
+      }
+    }
+    
+    return newGroup;
+  } catch (error) {
+    console.error('[createUserGroup] Unexpected error during group creation:', error);
+    return null;
   }
-  
-  return newGroup;
 }
 
 /**

@@ -3,6 +3,7 @@ import { Group, GroupMessage } from './group-types';
 import { GroupService } from './group-service';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeST } from '@/NodeST/nodest';
+import { GroupScheduler } from './group-scheduler';
 /**
  * 群聊管理器 - 负责管理群聊状态和提供API接口
  */
@@ -86,6 +87,12 @@ export class GroupManager {
         
         // Log validation results
         console.log(`【群聊管理器】初始化角色验证: ${validCharacters.length}/${initialCharacters.length} 个有效`);
+        
+        // If we have invalid characters, only use valid ones
+        if (validCharacters.length < initialCharacters.length) {
+          console.warn(`【群聊管理器】移除 ${initialCharacters.length - validCharacters.length} 个无效角色`);
+          initialCharacters = validCharacters;
+        }
       }
       
       const newGroup = await GroupService.createUserGroup(
@@ -104,6 +111,17 @@ export class GroupManager {
           try {
             const loadedCharacters = await GroupService.getCharactersByIds(characterIds);
             console.log(`【群聊管理器】已加载并验证 ${loadedCharacters.length}/${characterIds.length} 个角色数据`);
+            
+            // Add a small delay to ensure all async operations complete
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Ensure group settings are initialized
+            const scheduler = GroupScheduler.getInstance();
+            const currentSettings = scheduler.getGroupSettings(newGroup.groupId);
+            console.log(`【群聊管理器】群组设置已初始化: ${JSON.stringify({
+              replyInterval: currentSettings.replyIntervalMinutes,
+              enabled: currentSettings.timedMessagesEnabled
+            })}`);
           } catch (charError) {
             console.error('【群聊管理器】验证角色数据时出错:', charError);
           }
