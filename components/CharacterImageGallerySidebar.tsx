@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
-  Platform
+  Platform,
+  StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage, CradleCharacter } from '@/shared/types';
@@ -21,6 +22,8 @@ import { useUser } from '@/constants/UserContext';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ImageRegenerationModal from './ImageRegenerationModal';
 import { downloadAndSaveImage } from '@/utils/imageUtils';
 const { width, height } = Dimensions.get('window');
@@ -75,6 +78,11 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
   const [regenerationImageConfig, setRegenerationImageConfig] = useState<any>(null);
   const [downloadingImages, setDownloadingImages] = useState<Record<string, boolean>>({});
   const apiKey = user?.settings?.chat?.characterApiKey || '';
+  const [isUploading, setIsUploading] = useState(false);
+  const insets = useSafeAreaInsets();
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState({ title: '', message: '' });
+  const notificationAnim = useRef(new Animated.Value(0)).current;
 
   const allImages = useMemo(() => {
     let combinedImages = [...images];
@@ -177,6 +185,27 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
       ensureLocalImages();
     }
   }, [visible, images]);
+
+  const displayNotification = (title: string, message: string) => {
+    setNotificationMessage({ title, message });
+    setShowNotification(true);
+    
+    Animated.timing(notificationAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true
+    }).start();
+    
+    setTimeout(() => {
+      Animated.timing(notificationAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true
+      }).start(() => {
+        setShowNotification(false);
+      });
+    }, 3000);
+  };
 
   const handleEdit = (image: CharacterImage) => {
     setSelectedImage(image);
@@ -339,6 +368,98 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
     }
   };
 
+  const pickImageFromDevice = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert(
+          "需要权限",
+          "需要访问相册权限才能上传图片",
+          [{ text: "确定", style: "default" }]
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 1,
+        allowsMultipleSelection: false,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const selectedAsset = result.assets[0];
+      await uploadImageToCharacter(selectedAsset.uri);
+
+    } catch (error) {
+      console.error("[图库侧栏] 选择图片失败:", error);
+      Alert.alert(
+        "选择失败",
+        "无法选择图片: " + (error instanceof Error ? error.message : String(error)),
+        [{ text: "确定", style: "default" }]
+      );
+    }
+  };
+
+  const uploadImageToCharacter = async (imageUri: string) => {
+    if (!character || !onAddNewImage) {
+      Alert.alert("错误", "角色信息不完整，无法上传图片");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      const timestamp = Date.now();
+      const destinationUri = `${FileSystem.documentDirectory}character_${character.id}/uploaded_${timestamp}.jpg`;
+
+      const dirUri = `${FileSystem.documentDirectory}character_${character.id}`;
+      try {
+        const dirInfo = await FileSystem.getInfoAsync(dirUri);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+        }
+      } catch (dirError) {
+        console.error("[图库侧栏] 创建目录失败:", dirError);
+      }
+
+      await FileSystem.copyAsync({
+        from: imageUri,
+        to: destinationUri
+      });
+
+      const newImage: CharacterImage = {
+        id: `uploaded_${timestamp}`,
+        url: destinationUri,
+        localUri: destinationUri,
+        characterId: character.id,
+        createdAt: timestamp,
+        isFavorite: false,
+        isUserUploaded: true,
+        generationStatus: 'success',
+      };
+
+      onAddNewImage(newImage);
+
+      displayNotification("上传成功", "图片已添加到角色图库");
+
+      setUpdateCounter(prev => prev + 1);
+
+    } catch (error) {
+      console.error("[图库侧栏] 上传图片失败:", error);
+      Alert.alert(
+        "上传失败",
+        "无法上传图片: " + (error instanceof Error ? error.message : String(error)),
+        [{ text: "确定", style: "default" }]
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   if (!visible) return null;
 
   return (
@@ -355,14 +476,29 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
           { transform: [{ translateX: slideAnim }] }
         ]}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top }]}>
           <Text style={styles.headerTitle}>角色图库</Text>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={onClose}
-          >
-            <Ionicons name="close" size={24} color="#fff" />
-          </TouchableOpacity>
+
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.uploadButton}
+              onPress={pickImageFromDevice}
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="cloud-upload-outline" size={22} color="#fff" />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={onClose}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.content}>
@@ -451,6 +587,34 @@ const CharacterImageGallerySidebar: React.FC<CharacterImageGallerySidebarProps> 
             />
           )}
         </View>
+
+        {showNotification && (
+          <Animated.View 
+            style={[
+              styles.notification, 
+              { 
+                opacity: notificationAnim,
+                transform: [
+                  { 
+                    translateY: notificationAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-20, 0]
+                    }) 
+                  }
+                ],
+                top: insets.top + 60
+              }
+            ]}
+          >
+            <View style={styles.notificationIconContainer}>
+              <Ionicons name="checkmark-circle" size={24} color="rgb(255, 224, 195)" />
+            </View>
+            <View style={styles.notificationContent}>
+              <Text style={styles.notificationTitle}>{notificationMessage.title}</Text>
+              <Text style={styles.notificationMessage}>{notificationMessage.message}</Text>
+            </View>
+          </Animated.View>
+        )}
       </Animated.View>
 
       {selectedImage && (
@@ -694,8 +858,22 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   closeButton: {
     padding: 4,
+  },
+  uploadButton: {
+    padding: 4,
+    marginRight: 12,
+    height: 32,
+    width: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,
@@ -854,6 +1032,40 @@ const styles = StyleSheet.create({
     height: 30,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  notification: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(40, 40, 40, 0.95)',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+    borderLeftWidth: 4,
+    borderLeftColor: 'rgb(255, 224, 195)',
+    zIndex: 100,
+  },
+  notificationIconContainer: {
+    marginRight: 12,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTitle: {
+    color: 'rgb(255, 224, 195)',
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  notificationMessage: {
+    color: '#ffffff',
+    fontSize: 14,
   },
 });
 

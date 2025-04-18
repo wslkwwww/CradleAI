@@ -418,6 +418,7 @@ export interface CharacterImage {
   isFavorite: boolean;
   isAvatar?: boolean;
   isDefaultBackground?: boolean;
+  isUserUploaded?: boolean; // Flag to mark if this image was uploaded by the user
   tags?: {
     positive?: string[];
     negative?: string[];

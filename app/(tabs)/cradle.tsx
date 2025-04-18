@@ -310,8 +310,6 @@ export default function CradlePage() {
         // Update the gallery
         setCharacterImages(updatedImageHistory);
         
-        // Show success notification
-        showNotification('图像已添加', '新图像已添加到角色图库');
       } else {
         // This is a pending generation image
         
