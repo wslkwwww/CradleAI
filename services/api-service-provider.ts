@@ -51,7 +51,7 @@ export class ApiServiceProvider {
    * @returns 适配器实例
    */
   static getAdapter(
-    apiKey: string, 
+    apiKey?: string, 
     apiSettings?: ApiSettings, 
     options: Partial<ServiceOptions> = {}
   ): GeminiAdapter | OpenRouterAdapter {
@@ -115,7 +115,7 @@ export class ApiServiceProvider {
         retryDelay
       });
     } else if (!apiKey) {
-      console.error(`【API服务】缺少Gemini API密钥`);
+      console.warn(`【API服务】缺少Gemini API密钥`);
       // 创建一个没有API密钥的适配器，这会在调用时失败，但避免了null异常
       return new GeminiAdapter('', {
         useModelLoadBalancing,

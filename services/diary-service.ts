@@ -139,7 +139,7 @@ ${circleMemoryContext}
 ` : ''}最近的聊天记录:
 ${chatContext}
 
-请直接开始撰写日记，不要有任何前缀或标题，以"亲爱的日记"或类似的方式开头，符合${character.name}的风格。`;
+请直接开始撰写日记，不要有任何前缀或标题，符合${character.name}的风格。`;
 
       // Get global API settings
       const globalSettings = getUserSettingsGlobally();

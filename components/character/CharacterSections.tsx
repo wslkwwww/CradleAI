@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,201 @@ import {
   Animated,
   PanResponder,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { WorldBookEntryUI, PresetEntryUI } from '@/constants/types';
+
+// Enhanced SwipeableEntry component 
+interface SwipeableEntryProps {
+  children: React.ReactNode;
+  onDelete?: () => void;
+  disabled?: boolean;
+}
+
+const SwipeableEntry: React.FC<SwipeableEntryProps> = ({ 
+  children, 
+  onDelete, 
+  disabled = false
+}) => {
+  const pan = useRef(new Animated.Value(0)).current;
+  const deleteWidth = 80; // Width of delete area
+  const screenWidth = Dimensions.get('window').width;
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Use a ref to track current animated value
+  const panValueRef = useRef(0);
+  
+  // Set up a listener to track the animated value
+  useEffect(() => {
+    const id = pan.addListener(({ value }) => {
+      panValueRef.current = value;
+    });
+    
+    return () => {
+      pan.removeListener(id);
+    };
+  }, [pan]);
+  
+  // Reset swipe position animation
+  const resetSwipe = () => {
+    Animated.spring(pan, {
+      toValue: 0,
+      tension: 100,
+      friction: 10,
+      useNativeDriver: true,
+    }).start();
+    setIsDeleting(false);
+  };
+
+  // Confirm and handle delete action
+  const confirmDelete = () => {
+    if (onDelete) {
+      Animated.timing(pan, {
+        toValue: -screenWidth,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(() => {
+        onDelete();
+        pan.setValue(0); // Reset value after animation completes
+      });
+    }
+  };
+
+  // Handle initiating delete action
+  const handleDelete = () => {
+    setIsDeleting(true);
+    
+    Alert.alert(
+      '确认删除',
+      '确定要删除这个条目吗？',
+      [
+        {
+          text: '取消',
+          style: 'cancel',
+          onPress: resetSwipe
+        },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: confirmDelete
+        }
+      ]
+    );
+  };
+  
+  // Animated background color for delete area
+  const deleteBackgroundColor = pan.interpolate({
+    inputRange: [-deleteWidth, -deleteWidth/3],
+    outputRange: ['#FF3B30', '#FF6B64'],
+    extrapolate: 'clamp',
+  });
+  
+  // Animated opacity for delete icon
+  const deleteOpacity = pan.interpolate({
+    inputRange: [-deleteWidth, -deleteWidth/2, 0],
+    outputRange: [1, 0.5, 0],
+    extrapolate: 'clamp',
+  });
+  
+  // Animated scale for delete icon
+  const deleteScale = pan.interpolate({
+    inputRange: [-deleteWidth, -deleteWidth/2, 0],
+    outputRange: [1, 0.8, 0.5],
+    extrapolate: 'clamp',
+  });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only respond to horizontal movements greater than a small threshold
+        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 20;
+      },
+      onPanResponderGrant: () => {
+        // Reset the animated value
+        pan.setOffset(panValueRef.current);
+        pan.setValue(0);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Only allow left swipes (negative dx) or right swipes to reset
+        if (gestureState.dx <= 0 || panValueRef.current < 0) {
+          // Limit maximum left swipe to delete button width
+          const newValue = Math.max(gestureState.dx, -deleteWidth);
+          pan.setValue(newValue);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        pan.flattenOffset();
+        
+        if (gestureState.dx < -deleteWidth / 2) {
+          // Snap to delete position
+          Animated.spring(pan, {
+            toValue: -deleteWidth,
+            tension: 100,
+            friction: 6,
+            useNativeDriver: true,
+          }).start(() => {
+            // Auto trigger delete after slight delay to give visual feedback
+            setTimeout(handleDelete, 100);
+          });
+        } else {
+          // Snap back to original position
+          resetSwipe();
+        }
+      },
+      onPanResponderTerminate: () => {
+        resetSwipe();
+      },
+    })
+  ).current;
+
+  // If disabled or no delete function, just render children
+  if (disabled || !onDelete) {
+    return <View style={styles.swipeContainer}>{children}</View>;
+  }
+
+  return (
+    <View style={styles.swipeContainer}>
+      {/* Delete action background */}
+      <Animated.View
+        style={[
+          styles.deleteBackground,
+          {
+            backgroundColor: deleteBackgroundColor,
+            right: 0,
+            width: deleteWidth,
+          }
+        ]}
+      >
+        <Animated.View
+          style={{
+            opacity: deleteOpacity,
+            transform: [{ scale: deleteScale }],
+            alignItems: 'center',
+            justifyContent: 'center',
+            flex: 1,
+          }}
+        >
+          <Ionicons name="trash-outline" size={24} color="#FFF" />
+        </Animated.View>
+      </Animated.View>
+      
+      {/* Main content with swipe animation */}
+      <Animated.View
+        style={[
+          styles.swipeableContent,
+          {
+            transform: [{ translateX: pan }],
+          }
+        ]}
+        {...(!isDeleting ? panResponder.panHandlers : {})}
+      >
+        {children}
+      </Animated.View>
+    </View>
+  );
+};
 
 // WorldBookSection Component
 interface WorldBookSectionProps {
@@ -32,123 +224,6 @@ interface WorldBookSectionProps {
   onReorder: (fromIndex: number, toIndex: number) => void;
   onDelete?: (id: string) => void;
 }
-
-// SwipeableEntry component for reuse
-interface SwipeableEntryProps {
-  children: React.ReactNode;
-  onDelete?: () => void;
-  disabled?: boolean;
-}
-
-const SwipeableEntry: React.FC<SwipeableEntryProps> = ({ 
-  children, 
-  onDelete, 
-  disabled = false
-}) => {
-  const pan = useRef(new Animated.Value(0)).current;
-  const deleteButtonWidth = 80;
-  
-  // Use a ref to track the current animated value for comparisons
-  const panValueRef = useRef<number>(0);
-  
-  // Add listener to track the current value
-  useEffect(() => {
-    const id = pan.addListener(({value}) => {
-      panValueRef.current = value;
-    });
-    
-    return () => {
-      pan.removeListener(id);
-    };
-  }, [pan]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 5;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dx < 0) {
-          // Only allow swiping left (negative)
-          pan.setValue(Math.max(gestureState.dx, -deleteButtonWidth));
-        } else if (gestureState.dx > 0 && panValueRef.current < 0) {
-          // Allow swiping right to close
-          pan.setValue(Math.min(0, panValueRef.current + gestureState.dx));
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        // If swiped far enough left, snap to show delete button
-        if (gestureState.dx < -deleteButtonWidth / 2) {
-          Animated.spring(pan, {
-            toValue: -deleteButtonWidth,
-            useNativeDriver: false,
-          }).start();
-        } else {
-          // Otherwise, snap back to original position
-          Animated.spring(pan, {
-            toValue: 0,
-            useNativeDriver: false,
-          }).start();
-        }
-      },
-    })
-  ).current;
-
-  const resetSwipe = () => {
-    Animated.spring(pan, {
-      toValue: 0,
-      useNativeDriver: false,
-    }).start();
-  };
-
-  const handleDelete = () => {
-    Alert.alert(
-      '确认删除',
-      '确定要删除这个条目吗？',
-      [
-        {
-          text: '取消',
-          style: 'cancel',
-          onPress: resetSwipe
-        },
-        {
-          text: '删除',
-          style: 'destructive',
-          onPress: () => {
-            resetSwipe();
-            onDelete && onDelete();
-          }
-        }
-      ]
-    );
-  };
-
-  if (disabled || !onDelete) {
-    return <View>{children}</View>;
-  }
-
-  return (
-    <View style={styles.swipeContainer}>
-      <Animated.View
-        style={[
-          styles.swipeableContent,
-          { transform: [{ translateX: pan }] }
-        ]}
-        {...panResponder.panHandlers}
-      >
-        {children}
-      </Animated.View>
-      <View style={styles.deleteButtonContainer}>
-        <TouchableOpacity 
-          style={styles.deleteButton}
-          onPress={handleDelete}
-        >
-          <Ionicons name="trash-outline" size={18} color="#fff" />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
 
 export const WorldBookSection: React.FC<WorldBookSectionProps> = ({
   entries,
@@ -643,24 +718,26 @@ const styles = StyleSheet.create({
   swipeContainer: {
     position: 'relative',
     marginVertical: 6,
+    overflow: 'hidden',
+    borderRadius: 6,
   },
   swipeableContent: {
     width: '100%',
     zIndex: 1,
+    backgroundColor: '#3A3A3A', // Match entryItem background
   },
-  deleteButtonContainer: {
+  deleteBackground: {
     position: 'absolute',
-    top: 12, // Matches the entryItem's top padding
-    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 0,
   },
-  deleteButton: {
-    backgroundColor: '#FF3B30',
+  deleteAction: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     width: 80,
-    height: 28, // Match the height of the badges 
-    borderRadius: 6,
-    paddingHorizontal: 8,
   },
 });
