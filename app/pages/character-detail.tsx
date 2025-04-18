@@ -548,6 +548,10 @@ const CharacterDetail: React.FC = () => {
     setHasUnsavedChanges(true);
   };
 
+  const handleNameChange = (newName: string) => {
+    handleRoleCardChange('name', newName);
+  };
+
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
       Alert.alert('保存失败', '角色名称不能为空。');
@@ -1153,6 +1157,8 @@ const CharacterDetail: React.FC = () => {
         onFullscreenPress={() => {
           // Handle fullscreen image viewer if needed
         }}
+        onNameChange={handleNameChange}
+        isNameEditable={true}
       />
       
       <View style={styles.tabContainer}>

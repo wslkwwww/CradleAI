@@ -1274,7 +1274,7 @@ ${JSON.stringify(characterJsonData, null, 2)}
       // Add a system message to request summary
       const summarizeMessage: ChatMessage = {
         id: `system-${Date.now()}`,
-        text: "请根据我们的对话，总结所有应该对角色进行的修改，并生成更新后的角色数据。请只提供roleCard的完整信息，worldBook条目的comment和content属性，以及preset中prompts的name、content和role属性。系统会自动补充其他所需参数。请使用<CHARACTER_JSON_UPDATE>标签包裹JSON代码。",
+        text: "请根据我们的对话，总结所有应该对角色进行的修改，并生成更新后的角色数据。请只提供roleCard的完整信息，worldBook条目的comment和content属性。系统会自动补充其他所需参数。请使用<CHARACTER_JSON_UPDATE>标签包裹JSON代码。",
         sender: 'user',
         timestamp: Date.now()
       };
