@@ -537,6 +537,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
         {showBackground && <View style={styles.overlay} />}
 
         <View style={styles.content}>
+          {/* Menu button is always visible */}
           <TouchableOpacity
             style={styles.menuButton}
             onPress={onMenuPress}
@@ -545,49 +546,61 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
           </TouchableOpacity>
 
           <View style={styles.characterInfo}>
-            <TouchableOpacity
-              style={styles.avatarContainer}
-              onPress={onAvatarPress}
-            >
-              {isGroupMode && selectedGroup ? (
-                <View style={styles.groupAvatarWrapper}>
-                  <GroupAvatar
-                    members={groupMembers}
-                    size={40}
-                    maxDisplayed={4}
+            {/* Only show avatar container when we have a character or group */}
+            {(selectedCharacter || isGroupMode) && (
+              <TouchableOpacity
+                style={styles.avatarContainer}
+                onPress={onAvatarPress}
+              >
+                {isGroupMode && selectedGroup ? (
+                  <View style={styles.groupAvatarWrapper}>
+                    <GroupAvatar
+                      members={groupMembers}
+                      size={40}
+                      maxDisplayed={4}
+                    />
+                  </View>
+                ) : (
+                  <Image
+                    source={
+                      selectedCharacter?.avatar
+                        ? { uri: String(selectedCharacter.avatar) }
+                        : require('@/assets/images/default-avatar.png')
+                    }
+                    style={styles.avatar}
                   />
-                </View>
+                )}
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.nameContainer}>
+              {(selectedCharacter || isGroupMode) ? (
+                <TouchableOpacity
+                  style={styles.nameContainer}
+                  onPress={onAvatarPress}
+                >
+                  <Text style={styles.characterName} numberOfLines={1}>
+                    {isGroupMode
+                      ? (selectedGroup?.groupName || '群聊')
+                      : (selectedCharacter?.name || '选择角色')}
+                  </Text>
+
+                  {isGroupMode && selectedGroup?.groupTopic && (
+                    <Text style={styles.groupTopic} numberOfLines={1}>
+                      {selectedGroup.groupTopic}
+                    </Text>
+                  )}
+                </TouchableOpacity>
               ) : (
-                <Image
-                  source={
-                    selectedCharacter?.avatar
-                      ? { uri: String(selectedCharacter.avatar) }
-                      : require('@/assets/images/default-avatar.png')
-                  }
-                  style={styles.avatar}
-                />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.nameContainer}
-              onPress={onAvatarPress}
-            >
-              <Text style={styles.characterName} numberOfLines={1}>
-                {isGroupMode
-                  ? (selectedGroup?.groupName || '群聊')
-                  : (selectedCharacter?.name || '选择角色')}
-              </Text>
-
-              {isGroupMode && selectedGroup?.groupTopic && (
-                <Text style={styles.groupTopic} numberOfLines={1}>
-                  {selectedGroup.groupTopic}
+                <Text style={styles.emptyStateText}>
+                  请选择一个角色开始对话
                 </Text>
               )}
-            </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.actions}>
+            {/* Only show memory control button when in character mode with selected character */}
             {!isGroupMode && selectedCharacter && (
               <TouchableOpacity
                 style={styles.actionButton}
@@ -602,7 +615,8 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               </TouchableOpacity>
             )}
 
-            {!isGroupMode && (
+            {/* Only show memo button in character mode with selected character */}
+            {!isGroupMode && selectedCharacter && (
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={onMemoPress}
@@ -611,20 +625,25 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={isGroupMode ? handleGroupSettingsPress : onSettingsPress}
-            >
-              <Ionicons name="settings-outline" size={24} color="#fff" />
-            </TouchableOpacity>
+            {/* Show settings button for character mode or group mode, but only when a character/group is selected */}
+            {((isGroupMode && selectedGroup) || (!isGroupMode && selectedCharacter)) && (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={isGroupMode ? handleGroupSettingsPress : onSettingsPress}
+              >
+                <Ionicons name="settings-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            )}
 
-            {!isGroupMode && onSaveManagerPress && (
+            {/* Show save manager button only in character mode with selected character */}
+            {!isGroupMode && selectedCharacter && onSaveManagerPress && (
               <TouchableOpacity onPress={onSaveManagerPress} style={styles.actionButton}>
                 <Ionicons name="bookmark-outline" size={24} color="#fff" />
               </TouchableOpacity>
             )}
 
-            {isGroupMode && (
+            {/* Always show group manage button in group mode */}
+            {isGroupMode && selectedGroup && (
               <TouchableOpacity
                 onPress={onAvatarPress}
                 style={[styles.actionButton, styles.groupManageButton]}
@@ -762,6 +781,13 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 8,
     zIndex: 5,
+  },
+  emptyStateText: {
+    color: '#ccc',
+    fontSize: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
 });
 
