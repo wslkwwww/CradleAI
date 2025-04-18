@@ -70,17 +70,15 @@ export class NodeSTCore {
         this.initAdapters(apiKey, apiSettings);
     }
 
-    private initAdapters(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>) {
+    private initAdapters(apiKey: string | null = null, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>) {
+        // 不再为空 API 密钥抛出错误，而是记录一条消息
         if (!apiKey) {
-            // Don't throw an error for initialization without API key
-            // This allows operations like deletion to work without a key
-            console.log('[NodeSTCore] No API key provided, some operations may be limited');
-            return;
+            console.log('[NodeSTCore] No API key provided, will attempt to use cloud service if available');
         }
-
-        // Initialize Gemini with load balancing settings
+    
+        // 初始化 Gemini，允许 apiKey 为 null 或 empty，便于回退到云服务
         this.geminiAdapter = new GeminiAdapter(
-            apiKey,
+            apiKey || "", // Pass empty string if null
             {
                 useModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing || false,
                 useKeyRotation: apiSettings?.useGeminiKeyRotation || false,
@@ -88,14 +86,14 @@ export class NodeSTCore {
             }
         );
         
-        // Log the load balancing setup
         console.log('[NodeSTCore] GeminiAdapter initialized with load balancing options:', {
             useModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing || false,
             useKeyRotation: apiSettings?.useGeminiKeyRotation || false,
-            additionalKeysCount: apiSettings?.additionalGeminiKeys?.length || 0
+            additionalKeysCount: apiSettings?.additionalGeminiKeys?.length || 0,
+            usingCloudFallback: !apiKey
         });
         
-        // Initialize OpenRouter if enabled and API key is available
+        // 初始化 OpenRouter 如果已启用且有 API 密钥
         if (apiSettings?.apiProvider === 'openrouter' && 
             apiSettings.openrouter?.enabled && 
             apiSettings.openrouter?.apiKey) {
@@ -108,20 +106,17 @@ export class NodeSTCore {
                 apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
             );
         } else {
-            // Clear OpenRouter adapter if not enabled
             this.openRouterAdapter = null;
             console.log('[NodeSTCore] OpenRouter not enabled, using Gemini adapter only');
         }
-
-        // Store settings for later use
+    
         if (apiSettings) {
             this.apiSettings = apiSettings;
         }
     }
 
-    // Get the appropriate adapter based on settings
     private getActiveAdapter() {
-        // Check if OpenRouter should be used (explicitly check adapter exists)
+        // 检查是否使用 OpenRouter
         if (this.apiSettings?.apiProvider === 'openrouter' && 
             this.apiSettings.openrouter?.enabled && 
             this.openRouterAdapter) {
@@ -130,7 +125,9 @@ export class NodeSTCore {
             return this.openRouterAdapter;
         }
         
-        console.log('[NodeSTCore] Using Gemini adapter');
+        // 返回 Gemini adapter（可能为 null）
+        // 这允许 generateContent 尝试使用云服务
+        console.log('[NodeSTCore] Using Gemini adapter' + (!this.geminiAdapter ? ' (not initialized)' : ''));
         return this.geminiAdapter;
     }
 
@@ -573,7 +570,7 @@ export class NodeSTCore {
     async continueChat(
         conversationId: string,
         userMessage: string,
-        apiKey: string,
+        apiKey: string | null = null, // 允许 API 密钥为 null
         characterId?: string,
         customUserName?: string,
         useToolCalls: boolean = false
@@ -587,19 +584,22 @@ export class NodeSTCore {
                 useGeminiKeyRotation: this.apiSettings?.useGeminiKeyRotation,
                 additionalKeysCount: this.apiSettings?.additionalGeminiKeys?.length || 0,
                 hasCustomUserName: !!customUserName,
-                useToolCalls: useToolCalls
+                useToolCalls: useToolCalls,
+                apiKeyProvided: !!apiKey
             });
-
-            // 确保Adapter已初始化
-            if ((!this.geminiAdapter || !this.openRouterAdapter) && apiKey) {
+    
+            // 确保 Adapter 已初始化 - 传递 apiKey 即使它是 null
+            if (!this.geminiAdapter || !this.openRouterAdapter) {
                 this.initAdapters(apiKey, this.apiSettings);
             }
-
+    
             // 获取正确的 adapter
             const adapter = this.getActiveAdapter();
             
+            // 移除严格检查，允许接口回退到云服务
             if (!adapter) {
-                throw new Error("API adapter not initialized - missing API key");
+                console.warn("[NodeSTCore] API adapter not properly initialized - will attempt to use cloud service");
+                // 不再抛出错误
             }
 
             // 确保加载最新的角色数据
@@ -833,16 +833,18 @@ export class NodeSTCore {
             if (characterId) {
                 try {
                     console.log('[NodeSTCore] Checking if chat history needs summarization...');
-                    const summarizedHistory = await memoryService.checkAndSummarize(
-                        conversationId,
-                        characterId,
-                        updatedChatHistory,
-                        apiKey,
-                        {
-                            apiProvider: this.apiSettings.apiProvider === 'openrouter' ? 'openrouter' : 'gemini',
-                            openrouter: this.apiSettings.openrouter,
-                        }
-                    );
+                    // Only attempt summarization if we have an API key
+                    const summarizedHistory = apiKey ? 
+                        await memoryService.checkAndSummarize(
+                            conversationId,
+                            characterId,
+                            updatedChatHistory,
+                            apiKey,
+                            {
+                                apiProvider: this.apiSettings.apiProvider === 'openrouter' ? 'openrouter' : 'gemini',
+                                openrouter: this.apiSettings.openrouter,
+                            }
+                        ) : updatedChatHistory;
                     
                     // Use the potentially summarized history
                     if (summarizedHistory !== updatedChatHistory) {
@@ -864,7 +866,7 @@ export class NodeSTCore {
                     dEntries,
                     conversationId,
                     roleCard,
-                    adapter,
+                    adapter || undefined,
                     customUserName,
                     memorySearchResults // 传递记忆搜索结果
                 )
@@ -874,7 +876,7 @@ export class NodeSTCore {
                     dEntries,
                     conversationId,
                     roleCard,
-                    adapter,
+                    adapter || undefined,
                     customUserName,
                     memorySearchResults // 传递记忆搜索结果
                 );
@@ -1179,7 +1181,7 @@ export class NodeSTCore {
         dEntries: ChatMessage[],
         sessionId: string,
         roleCard: RoleCardJson,
-        adapter?: GeminiAdapter | OpenRouterAdapter,
+        adapter?: GeminiAdapter | OpenRouterAdapter | null,
         customUserName?: string, // Add optional customUserName parameter
         memorySearchResults?: any // 添加记忆搜索结果参数
     ): Promise<string | null> {
@@ -1322,10 +1324,11 @@ export class NodeSTCore {
 
             // 使用传入的适配器或获取活跃适配器
             const activeAdapter = adapter || this.getActiveAdapter();
+            // 移除严格检查，允许接口回退到云服务
             if (!activeAdapter) {
-                throw new Error("API adapter not initialized");
+                console.warn("[NodeSTCore] No API adapter available - will attempt to use cloud service");
+                // 不再抛出错误
             }
-
             // 添加适配器类型日志
             console.log('[NodeSTCore] Using adapter:', {
                 type: activeAdapter instanceof OpenRouterAdapter ? 'OpenRouter' : 'Gemini',
@@ -1341,11 +1344,12 @@ export class NodeSTCore {
                                         memorySearchResults.results && 
                                         memorySearchResults.results.length > 0;
                                         
-            if (shouldUseMemoryResults) {
-                console.log('[NodeSTCore] 检测到有效记忆搜索结果，使用generateContentWithTools方法');
-                // 如果有记忆搜索结果，使用工具调用方法处理
-                const response = await activeAdapter.generateContentWithTools(cleanedContents, memorySearchResults);
-                console.log('[NodeSTCore] API response received:', {
+                                        if (shouldUseMemoryResults && activeAdapter) {
+                                            console.log('[NodeSTCore] 检测到有效记忆搜索结果，使用generateContentWithTools方法');
+                                            // 如果有记忆搜索结果，使用工具调用方法处理
+                                            const response = await activeAdapter.generateContentWithTools(cleanedContents, memorySearchResults);
+                                
+                  console.log('[NodeSTCore] API response received:', {
                     hasResponse: !!response,
                     responseLength: response?.length || 0
                 });
@@ -1362,6 +1366,11 @@ export class NodeSTCore {
             } else {
                 console.log('[NodeSTCore] 没有记忆搜索结果，使用标准generateContent方法');
                 // 没有记忆搜索结果，使用标准方法
+                if (!activeAdapter) {
+                    console.warn('[NodeSTCore] No API adapter available - will attempt to use cloud service');
+                    // Try with cloud service directly
+                    return null;
+                }
                 const response = await activeAdapter.generateContent(cleanedContents);
                 console.log('[NodeSTCore] API response received:', {
                     hasResponse: !!response,
@@ -1377,7 +1386,7 @@ export class NodeSTCore {
                 }
 
                 return response;
-            }
+            }  
         } catch (error) {
             console.error('[NodeSTCore] Error in processChat:', error);
             return null;
@@ -1390,7 +1399,7 @@ export class NodeSTCore {
         dEntries: ChatMessage[],
         sessionId: string,
         roleCard: RoleCardJson,
-        adapter?: GeminiAdapter | OpenRouterAdapter,
+        adapter?: GeminiAdapter | OpenRouterAdapter | null,
         customUserName?: string, // Add optional customUserName parameter
         memoryResults?: any // This parameter already correctly receives memory search results
     ): Promise<string | null> {
@@ -1535,7 +1544,8 @@ export class NodeSTCore {
             // 使用传入的适配器或获取活跃适配器
             const activeAdapter = adapter || this.getActiveAdapter();
             if (!activeAdapter) {
-                throw new Error("API adapter not initialized");
+                console.warn("[NodeSTCore] No API adapter available - will attempt to use cloud service");
+                // 不再抛出错误，让 generateContentWithTools 方法尝试云服务
             }
 
             // 添加适配器类型日志
@@ -1547,8 +1557,9 @@ export class NodeSTCore {
             // 发送到API，传递记忆搜索结果
             console.log('[NodeSTCore] Sending to API with tool calls...');
             // 如果使用工具调用，则传递记忆搜索结果
-            const response = await activeAdapter.generateContentWithTools(cleanedContents, memoryResults);
-            console.log('[NodeSTCore] API response received:', {
+            if (activeAdapter) {
+                const response = await activeAdapter.generateContentWithTools(cleanedContents, memoryResults);
+                console.log('[NodeSTCore] API response received:', {
                 hasResponse: !!response,
                 responseLength: response?.length || 0
             });
@@ -1562,6 +1573,10 @@ export class NodeSTCore {
             }
 
             return response;
+        } else {
+            console.error('[NodeSTCore] No adapter available and cloud fallback failed');
+            return null;
+        }
         } catch (error) {
             console.error('[NodeSTCore] Error in processChatWithTools:', error);
             return null;

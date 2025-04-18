@@ -111,7 +111,7 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     userMessage: string;
     status?: "更新人设" | "新建角色" | "同一角色继续对话";
     conversationId: string;
-    apiKey: string;
+    apiKey?: string; // Make apiKey optional
     apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>;
     character?: Character;
   }): Promise<{
@@ -122,9 +122,10 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     try {
       const characterId = params.character?.id || params.conversationId;
       const jsonString = params.character?.jsonData;
+      const apiKey = params.apiKey || this.apiKey || ''; // Use instance apiKey as fallback, empty string as last resort
       
       console.log('[NodeSTManager] Processing request:', {
-        apiKeyLength: params.apiKey?.length || 0,
+        apiKeyProvided: !!apiKey,
         apiProvider: params.apiSettings?.apiProvider || 'gemini',
         openRouterEnabled: params.apiSettings?.apiProvider === 'openrouter' && params.apiSettings?.openrouter?.enabled,
         openRouterModel: params.apiSettings?.openrouter?.model,
@@ -138,7 +139,8 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
         hasJsonData: !!jsonString,
         customUserName: params.character?.customUserName || 'User',
         action: params.status === "更新人设" ? "更新人设" : (params.status === "新建角色" ? "新建角色" : "继续对话"),
-        useToolCalls: this.searchEnabled
+        useToolCalls: this.searchEnabled,
+        usingCloudFallback: !apiKey
       });
 
       // Add detailed logging of character data when creating a new character
@@ -168,7 +170,7 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
       // If OpenRouter is configured, ensure we're using the latest settings
       if (params.apiSettings?.apiProvider === 'openrouter' && params.apiSettings?.openrouter?.enabled) {
         // Update settings before processing to ensure correct adapter is used
-        this.nodeST.updateApiSettings(params.apiKey, params.apiSettings);
+        this.nodeST.updateApiSettings(apiKey, params.apiSettings);
       }
 
       console.log('[NodeSTManager] Calling NodeST.processChatMessage with conversationId:', params.conversationId);
@@ -188,11 +190,12 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
       }
       
       // Call NodeST with all params including apiSettings with load balancing params
+      // apiKey could be empty string - this is now allowed
       const response = await this.nodeST.processChatMessage({
         userMessage: params.userMessage,
         conversationId: params.conversationId,
         status: params.status || "同一角色继续对话",
-        apiKey: params.apiKey,
+        apiKey: apiKey,
         apiSettings: params.apiSettings,
         jsonString: jsonString,
         characterId: characterId,  // Pass characterId for memory service
@@ -221,18 +224,17 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     }
   }
 
-
-
   static async processChatMessage(options: ProcessChatOptions): Promise<Message> {
     try {
         console.log(`[NodeSTManager] 处理聊天消息，状态: ${options.status}, conversationId: ${options.conversationId}`);
         
         // 创建NodeST实例来处理实际请求
         const nodeST = new NodeST();
+        const apiKey = options.apiKey || ''; // Empty string as fallback
         
         // 更新API设置
-        if (options.apiKey) {
-            nodeST.updateApiSettings(options.apiKey, options.apiSettings);
+        if (apiKey || options.apiSettings) {
+            nodeST.updateApiSettings(apiKey, options.apiSettings);
         }
         
         // 针对"新建角色"情况进行特殊处理
@@ -450,7 +452,7 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
             userMessage: options.userMessage,
             conversationId: options.conversationId,
             status: options.status || "同一角色继续对话",
-            apiKey: options.apiKey,
+            apiKey: apiKey, // Could be empty string
             apiSettings: options.apiSettings,
             jsonString: options.character?.jsonData,
             characterId: options.character?.id,  // Pass character ID for memory service
@@ -476,7 +478,7 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
         return {
             success: false,
             error: error instanceof Error ? error.message : "未知错误"
-};
+        };
     }
   }
 

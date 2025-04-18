@@ -239,6 +239,227 @@ class CloudServiceProviderClass {
   }
   
   /**
+   * Get the preferred model for multimodal content (text + images)
+   * Currently only gemini-2.0-flash-exp supports multimodal content
+   */
+  getMultiModalModel(): string {
+    // For multimodal content, only gemini-2.0-flash-exp is supported
+    return 'gemini-2.0-flash-exp';
+  }
+  
+  /**
+   * Generate content from a multimodal input (text + images)
+   * @param messages Messages array containing text and image_url objects
+   * @param options Additional options for the request
+   */
+  async generateMultiModalContent(
+    messages: Array<{
+      role: string, 
+      content: string | Array<{
+        type?: string, 
+        text?: string, 
+        image_url?: {
+          url: string
+        }
+      }>
+    }>,
+    options: {
+      model?: string,
+      temperature?: number,
+      max_tokens?: number,
+      top_p?: number,
+      frequency_penalty?: number,
+      presence_penalty?: number,
+      [key: string]: any
+    } = {}
+  ): Promise<Response> {
+    if (!this.isEnabled()) {
+      throw new Error('Cloud service is not enabled or properly configured');
+    }
+    
+    try {
+      console.log('[CloudService] 开始发送多模态请求到 CradleAI');
+      
+      // For multimodal content, we must use the model that supports it
+      const modelToUse = this.getMultiModalModel();
+      console.log(`[CloudService] 使用多模态模型: ${modelToUse}`);
+      
+      // Standardize messages for multimodal content
+      const standardizedMessages = messages.map(msg => {
+        const role = msg.role === 'assistant' ? 'model' : msg.role;
+        
+        // If content is already a string, convert it to the array format
+        if (typeof msg.content === 'string') {
+          return {
+            role,
+            content: [
+              {
+                type: 'text',
+                text: msg.content
+              }
+            ]
+          };
+        }
+        
+        // If content is already an array, use it directly
+        if (Array.isArray(msg.content)) {
+          return {
+            role,
+            content: msg.content
+          };
+        }
+        
+        // Fallback for unexpected content
+        return {
+          role,
+          content: [
+            {
+              type: 'text',
+              text: String(msg.content || '')
+            }
+          ]
+        };
+      });
+      
+      // Debug: Log standardized messages (truncate any base64 image data for brevity)
+      const logSafeMessages = JSON.parse(JSON.stringify(standardizedMessages));
+      logSafeMessages.forEach((msg: any) => {
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach((part: any) => {
+            if (part.image_url?.url) {
+              // Truncate long base64 data for logging
+              if (part.image_url.url.length > 50) {
+                part.image_url.url = part.image_url.url.substring(0, 50) + '...';
+              }
+            }
+          });
+        }
+      });
+      console.log('[CloudService] 多模态请求消息格式:', JSON.stringify(logSafeMessages, null, 2));
+      
+      // Count text and image parts for logging
+      let textPartsCount = 0;
+      let imagePartsCount = 0;
+      standardizedMessages.forEach(msg => {
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach(part => {
+            if (part.type === 'text') textPartsCount++;
+            if (part.type === 'image_url') imagePartsCount++;
+          });
+        }
+      });
+      
+      console.log(`[CloudService] 多模态请求包含 ${textPartsCount} 个文本部分和 ${imagePartsCount} 个图像部分`);
+      
+      // Construct the request body for multimodal content
+      const requestBody = {
+        license_key: this.licenseKey,
+        device_id: this.deviceId,
+        model: modelToUse,
+        messages: standardizedMessages,
+        max_tokens: options.max_tokens || 800,
+        temperature: options.temperature || 0.7,
+        top_p: options.top_p,
+        frequency_penalty: options.frequency_penalty,
+        presence_penalty: options.presence_penalty
+      };
+      
+      console.log(`[CloudService] 多模态请求参数: temperature=${requestBody.temperature}, max_tokens=${requestBody.max_tokens}`);
+      console.log(`[CloudService] 许可证密钥: ${this.licenseKey?.substring(0, 4)}****`);
+      console.log(`[CloudService] 设备ID: ${this.deviceId?.substring(0, 4)}****`);
+      
+      // Prepare headers
+      const headers = new Headers({
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      });
+      
+      // Add user agent information
+      headers.set('User-Agent', 'CradleAI-Client/1.0');
+      
+      // Add referrer if available
+      if (typeof window !== 'undefined' && window.location?.origin) {
+        headers.set('Referer', window.location.origin);
+      }
+      
+      // Prepare the request options
+      const requestOptions: RequestInit = {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody),
+        cache: 'no-store'
+      };
+      
+      // Use the multimodal API endpoint
+      const endpoint = this.cloudEndpoint.trim().replace(/\/+$/, '');
+      const apiUrl = `${endpoint}/api/huggingface/multimodal`;
+      
+      console.log(`[CloudService] 发送多模态请求到: ${apiUrl}`);
+      
+      // Record start time for performance measurement
+      const startTime = Date.now();
+      
+      // Make the request with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout (longer for multimodal)
+      
+      const response = await fetch(apiUrl, {
+        ...requestOptions,
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      // Calculate request duration
+      const duration = Date.now() - startTime;
+      console.log(`[CloudService] 多模态请求完成，耗时: ${duration}ms, 状态码: ${response.status}`);
+      
+      // Handle errors
+      if (!response.ok) {
+        let errorMessage = `多模态请求失败: ${response.status} ${response.statusText}`;
+        
+        try {
+          // Try to parse error response
+          const errorData = await response.clone().json();
+          errorMessage = errorData.error?.message || errorMessage;
+          console.error('[CloudService] 多模态响应错误:', errorData);
+        } catch (e) {
+          // If cannot parse as JSON, try to get text
+          try {
+            const errorText = await response.clone().text();
+            console.error('[CloudService] 多模态响应错误文本:', errorText);
+            errorMessage = errorText || errorMessage;
+          } catch {
+            // Keep default error message
+          }
+        }
+        
+        console.error('[CloudService] 多模态请求失败:', errorMessage);
+        throw new Error(errorMessage);
+      }
+      
+      // If response is successful, return it
+      return response;
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          console.error('[CloudService] 多模态请求超时');
+          throw new Error('多模态请求超时，请检查网络连接或稍后重试');
+        }
+        
+        // Network errors
+        if (error.message.includes('fetch') || error.message.includes('network')) {
+          console.error('[CloudService] 网络错误:', error);
+          throw new Error('网络连接失败，请检查您的互联网连接');
+        }
+      }
+      
+      console.error('[CloudService] 多模态请求失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
    * Generate a chat completion using CradleAI
    * @param messages The messages array
    * @param options Additional options for the request
@@ -403,7 +624,7 @@ class CloudServiceProviderClass {
       throw error;
     }
   }
-  
+
   /**
    * Use Hugging Face API via cloud service instead of forwarding requests
    * @param messages The messages array to send to the model

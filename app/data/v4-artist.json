@@ -2533,5 +2533,10 @@
           "image_filename": "",
           "artist_prompt": "[[kamisato ayaka (genshin) cosplay]],no humans,[artist:kedama milk],{wlop, reoen},[[artist:As109]], {{white cat}}, hair ornament, furry, shy, nude, [[chibi]]",
           "gender": "female"
+      },
+      {
+          "image_filename": "",
+          "artist_prompt": "(artist:mazjojo:0.67), (artist:pigeon666:0.83), (artist:zawar379:0.73), (artist:remsrar:0.65), nub1mo, (Yomu:0.3),(dino_(dinoartforame):0.5),(yoneyama mai:0.5),(quasarcake:0.4),(wlop:0.3),",
+          "gender":"female"
       }
   ]

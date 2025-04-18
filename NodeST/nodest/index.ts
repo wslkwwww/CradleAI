@@ -128,8 +128,8 @@ export class NodeST {
         });
     }
 
-    private getCoreInstance(apiKey: string, apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>): NodeSTCore {
-        // 确保使用最新的API Key
+    private getCoreInstance(apiKey: string = "", apiSettings?: Pick<GlobalSettings['chat'], 'apiProvider' | 'openrouter' | 'useGeminiModelLoadBalancing' | 'useGeminiKeyRotation' | 'additionalGeminiKeys'>): NodeSTCore {
+        // 确保使用最新的API Key - could be empty string
         const effectiveApiKey = this.apiKey || apiKey;
         
         // 使用核心 API 设置初始化或更新 NodeSTCore
@@ -140,7 +140,8 @@ export class NodeST {
                 useGeminiModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing,
                 useGeminiKeyRotation: apiSettings?.useGeminiKeyRotation,
                 additionalKeysCount: apiSettings?.additionalGeminiKeys?.length,
-                apiKeyLength: effectiveApiKey?.length || 0
+                apiKeyLength: effectiveApiKey?.length || 0,
+                usingCloudFallback: !effectiveApiKey
             });
             this.nodeSTCore = new NodeSTCore(effectiveApiKey, apiSettings);
         } else {
@@ -148,21 +149,13 @@ export class NodeST {
                 provider: apiSettings?.apiProvider || 'gemini',
                 hasOpenRouter: !!apiSettings?.openrouter,
                 useGeminiModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing,
-                useGeminiKeyRotation: apiSettings?.useGeminiKeyRotation
+                useGeminiKeyRotation: apiSettings?.useGeminiKeyRotation,
+                usingCloudFallback: !effectiveApiKey
             });
             this.nodeSTCore.updateApiSettings(effectiveApiKey, apiSettings);
         }
         
         return this.nodeSTCore;
-    }
-
-    private getCircleManager(): CircleManager {
-        if (!this.circleManager) {
-            // When creating a new instance, respect any existing API settings
-            console.log(`【NodeST】创建新的CircleManager实例，apiKey存在: ${!!this.apiKey}`);
-            this.circleManager = new CircleManager(this.apiKey);
-        }
-        return this.circleManager;
     }
 
     async processChatMessage(params: ProcessChatRequest): Promise<ProcessChatResponse> {
@@ -176,18 +169,13 @@ export class NodeST {
                 useGeminiKeyRotation: params.apiSettings?.useGeminiKeyRotation,
                 additionalKeysCount: params.apiSettings?.additionalGeminiKeys?.length,
                 hasJsonString: !!params.jsonString,
-                useToolCalls: params.useToolCalls || false
+                useToolCalls: params.useToolCalls || false,
+                apiKeyProvided: !!params.apiKey
             });
 
-            if (!params.apiKey) {
-                return { 
-                    success: false, 
-                    error: "API key is required" 
-                };
-            }
-
+            // Note: We pass the API key even if it's empty
             // 获取 NodeSTCore 实例，并传递 API 设置
-            const core = this.getCoreInstance(params.apiKey, params.apiSettings);
+            const core = this.getCoreInstance(params.apiKey || "", params.apiSettings);
 
             if (params.status === "新建角色") {
                 if (!params.jsonString) {
@@ -269,7 +257,7 @@ export class NodeST {
                 const response = await core.continueChat(
                     params.conversationId,
                     params.userMessage,
-                    params.apiKey,
+                    params.apiKey || "", // Pass empty string if not provided
                     params.characterId,
                     params.customUserName,
                     params.useToolCalls
@@ -656,6 +644,14 @@ export class NodeST {
             console.error("[NodeST] Error initializing character circle:", error);
             return false;
         }
+    }
+    private getCircleManager(): CircleManager {
+        if (!this.circleManager) {
+            // When creating a new instance, respect any existing API settings
+            console.log(`【NodeST】创建新的CircleManager实例，apiKey存在: ${!!this.apiKey}`);
+            this.circleManager = new CircleManager(this.apiKey);
+        }
+        return this.circleManager;
     }
 
     async processCircleInteraction(options: CirclePostOptions): Promise<CircleResponse> {
