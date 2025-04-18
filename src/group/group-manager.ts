@@ -41,13 +41,11 @@ export class GroupManager {
    */
   private getNodeST(): NodeST {
     if (!this.nodeST) {
-      if (!this.apiKey) {
-        throw new Error('未设置API密钥');
-      }
+      // No need to validate apiKey anymore since NodeST can handle cases without it
       this.nodeST = new NodeST(this.apiKey);
       
-      // Update API settings if provided
-      if (this.apiSettings) {
+      // Only update API settings if provided and apiKey exists
+      if (this.apiSettings && this.apiKey) {
         this.nodeST.updateApiSettings(this.apiKey, this.apiSettings);
       }
     }

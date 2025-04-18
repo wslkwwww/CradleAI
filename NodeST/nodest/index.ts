@@ -790,13 +790,10 @@ export class NodeST {
         try {
             console.log(`【NodeST】生成内容，提示词长度: ${prompt.length}，使用提供商: ${this.openRouterAdapter ? 'OpenRouter' : 'Gemini'}`);
             
-            // Check if we have any adapter available
+            // Initialize adapters if they don't exist - no API key check needed
             if (!this.openRouterAdapter && !this.geminiAdapter) {
-                if (!this.apiKey) {
-                    throw new Error('未设置API密钥，无法生成内容');
-                }
-                // Initialize Gemini adapter if none exists
-                this.geminiAdapter = new GeminiAdapter(this.apiKey);
+                // Create Gemini adapter - it can handle empty API key now
+                this.geminiAdapter = new GeminiAdapter(this.apiKey || "");
             }
             
             // Create message content
