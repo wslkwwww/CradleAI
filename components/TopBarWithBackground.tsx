@@ -13,6 +13,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { BlurView } from 'expo-blur';
@@ -22,7 +23,7 @@ import MemoryProcessingControl from '@/src/memory/components/MemoryProcessingCon
 import { Group } from '@/src/group/group-types';
 import { GroupAvatar } from './GroupAvatar';
 import { CharacterLoader } from '@/src/utils/character-loader';
-import { disbandGroup as disbandGroupAction } from '@/src/group';
+import { disbandGroup as disbandGroupAction, clearGroupMessages as clearGroupMessagesAction } from '@/src/group';
 import { GroupScheduler } from '@/src/group/group-scheduler';
 
 const GroupSettingsModal: React.FC<{
@@ -33,13 +34,40 @@ const GroupSettingsModal: React.FC<{
   selectedGroup?: Group | null;
   currentUser?: any;
   onDisbandGroup?: () => void;
-}> = ({ visible, onClose, onSave, initialSettings, selectedGroup, currentUser, onDisbandGroup }) => {
+  onClearChatHistory?: () => void;
+}> = ({ visible, onClose, onSave, initialSettings, selectedGroup, currentUser, onDisbandGroup, onClearChatHistory }) => {
   const [settings, setSettings] = useState<GroupChatSettings>({
     dailyMessageLimit: initialSettings?.dailyMessageLimit || 50,
     replyIntervalMinutes: initialSettings?.replyIntervalMinutes || 1,
     referenceMessageLimit: initialSettings?.referenceMessageLimit || 5,
     timedMessagesEnabled: initialSettings?.timedMessagesEnabled ?? false,
   });
+
+  useEffect(() => {
+    if (selectedGroup) {
+      const loadGroupSettings = async () => {
+        try {
+          const storageKey = `group_settings_${selectedGroup.groupId}`;
+          const savedSettings = await AsyncStorage.getItem(storageKey);
+          
+          if (savedSettings) {
+            const parsedSettings = JSON.parse(savedSettings);
+            console.log(`[GroupSettingsModal] Loaded saved settings for group ${selectedGroup.groupId}:`, parsedSettings);
+            setSettings(parsedSettings);
+          } else {
+            console.log(`[GroupSettingsModal] No saved settings found for group ${selectedGroup.groupId}, using defaults`);
+            if (initialSettings) {
+              setSettings(initialSettings);
+            }
+          }
+        } catch (error) {
+          console.error('[GroupSettingsModal] Error loading group settings from AsyncStorage:', error);
+        }
+      };
+      
+      loadGroupSettings();
+    }
+  }, [selectedGroup, initialSettings]);
 
   const isOwner = selectedGroup && currentUser && selectedGroup.groupOwnerId === currentUser.id;
 
@@ -66,6 +94,49 @@ const GroupSettingsModal: React.FC<{
         }
       ]
     );
+  };
+
+  const handleClearChatHistory = () => {
+    if (!selectedGroup) return;
+
+    Alert.alert(
+      "清空聊天记录",
+      `确定要清空"${selectedGroup.groupName}"的所有聊天记录吗？此操作不可撤销，所有消息将被永久删除。`,
+      [
+        {
+          text: "取消",
+          style: "cancel"
+        },
+        {
+          text: "确定清空",
+          style: "destructive",
+          onPress: () => {
+            if (onClearChatHistory) {
+              onClearChatHistory();
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSaveSettings = async () => {
+    if (selectedGroup) {
+      try {
+        const storageKey = `group_settings_${selectedGroup.groupId}`;
+        await AsyncStorage.setItem(storageKey, JSON.stringify(settings));
+        console.log(`[GroupSettingsModal] Saved settings for group ${selectedGroup.groupId}:`, settings);
+        
+        onSave(settings);
+        onClose();
+      } catch (error) {
+        console.error('[GroupSettingsModal] Error saving group settings to AsyncStorage:', error);
+        Alert.alert('保存失败', '无法保存群聊设置，请重试');
+      }
+    } else {
+      onSave(settings);
+      onClose();
+    }
   };
 
   return (
@@ -209,14 +280,18 @@ const GroupSettingsModal: React.FC<{
             >
               <Text style={groupSettingsStyles.disbandButtonText}>解散群聊</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={groupSettingsStyles.clearHistoryButton}
+              onPress={handleClearChatHistory}
+            >
+              <Text style={groupSettingsStyles.clearHistoryButtonText}>清空聊天记录</Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
             style={groupSettingsStyles.saveButton}
-            onPress={() => {
-              onSave(settings);
-              onClose();
-            }}
+            onPress={handleSaveSettings}
           >
             <Text style={groupSettingsStyles.saveButtonText}>保存设置</Text>
           </TouchableOpacity>
@@ -302,6 +377,28 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
       };
 
       loadGroupMembers();
+
+      const loadGroupSettings = async () => {
+        try {
+          const storageKey = `group_settings_${selectedGroup.groupId}`;
+          const savedSettings = await AsyncStorage.getItem(storageKey);
+          
+          if (savedSettings) {
+            const parsedSettings = JSON.parse(savedSettings);
+            console.log(`[TopBar] Loaded persisted settings for group ${selectedGroup.groupId}:`, parsedSettings);
+            setGroupSettings(parsedSettings);
+          } else {
+            const scheduler = GroupScheduler.getInstance();
+            const schedulerSettings = scheduler.getGroupSettings(selectedGroup.groupId);
+            console.log(`[TopBar] Loaded scheduler settings for group ${selectedGroup.groupId}:`, schedulerSettings);
+            setGroupSettings(schedulerSettings);
+          }
+        } catch (error) {
+          console.error('[TopBar] Error loading group settings:', error);
+        }
+      };
+      
+      loadGroupSettings();
     }
   }, [isGroupMode, selectedGroup]);
 
@@ -327,26 +424,31 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
     console.log('[TopBar] Opening group settings panel');
   };
 
-  const handleSaveGroupSettings = (newSettings: GroupChatSettings) => {
+  const handleSaveGroupSettings = async (newSettings: GroupChatSettings) => {
     setGroupSettings(newSettings);
     
-    // 保存设置到GroupScheduler
     if (selectedGroup) {
-      // 获取GroupScheduler实例
-      const scheduler = GroupScheduler.getInstance();
-      
-      // 更新群组设置
-      scheduler.setGroupSettings(selectedGroup.groupId, {
-        dailyMessageLimit: newSettings.dailyMessageLimit,
-        replyIntervalMinutes: newSettings.replyIntervalMinutes,
-        referenceMessageLimit: newSettings.referenceMessageLimit,
-        timedMessagesEnabled: newSettings.timedMessagesEnabled,
-      });
-      
-      console.log('[TopBar] Group settings saved to scheduler:', {
-        groupId: selectedGroup.groupId,
-        settings: newSettings
-      });
+      try {
+        const scheduler = GroupScheduler.getInstance();
+        
+        scheduler.setGroupSettings(selectedGroup.groupId, {
+          dailyMessageLimit: newSettings.dailyMessageLimit,
+          replyIntervalMinutes: newSettings.replyIntervalMinutes,
+          referenceMessageLimit: newSettings.referenceMessageLimit,
+          timedMessagesEnabled: newSettings.timedMessagesEnabled,
+        });
+        
+        const storageKey = `group_settings_${selectedGroup.groupId}`;
+        await AsyncStorage.setItem(storageKey, JSON.stringify(newSettings));
+        
+        console.log('[TopBar] Group settings saved to scheduler and AsyncStorage:', {
+          groupId: selectedGroup.groupId,
+          settings: newSettings
+        });
+      } catch (error) {
+        console.error('[TopBar] Error saving group settings:', error);
+        Alert.alert('设置保存失败', '无法保存群聊设置，请重试');
+      }
     }
     
     if (onGroupSettingsChange) {
@@ -373,6 +475,27 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
     } catch (error) {
       console.error('[TopBar] 解散群聊出错:', error);
       Alert.alert('操作失败', '解散群聊时发生错误，请重试。');
+    }
+  };
+
+  const handleClearChatHistory = async () => {
+    if (!selectedGroup || !currentUser) return;
+
+    try {
+      console.log('[TopBar] 正在清空群聊历史:', selectedGroup.groupId);
+      const success = await clearGroupMessagesAction(currentUser, selectedGroup.groupId);
+
+      if (success) {
+        console.log('[TopBar] 群聊历史已成功清空');
+        Alert.alert('操作成功', '聊天记录已清空');
+        setGroupSettingsVisible(false);
+      } else {
+        console.error('[TopBar] 清空群聊历史失败');
+        Alert.alert('操作失败', '清空聊天记录失败，请重试。');
+      }
+    } catch (error) {
+      console.error('[TopBar] 清空群聊历史出错:', error);
+      Alert.alert('操作失败', '清空聊天记录时发生错误，请重试。');
     }
   };
 
@@ -531,6 +654,7 @@ const TopBarWithBackground: React.FC<TopBarWithBackgroundProps> = ({
           selectedGroup={selectedGroup}
           currentUser={currentUser}
           onDisbandGroup={handleDisbandGroup}
+          onClearChatHistory={handleClearChatHistory}
         />
       )}
 
@@ -727,6 +851,7 @@ const groupSettingsStyles = StyleSheet.create({
     fontWeight: 'bold',
   },
   dangerSection: {
+    marginTop: 10,
   },
   dangerSectionTitle: {
     fontSize: 16,
@@ -745,6 +870,21 @@ const groupSettingsStyles = StyleSheet.create({
     marginVertical: 10,
   },
   disbandButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  clearHistoryButton: {
+    backgroundColor: 'rgba(255, 127, 0, 0.7)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  clearHistoryButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,

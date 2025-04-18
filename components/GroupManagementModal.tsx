@@ -52,6 +52,7 @@ const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
       try {
         setIsInitializing(true);
         console.log(`[GroupManagementModal] Initializing with ${allCharacters.length} characters and ${groupMembers.length} group members`);
+        console.log(`[GroupManagementModal] Group member IDs: ${group.groupMemberIds.join(', ')}`);
         
         // Create a set of current member IDs including the user ID
         const memberIds = new Set(group.groupMemberIds || []);
@@ -73,6 +74,16 @@ const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
         
         console.log(`[GroupManagementModal] Found ${available.length} available characters for adding to group`);
         setAvailableCharacters(available);
+        
+        // Additional check: if any group members are missing from our current
+        // groupMembers prop, set the flag to load them
+        if (group.groupMemberIds) {
+          const characterMemberIds = group.groupMemberIds.filter(id => id !== currentUser.id);
+          if (characterMemberIds.length > groupMembers.length) {
+            console.log(`[GroupManagementModal] Missing characters: expected ${characterMemberIds.length}, got ${groupMembers.length}`);
+            setNeedsToLoadMissingCharacters(true);
+          }
+        }
       } catch (error) {
         console.error('[GroupManagementModal] Error initializing available characters:', error);
         Alert.alert('Error', 'Failed to load available characters');
@@ -84,7 +95,7 @@ const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
     if (visible) {
       initializeAvailableCharacters();
     }
-  }, [group, allCharacters, visible]);
+  }, [group, allCharacters, visible, currentUser.id, groupMembers.length]);
 
   useEffect(() => {
     if (visible && group.groupMemberIds) {
@@ -413,6 +424,16 @@ const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
             onGroupUpdated();
           } else {
             console.error('[GroupManagementModal] Failed to load any members');
+            
+            // Fallback: try to use the original allCharacters prop to find the missing members
+            const membersFromAllCharacters = allCharacters.filter(char => 
+              characterMemberIds.includes(char.id)
+            );
+            
+            if (membersFromAllCharacters.length > 0) {
+              console.log(`[GroupManagementModal] Found ${membersFromAllCharacters.length} members in original allCharacters prop`);
+              onGroupUpdated();
+            }
           }
         } catch (error) {
           console.error('[GroupManagementModal] Error loading missing members:', error);
@@ -424,7 +445,7 @@ const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
       
       loadMissingMembers();
     }
-  }, [visible, needsToLoadMissingCharacters, group.groupMemberIds, currentUser.id, onGroupUpdated]);
+  }, [visible, needsToLoadMissingCharacters, group.groupMemberIds, currentUser.id, onGroupUpdated, allCharacters]);
 
   const shouldRenderCurrentUser = group.groupMemberIds?.includes(currentUser.id) || false;
 

@@ -709,6 +709,55 @@ ${formattedMessages}
   }
 
   /**
+   * 清空群聊消息历史
+   * @param groupId 群组ID
+   * @param userId 执行清空操作的用户ID（必须是群主）
+   */
+  static async clearGroupMessages(groupId: string, userId: string): Promise<boolean> {
+    try {
+      console.log(`【群聊服务】尝试清空群组消息历史，ID: ${groupId}, 用户ID: ${userId}`);
+      
+      // 获取群组信息
+      const group = await this.getGroupById(groupId);
+      
+      if (!group) {
+        console.error(`【群聊服务】清空群聊消息失败: 找不到群组 ${groupId}`);
+        return false;
+      }
+      
+      // 验证执行操作的用户是否是群主
+      if (group.groupOwnerId !== userId) {
+        console.error(`【群聊服务】清空群聊消息失败: 用户 ${userId} 不是群主`);
+        return false;
+      }
+      
+      // 清空群组消息 - 存入一条系统消息表示历史已清空
+      const systemMessage: GroupMessage = {
+        messageId: `msg-${Date.now()}`,
+        groupId,
+        senderId: 'system',
+        senderName: '系统',
+        messageContent: `群聊历史记录已被群主清空`,
+        messageType: 'text',
+        messageCreatedAt: new Date(),
+        messageUpdatedAt: new Date()
+      };
+      
+      // 保存这条系统消息作为唯一消息
+      await AsyncStorage.setItem(`group_messages_${groupId}`, JSON.stringify([systemMessage]));
+      
+      // 通知所有监听器
+      this.notifyMessageListeners(groupId, [systemMessage]);
+      
+      console.log(`【群聊服务】成功清空群组 ${groupId} 的消息历史`);
+      return true;
+    } catch (error) {
+      console.error(`【群聊服务】清空群聊消息失败:`, error);
+      return false;
+    }
+  }
+
+  /**
    * 解散群组
    * @param groupId 群组ID
    * @param userId 执行解散操作的用户ID（必须是群主）

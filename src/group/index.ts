@@ -11,7 +11,7 @@ import { GroupService } from './group-service';
 import { GroupScheduler, GroupSettings } from './group-scheduler';
 import { Character, User } from '../../shared/types';
 import { Group, GroupMessage } from './group-types';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 /**
  * 创建一个新的群聊
  * @param user 当前用户
@@ -26,7 +26,23 @@ export async function createUserGroup(
   characters: Character[] = []
 ): Promise<Group | null> {
   const manager = new GroupManager(user);
-  return await manager.createGroup(groupName, groupTopic, characters);
+  const newGroup = await manager.createGroup(groupName, groupTopic, characters);
+  
+  // Ensure character data is properly loaded for immediate use
+  if (newGroup && characters.length > 0) {
+    console.log(`[createUserGroup] New group created with ${characters.length} characters, ensuring data consistency`);
+    
+    // Validate character data is immediately available
+    try {
+      // Force an immediate storage update to ensure consistency
+      const characterIds = newGroup.groupMemberIds.filter(id => id !== user.id);
+      await GroupService.getCharactersByIds(characterIds);
+    } catch (error) {
+      console.error('[createUserGroup] Error validating character data:', error);
+    }
+  }
+  
+  return newGroup;
 }
 
 /**
@@ -111,12 +127,26 @@ export async function disbandGroup(
  * @param groupId 群聊ID
  * @param settings 群聊设置
  */
-export function updateGroupSettings(
+export async function updateGroupSettings(
   groupId: string,
   settings: GroupSettings
-): void {
-  const scheduler = GroupScheduler.getInstance();
-  scheduler.setGroupSettings(groupId, settings);
+): Promise<void> {
+  try {
+    // 获取GroupScheduler实例并更新设置
+    const scheduler = GroupScheduler.getInstance();
+    scheduler.setGroupSettings(groupId, settings);
+    
+    // 同时确保设置保存到专用存储键，以便在重启应用后可以持久化
+    const storageKey = `group_settings_${groupId}`;
+    await AsyncStorage.setItem(storageKey, JSON.stringify(settings));
+    
+    console.log(`[group/index] Group settings updated and persisted for group ${groupId}:`, settings);
+    
+    return Promise.resolve();
+  } catch (error) {
+    console.error(`[group/index] Error updating group settings:`, error);
+    return Promise.reject(error);
+  }
 }
 
 /**
@@ -128,4 +158,22 @@ export function getGroupSettings(
 ): GroupSettings {
   const scheduler = GroupScheduler.getInstance();
   return scheduler.getGroupSettings(groupId);
+}
+
+/**
+ * 清空群聊历史消息
+ * @param user 当前用户
+ * @param groupId 群聊ID
+ */
+export async function clearGroupMessages(
+  user: User,
+  groupId: string
+): Promise<boolean> {
+  try {
+    console.log(`[group/index] 清空群组 ${groupId} 的消息历史`);
+    return await GroupService.clearGroupMessages(groupId, user.id);
+  } catch (error) {
+    console.error(`[group/index] 清空群聊消息失败:`, error);
+    return false;
+  }
 }

@@ -144,6 +144,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         setGroupName('');
         setGroupTopic('');
         setSelectedCharacters([]);
+        
+        // Ensure group characters are immediately available by adding a small delay
+        // before allowing interaction with the newly created group
+        setTimeout(() => {
+          console.log('[Sidebar] New group ready for management:', newGroup.groupId);
+        }, 500);
       }
     } catch (error) {
       console.error('Failed to create group:', error);

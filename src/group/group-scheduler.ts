@@ -44,11 +44,47 @@ export class GroupScheduler {
    */
   private async loadPersistedData(): Promise<void> {
     try {
-      // 加载群组设置
+      // 先尝试加载从group_scheduler_settings键中的设置
       const settingsStr = await AsyncStorage.getItem('group_scheduler_settings');
       if (settingsStr) {
         this.groupSettings = JSON.parse(settingsStr);
         console.log(`【群聊调度器】从存储加载群组设置，共 ${Object.keys(this.groupSettings).length} 个群组`);
+      }
+
+      // 然后检查并加载每个群组的个别设置，这些会覆盖默认设置
+      try {
+        // Get all AsyncStorage keys
+        const keys = await AsyncStorage.getAllKeys();
+        const groupSettingsKeys = keys.filter(key => key.startsWith('group_settings_'));
+        
+        if (groupSettingsKeys.length > 0) {
+          console.log(`【群聊调度器】发现 ${groupSettingsKeys.length} 个群组单独设置`);
+          
+          // Get all values for the group settings keys
+          const groupSettingsPairs = await AsyncStorage.multiGet(groupSettingsKeys);
+          
+          // Process each group's settings
+          for (const [key, value] of groupSettingsPairs) {
+            if (value) {
+              const groupId = key.replace('group_settings_', '');
+              const settings = JSON.parse(value);
+              
+              // Update the settings in memory
+              this.groupSettings[groupId] = settings;
+              
+              console.log(`【群聊调度器】从单独存储加载群组 ${groupId} 设置:`, 
+                JSON.stringify({
+                  replyInterval: settings.replyIntervalMinutes,
+                  messageLimit: settings.dailyMessageLimit,
+                  refMsgLimit: settings.referenceMessageLimit,
+                  timedMessagesEnabled: settings.timedMessagesEnabled
+                })
+              );
+            }
+          }
+        }
+      } catch (error) {
+        console.error('【群聊调度器】加载个别群组设置失败:', error);
       }
 
       // 加载上次回复时间
@@ -99,6 +135,20 @@ export class GroupScheduler {
     
     // 持久化保存设置
     this.persistData();
+    
+    // 同时保存到群组专用的存储键
+    try {
+      const storageKey = `group_settings_${groupId}`;
+      AsyncStorage.setItem(storageKey, JSON.stringify(settings))
+        .then(() => {
+          console.log(`【群聊调度器】已将设置单独保存到 ${storageKey}`);
+        })
+        .catch(error => {
+          console.error(`【群聊调度器】保存设置到 ${storageKey} 失败:`, error);
+        });
+    } catch (error) {
+      console.error(`【群聊调度器】准备保存到单独存储键时出错:`, error);
+    }
   }
 
   /**

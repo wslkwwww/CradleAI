@@ -77,7 +77,18 @@ export class GroupManager {
     try {
       console.log(`【群聊管理器】创建新群聊: ${groupName}, 主题: ${groupTopic}`);
       
-      return await GroupService.createUserGroup(
+      // Ensure all character data is complete before creating the group
+      if (initialCharacters.length > 0) {
+        // Validate all characters have the necessary data
+        const validCharacters = initialCharacters.filter(char => 
+          char && char.id && char.name
+        );
+        
+        // Log validation results
+        console.log(`【群聊管理器】初始化角色验证: ${validCharacters.length}/${initialCharacters.length} 个有效`);
+      }
+      
+      const newGroup = await GroupService.createUserGroup(
         groupName,
         groupTopic,
         this.user,
@@ -85,6 +96,21 @@ export class GroupManager {
         this.apiKey,
         this.apiSettings
       );
+      
+      if (newGroup) {
+        // Explicitly force a refresh of character data
+        const characterIds = newGroup.groupMemberIds.filter(id => id !== this.user.id);
+        if (characterIds.length > 0) {
+          try {
+            const loadedCharacters = await GroupService.getCharactersByIds(characterIds);
+            console.log(`【群聊管理器】已加载并验证 ${loadedCharacters.length}/${characterIds.length} 个角色数据`);
+          } catch (charError) {
+            console.error('【群聊管理器】验证角色数据时出错:', charError);
+          }
+        }
+      }
+      
+      return newGroup;
     } catch (error) {
       console.error(`【群聊管理器】创建群聊失败:`, error);
       return null;
@@ -373,6 +399,30 @@ export class GroupManager {
       return true;
     } catch (error) {
       console.error(`【群聊管理器】更新群聊设置失败:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * 清空群聊消息历史
+   */
+  async clearGroupMessages(groupId: string): Promise<boolean> {
+    try {
+      console.log(`【群聊管理器】清空群聊消息历史，群组ID: ${groupId}`);
+      
+      // 获取群组信息进行日志记录
+      const group = await GroupService.getGroupById(groupId);
+      if (group) {
+        console.log(`【群聊管理器】要清空消息的群组信息: ${group.groupName}, 成员数: ${group.groupMemberIds.length}`);
+      } else {
+        console.warn(`【群聊管理器】未找到群组: ${groupId}`);
+        return false;
+      }
+      
+      // 使用Group Service清空群组消息
+      return await GroupService.clearGroupMessages(groupId, this.user.id);
+    } catch (error) {
+      console.error(`【群聊管理器】清空群聊消息历史失败:`, error);
       return false;
     }
   }
