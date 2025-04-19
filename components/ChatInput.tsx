@@ -275,9 +275,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       onSendMessage('', 'bot', true);
       
       const apiKey = user?.settings?.chat.characterApiKey || '';
-      if (!apiKey) {
-        throw new Error("API密钥未设置");
-      }
       
       const geminiAdapter = new GeminiAdapter(apiKey);
       
