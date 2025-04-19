@@ -862,6 +862,7 @@ const CreateChar: React.FC<CreateCharProps> = ({ activeTab: initialActiveTab = '
               ...prev,
               name: data.roleCard.name,
               avatar: data.avatar || null,
+              // Set the backgroundImage from the imported PNG
               backgroundImage: data.backgroundImage || null
             }));
             

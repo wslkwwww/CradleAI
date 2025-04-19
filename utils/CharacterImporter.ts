@@ -22,6 +22,7 @@ export class CharacterImporter {
     roleCard: RoleCardJson;
     worldBook: WorldBookJson;
     extractedName: string;
+    backgroundImage?: string; // Add backgroundImage field to return PNG data
   }> {
     const data = await PNGParser.readPNGChunks(filePath);
     
@@ -70,11 +71,26 @@ export class CharacterImporter {
       });
     }
 
-    // 不再在这里构建 preset
+    // Convert the original PNG file to base64 for use as background image
+    let backgroundImage: string | undefined;
+    try {
+      // Read the file as base64
+      const base64Image = await FileSystem.readAsStringAsync(filePath, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      // Create a data URI for the image
+      backgroundImage = `data:image/png;base64,${base64Image}`;
+      console.log('[Character Import] Successfully extracted PNG as background image');
+    } catch (error) {
+      console.error('[Character Import] Failed to extract PNG as background image:', error);
+      // Continue without background image if extraction fails
+    }
+
     return { 
       roleCard, 
       worldBook, 
-      extractedName
+      extractedName,
+      backgroundImage  // Return the background image data
     };
   }
 
