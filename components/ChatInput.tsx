@@ -25,6 +25,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
 import Mem0Service from '@/src/memory/services/Mem0Service';
 import ImageManager from '@/utils/ImageManager';
+import { StorageAdapter } from '@/NodeST/nodest/utils/storage-adapter';
 
 interface ChatInputProps {
   onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean, metadata?: Record<string, any>) => void;
@@ -278,13 +279,59 @@ const ChatInput: React.FC<ChatInputProps> = ({
       
       const geminiAdapter = new GeminiAdapter(apiKey);
       
+      // Extract character personality and description from jsonData
+      let characterPersonality = '';
+      let characterDescription = '';
+      
+      if (selectedCharacter?.jsonData) {
+        try {
+          const characterData = JSON.parse(selectedCharacter.jsonData);
+          characterPersonality = characterData.roleCard?.personality || '';
+          characterDescription = characterData.roleCard?.description || '';
+        } catch (e) {
+          console.error('[ChatInput] Error parsing character JSON data:', e);
+        }
+      }
+      
+      // Get recent messages using StorageAdapter
+      let recentMessagesContext = '';
+      try {
+        if (conversationId) {
+          const recentMessages = await StorageAdapter.getRecentMessages(conversationId, 5);
+          
+          if (recentMessages && recentMessages.length > 0) {
+            recentMessagesContext = recentMessages.map(msg => {
+              const role = msg.role === 'user' ? '用户' : selectedCharacter.name;
+              return `${role}: ${msg.parts?.[0]?.text || ''}`;
+            }).join('\n');
+          }
+        }
+      } catch (e) {
+        console.error('[ChatInput] Error getting recent messages:', e);
+      }
+      
+      // Build enhanced prompt with character info and recent messages
+      const enhancedPrompt = `
+这是用户发送的一张图片。请以${selectedCharacter.name}的身份分析并回应这张图片。
+
+角色信息:
+姓名: ${selectedCharacter.name}
+性格: ${characterPersonality}
+简介: ${characterDescription}
+
+${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` : ''}
+
+根据以上角色设定和对话历史，分析这张图片并保持角色的语气、性格特点做出回应。
+如果图片内容涉及到与角色背景、关系或对话历史相关的内容，请基于角色视角做出更具针对性的回应。
+回应应该展现角色的独特风格，就像角色真的在看到并评论这张图片一样。`;
+      
       let response: string;
       let imageCacheId: string;
       
       if (selectedImageType === 'url') {
         response = await geminiAdapter.analyzeImage(
           { url: selectedImage },
-          `这是用户发送的一张图片。请分析这张图片并作出回应。注意保持${selectedCharacter.name}的人设口吻。`
+          enhancedPrompt
         );
         
         try {
@@ -312,7 +359,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             data: base64Data,
             mimeType: mimeType
           },
-          `这是用户发送的一张图片。请分析这张图片并作出回应。注意保持${selectedCharacter.name}的人设口吻。`
+          enhancedPrompt
         );
       }
       
