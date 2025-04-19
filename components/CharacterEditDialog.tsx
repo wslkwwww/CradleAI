@@ -1147,18 +1147,10 @@ ${JSON.stringify(characterJsonData, null, 2)}
           }
         ]);
         
-        Alert.alert(
-          '更新成功',
-          `角色 "${updatedCharacter.name}" 已成功更新！`,
-          [{ text: '确定', style: 'default' }]
-        );
+
       } catch (error) {
         console.error('[CharacterEditDialog] Error applying changes:', error);
-        Alert.alert(
-          '更新失败',
-          `应用角色更改时出错: ${error instanceof Error ? error.message : '未知错误'}`,
-          [{ text: '确定', style: 'default' }]
-        );
+
       } finally {
         setIsProcessing(false);
       }

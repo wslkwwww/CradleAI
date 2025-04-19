@@ -222,11 +222,9 @@ const Explore: React.FC = () => {
         
         setPendingActions([...pendingActions, ...newActions]);
       } else {
-        Alert.alert('提示', '没有新的关系行动可生成');
       }
     } catch (error) {
       console.error('Failed to generate relationship actions:', error);
-      Alert.alert('错误', '生成关系行动时发生错误');
     } finally {
       setIsGeneratingActions(false);
     }
@@ -564,8 +562,6 @@ const Explore: React.FC = () => {
       setUserPostText('');
       setUserPostImages([]);
       
-      // Show a temporary toast/alert
-      Alert.alert('发布成功', '你的朋友圈已发布，角色们将很快响应');
       
       // Process character responses in the background
       CircleService.createUserPost(

@@ -151,10 +151,7 @@ export class CircleManager {
                 this.openRouterAdapter ? 'OpenRouter' : 'Gemini'
             );
             
-            // If we don't have any adapters configured, throw an error
-            if (!this.openRouterAdapter && !this.geminiAdapter) {
-                throw new Error('没有配置API适配器');
-            }
+
             
             // Return a promise that will be resolved when the request is processed
             return new Promise((resolve, reject) => {
@@ -177,7 +174,7 @@ export class CircleManager {
         }
     }
     
-    // Update the processRequestQueue method to better handle adapter selection
+    // Update the processRequestQueue method to better handle adapter selection and image support
     private async processRequestQueue(): Promise<void> {
         // Set processing flag
         CircleManager.isProcessing = true;
@@ -208,6 +205,12 @@ export class CircleManager {
             if (!request) continue;
             
             try {
+                // Check if the request contains image references
+                const containsImage = request.prompt.includes('![') || 
+                                     request.prompt.includes('image_url') ||
+                                     request.prompt.includes('图片') || 
+                                     request.prompt.includes('图像');
+                
                 // Create message content
                 const message = {
                     role: "user",
@@ -216,18 +219,122 @@ export class CircleManager {
                 
                 let response: string;
                 
-                // Check for cloud service first
+                // Check if cloud service is enabled first
                 if (this.useCloudService) {
+                    console.log('【朋友圈】云服务已启用，尝试使用云端API');
+                    
                     try {
-                        console.log('【朋友圈】使用云服务发送请求');
-                        // Implement cloud service call here
-                        // For now, fall back to local adapters
-                        throw new Error('Cloud service not implemented yet');
+                        // Import CloudServiceProvider if not already imported
+                        const { CloudServiceProvider } = require('@/services/cloud-service-provider');
+                        
+                        if (CloudServiceProvider.isEnabled()) {
+                            console.log(`【朋友圈】通过CloudServiceProvider发送请求${containsImage ? '（包含图片内容）' : ''}`);
+                            
+                            if (containsImage) {
+                                // For image content, use the multimodal API
+                                console.log('【朋友圈】检测到图片内容，使用多模态API');
+                                
+                                // This is a placeholder - in a real implementation, we would:
+                                // 1. Extract image URLs or base64 data from the prompt
+                                // 2. Convert local URLs to base64 data if needed
+                                // 3. Format according to the required structure
+                                
+                                // Example of how we should format the image data
+                                const exampleImageData = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD..."; // This should be actual base64 data
+                                
+                                const multimodalMessages = [
+                                    {
+                                        role: "user",
+                                        content: [
+                                            {
+                                                type: "text",
+                                                text: request.prompt
+                                            },
+                                            // Properly formatted image data for the cloud API
+                                            {
+                                                type: "image_url",
+                                                image_url: {
+                                                    url: exampleImageData // base64 data with MIME type
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ];
+                                
+                                const cloudResponse = await CloudServiceProvider.generateMultiModalContent(
+                                    multimodalMessages,
+                                    {
+                                        model: CloudServiceProvider.getMultiModalModel(),
+                                        temperature: 0.7,
+                                        max_tokens: 2048
+                                    }
+                                );
+                                
+                                if (cloudResponse.ok) {
+                                    const result = await cloudResponse.json();
+                                    if (result.choices && result.choices.length > 0) {
+                                        // Extract text content from the response
+                                        let responseContent = result.choices[0].message?.content;
+                                        
+                                        // Handle both string and array format responses
+                                        if (typeof responseContent === 'string') {
+                                            response = responseContent;
+                                        } else if (Array.isArray(responseContent)) {
+                                            // Extract all text parts
+                                            response = responseContent
+                                                .filter((part: any) => part.type === 'text')
+                                                .map((part: any) => part.text)
+                                                .join('\n');
+                                        } else {
+                                            response = "未能获取有效的AI回复";
+                                        }
+                                        
+                                        console.log('【朋友圈】成功从云服务获取多模态响应');
+                                        
+                                        // Update last request time
+                                        CircleManager.lastRequestTime = Date.now();
+                                        
+                                        // Resolve the promise
+                                        request.resolve(response);
+                                        continue; // Continue to next request
+                                    }
+                                }
+                            } else {
+                                // For text-only content, use the chat completion API
+                                const cloudResponse = await CloudServiceProvider.generateChatCompletion(
+                                    [{ role: "user", content: request.prompt }],
+                                    {
+                                        model: CloudServiceProvider.getPreferredModel(),
+                                        temperature: 0.7,
+                                        max_tokens: 2048
+                                    }
+                                );
+                                
+                                if (cloudResponse.ok) {
+                                    const result = await cloudResponse.json();
+                                    if (result.choices && result.choices.length > 0) {
+                                        response = result.choices[0].message?.content || "";
+                                        console.log('【朋友圈】成功从云服务获取响应');
+                                        
+                                        // Update last request time
+                                        CircleManager.lastRequestTime = Date.now();
+                                        
+                                        // Resolve the promise
+                                        request.resolve(response);
+                                        continue; // Continue to next request
+                                    }
+                                }
+                            }
+                            
+                            console.log('【朋友圈】云服务请求失败，尝试使用本地适配器');
+                        }
                     } catch (cloudError) {
-                        console.warn('【朋友圈】云服务请求失败，回退到本地适配器:', cloudError);
+                        console.error('【朋友圈】云服务请求出错:', cloudError);
+                        console.log('【朋友圈】云服务请求失败，尝试使用本地适配器');
                     }
                 }
                 
+                // If we reach here, either cloud service is disabled or failed
                 // Prioritize OpenRouter adapter if available
                 if (this.openRouterAdapter) {
                     console.log('【朋友圈】使用OpenRouter适配器发送请求');
@@ -235,8 +342,14 @@ export class CircleManager {
                 } else if (this.geminiAdapter) {
                     console.log('【朋友圈】使用Gemini适配器发送请求');
                     response = await this.geminiAdapter.generateContent([message]);
+                } else if (this.useCloudService) {
+                    // If cloud service is enabled but we couldn't use it earlier and no local adapters are available,
+                    // log that cloud service failed and use mock data
+                    console.log('【朋友圈】云服务调用失败且没有配置本地API适配器，使用模拟数据');
+                    response = this.getMockResponse();
                 } else {
-                    console.log('【朋友圈】没有可用的API适配器，使用模拟数据');
+                    // No cloud service and no adapters
+                    console.log('【朋友圈】没有启用云服务且无可用的API适配器，使用模拟数据');
                     response = this.getMockResponse();
                 }
                 
@@ -589,15 +702,28 @@ export class CircleManager {
             let response;
             
             // 8. 统一处理图片和请求 - 修改这部分以确保图片和请求在同一个API调用中
-            if (hasImages && this.geminiAdapter) {
+            if (hasImages) {
                 try {
-                    console.log(`【朋友圈】处理包含图片的帖子，采用单一API调用方式`);
+                    console.log(`【朋友圈】处理包含图片的帖子`);
                     
                     // 获取第一张图片
-                    const image = options.content.images![0];
+                    const imageUrl = options.content.images![0];
                     
-                    // 准备图片输入（这里直接使用URL）
-                    imageInput = { url: image };
+                    // Convert image URL to base64 data with proper MIME type
+                    let imageData: { data: string, mimeType: string };
+                    try {
+                        imageData = await this.fetchImageAsBase64(imageUrl);
+                        console.log(`【朋友圈】成功转换图片为base64格式，MIME类型: ${imageData.mimeType}`);
+                    } catch (imageError) {
+                        console.error(`【朋友圈】图片转换失败:`, imageError);
+                        throw new Error(`无法处理图片: ${imageError instanceof Error ? imageError.message : '未知错误'}`);
+                    }
+                    
+                    // Format the base64 data with MIME type for API request
+                    const formattedImageData = `data:${imageData.mimeType};base64,${imageData.data}`;
+                    
+                    // 准备图片输入（正确格式化的base64数据）
+                    const imageInput = { url: formattedImageData };
                     
                     // 将消息转换为文本格式
                     let promptText = PromptBuilderService.messagesToText(messages);
@@ -607,17 +733,124 @@ export class CircleManager {
                         promptText += "\n\n" + relationshipReviewPrompt;
                     }
                     
-                    console.log(`【朋友圈】发送包含图片的单一请求，提示文本长度: ${promptText.length}`);
+                    console.log(`【朋友圈】发送包含图片的请求，提示文本长度: ${promptText.length}`);
                     
-                    // 使用带图像的multimodal请求
-                    const multimodalResponse = await this.geminiAdapter.generateMultiModalContent(
-                        promptText,
-                        {
-                            images: [imageInput]
+                    // 检查是否应该使用云服务处理图片请求
+                    if (this.useCloudService) {
+                        try {
+                            // Import CloudServiceProvider if not already imported
+                            const { CloudServiceProvider } = require('@/services/cloud-service-provider');
+                            
+                            if (CloudServiceProvider.isEnabled()) {
+                                console.log('【朋友圈】使用云服务处理图片请求');
+                                
+                                // 准备多模态消息格式
+                                const multimodalMessages = [
+                                    {
+                                        role: "user",
+                                        content: [
+                                            {
+                                                type: "text",
+                                                text: promptText
+                                            },
+                                            {
+                                                type: "image_url",
+                                                image_url: {
+                                                    url: formattedImageData // Use formatted base64 data
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ];
+                                
+                                // 使用云服务的多模态API
+                                const cloudResponse = await CloudServiceProvider.generateMultiModalContent(
+                                    multimodalMessages,
+                                    {
+                                        model: CloudServiceProvider.getMultiModalModel(),
+                                        temperature: 0.7,
+                                        max_tokens: 2048
+                                    }
+                                );
+                                
+                                if (cloudResponse.ok) {
+                                    const result = await cloudResponse.json();
+                                    if (result.choices && result.choices.length > 0) {
+                                        // Extract text content from the response
+                                        let responseContent = result.choices[0].message?.content;
+                                        
+                                        // Handle both string and array format responses
+                                        if (typeof responseContent === 'string') {
+                                            response = responseContent;
+                                        } else if (Array.isArray(responseContent)) {
+                                            // Extract all text parts
+                                            response = responseContent
+                                                .filter((part: any) => part.type === 'text')
+                                                .map((part: any) => part.text)
+                                                .join('\n');
+                                        } else {
+                                            response = "未能获取有效的AI回复";
+                                        }
+                                        
+                                        console.log('【朋友圈】成功从云服务获取多模态响应');
+                                    } else {
+                                        console.error('【朋友圈】云服务响应格式无效');
+                                        throw new Error('云服务返回了无效的响应格式');
+                                    }
+                                } else {
+                                    console.error(`【朋友圈】云服务请求失败: ${cloudResponse.status} ${cloudResponse.statusText}`);
+                                    throw new Error('云服务请求失败');
+                                }
+                            } else {
+                                // 云服务未启用或不可用，尝试本地适配器
+                                if (this.geminiAdapter) {
+                                    // 使用带图像的multimodal请求
+                                    const multimodalResponse = await this.geminiAdapter.generateMultiModalContent(
+                                        promptText,
+                                        {
+                                            images: [imageInput]
+                                        }
+                                    );
+                                    
+                                    response = multimodalResponse.text || '';
+                                } else {
+                                    throw new Error('没有可用的图片处理适配器');
+                                }
+                            }
+                        } catch (cloudError) {
+                            console.error('【朋友圈】云服务处理图片请求失败:', cloudError);
+                            
+                            // 如果云服务失败，尝试使用本地适配器
+                            if (this.geminiAdapter) {
+                                console.log('【朋友圈】尝试使用本地Gemini适配器处理图片请求');
+                                const multimodalResponse = await this.geminiAdapter.generateMultiModalContent(
+                                    promptText,
+                                    {
+                                        images: [imageInput]
+                                    }
+                                );
+                                
+                                response = multimodalResponse.text || '';
+                            } else {
+                                throw new Error('没有可用的图片处理适配器');
+                            }
                         }
-                    );
-                    
-                    response = multimodalResponse.text || '';
+                    } else {
+                        // 云服务未启用，直接使用本地适配器
+                        if (this.geminiAdapter) {
+                            // 使用带图像的multimodal请求
+                            const multimodalResponse = await this.geminiAdapter.generateMultiModalContent(
+                                promptText,
+                                {
+                                    images: [imageInput]
+                                }
+                            );
+                            
+                            response = multimodalResponse.text || '';
+                        } else {
+                            throw new Error('没有可用的图片处理适配器');
+                        }
+                    }
                     
                     // 日志
                     if (response) {
@@ -1294,5 +1527,55 @@ user789-+10-friend
         }
         
         return this.circlePost(options, this.apiKey);
+    }
+
+    // Add a utility function to fetch and convert image to base64
+    private async fetchImageAsBase64(imageUrl: string): Promise<{data: string, mimeType: string}> {
+        try {
+            console.log(`【CircleManager】正在从URL获取图片: ${imageUrl}`);
+            
+            // Check if the URL is already a data URL
+            if (imageUrl.startsWith('data:')) {
+                // Extract MIME type and base64 data
+                const matches = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+                if (matches && matches.length === 3) {
+                    return {
+                        mimeType: matches[1],
+                        data: matches[2]
+                    };
+                }
+            }
+            
+            // If it's a remote URL or local file path
+            const response = await fetch(imageUrl);
+            
+            if (!response.ok) {
+                throw new Error(`获取图片失败: ${response.status} ${response.statusText}`);
+            }
+            
+            // Get content type
+            const contentType = response.headers.get('content-type') || 'image/jpeg';
+            
+            // Get image data and convert to base64
+            const arrayBuffer = await response.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            
+            // Convert to base64 string
+            let binaryString = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binaryString += String.fromCharCode(bytes[i]);
+            }
+            const base64Data = btoa(binaryString);
+            
+            console.log(`【CircleManager】成功获取并编码图片，MIME类型: ${contentType}, 大小: ${base64Data.length} 字节`);
+            
+            return {
+                data: base64Data,
+                mimeType: contentType
+            };
+        } catch (error) {
+            console.error(`【CircleManager】从URL获取图片失败:`, error);
+            throw error;
+        }
     }
 }

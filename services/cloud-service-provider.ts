@@ -301,11 +301,47 @@ class CloudServiceProviderClass {
           };
         }
         
-        // If content is already an array, use it directly
+        // If content is an array, make sure all image_url entries are properly formatted
         if (Array.isArray(msg.content)) {
+          // Check all image_url entries to ensure they have correct formatting
+          const checkedContent = msg.content.map(part => {
+            if (part.type === 'image_url' && part.image_url) {
+              // Ensure the URL is properly formatted
+              // It must be either a valid http(s) URL or a data URL
+              const url = part.image_url.url;
+              
+              // Check if it's a data URL with proper format
+              if (typeof url === 'string' && url.startsWith('data:')) {
+                // Make sure it has the correct format: data:image/jpeg;base64,BASE64DATA
+                if (!url.match(/^data:[^;]+;base64,/)) {
+                  console.warn('[CloudService] 图片URL格式不正确，应为 "data:image/jpeg;base64,DATA"');
+                }
+                
+                return part; // Keep the data URL as is
+              } 
+              // If it's an HTTP URL, keep it as is
+              else if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+                return part;
+              } 
+              // For any other format, try to convert to a default format
+              else {
+                console.warn('[CloudService] 图片URL格式不正确，尝试转换...');
+                return {
+                  type: 'image_url',
+                  image_url: {
+                    url: typeof url === 'string' ? url : 'data:image/jpeg;base64,'
+                  }
+                };
+              }
+            }
+            
+            // Return other part types unchanged
+            return part;
+          });
+          
           return {
             role,
-            content: msg.content
+            content: checkedContent
           };
         }
         
@@ -326,15 +362,21 @@ class CloudServiceProviderClass {
       logSafeMessages.forEach((msg: any) => {
         if (Array.isArray(msg.content)) {
           msg.content.forEach((part: any) => {
-            if (part.image_url?.url) {
-              // Truncate long base64 data for logging
-              if (part.image_url.url.length > 50) {
-                part.image_url.url = part.image_url.url.substring(0, 50) + '...';
+            if (part.type === 'image_url' && part.image_url?.url) {
+              // Check if it's a data URL
+              if (typeof part.image_url.url === 'string' && part.image_url.url.startsWith('data:')) {
+                // Extract MIME type for logging
+                const mimeMatch = part.image_url.url.match(/^data:([^;]+);/);
+                const mimeType = mimeMatch ? mimeMatch[1] : 'unknown';
+                
+                // Truncate the base64 data for logging
+                part.image_url.url = `data:${mimeType};base64,[${part.image_url.url.length} bytes]`;
               }
             }
           });
         }
       });
+      
       console.log('[CloudService] 多模态请求消息格式:', JSON.stringify(logSafeMessages, null, 2));
       
       // Count text and image parts for logging
@@ -392,7 +434,7 @@ class CloudServiceProviderClass {
       
       // Use the multimodal API endpoint
       const endpoint = this.cloudEndpoint.trim().replace(/\/+$/, '');
-      const apiUrl = `${endpoint}/api/huggingface/multimodal`;
+      const apiUrl = `${endpoint}/api/huggingface/completion`;
       
       console.log(`[CloudService] 发送多模态请求到: ${apiUrl}`);
       
