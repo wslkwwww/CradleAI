@@ -1,14 +1,23 @@
-import { NodeSTCore } from '@/NodeST/nodest/core/node-st-core';
 import { ChatHistoryEntity, ChatMessage, GeminiMessage } from '@/shared/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
-import { OpenRouterAdapter } from '@/NodeST/nodest/utils/openrouter-adapter';
+import { getApiSettings } from '@/utils/settings-helper';
+import { unifiedGenerateContent } from '@/services/unified-api';
+import { StorageAdapter } from '@/NodeST/nodest/utils/storage-adapter';
+
+const MEMORY_SUMMARY_STORAGE_KEY = 'memory_summary_prompt_config';
+const MEMORY_SERVICE_STORAGE_KEY = 'memory_service_config';
 
 interface MemorySummarySettings {
   enabled: boolean;
   summaryThreshold: number; // Number of characters to trigger summary
   summaryLength: number;    // Max length of the summary in characters
   lastSummarizedAt: number; // Timestamp of last summarization
+}
+
+interface MemoryServiceConfig {
+  summaryThreshold: number;
+  summaryLength: number;
+  summaryRange: { start: number; end: number } | null;
 }
 
 interface SummaryData {
@@ -19,6 +28,14 @@ interface SummaryData {
     start: number;
     end: number;
   };
+}
+
+interface MemorySummaryPromptConfig {
+  inputText: string;
+  presetJson: string;
+  worldBookJson: string;
+  adapterType: 'gemini' | 'openrouter' | 'openai-compatible';
+  messageArray: any[];
 }
 
 export class MemoryService {
@@ -89,6 +106,21 @@ export class MemoryService {
     }
   }
   
+  /**
+   * Load memory service configuration from storage
+   */
+  private async loadMemoryServiceConfig(): Promise<MemoryServiceConfig | null> {
+    try {
+      const saved = await AsyncStorage.getItem(MEMORY_SERVICE_STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('[MemoryService] 加载记忆服务配置失败:', e);
+    }
+    return null;
+  }
+
   // Check if chat history needs summarization
   public async checkAndSummarize(
     conversationId: string,
@@ -102,38 +134,45 @@ export class MemoryService {
         apiKey?: string;
         model?: string;
       }
-    }
+    },
+    summaryRange?: { start: number, end: number } 
   ): Promise<ChatHistoryEntity> {
     try {
       const settings = await this.loadSettings(characterId);
-      
-      // Return original history if memory summarization is disabled
       if (!settings.enabled) {
         return chatHistory;
       }
+      const memoryServiceConfig = await this.loadMemoryServiceConfig();
+      const summaryThreshold = memoryServiceConfig?.summaryThreshold || settings.summaryThreshold;
 
-      // Count total text in chat history (excluding summaries)
-      const totalTextLength = this.calculateChatHistoryLength(chatHistory);
+      // Use StorageAdapter.getCleanChatHistory to get messages
+      const cleanMessages = await StorageAdapter.getCleanChatHistory(conversationId);
+      const totalTextLength = cleanMessages.reduce((sum, msg) => sum + (msg.parts?.[0]?.text?.length || 0), 0);
       console.log(`[MemoryService] Chat history length: ${totalTextLength} characters`);
-      
-      // Check if we need to summarize based on threshold
-      if (totalTextLength < settings.summaryThreshold) {
-        console.log(`[MemoryService] Below summarization threshold (${settings.summaryThreshold}), skipping`);
+
+      if (totalTextLength < summaryThreshold) {
+        console.log(`[MemoryService] Below summarization threshold (${summaryThreshold}), skipping`);
         return chatHistory;
       }
-      
-      // Perform summarization
-      console.log(`[MemoryService] Generating summary for conversation ${conversationId}`);
+
+      const finalSummaryRange = memoryServiceConfig?.summaryRange || summaryRange;
+
+      // Reconstruct ChatHistoryEntity for summarization
+      const cleanChatHistory: ChatHistoryEntity = {
+        ...chatHistory,
+        parts: cleanMessages
+      };
+
       return await this.generateSummary(
         conversationId,
-        chatHistory,
+        cleanChatHistory,
         settings,
         apiKey,
-        apiSettings
+        apiSettings,
+        finalSummaryRange
       );
     } catch (error) {
       console.error(`[MemoryService] Error in checkAndSummarize for ${conversationId}:`, error);
-      // Return original history on error
       return chatHistory;
     }
   }
@@ -152,7 +191,68 @@ export class MemoryService {
     return totalLength;
   }
   
-  // Generate summary of chat history middle section
+  /**
+   * Load saved memory summary prompt configuration
+   */
+  private async loadMemorySummaryConfig(): Promise<MemorySummaryPromptConfig | null> {
+    try {
+      const saved = await AsyncStorage.getItem(MEMORY_SUMMARY_STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('[MemoryService] 加载记忆总结配置失败:', e);
+    }
+    return null;
+  }
+
+  /**
+   * Get adapter type from API provider setting
+   */
+  private getAdapterType(apiProvider?: string): 'gemini' | 'openrouter' | 'openai-compatible' {
+    if (!apiProvider) return 'gemini';
+    
+    const provider = apiProvider.toLowerCase();
+    if (provider.includes('gemini')) {
+      return 'gemini';
+    } else if (provider.includes('openrouter')) {
+      return 'openrouter';
+    } else if (provider.includes('openai')) {
+      return 'openai-compatible';
+    }
+    return 'gemini';
+  }
+
+  /**
+   * Get model ID based on adapter type and settings
+   */
+  private getModelId(adapterType: string, chatSettings: any): string | undefined {
+    switch (adapterType) {
+      case 'gemini':
+        return chatSettings?.geminiPrimaryModel || 'gemini-1.5-flash';
+      case 'openrouter':
+        return chatSettings?.openrouter?.model || 'openai/gpt-3.5-turbo';
+      case 'openai-compatible':
+        return chatSettings?.OpenAIcompatible?.model || 'gpt-3.5-turbo';
+      default:
+        return undefined;
+    }
+  }
+
+  // Check if a message is a memory summary
+  public isMemorySummary(message: any): boolean {
+    return message && message.isMemorySummary === true;
+  }
+
+  /**
+   * Generate summary of chat history for a specified message range.
+   * @param conversationId 会话ID
+   * @param chatHistory 聊天历史
+   * @param settings 摘要设置
+   * @param apiKey API密钥
+   * @param apiSettings API设置
+   * @param summaryRange 可选，指定需要摘要的消息区间（如 {start: 5, end: 9} 表示第6~10条）
+   */
   public async generateSummary(
     conversationId: string,
     chatHistory: ChatHistoryEntity, 
@@ -165,77 +265,183 @@ export class MemoryService {
         apiKey?: string;
         model?: string;
       }
-    }
+    },
+    summaryRange?: { start: number, end: number }
   ): Promise<ChatHistoryEntity> {
     try {
-      const messages = chatHistory.parts;
-      
-      // Don't summarize if there are too few messages
-      if (messages.length < 10) {
-        console.log(`[MemoryService] Too few messages (${messages.length}) to summarize, skipping`);
-        return chatHistory;
+      // Always use clean chat history from StorageAdapter
+      const cleanMessages = await StorageAdapter.getCleanChatHistory(conversationId);
+      const messages = cleanMessages;
+
+      // Load memory service config to get updated settings
+      const memoryServiceConfig = await this.loadMemoryServiceConfig();
+      const summaryLength = memoryServiceConfig?.summaryLength || settings.summaryLength;
+      const finalSummaryRange = memoryServiceConfig?.summaryRange || summaryRange;
+
+      const totalTextLength = messages.reduce((sum, msg) => sum + (msg.parts?.[0]?.text?.length || 0), 0);
+      console.log(`[MemoryService] Chat history total length: ${totalTextLength} characters`);
+
+      let startIdx: number, endIdx: number;
+      if (finalSummaryRange && typeof finalSummaryRange.start === 'number' && typeof finalSummaryRange.end === 'number') {
+        startIdx = finalSummaryRange.start;
+        endIdx = finalSummaryRange.end + 1;
+        if (startIdx < 0) startIdx = 0;
+        if (endIdx > messages.length) endIdx = messages.length;
+        if (endIdx - startIdx < 1) {
+          console.log(`[MemoryService] summaryRange too small, skipping`);
+          // Return original chatHistoryEntity with clean messages
+          return { ...chatHistory, parts: messages };
+        }
+        console.log(`[MemoryService] Using custom summary range: [${startIdx}, ${endIdx - 1}]`);
+      } else {
+        startIdx = 3;
+        endIdx = messages.length - 3;
+        if (endIdx - startIdx < 4) {
+          console.log(`[MemoryService] Middle section too small (${endIdx - startIdx} messages), skipping`);
+          return { ...chatHistory, parts: messages };
+        }
+        console.log(`[MemoryService] Using default summary range: [${startIdx}, ${endIdx - 1}]`);
       }
-      
-      // Determine which messages to summarize (middle section)
-      // Keep first 3 and last 3 messages intact
-      const startIdx = 3;
-      const endIdx = messages.length - 3;
-      
-      // Don't summarize if the section is too small
-      if (endIdx - startIdx < 4) {
-        console.log(`[MemoryService] Middle section too small (${endIdx - startIdx} messages), skipping`);
-        return chatHistory;
-      }
-      
-      // Extract messages to summarize
+
       const messagesToSummarize = messages.slice(startIdx, endIdx);
-      
-      // Format messages for summarization
+
       const formattedMessages = messagesToSummarize.map(msg => {
         const role = msg.role === 'user' ? 'User' : 'Character';
         return `${role}: ${msg.parts?.[0]?.text || ''}`;
       }).join('\n\n');
-      
-      // Create API adapter based on settings
-      let adapter: GeminiAdapter | OpenRouterAdapter;
-      if (apiSettings?.apiProvider === 'openrouter' && 
-          apiSettings.openrouter?.enabled && 
-          apiSettings.openrouter?.apiKey) {
-        adapter = new OpenRouterAdapter(
-          apiSettings.openrouter.apiKey, 
-          apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
-        );
-        console.log('[MemoryService] Using OpenRouter API for summary generation');
-      } else {
-        adapter = new GeminiAdapter(apiKey);
-        console.log('[MemoryService] Using Gemini API for summary generation');
-      }
 
-      // Prepare prompt for summarization
-      const prompt: GeminiMessage[] = [
-        {
-          role: "user",
-          parts: [{
-            text: `Please create a concise summary of the following conversation. Your summary should:
+      // 读取保存的记忆总结提示词配置
+      const savedConfig = await this.loadMemorySummaryConfig();
+      if (!savedConfig || !savedConfig.messageArray || savedConfig.messageArray.length === 0) {
+        console.warn('[MemoryService] 未找到保存的记忆总结提示词配置，使用默认方式');
+        
+        // Fallback to original method
+        const GeminiAdapter = require('@/NodeST/nodest/utils/gemini-adapter').GeminiAdapter;
+        const OpenRouterAdapter = require('@/utils/openrouter-adapter').OpenRouterAdapter;
+        
+        let adapter: any;
+        if (apiSettings?.apiProvider === 'openrouter' && 
+            apiSettings.openrouter?.enabled && 
+            apiSettings.openrouter?.apiKey) {
+          adapter = new OpenRouterAdapter(
+            apiSettings.openrouter.apiKey, 
+            apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
+          );
+          console.log('[MemoryService] Using OpenRouter API for summary generation');
+        } else {
+          adapter = new GeminiAdapter(apiKey);
+          console.log('[MemoryService] Using Gemini API for summary generation');
+        }
+
+        const prompt: GeminiMessage[] = [
+          {
+            role: "user",
+            parts: [{
+              text: `Please create a concise summary of the following conversation. Your summary should:
 1. Extract the key information, events, topics discussed, and important details
 2. Maintain continuity of the narrative without using vague references
 3. Preserve character intentions, emotions, and any important commitments or plans mentioned
-4. Be no longer than approximately ${settings.summaryLength} characters
+4. Be no longer than approximately ${summaryLength} characters
 5. Focus on facts and content, rather than meta-descriptions of the conversation
 6. Make the summary helpful for continuing the conversation
 
 Here is the conversation to summarize:
 
 ${formattedMessages}`
-          }]
-        }
-      ];
+            }]
+          }
+        ];
 
-      // Generate summary
-      console.log(`[MemoryService] Requesting summary from API for ${messagesToSummarize.length} messages`);
-      const summaryText = await adapter.generateContent(prompt);
-      
-      // Create summary message
+        const summaryText = await adapter.generateContent(prompt);
+
+        // 构造摘要消息
+        const summaryMessage: ChatMessage & SummaryData = {
+          role: "user",
+          parts: [{ 
+            text: `--- CONVERSATION SUMMARY (AI-GENERATED, NOT VISIBLE TO USER) ---\n${summaryText}\n--- END OF SUMMARY ---` 
+          }],
+          summary: summaryText,
+          isMemorySummary: true,
+          timestamp: Date.now(),
+          originalMessagesRange: {
+            start: startIdx,
+            end: endIdx - 1
+          }
+        };
+        console.log(`[MemoryService] Generated summary: ${summaryText}`);
+        // 组装新的聊天历史
+        const newMessages = [
+          ...messages.slice(0, startIdx),
+          summaryMessage,
+          ...messages.slice(endIdx)
+        ];
+
+        // 更新设置
+        settings.lastSummarizedAt = Date.now();
+        await this.saveSettings(conversationId, settings);
+
+        console.log(`[MemoryService] Successfully generated summary using fallback method, reducing ${messagesToSummarize.length} messages to 1 summary`);
+
+        return {
+          ...chatHistory,
+          parts: newMessages
+        };
+      }
+
+      // 获取适配器类型和API设置
+      const chatSettings = getApiSettings();
+      const adapterType = this.getAdapterType(chatSettings?.apiProvider);
+      const apiKeyToUse = chatSettings?.apiKey || apiKey;
+
+      // 构建统一API选项
+      const apiOptions = {
+        adapter: adapterType,
+        apiKey: apiKeyToUse,
+        characterId: conversationId,
+        modelId: this.getModelId(adapterType, chatSettings),
+        openrouterConfig: chatSettings?.openrouter,
+        geminiConfig: {
+          additionalKeys: chatSettings?.additionalGeminiKeys,
+          useKeyRotation: chatSettings?.useGeminiKeyRotation,
+          useModelLoadBalancing: chatSettings?.useGeminiModelLoadBalancing
+        }
+      };
+
+      // 为消息数组添加实际对话内容
+      const messageArrayWithContent = [...savedConfig.messageArray];
+      // 将对话内容添加到最后一个用户消息中
+      if (messageArrayWithContent.length > 0) {
+        const lastMessageIndex = messageArrayWithContent.length - 1;
+        const lastMessage = messageArrayWithContent[lastMessageIndex];
+        if (lastMessage.role === 'user') {
+          if ('content' in lastMessage) {
+            lastMessage.content += `\n\n对话内容：\n${formattedMessages}`;
+          } else if (lastMessage.parts && lastMessage.parts[0]) {
+            lastMessage.parts[0].text += `\n\n对话内容：\n${formattedMessages}`;
+          }
+        } else {
+          // 如果最后一条不是用户消息，添加新的用户消息
+          messageArrayWithContent.push({
+            role: 'user',
+            content: `对话内容：\n${formattedMessages}`
+          });
+        }
+      } else {
+        // 如果没有消息数组，创建默认消息
+        messageArrayWithContent.push({
+          role: 'user',
+          content: `请总结以下对话：\n${formattedMessages}`
+        });
+      }
+
+      // 调用统一API生成内容
+      console.log(`[MemoryService] Requesting summary from unified API for ${messagesToSummarize.length} messages with custom settings`);
+      const summaryText = await unifiedGenerateContent(
+        messageArrayWithContent,
+        apiOptions
+      );
+
+      // 构造摘要消息
       const summaryMessage: ChatMessage & SummaryData = {
         role: "user",
         parts: [{ 
@@ -249,34 +455,86 @@ ${formattedMessages}`
           end: endIdx - 1
         }
       };
-      
-      // Create new chat history with summary
+
+      // 组装新的聊天历史
       const newMessages = [
         ...messages.slice(0, startIdx),
         summaryMessage,
         ...messages.slice(endIdx)
       ];
-      
-      // Update settings with last summarized timestamp
+
       settings.lastSummarizedAt = Date.now();
       await this.saveSettings(conversationId, settings);
-      
-      console.log(`[MemoryService] Successfully generated summary, reducing ${messagesToSummarize.length} messages to 1 summary`);
-      
+
       return {
         ...chatHistory,
         parts: newMessages
       };
     } catch (error) {
       console.error(`[MemoryService] Error generating summary:`, error);
-      // Return original history on error
       return chatHistory;
     }
   }
-  
-  // Check if a message is a memory summary
-  public isMemorySummary(message: any): boolean {
-    return message && message.isMemorySummary === true;
+
+  /**
+   * 立即总结记忆：基于UtilSetting设置和当前聊天记录，强制执行总结
+   * @param conversationId 会话ID
+   * @param characterId 角色ID
+   * @param apiKey API密钥
+   * @param apiSettings API设置
+   * @param summaryRange 可选，指定需要摘要的消息区间
+   * @returns 是否成功
+   */
+  public async summarizeMemoryNow(
+    conversationId: string,
+    characterId: string,
+    apiKey: string,
+    apiSettings?: {
+      apiProvider: 'gemini' | 'openrouter',
+      openrouter?: {
+        enabled?: boolean;
+        apiKey?: string;
+        model?: string;
+      }
+    },
+    summaryRange?: { start: number, end: number }
+  ): Promise<boolean> {
+    try {
+      // Use StorageAdapter.getCleanChatHistory to get messages
+      const cleanMessages = await StorageAdapter.getCleanChatHistory(conversationId);
+      if (!cleanMessages || cleanMessages.length === 0) throw new Error('未找到聊天历史');
+      // Reconstruct ChatHistoryEntity
+      const chatHistory: ChatHistoryEntity = {
+        parts: cleanMessages
+      } as any;
+
+      // 加载角色记忆设置
+      const settings = await this.loadSettings(characterId);
+
+      // 强制调用 generateSummary，使用 memory service config 的设置
+      const summarized = await this.generateSummary(
+        conversationId,
+        chatHistory,
+        settings,
+        apiKey,
+        apiSettings,
+        summaryRange
+      );
+
+      // 保存新历史（优先保存到 expo-file-system）
+      try {
+        const fileKey = `nodest_${conversationId}_history`;
+        const filePath = (await import('expo-file-system')).default.documentDirectory + `nodest_characters/${fileKey}.json`;
+        await (await import('expo-file-system')).default.writeAsStringAsync(filePath, JSON.stringify(summarized));
+      } catch (e) {
+        const storageKey = `nodest_${conversationId}_history`;
+        await AsyncStorage.setItem(storageKey, JSON.stringify(summarized));
+      }
+      return true;
+    } catch (e) {
+      console.error('[MemoryService] summarizeMemoryNow error:', e);
+      return false;
+    }
   }
 }
 

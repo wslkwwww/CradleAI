@@ -287,15 +287,47 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
     selectedGroupId ? groups.find(g => g.groupId === selectedGroupId) || null : null,
   [selectedGroupId, groups]);
 
-  // Filtered messages - remove "continue" user messages
-  const filteredMessages = useMemo(() => {
-    return messages.filter(msg => {
-      if (msg.sender === 'user' && msg.metadata && msg.metadata.isContinue === true) {
-        return false;
+  // 新增：保存自动消息 inputText
+const [autoMessageInputText, setAutoMessageInputText] = useState<string | null>(null);
+
+// 新增：加载自动消息 inputText
+useEffect(() => {
+  (async () => {
+    try {
+      const configStr = await AsyncStorage.getItem('auto_message_prompt_config');
+      if (configStr) {
+        const config = JSON.parse(configStr);
+        setAutoMessageInputText(config.inputText || null);
+      } else {
+        setAutoMessageInputText(null);
       }
-      return true;
-    });
-  }, [messages]);
+    } catch {
+      setAutoMessageInputText(null);
+    }
+  })();
+}, []);
+
+// 修改 filteredMessages，同时过滤掉自动消息 inputText 的 user 消息
+const filteredMessages = useMemo(() => {
+  return messages.filter(msg => {
+    // 过滤掉标记为自动消息输入的用户消息
+    if (msg.sender === 'user' && msg.metadata?.isAutoMessageInput === true) {
+      return false;
+    }
+    // 过滤掉标记为继续的用户消息
+    if (msg.sender === 'user' && msg.metadata?.isContinue === true) {
+      return false;
+    }
+    // 兼容旧的过滤方式：如果没有 isAutoMessageInput 标记，但文本匹配 autoMessageInputText
+    if (autoMessageInputText && msg.sender === 'user' && msg.text === autoMessageInputText) {
+      return false;
+    }
+    return true;
+  });
+}, [messages, autoMessageInputText]);
+
+  // Filtered messages - remove "continue" user messages
+  
 
   // Character ID for memo overlay
   const characterIdForMemo = useMemo(() => selectedConversationId || '', [selectedConversationId]);
@@ -686,21 +718,6 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
       });
       return;
     }
-
-    // === 修正：不再在这里 setMessages（bot），只让 sendMessageInternal 负责 ===
-    // if (sender !== 'user') {
-    //   setMessages(prev => [
-    //     ...prev,
-    //     {
-    //       id: messageId || `temp-${Date.now()}`,
-    //       text: newMessage,
-    //       sender,
-    //       isLoading,
-    //       timestamp: Date.now(),
-    //       metadata
-    //     }
-    //   ]);
-    // }
     
     // Process memory for user messages
     if (sender === 'user' && !isLoading && messageId) {
@@ -1360,6 +1377,19 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
     });
   }, []);
 
+  // === 新增：强制刷新消息的回调函数 ===
+  const handleMessagesRefresh = useCallback(async (conversationId: string) => {
+    if (conversationId === selectedConversationId) {
+      try {
+        const refreshedMessages = await getMessages(conversationId);
+        setMessages(refreshedMessages);
+        console.log(`[Index] 强制刷新消息列表: ${refreshedMessages.length} 条消息`);
+      } catch (error) {
+        console.error('[Index] 刷新消息列表失败:', error);
+      }
+    }
+  }, [selectedConversationId, getMessages]);
+
   // Setup auto message when character or conversation changes
   useEffect(() => {
     if (characterToUse && selectedConversationId && user) {
@@ -1372,7 +1402,8 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
         user: user,
         messages: messages,
         onMessageAdded: addMessage,
-        onUnreadCountUpdate: updateUnreadMessagesCount
+        onUnreadCountUpdate: updateUnreadMessagesCount,
+        onMessagesRefresh: handleMessagesRefresh // 新增
       });
     } else if (selectedConversationId) {
       // Clear auto message if character not available
@@ -1384,7 +1415,7 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
         autoMessageService.clearAutoMessage(selectedConversationId);
       }
     };
-  }, [characterToUse, selectedConversationId, user, messages, addMessage, updateUnreadMessagesCount, autoMessageService]);
+  }, [characterToUse, selectedConversationId, user, messages, addMessage, updateUnreadMessagesCount, autoMessageService, handleMessagesRefresh]);
 
   // Initialize default characters and load preferences
   useEffect(() => {
@@ -2049,7 +2080,7 @@ useEffect(() => {
 
   return (
     <View style={styles.outerContainer}>
-      <StatusBar translucent backgroundColor="transparent" />
+           <StatusBar translucent backgroundColor="transparent" />
       
      {/* Restore top bar button */}
       {!isTopBarVisible && (

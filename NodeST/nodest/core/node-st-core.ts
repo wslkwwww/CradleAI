@@ -182,37 +182,40 @@ export class NodeSTCore {
     private geminiBackupModel?: string;
     private retryDelay?: number;
 
-        // 新增：立即总结记忆方法
-        async summarizeMemoryNow(
-            conversationId: string,
-            characterId: string,
-            apiKey: string,
-            apiSettings?: Partial<GlobalSettings['chat']>
-): Promise<boolean> {
-            try {
-                // 加载当前聊天历史
-                const chatHistory = await this.loadJson<ChatHistoryEntity>(
-                    this.getStorageKey(conversationId, '_history')
-                );
-                if (!chatHistory) throw new Error('未找到聊天历史');
-                // 强制调用memoryService的generateSummary（无视阈值）
-                const settings = await memoryService.loadSettings(characterId);
-                // 直接调用generateSummary
-                const summarized = await (memoryService as any).generateSummary(
-                    conversationId,
-                    chatHistory,
-                    settings,
-                    apiKey,
-                    apiSettings
-                );
-                // 保存新历史
-                await this.saveJson(this.getStorageKey(conversationId, '_history'), summarized);
-                return true;
-            } catch (e) {
-                // console.error('[NodeSTCore] summarizeMemoryNow error:', e);
-                return false;
+    // 立即总结记忆方法
+    async summarizeMemoryNow(
+        conversationId: string,
+        characterId: string,
+        apiKey: string,
+        summaryRange?: { start: number, end: number },
+        apiSettings?: Partial<GlobalSettings['chat']>
+    ): Promise<boolean> {
+        // 直接调用 memoryService 的 summarizeMemoryNow
+        try {
+            // 适配 apiSettings 结构
+            let apiProvider: 'gemini' | 'openrouter' = 'gemini';
+            let openrouter: any = undefined;
+            if (apiSettings?.apiProvider === 'openrouter') {
+                apiProvider = 'openrouter';
+                openrouter = apiSettings.openrouter;
             }
+            return await (memoryService as any).summarizeMemoryNow(
+                conversationId,
+                characterId,
+                apiKey,
+                {
+                    apiProvider,
+                    openrouter
+                },
+                summaryRange
+            );
+        } catch (e) {
+            // console.error('[NodeSTCore] summarizeMemoryNow error:', e);
+            return false;
         }
+    }
+
+
     constructor(
         apiKey: string,
         apiSettings?: Partial<GlobalSettings['chat']>,
@@ -962,11 +965,12 @@ export class NodeSTCore {
     async continueChat(
         conversationId: string,
         userMessage: string,
-        apiKey: string | null = null, // 允许 API 密钥为 null
+        apiKey: string | null = null, 
         characterId?: string,
         customUserName?: string,
         useToolCalls: boolean = false,
-        onStream?: (delta: string) => void // 新增参数
+        onStream?: (delta: string) => void ,
+        summaryRange?: { start: number, end: number } 
     ): Promise<string | null> {
         try {
     
@@ -1291,7 +1295,8 @@ export class NodeSTCore {
                             {
                                 apiProvider: this.apiSettings.apiProvider === 'openrouter' ? 'openrouter' : 'gemini',
                                 openrouter: this.apiSettings.openrouter,
-                            }
+                            },
+                            summaryRange
                         ) : updatedChatHistory;
                     
                     // Use the potentially summarized history
@@ -3796,6 +3801,73 @@ export class NodeSTCore {
             return true;
         } catch (error) {
             console.error('[NodeSTCore] backupChatHistory error:', error);
+            return false;
+        }
+    }
+        /**
+     * 静态方法：向指定会话的聊天历史末尾添加一条用户消息
+     * @param conversationId 会话ID
+     * @param userMessage 用户消息内容
+     * @returns true/false
+     */
+    static async addUserMessage(conversationId: string, userMessage: string): Promise<boolean> {
+        try {
+            // 加载历史
+            const filePath = NodeSTCore.characterDataDir + `nodest_${conversationId}_history.json`;
+            const fileInfo = await FileSystem.getInfoAsync(filePath);
+            if (!fileInfo.exists) {
+                console.error('[NodeSTCore] addUserMessage: 未找到聊天历史');
+                return false;
+            }
+            const content = await FileSystem.readAsStringAsync(filePath);
+            const chatHistory: ChatHistoryEntity = JSON.parse(content);
+
+            // 追加用户消息
+            chatHistory.parts.push({
+                role: "user",
+                parts: [{ text: userMessage }]
+            });
+
+            // 保存
+            await FileSystem.writeAsStringAsync(filePath, JSON.stringify(chatHistory));
+            console.log('[NodeSTCore] addUserMessage: 用户消息已添加');
+            return true;
+        } catch (error) {
+            console.error('[NodeSTCore] addUserMessage error:', error);
+            return false;
+        }
+    }
+
+    /**
+     * 静态方法：向指定会话的聊天历史末尾添加一条AI消息
+     * @param conversationId 会话ID
+     * @param aiMessage AI消息内容
+     * @returns true/false
+     */
+    static async addAiMessage(conversationId: string, aiMessage: string): Promise<boolean> {
+        try {
+            // 加载历史
+            const filePath = NodeSTCore.characterDataDir + `nodest_${conversationId}_history.json`;
+            const fileInfo = await FileSystem.getInfoAsync(filePath);
+            if (!fileInfo.exists) {
+                console.error('[NodeSTCore] addAiMessage: 未找到聊天历史');
+                return false;
+            }
+            const content = await FileSystem.readAsStringAsync(filePath);
+            const chatHistory: ChatHistoryEntity = JSON.parse(content);
+
+            // 追加AI消息（role统一为model）
+            chatHistory.parts.push({
+                role: "model",
+                parts: [{ text: aiMessage }]
+            });
+
+            // 保存
+            await FileSystem.writeAsStringAsync(filePath, JSON.stringify(chatHistory));
+            console.log('[NodeSTCore] addAiMessage: AI消息已添加');
+            return true;
+        } catch (error) {
+            console.error('[NodeSTCore] addAiMessage error:', error);
             return false;
         }
     }

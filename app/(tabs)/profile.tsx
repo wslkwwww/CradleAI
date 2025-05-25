@@ -115,6 +115,15 @@ const Profile: React.FC = () => {
           subtitle="测试buildRFrameworkWithChatHistory"
         />
 
+        {/* 新增：工具设置入口 */}
+        <ListItem
+          title="工具设置"
+          leftIcon="construct-outline"
+          chevron={true}
+          onPress={() => router.push('/pages/UtilSettings')}
+          subtitle="自动消息提示词配置"
+        />
+
         {/* 全局设置按钮 */}
         <ListItem
           title="全局设置"
@@ -125,7 +134,7 @@ const Profile: React.FC = () => {
         
         {/* Chat UI Settings button */}
         <ListItem
-          title="聊天界面设置"
+          title="界面设置"
           leftIcon="color-palette-outline"
           chevron={true}
           onPress={() => router.push('/pages/chat-ui-settings')}

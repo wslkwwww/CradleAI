@@ -3,6 +3,8 @@ import { View, Text, TextInput, ScrollView, StyleSheet, TouchableOpacity, Modal,
 import * as DocumentPicker from 'expo-document-picker';
 import { CharacterImporter } from '@/utils/CharacterImporter';
 import { NodeSTCore } from '@/NodeST/nodest/core/node-st-core';
+import { getApiSettings } from '@/utils/settings-helper';
+import { unifiedGenerateContent } from '@/services/unified-api';
 
 const ADAPTERS = [
   { label: 'Gemini', value: 'gemini' },
@@ -18,6 +20,8 @@ export default function TestFramework() {
   const [result, setResult] = useState<any[]>([]);
   const [error, setError] = useState<string>('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [apiResponse, setApiResponse] = useState<string>('');
+  const [apiLoading, setApiLoading] = useState(false);
 
   // 导入preset（使用CharacterImporter.importPresetForCharacter）
   const handleImportPreset = async () => {
@@ -67,6 +71,32 @@ export default function TestFramework() {
     }
   };
 
+  // API测试
+  const handleApiTest = async () => {
+    setError('');
+    setApiResponse('');
+    setApiLoading(true);
+    try {
+      if (!result || result.length === 0) {
+        setError('请先生成消息数组');
+        setApiLoading(false);
+        return;
+      }
+      // 获取API设置
+      const apiSettings = getApiSettings();
+      // 适配adapter字段
+      const options = {
+        ...apiSettings,
+        adapter: adapterType
+      };
+      const resp = await unifiedGenerateContent(result, options);
+      setApiResponse(typeof resp === 'string' ? resp : JSON.stringify(resp));
+    } catch (e: any) {
+      setError('API测试失败: ' + (e?.message || e));
+    }
+    setApiLoading(false);
+  };
+
   // 点击结果区域，弹出全屏modal
   const handleResultPress = () => {
     if (result && result.length > 0) setModalVisible(true);
@@ -109,7 +139,22 @@ export default function TestFramework() {
       <TouchableOpacity style={styles.runBtn} onPress={handleRun}>
         <Text style={styles.runBtnText}>生成消息数组</Text>
       </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.runBtn, { backgroundColor: '#e67e22', marginTop: 8 }]}
+        onPress={handleApiTest}
+        disabled={apiLoading}
+      >
+        <Text style={styles.runBtnText}>{apiLoading ? 'API测试中...' : 'API测试（发送到unified-api）'}</Text>
+      </TouchableOpacity>
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      {apiResponse ? (
+        <>
+          <Text style={styles.label}>API响应：</Text>
+          <ScrollView style={styles.resultBox}>
+            <Text selectable style={{ fontSize: 12 }}>{apiResponse}</Text>
+          </ScrollView>
+        </>
+      ) : null}
       <Text style={styles.label}>结果：</Text>
       <TouchableOpacity activeOpacity={0.7} onPress={handleResultPress}>
         <ScrollView style={styles.resultBox}>

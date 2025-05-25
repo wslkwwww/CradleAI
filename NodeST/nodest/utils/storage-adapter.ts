@@ -890,4 +890,24 @@ export class StorageAdapter {
       return false;
     }
   }
+
+  /**
+   * 向指定会话的聊天历史末尾添加一条用户消息
+   * @param conversationId 会话ID
+   * @param userMessage 用户消息内容
+   * @returns true/false
+   */
+  static async addUserMessage(conversationId: string, userMessage: string): Promise<boolean> {
+    return await NodeSTCore.addUserMessage(conversationId, userMessage);
+  }
+
+  /**
+   * 向指定会话的聊天历史末尾添加一条AI消息
+   * @param conversationId 会话ID
+   * @param aiMessage AI消息内容
+   * @returns true/false
+   */
+  static async addAiMessage(conversationId: string, aiMessage: string): Promise<boolean> {
+    return await NodeSTCore.addAiMessage(conversationId, aiMessage);
+  }
 }

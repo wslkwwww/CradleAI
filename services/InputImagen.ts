@@ -1,13 +1,11 @@
 import { Character } from '@/shared/types';
-import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
 import { StorageAdapter } from '@/NodeST/nodest/utils/storage-adapter';
-import { CloudServiceProvider } from '@/services/cloud-service-provider';
-import CloudServiceProviderClass from '@/services/cloud-service-provider';
 import { DEFAULT_NEGATIVE_PROMPTS, DEFAULT_POSITIVE_PROMPTS } from '@/constants/defaultPrompts';
 import NovelAIService from '@/components/NovelAIService';
 import ImageManager from '@/utils/ImageManager';
-import * as FileSystem from 'expo-file-system';
 import { getApiSettings } from '@/utils/settings-helper';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { unifiedGenerateContent } from '@/services/unified-api';
 
 export interface NovelAIGenerationConfig {
   seed?: number;
@@ -121,6 +119,7 @@ export class InputImagen {
 
   /**
    * Generate a scene description from the last bot message
+   * Now uses the imagegen_prompt_config from UtilSettings and unified-api
    */
   static async generateSceneDescription(characterId: string): Promise<string> {
     try {
@@ -132,74 +131,50 @@ export class InputImagen {
         return '';
       }
 
-      // 新增：检测openrouter/openai-compatible
-      const apiSettings = getApiSettings();
-      if (apiSettings.apiProvider === 'openrouter' && apiSettings.openrouter?.enabled && apiSettings.openrouter.apiKey) {
-        // 动态导入OpenRouterAdapter
-        const { OpenRouterAdapter } = await import('@/NodeST/nodest/utils/openrouter-adapter');
-        const adapter = new OpenRouterAdapter(apiSettings.openrouter.apiKey, apiSettings.openrouter.model || 'openai/gpt-3.5-turbo');
-        const prompt = `请根据以下对话内容，用一句不超过15个英文单词的连贯语句，描述角色当前的表情、动作、场景（时间、地点、画面），不要描述外观、服饰。输出英文短句。对话内容：\n${recentMessages.map(m=>`${m.role}: ${m.content}`).join('\n')}`;
-        const result = await adapter.generateContent([
-          { role: 'user', content: prompt }
-        ]);
-        return (result || '').replace(/[\r\n]+/g, ' ').trim();
+      // 读取UtilSettings中图像生成提示词配置
+      const savedConfigStr = await AsyncStorage.getItem('imagegen_prompt_config');
+      if (!savedConfigStr) {
+        console.warn('[InputImagen] 未找到图像生成提示词配置');
+        return '';
       }
-      if (apiSettings.apiProvider === 'openai-compatible' && apiSettings.OpenAIcompatible?.enabled && apiSettings.OpenAIcompatible.apiKey && apiSettings.OpenAIcompatible.endpoint) {
-        // 动态导入OpenAIAdapter
-        const { OpenAIAdapter } = await import('@/NodeST/nodest/utils/openai-adapter');
-        const adapter = new OpenAIAdapter({
-          endpoint: apiSettings.OpenAIcompatible.endpoint,
-          apiKey: apiSettings.OpenAIcompatible.apiKey,
-          model: apiSettings.OpenAIcompatible.model || 'gpt-3.5-turbo'
-        });
-        const prompt = `请根据以下对话内容，用一句不超过15个英文单词的连贯语句，描述角色当前的表情、动作、场景（时间、地点、画面），不要描述外观、服饰。输出英文短句。对话内容：\n${recentMessages.map(m=>`${m.role}: ${m.content}`).join('\n')}`;
-        const result = await adapter.generateContent([
-          { role: 'user', parts: [{ text: prompt }] }
-        ]);
-        return (result || '').replace(/[\r\n]+/g, ' ').trim();
+      const savedConfig = JSON.parse(savedConfigStr);
+
+      // 获取消息数组和inputText
+      let { messageArray, inputText, adapterType } = savedConfig || {};
+      if (!Array.isArray(messageArray) || messageArray.length === 0 || !inputText) {
+        console.warn('[InputImagen] 图像生成提示词配置不完整');
+        return '';
       }
 
-      // Try using Gemini first
-      try {
-        const prompt = `请根据以下对话内容，用一句不超过15个英文单词的连贯语句，描述角色当前的表情、动作、场景（时间、地点、画面），不要描述外观、服饰。输出英文短句。对话内容：\n${recentMessages.map(m=>`${m.role}: ${m.content}`).join('\n')}`;
-        console.log('[InputImagen] Sending GeminiAdapter prompt for scene description');
-        const aiSceneDesc = await GeminiAdapter.executeDirectGenerateContent(prompt);
-        const cleanDescription = (aiSceneDesc || '').replace(/[\r\n]+/g, ' ').trim();
-        console.log('[InputImagen] Gemini generated scene description:', cleanDescription);
-        
-        if (cleanDescription) {
-          return cleanDescription;
-        }
-      } catch (e) {
-        console.warn('[InputImagen] Gemini scene description generation failed:', e);
-      }
+      // 用recentMessages填充inputText变量（如有[recentMessages]或recentMessages变量）
+      // 这里假定inputText中包含"recentMessages"变量，直接替换
+      const recentMessagesStr = recentMessages.map(m => `${m.role}: ${m.content}`).join('\n');
+      const inputTextWithRecent = inputText.replace(/\[?recentMessages\]?/gi, recentMessagesStr);
 
-      // Fallback to CloudServiceProvider if Gemini fails
-      try {
-        console.log('[InputImagen] Falling back to CloudServiceProvider for scene description');
-        const cloudResp = await (CloudServiceProvider.constructor as typeof CloudServiceProviderClass).generateChatCompletionStatic(
-          [
-            { role: 'user', content: `Based on the dialogue, describe the character's current expression, action, and setting (time, place, visuals) in one coherent sentence of no more than 20 words. Exclude appearance, clothing, and names. Use "he/she" to refer to the character. Output the sentence enclosed in curly braces: { }. Dialogue:\n${recentMessages.map(m=>`${m.role}: ${m.content}`).join('\n')}` }
-          ],
-          { max_tokens: 32, temperature: 0.7 }
-        );
-        
-        if (cloudResp && cloudResp.ok) {
-          const data = await cloudResp.json();
-          if (data && data.choices && data.choices[0]?.message?.content) {
-            const response = data.choices[0].message.content.replace(/[\r\n]+/g, ' ').trim();
-            // Extract content from curly braces if present
-            const braceMatch = response.match(/\{([^}]+)\}/);
-            const cleanDescription = braceMatch ? braceMatch[1].trim() : response;
-            console.log('[InputImagen] CloudServiceProvider generated scene description:', cleanDescription);
-            return cleanDescription;
+      // 重新构建消息数组，将inputTextWithRecent作为第一个用户消息
+      // 其余消息结构保持不变（如preset、worldbook等）
+      // 只替换第一个user消息的内容
+      let patchedMessageArray = messageArray.map((msg: any, idx: number) => {
+        if (idx === 0 && msg.role === 'user') {
+          if ('content' in msg) {
+            return { ...msg, content: inputTextWithRecent };
+          } else if ('parts' in msg) {
+            return { ...msg, parts: [{ text: inputTextWithRecent }] };
           }
         }
-      } catch (cloudErr) {
-        console.warn('[InputImagen] CloudServiceProvider scene description generation failed:', cloudErr);
-      }
+        return msg;
+      });
 
-      return ''; // Return empty string if all methods fail
+      // 获取API设置
+      const apiSettings = getApiSettings();
+      const options = {
+        ...apiSettings,
+        adapter: adapterType || apiSettings.apiProvider || 'gemini'
+      };
+
+      // 调用unified-api生成内容
+      const result = await unifiedGenerateContent(patchedMessageArray, options);
+      return (result || '').replace(/[\r\n]+/g, ' ').trim();
     } catch (error) {
       console.error('[InputImagen] Error generating scene description:', error);
       return '';

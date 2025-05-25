@@ -37,7 +37,7 @@ export class ApiErrorMiddleware {
         
         // 记录错误
         const context = {
-          apiProvider: apiSettings?.apiProvider || 'gemini',
+          apiProvider: (apiSettings?.apiProvider === 'openai-compatible' ? 'gemini' : apiSettings?.apiProvider) || 'gemini',
           timestamp: Date.now(),
           statusCode: (error as any)?.statusCode || (error as any)?.status,
           responseData: (error as any)?.response

@@ -27,6 +27,7 @@ import * as Font from 'expo-font';
 import * as DocumentPicker from 'expo-document-picker';
 import { NodeSTManager } from '@/utils/NodeSTManager'; // 新增导入
 import { getApiSettings } from '@/utils/settings-helper'; // 新增导入
+import { NodeSTCore}  from '@/NodeST/nodest/core/node-st-core'; // 新增导入
 
 const SIDEBAR_WIDTH_EXPANDED = 280;
 const SWIPE_THRESHOLD = 50; // 向下滑动超过这个距离时关闭侧边栏
@@ -750,26 +751,29 @@ export default function SettingsSidebar({
     if (!selectedCharacter) return;
     setIsSummarizing(true);
     try {
-      // 优化：从settings-helper获取apiKey和apiSettings
+      // 从settings-helper获取apiKey和apiSettings
       const apiSettingsObj = getApiSettings();
       const apiKey = apiSettingsObj.apiKey || '';
-      // 构造apiSettings参数，仅传递NodeSTManager需要的部分
+      // 构造apiSettings参数，仅传递node-st-core需要的部分
       const apiSettings = {
         apiProvider: apiSettingsObj.apiProvider as 'gemini' | 'openrouter',
         ...(apiSettingsObj.openrouter ? { openrouter: apiSettingsObj.openrouter } : {})
       };
       const conversationId = selectedCharacter.id;
-      // 调用NodeSTManager暴露的新方法
-      const result = await NodeSTManager.summarizeMemoryNow({
+      // 直接调用 NodeSTCore 的 summarizeMemoryNow
+      // summaryRange 可选，这里不传递（如需支持可扩展）
+      const result = await NodeSTCore.prototype.summarizeMemoryNow.call(
+        NodeSTCore.prototype,
         conversationId,
-        characterId: selectedCharacter.id,
+        selectedCharacter.id,
         apiKey,
-        apiSettings,
-      });
-      if (result && result.success) {
+        undefined, // summaryRange
+        apiSettings
+      );
+      if (result) {
         Alert.alert('成功', '记忆总结已完成');
       } else {
-        Alert.alert('失败', result?.error || '记忆总结失败');
+        Alert.alert('失败', '记忆总结失败');
       }
     } catch (e) {
       Alert.alert('错误', e instanceof Error ? e.message : '记忆总结失败');

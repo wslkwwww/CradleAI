@@ -149,16 +149,6 @@ export class NodeST {
             this.openRouterAdapter = null;
             this.openAICompatibleAdapter = null;
         }
-        
-        // console.log(`【NodeST】更新API设置:`, {
-        //     provider: apiSettings?.apiProvider || 'gemini',
-        //     hasOpenRouter: !!apiSettings?.openrouter?.enabled,
-        //     model: apiSettings?.openrouter?.model || 'none',
-        //     useGeminiModelLoadBalancing: apiSettings?.useGeminiModelLoadBalancing,
-        //     useGeminiKeyRotation: apiSettings?.useGeminiKeyRotation,
-        //     additionalKeysCount: apiSettings?.additionalGeminiKeys?.length,
-        //     apiKeyLength: apiKey?.length || 0
-        // });
     }
 
     private getCoreInstance(
