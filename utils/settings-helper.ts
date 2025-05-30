@@ -86,6 +86,61 @@ export function storeUserSettingsGlobally(settings: GlobalSettings): void {
       }
     }
 
+    // 新增：同步NovelAI自定义端点到AsyncStorage（React Native环境）
+    if (settings.chat?.novelai?.customEndpoint) {
+      try {
+        // @ts-ignore
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        AsyncStorage.setItem('novelai_custom_endpoint', settings.chat.novelai.customEndpoint);
+      } catch (e) {}
+    }
+    if (settings.chat?.novelai?.customToken) {
+      try {
+        // @ts-ignore
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        AsyncStorage.setItem('novelai_custom_token', settings.chat.novelai.customToken);
+      } catch (e) {}
+    }
+    
+    // 新增：同步豆包TTS配置到AsyncStorage和localStorage
+    if (settings.tts?.appid && settings.tts?.token) {
+      try {
+        // @ts-ignore
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        AsyncStorage.setItem('doubao_tts_appid', settings.tts.appid);
+        AsyncStorage.setItem('doubao_tts_token', settings.tts.token);
+        AsyncStorage.setItem('doubao_tts_config', JSON.stringify(settings.tts));
+      } catch (e) {
+        // 忽略web端或require失败
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('doubao_tts_appid', settings.tts.appid);
+        localStorage.setItem('doubao_tts_token', settings.tts.token);
+        localStorage.setItem('doubao_tts_config', JSON.stringify(settings.tts));
+      }
+    }
+    // 新增：同步 minimax TTS 配置到 AsyncStorage/localStorage
+    if (settings.tts?.minimaxApiToken) {
+      try {
+        // @ts-ignore
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        AsyncStorage.setItem('minimax_tts_api_token', settings.tts.minimaxApiToken);
+      } catch (e) {}
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('minimax_tts_api_token', settings.tts.minimaxApiToken);
+      }
+    }
+    if (settings.tts?.minimaxModel) {
+      try {
+        // @ts-ignore
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        AsyncStorage.setItem('minimax_tts_model', settings.tts.minimaxModel);
+      } catch (e) {}
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('minimax_tts_model', settings.tts.minimaxModel);
+      }
+    }
+    
     console.log('[SettingsHelper] User settings stored globally');
     
     // Update cloud service status when settings are updated
@@ -234,4 +289,249 @@ export function getApiSettings(): {
     useZhipuEmbedding,
     zhipuApiKey
   };
+}
+
+/**
+ * Get TTS settings for Doubao TTS Service
+ */
+export function getTTSSettings(): {
+  enabled: boolean;
+  provider?: 'doubao' | 'minimax' | 'cosyvoice';
+  appid?: string;
+  token?: string;
+  voiceType?: string;
+  encoding?: 'wav' | 'pcm' | 'ogg_opus' | 'mp3';
+  speedRatio?: number;
+  transport?: 'stream' | 'http';
+  minimaxApiToken?: string;
+  minimaxModel?: string;
+  // 新增cosyvoice相关字段
+  cosyvoiceServerUrl?: string;
+  useRealtimeUpdates?: boolean;
+} {
+  const settings = getUserSettingsGlobally();
+  if (!settings || !settings.tts) {
+    return { enabled: false };
+  }
+  const { enabled, provider, appid, token, voiceType, encoding, speedRatio, transport, minimaxApiToken, minimaxModel, cosyvoiceServerUrl, useRealtimeUpdates } = settings.tts;
+  return {
+    enabled: enabled || false,
+    provider: provider || 'doubao',
+    appid,
+    token,
+    voiceType,
+    encoding,
+    speedRatio,
+    transport,
+    minimaxApiToken,
+    minimaxModel,
+    cosyvoiceServerUrl,
+    useRealtimeUpdates
+  };
+}
+
+/**
+ * Update TTS configuration directly
+ */
+export function updateTTSSettings(ttsConfig: {
+  enabled: boolean;
+  appid?: string;
+  token?: string;
+  voiceType?: string;
+  encoding?: 'wav' | 'pcm' | 'ogg_opus' | 'mp3';
+  speedRatio?: number;
+  transport?: 'stream' | 'http';
+  minimaxApiToken?: string;
+  minimaxModel?: string;
+  // 新增cosyvoice相关字段
+  cosyvoiceServerUrl?: string;
+  useRealtimeUpdates?: boolean;
+}): void {
+  try {
+    // 1. 更新全局设置
+    const currentSettings = getUserSettingsGlobally();
+    if (currentSettings) {
+      const updatedSettings = {
+        ...currentSettings,
+        tts: ttsConfig
+      };
+      storeUserSettingsGlobally(updatedSettings);
+    }
+    // 2. 直接更新到AsyncStorage（React Native环境）
+    try {
+      // @ts-ignore
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      AsyncStorage.setItem('doubao_tts_config', JSON.stringify(ttsConfig));
+      if (ttsConfig.appid) AsyncStorage.setItem('doubao_tts_appid', ttsConfig.appid);
+      if (ttsConfig.token) AsyncStorage.setItem('doubao_tts_token', ttsConfig.token);
+      if (ttsConfig.voiceType) AsyncStorage.setItem('doubao_tts_voice_type', ttsConfig.voiceType);
+      AsyncStorage.setItem('doubao_tts_transport', ttsConfig.transport || 'stream');
+      AsyncStorage.setItem('doubao_tts_enabled', String(!!ttsConfig.enabled));
+      // 新增 minimax 字段
+      if (ttsConfig.minimaxApiToken) AsyncStorage.setItem('minimax_tts_api_token', ttsConfig.minimaxApiToken);
+      if (ttsConfig.minimaxModel) AsyncStorage.setItem('minimax_tts_model', ttsConfig.minimaxModel);
+      // 新增 cosyvoice 字段
+      if (ttsConfig.cosyvoiceServerUrl) AsyncStorage.setItem('cosyvoice_server_url', ttsConfig.cosyvoiceServerUrl);
+      AsyncStorage.setItem('cosyvoice_use_realtime_updates', ttsConfig.useRealtimeUpdates ? 'true' : 'false');
+      console.log('[SettingsHelper] TTS设置已保存到AsyncStorage');
+    } catch (e) {}
+    // 3. 直接更新到localStorage（Web环境）
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('doubao_tts_config', JSON.stringify(ttsConfig));
+      if (ttsConfig.appid) localStorage.setItem('doubao_tts_appid', ttsConfig.appid);
+      if (ttsConfig.token) localStorage.setItem('doubao_tts_token', ttsConfig.token);
+      if (ttsConfig.voiceType) localStorage.setItem('doubao_tts_voice_type', ttsConfig.voiceType);
+      localStorage.setItem('doubao_tts_transport', ttsConfig.transport || 'stream');
+      localStorage.setItem('doubao_tts_enabled', String(!!ttsConfig.enabled));
+      // 新增 minimax 字段
+      if (ttsConfig.minimaxApiToken) localStorage.setItem('minimax_tts_api_token', ttsConfig.minimaxApiToken);
+      if (ttsConfig.minimaxModel) localStorage.setItem('minimax_tts_model', ttsConfig.minimaxModel);
+      // 新增 cosyvoice 字段
+      if (ttsConfig.cosyvoiceServerUrl) localStorage.setItem('cosyvoice_server_url', ttsConfig.cosyvoiceServerUrl);
+      localStorage.setItem('cosyvoice_use_realtime_updates', ttsConfig.useRealtimeUpdates ? 'true' : 'false');
+      console.log('[SettingsHelper] TTS设置已保存到localStorage');
+    }
+  } catch (error) {
+    console.error('[SettingsHelper] Failed to update TTS settings:', error);
+  }
+}
+
+/**
+ * Get TTS configuration from AsyncStorage/localStorage (fallback method)
+ */
+export async function getTTSSettingsAsync(): Promise<{
+  enabled: boolean;
+  provider?: 'doubao' | 'minimax' | 'cosyvoice';
+  appid?: string;
+  token?: string;
+  voiceType?: string;
+  encoding?: 'wav' | 'pcm' | 'ogg_opus' | 'mp3';
+  speedRatio?: number;
+  transport?: 'stream' | 'http';
+  minimaxApiToken?: string;
+  minimaxModel?: string;
+  // 新增cosyvoice相关字段
+  cosyvoiceServerUrl?: string;
+  useRealtimeUpdates?: boolean;
+}> {
+  try {
+    // 1. 先尝试从全局设置中获取
+    const settings = getUserSettingsGlobally();
+    if (settings?.tts?.appid && settings?.tts?.token) {
+      console.log('[SettingsHelper] 从全局设置中获取TTS配置');
+      return settings.tts;
+    }
+    
+    // 2. 尝试从AsyncStorage获取完整配置（React Native）
+    try {
+      // @ts-ignore
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const configStr = await AsyncStorage.getItem('doubao_tts_config');
+      if (configStr) {
+        const config = JSON.parse(configStr);
+        // 新增 minimax 字段补全
+        config.minimaxApiToken = config.minimaxApiToken || (await AsyncStorage.getItem('minimax_tts_api_token')) || undefined;
+        config.minimaxModel = config.minimaxModel || (await AsyncStorage.getItem('minimax_tts_model')) || undefined;
+        // 新增cosyvoice字段补全
+        config.cosyvoiceServerUrl = config.cosyvoiceServerUrl || (await AsyncStorage.getItem('cosyvoice_server_url')) || undefined;
+        config.useRealtimeUpdates = config.useRealtimeUpdates !== undefined ? config.useRealtimeUpdates : (await AsyncStorage.getItem('cosyvoice_use_realtime_updates')) === 'true';
+        console.log('[SettingsHelper] 从AsyncStorage获取TTS完整配置');
+        return config;
+      }
+      
+      // 尝试从AsyncStorage单独字段构建配置
+      const appid = await AsyncStorage.getItem('doubao_tts_appid');
+      const token = await AsyncStorage.getItem('doubao_tts_token');
+      
+      if (appid && token) {
+        console.log('[SettingsHelper] 从AsyncStorage单独字段构建TTS配置');
+        const voiceType = await AsyncStorage.getItem('doubao_tts_voice_type') || 'zh_male_M392_conversation_wvae_bigtts';
+        const transport = await AsyncStorage.getItem('doubao_tts_transport') || 'stream';
+        const enabledStr = await AsyncStorage.getItem('doubao_tts_enabled') || 'false';
+        
+        return {
+          enabled: enabledStr === 'true',
+          appid,
+          token,
+          voiceType,
+          encoding: 'mp3',
+          speedRatio: 1.0,
+          transport: transport === 'http' ? 'http' : 'stream'
+        };
+      }
+      
+      // 新增 minimax 字段单独读取
+      const minimaxApiToken = await AsyncStorage.getItem('minimax_tts_api_token');
+      const minimaxModel = await AsyncStorage.getItem('minimax_tts_model');
+      
+      return {
+        enabled: false,
+        minimaxApiToken: minimaxApiToken || undefined,
+        minimaxModel: minimaxModel || undefined,
+        // 新增cosyvoice字段
+        cosyvoiceServerUrl: await AsyncStorage.getItem('cosyvoice_server_url') || undefined,
+        useRealtimeUpdates: (await AsyncStorage.getItem('cosyvoice_use_realtime_updates')) === 'true'
+      };
+    } catch (e) {
+      // 忽略AsyncStorage不可用的错误
+    }
+    
+    // 3. 尝试从localStorage获取完整配置（Web）
+    if (typeof localStorage !== 'undefined') {
+      const configStr = localStorage.getItem('doubao_tts_config');
+      if (configStr) {
+        const config = JSON.parse(configStr);
+        // 新增 minimax 字段补全
+        config.minimaxApiToken = config.minimaxApiToken || localStorage.getItem('minimax_tts_api_token') || undefined;
+        config.minimaxModel = config.minimaxModel || localStorage.getItem('minimax_tts_model') || undefined;
+        // 新增cosyvoice字段补全
+        config.cosyvoiceServerUrl = config.cosyvoiceServerUrl || localStorage.getItem('cosyvoice_server_url') || undefined;
+        config.useRealtimeUpdates = config.useRealtimeUpdates !== undefined ? config.useRealtimeUpdates : localStorage.getItem('cosyvoice_use_realtime_updates') === 'true';
+        console.log('[SettingsHelper] 从localStorage获取TTS完整配置');
+        return config;
+      }
+      
+      // 尝试从localStorage单独字段构建配置
+      const appid = localStorage.getItem('doubao_tts_appid');
+      const token = localStorage.getItem('doubao_tts_token');
+      
+      if (appid && token) {
+        console.log('[SettingsHelper] 从localStorage单独字段构建TTS配置');
+        const voiceType = localStorage.getItem('doubao_tts_voice_type') || 'zh_male_M392_conversation_wvae_bigtts';
+        const transport = localStorage.getItem('doubao_tts_transport') || 'stream';
+        const enabledStr = localStorage.getItem('doubao_tts_enabled') || 'false';
+        
+        return {
+          enabled: enabledStr === 'true',
+          appid,
+          token,
+          voiceType,
+          encoding: 'mp3',
+          speedRatio: 1.0,
+          transport: transport === 'http' ? 'http' : 'stream'
+        };
+      }
+      
+      // 新增 minimax 字段单独读取
+      const minimaxApiToken = localStorage.getItem('minimax_tts_api_token');
+      const minimaxModel = localStorage.getItem('minimax_tts_model');
+      
+      return {
+        enabled: false,
+        minimaxApiToken: minimaxApiToken || undefined,
+        minimaxModel: minimaxModel || undefined,
+        // 新增cosyvoice字段
+        cosyvoiceServerUrl: localStorage.getItem('cosyvoice_server_url') || undefined,
+        useRealtimeUpdates: localStorage.getItem('cosyvoice_use_realtime_updates') === 'true'
+      };
+    }
+    
+    // 4. 返回同步方法结果
+    return getTTSSettings();
+  } catch (error) {
+    console.error('[SettingsHelper] Failed to get TTS settings async:', error);
+    return {
+      enabled: false
+    };
+  }
 }

@@ -110,7 +110,20 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 nickname: '我',
                 gender: 'other',
                 description: ''
-              }
+              },
+              tts: {
+                enabled: false,
+                provider: 'doubao',
+                appid: '',
+                token: '',
+                voiceType: 'zh_male_M392_conversation_wvae_bigtts',
+                encoding: 'mp3',
+                speedRatio: 1.0,
+                transport: 'stream',
+                // 新增 minimax 字段
+                minimaxApiToken: '',
+                minimaxModel: 'minimax/speech-02-turbo'
+              },
             }
           };
           setUser(defaultUser);
@@ -146,7 +159,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateSettings = async (settings: Partial<GlobalSettings>) => {
     if (!user) return;
-
     try {
       if (!user.settings) throw new Error('User settings not initialized');
 
@@ -209,11 +221,35 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
             OpenAIcompatible: {
               ...updatedOpenAIcompatible,
               enabled: openaiCompatibleEnabled
-            }
+            },
+            novelai: {
+              ...(user.settings.chat.novelai || {}),
+              ...(settings.chat?.novelai || {})
+            },
           },
           self: {
             ...user.settings.self,
             ...settings.self
+          },
+          // 新增：确保TTS设置被正确合并
+          tts: {
+            ...(user.settings.tts || { enabled: false }),
+            ...(settings.tts || {}),
+            // provider 字段优先 settings.tts.provider
+            provider: settings.tts?.provider || user.settings.tts?.provider || 'doubao',
+            // 新增：合并 minimax 字段
+            minimaxApiToken: settings.tts?.minimaxApiToken ?? user.settings.tts?.minimaxApiToken,
+            minimaxModel: settings.tts?.minimaxModel ?? user.settings.tts?.minimaxModel,
+          },
+          // 保留search设置
+          search: {
+            ...(user.settings.search || {}),
+            ...settings.search
+          },
+          // 保留license设置
+          license: {
+            ...(user.settings.license || { enabled: false }),
+            ...settings.license
           }
         }
       };

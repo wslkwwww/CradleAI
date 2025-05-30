@@ -2,6 +2,13 @@ import { ImageSourcePropType, ViewStyle, StyleProp } from 'react-native';
 import { User, Character, Message, CirclePost } from '../shared/types';
 import { CradleCharacter } from '../shared/types';
 
+// 新增：生成图片接口
+export interface GeneratedImage {
+  id: string;
+  prompt: string;
+  timestamp: number;
+}
+
 // 只保留 Context 相关类型
 export interface CradleSettingsProps {
   isVisible: boolean;
@@ -46,6 +53,14 @@ export interface CharactersContextType {
   setIsLoading : (isLoading: boolean) => void;
   setCharacterAvatar: (characterId: string, avatar: string) => Promise<void>;
   setCharacterBackgroundImage: (characterId: string, background: string, config?: any) => Promise<void>;
+  
+  // 新增：生成图片缓存相关方法
+  addGeneratedImage: (conversationId: string, image: GeneratedImage) => Promise<void>;
+  deleteGeneratedImage: (conversationId: string, imageId: string) => Promise<void>;
+  clearGeneratedImages: (conversationId: string) => Promise<void>;
+  clearAllGeneratedImages: () => Promise<void>;
+  getGeneratedImages: (conversationId: string) => GeneratedImage[];
+  
   // 摇篮系统相关方法
   updateCradleSettings: (settings: CradleSettings) => Promise<void>;
   getCradleSettings: () => CradleSettings;
@@ -89,6 +104,20 @@ export interface CharactersContextType {
       model: string;
     }
   }) => Promise<void>;
+
+  // 新增分页消息API
+  getMessagesPaged?: (
+    conversationId: string,
+    page?: number,
+    pageSize?: number
+  ) => Promise<{
+    messages: Message[];
+    total: number;
+    hasMore: boolean;
+    page: number;
+    pageSize: number;
+  }>;
+  PAGE_SIZE?: number;
 }
 
 // UI 专用类型

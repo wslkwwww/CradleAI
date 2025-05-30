@@ -77,6 +77,13 @@ export default function PagesLayout() {
           headerShown: false,
         }}
       />
+                                    <Stack.Screen
+        name="UtilSettings"
+        options={{
+          presentation: 'modal',
+          headerShown: false,
+        }}
+      />
     </Stack> 
     
   );

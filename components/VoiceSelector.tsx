@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   listTitle: {
-    fontSize: 16,
+    fontSize: 12,
     color: theme.colors.text,
     marginBottom: 12,
   },
@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   templateTitle: {
-    fontSize: 16,
+    fontSize: 12,
     color: '#fff',
     fontWeight: '500',
   },

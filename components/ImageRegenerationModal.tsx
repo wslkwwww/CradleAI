@@ -37,6 +37,7 @@ import { useCharacters } from '@/constants/CharactersContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import artistData from '@/app/data/v4-artist.json';
 import characterData from '@/app/data/character_data.json';
+import { getUserSettingsGlobally } from '@/utils/settings-helper';
 
 // 新增：Roll按钮相关辅助函数
 const ROLL_TAG_CATEGORIES = [
@@ -779,13 +780,35 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
 
   const generateWithNovelAI = async () => {
     try {
-      if (!novelaiToken) {
+      // --- 新增：自动从settings-helper获取NovelAI API设置 ---
+      const settings = getUserSettingsGlobally();
+      let useCustomEndpoint = false;
+      let customEndpoint = '';
+      let customToken = '';
+      if (settings?.chat?.novelai) {
+        useCustomEndpoint = !!settings.chat.novelai.useCustomEndpoint;
+        customEndpoint = settings.chat.novelai.customEndpoint || '';
+        customToken = settings.chat.novelai.customToken || '';
+      }
+
+      // 选择token和endpoint
+      let apiToken = novelaiToken;
+      let apiEndpoint: string | undefined = undefined;
+      if (useCustomEndpoint && customEndpoint && customToken) {
+        apiToken = customToken;
+        // 自动拼接/generate-image后缀（如果没有）
+        apiEndpoint = customEndpoint.endsWith('/generate-image')
+          ? customEndpoint
+          : customEndpoint.replace(/\/+$/, '') + '/generate-image';
+      }
+
+      if (!apiToken) {
         throw new Error("未设置NovelAI Token，请在API设置中配置");
       }
       
-      if (!isTokenValid) {
+      if (!isTokenValid && !useCustomEndpoint) {
         setProgressMessage('正在验证NovelAI Token...');
-        const valid = await NovelAIService.validateToken(novelaiToken);
+        const valid = await NovelAIService.validateToken(apiToken);
         if (!valid) {
           throw new Error("NovelAI Token无效或已过期，请检查API设置");
         }
@@ -807,7 +830,7 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
       console.log(`[图片重生成] 使用seed值: ${seedValue}`);
       
       const generateParams = {
-        token: novelaiToken,
+        token: apiToken,
         prompt: mainPrompt,
         characterPrompts: characterPrompts.length > 0 ? getCharacterPromptsData() : undefined,
         negativePrompt,
@@ -820,7 +843,8 @@ const ImageRegenerationModal: React.FC<ImageRegenerationModalProps> = ({
         seed: seedValue,
         noiseSchedule: novelaiSettings.noiseSchedule,
         useCoords: novelaiSettings.useCoords,
-        useOrder: novelaiSettings.useOrder
+        useOrder: novelaiSettings.useOrder,
+        ...(apiEndpoint ? { endpoint: apiEndpoint } : {})
       };
 
       console.log(`[图片重生成] NovelAI参数设置:`, {

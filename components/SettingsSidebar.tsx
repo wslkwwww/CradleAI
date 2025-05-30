@@ -376,8 +376,14 @@ export default function SettingsSidebar({
   // Add new state for auto extra background
   const [isAutoExtraBgEnabled, setIsAutoExtraBgEnabled] = useState(selectedCharacter?.enableAutoExtraBackground === true);
 
+  // 新增：自动生成图片和自定义生成图片状态
+  const [isAutoImageEnabled, setIsAutoImageEnabled] = useState(selectedCharacter?.autoImageEnabled === true);
+  const [isCustomImageEnabled, setIsCustomImageEnabled] = useState(selectedCharacter?.customImageEnabled === true);
+
   useEffect(() => {
     setIsAutoExtraBgEnabled(selectedCharacter?.enableAutoExtraBackground === true);
+    setIsAutoImageEnabled(selectedCharacter?.autoImageEnabled === true);
+    setIsCustomImageEnabled(selectedCharacter?.customImageEnabled === true);
   }, [selectedCharacter]);
 
   // Handler for auto extra background toggle
@@ -659,7 +665,29 @@ export default function SettingsSidebar({
       Alert.alert('错误', '无法更新背景图片');
     }
   };
+  // 新增：自动生成图片开关处理
+  const handleAutoImageToggle = async () => {
+    if (selectedCharacter) {
+      const updatedCharacter = {
+        ...selectedCharacter,
+        autoImageEnabled: !isAutoImageEnabled
+      };
+      await updateCharacter(updatedCharacter);
+      setIsAutoImageEnabled(!isAutoImageEnabled);
+    }
+  };
 
+  // 新增：自定义生成图片开关处理
+  const handleCustomImageToggle = async () => {
+    if (selectedCharacter) {
+      const updatedCharacter = {
+        ...selectedCharacter,
+        customImageEnabled: !isCustomImageEnabled
+      };
+      await updateCharacter(updatedCharacter);
+      setIsCustomImageEnabled(!isCustomImageEnabled);
+    }
+  };
   // Add handler for custom user name change
   const handleCustomUserNameChange = async (value: string) => {
     setCustomUserName(value);
@@ -961,6 +989,28 @@ export default function SettingsSidebar({
                 onValueChange={handleAutoExtraBgToggle}
                 trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
                 thumbColor={isAutoExtraBgEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+              />
+            </View>
+
+            {/* 新增：自动生成图片开关 */}
+            <View style={styles.settingItem}>
+              <Text style={styles.settingLabel}>自动生成图片</Text>
+              <Switch
+                value={isAutoImageEnabled}
+                onValueChange={handleAutoImageToggle}
+                trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+                thumbColor={isAutoImageEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
+              />
+            </View>
+
+            {/* 新增：自定义生成图片开关 */}
+            <View style={styles.settingItem}>
+              <Text style={styles.settingLabel}>自定义生成图片</Text>
+              <Switch
+                value={isCustomImageEnabled}
+                onValueChange={handleCustomImageToggle}
+                trackColor={{ false: '#767577', true: 'rgba(255, 224, 195, 0.7)' }}
+                thumbColor={isCustomImageEnabled ? 'rgb(255, 224, 195)' : '#f4f3f4'}
               />
             </View>
             

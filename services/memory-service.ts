@@ -6,6 +6,7 @@ import { StorageAdapter } from '@/NodeST/nodest/utils/storage-adapter';
 
 const MEMORY_SUMMARY_STORAGE_KEY = 'memory_summary_prompt_config';
 const MEMORY_SERVICE_STORAGE_KEY = 'memory_service_config';
+const SUMMARIES_STORAGE_PREFIX = 'conversation_summaries_'; // New storage key prefix for summaries
 
 interface MemorySummarySettings {
   enabled: boolean;
@@ -223,21 +224,7 @@ export class MemoryService {
     return 'gemini';
   }
 
-  /**
-   * Get model ID based on adapter type and settings
-   */
-  private getModelId(adapterType: string, chatSettings: any): string | undefined {
-    switch (adapterType) {
-      case 'gemini':
-        return chatSettings?.geminiPrimaryModel || 'gemini-1.5-flash';
-      case 'openrouter':
-        return chatSettings?.openrouter?.model || 'openai/gpt-3.5-turbo';
-      case 'openai-compatible':
-        return chatSettings?.OpenAIcompatible?.model || 'gpt-3.5-turbo';
-      default:
-        return undefined;
-    }
-  }
+
 
   // Check if a message is a memory summary
   public isMemorySummary(message: any): boolean {
@@ -316,19 +303,38 @@ export class MemoryService {
         console.warn('[MemoryService] 未找到保存的记忆总结提示词配置，使用默认方式');
         
         // Fallback to original method
-        const GeminiAdapter = require('@/NodeST/nodest/utils/gemini-adapter').GeminiAdapter;
-        const OpenRouterAdapter = require('@/utils/openrouter-adapter').OpenRouterAdapter;
-        
+        // === 优化：支持 openai-compatible 适配器 ===
+        const chatSettings = getApiSettings();
         let adapter: any;
-        if (apiSettings?.apiProvider === 'openrouter' && 
-            apiSettings.openrouter?.enabled && 
-            apiSettings.openrouter?.apiKey) {
+        const provider = (apiSettings?.apiProvider || chatSettings.apiProvider) as 'gemini' | 'openrouter' | 'openai-compatible';
+        if (
+          provider === 'openrouter' &&
+          apiSettings?.openrouter?.enabled &&
+          apiSettings?.openrouter?.apiKey
+        ) {
+          const OpenRouterAdapter = require('@/utils/openrouter-adapter').OpenRouterAdapter;
           adapter = new OpenRouterAdapter(
-            apiSettings.openrouter.apiKey, 
+            apiSettings.openrouter.apiKey,
             apiSettings.openrouter.model || 'openai/gpt-3.5-turbo'
           );
           console.log('[MemoryService] Using OpenRouter API for summary generation');
+        } else if (
+          provider === 'openai-compatible'
+        ) {
+          // 优先从 settings-helper 获取 openai-compatible 配置
+          const { OpenAIcompatible } = chatSettings;
+          const OpenAIAdapter = require('@/NodeST/nodest/utils/openai-adapter').OpenAIAdapter;
+          adapter = new OpenAIAdapter({
+            endpoint: OpenAIcompatible?.endpoint || '',
+            apiKey: OpenAIcompatible?.apiKey || '',
+            model: OpenAIcompatible?.model || 'gpt-3.5-turbo',
+            stream: OpenAIcompatible?.stream,
+            temperature: OpenAIcompatible?.temperature,
+            max_tokens: OpenAIcompatible?.max_tokens
+          });
+          console.log('[MemoryService] Using OpenAI-compatible API for summary generation');
         } else {
+          const GeminiAdapter = require('@/NodeST/nodest/utils/gemini-adapter').GeminiAdapter;
           adapter = new GeminiAdapter(apiKey);
           console.log('[MemoryService] Using Gemini API for summary generation');
         }
@@ -380,6 +386,9 @@ ${formattedMessages}`
         settings.lastSummarizedAt = Date.now();
         await this.saveSettings(conversationId, settings);
 
+        // === 修复点：保存摘要到专用存储 ===
+        await this.saveSummaryToStorage(conversationId, summaryMessage);
+
         console.log(`[MemoryService] Successfully generated summary using fallback method, reducing ${messagesToSummarize.length} messages to 1 summary`);
 
         return {
@@ -390,16 +399,21 @@ ${formattedMessages}`
 
       // 获取适配器类型和API设置
       const chatSettings = getApiSettings();
-      const adapterType = this.getAdapterType(chatSettings?.apiProvider);
-      const apiKeyToUse = chatSettings?.apiKey || apiKey;
+      const adapterType = this.getAdapterType(chatSettings?.apiProvider) as 'gemini' | 'openrouter' | 'openai-compatible';
+
+      // === 优化：openai-compatible 时优先用 OpenAIcompatible 字段的 apiKey ===
+      const apiKeyToUse =
+        adapterType === 'openai-compatible'
+          ? chatSettings?.OpenAIcompatible?.apiKey || apiKey
+          : chatSettings?.apiKey || apiKey;
 
       // 构建统一API选项
       const apiOptions = {
         adapter: adapterType,
         apiKey: apiKeyToUse,
         characterId: conversationId,
-        modelId: this.getModelId(adapterType, chatSettings),
         openrouterConfig: chatSettings?.openrouter,
+        OpenAIcompatibleConfig: chatSettings?.OpenAIcompatible, // 传递完整配置
         geminiConfig: {
           additionalKeys: chatSettings?.additionalGeminiKeys,
           useKeyRotation: chatSettings?.useGeminiKeyRotation,
@@ -455,6 +469,9 @@ ${formattedMessages}`
           end: endIdx - 1
         }
       };
+
+      // 保存摘要到专用存储
+      await this.saveSummaryToStorage(conversationId, summaryMessage);
 
       // 组装新的聊天历史
       const newMessages = [
@@ -535,6 +552,124 @@ ${formattedMessages}`
       console.error('[MemoryService] summarizeMemoryNow error:', e);
       return false;
     }
+  }
+
+  /**
+   * 获取所有summary消息（按timestamp倒序）
+   */
+  public async getAllSummaries(conversationId: string): Promise<(ChatMessage & SummaryData)[]> {
+    try {
+      // 首先从专用存储中获取摘要
+      const storageKey = `${SUMMARIES_STORAGE_PREFIX}${conversationId}`;
+      const storedSummaries = await this.getSummariesFromStorage(conversationId);
+      
+      // 然后从聊天历史中读取可能的遗留摘要
+      const cleanMessages = await StorageAdapter.getCleanChatHistory(conversationId);
+      const historySummaries = cleanMessages.filter(msg => this.isMemorySummary(msg)) as (ChatMessage & SummaryData)[];
+      
+      // 合并两种来源的摘要，并确保没有重复（基于timestamp）
+      const timestampSet = new Set(storedSummaries.map(s => s.timestamp));
+      const uniqueHistorySummaries = historySummaries.filter(s => !timestampSet.has(s.timestamp));
+      
+      // 合并摘要
+      const allSummaries = [...storedSummaries, ...uniqueHistorySummaries];
+      
+      // 确保所有摘要都包含ChatMessage所需的属性
+      const validSummaries = allSummaries.map(summary => ({
+        role: 'user',
+        parts: [{ text: `--- CONVERSATION SUMMARY ---\n${summary.summary}\n--- END OF SUMMARY ---` }],
+        ...summary
+      }));
+      
+      // 按timestamp倒序
+      return validSummaries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    } catch (error) {
+      console.error(`[MemoryService] Error getting summaries:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * 删除指定timestamp的summary消息
+   */
+  public async deleteSummary(conversationId: string, summaryTimestamp: number): Promise<boolean> {
+    try {
+      // 1. 从专用存储中删除
+      const summaries = await this.getSummariesFromStorage(conversationId);
+      const filteredSummaries = summaries.filter(summary => summary.timestamp !== summaryTimestamp);
+      
+      if (filteredSummaries.length !== summaries.length) {
+        // 找到并删除了摘要
+        const storageKey = `${SUMMARIES_STORAGE_PREFIX}${conversationId}`;
+        await AsyncStorage.setItem(storageKey, JSON.stringify(filteredSummaries));
+        console.log(`[MemoryService] Deleted summary from dedicated storage with timestamp ${summaryTimestamp}`);
+      }
+      
+      // 2. 从聊天历史中删除（向后兼容）
+      const cleanMessages = await StorageAdapter.getCleanChatHistory(conversationId);
+      const filteredMessages = cleanMessages.filter(msg => !(msg.isMemorySummary && msg.timestamp === summaryTimestamp));
+      
+      if (filteredMessages.length !== cleanMessages.length) {
+        // 构建新的聊天历史实体
+        const updatedHistory: ChatHistoryEntity = {
+          parts: filteredMessages
+        } as any;
+        
+        // 保存回存储（优先文件系统）
+        try {
+          const fileKey = `nodest_${conversationId}_history`;
+          const FileSystem = (await import('expo-file-system')).default;
+          const filePath = FileSystem.documentDirectory + `nodest_characters/${fileKey}.json`;
+          await FileSystem.writeAsStringAsync(filePath, JSON.stringify(updatedHistory));
+          console.log(`[MemoryService] Successfully deleted summary from chat history and saved to file system`);
+        } catch (fsError) {
+          console.log(`[MemoryService] Falling back to AsyncStorage`, fsError);
+          const storageKey = `nodest_${conversationId}_history`;
+          await AsyncStorage.setItem(storageKey, JSON.stringify(updatedHistory));
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error(`[MemoryService] Error deleting summary:`, error);
+      return false;
+    }
+  }
+
+  // New method to save summary to dedicated storage
+  private async saveSummaryToStorage(conversationId: string, summary: SummaryData): Promise<void> {
+    try {
+      const storageKey = `${SUMMARIES_STORAGE_PREFIX}${conversationId}`;
+      
+      // Get existing summaries for this conversation
+      const existingSummaries = await this.getSummariesFromStorage(conversationId);
+      
+      // Add new summary
+      existingSummaries.push(summary);
+      
+      // Save updated summaries array
+      await AsyncStorage.setItem(storageKey, JSON.stringify(existingSummaries));
+      
+      console.log(`[MemoryService] Saved summary to dedicated storage for conversation ${conversationId}`);
+    } catch (error) {
+      console.error(`[MemoryService] Failed to save summary to storage for conversation ${conversationId}:`, error);
+    }
+  }
+
+  // New method to get summaries from dedicated storage
+  private async getSummariesFromStorage(conversationId: string): Promise<SummaryData[]> {
+    try {
+      const storageKey = `${SUMMARIES_STORAGE_PREFIX}${conversationId}`;
+      const data = await AsyncStorage.getItem(storageKey);
+      
+      if (data) {
+        return JSON.parse(data) as SummaryData[];
+      }
+    } catch (error) {
+      console.error(`[MemoryService] Failed to get summaries from storage for conversation ${conversationId}:`, error);
+    }
+    
+    return [];
   }
 }
 

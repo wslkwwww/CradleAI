@@ -3,7 +3,7 @@ import { StorageAdapter } from '@/NodeST/nodest/utils/storage-adapter';
 import { DEFAULT_NEGATIVE_PROMPTS, DEFAULT_POSITIVE_PROMPTS } from '@/constants/defaultPrompts';
 import NovelAIService from '@/components/NovelAIService';
 import ImageManager from '@/utils/ImageManager';
-import { getApiSettings } from '@/utils/settings-helper';
+import { getApiSettings, getUserSettingsGlobally } from '@/utils/settings-helper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { unifiedGenerateContent } from '@/services/unified-api';
 
@@ -185,7 +185,6 @@ export class InputImagen {
    * Generate an image using NovelAI with the provided parameters
    */
   static async generateImage(
-    token: string,
     config: NovelAIGenerationConfig,
     customPrompt: string = '',
     customSeed?: number
@@ -205,6 +204,32 @@ export class InputImagen {
         useOrder: config.useOrder
       });
 
+      // Get NovelAI token and custom endpoint settings from settings
+      const settings = getUserSettingsGlobally();
+      let novelaiToken = settings?.chat?.novelai?.token || '';
+      let apiEndpoint: string | undefined = undefined;
+      
+      // Check for custom endpoint settings
+      if (settings?.chat?.novelai) {
+        const useCustomEndpoint = !!settings.chat.novelai.useCustomEndpoint;
+        const customEndpoint = settings.chat.novelai.customEndpoint || '';
+        const customToken = settings.chat.novelai.customToken || '';
+        
+        if (useCustomEndpoint && customEndpoint && customToken) {
+          novelaiToken = customToken;
+          // Automatically append /generate-image suffix if needed
+          apiEndpoint = customEndpoint.endsWith('/generate-image')
+            ? customEndpoint
+            : customEndpoint.replace(/\/+$/, '') + '/generate-image';
+          
+          console.log(`[InputImagen] Using custom endpoint: ${apiEndpoint}`);
+        }
+      }
+
+      if (!novelaiToken) {
+        throw new Error("NovelAI令牌未设置，请在设置中配置");
+      }
+
       // Create the positive prompt combining all tags
       let positivePromptText = config.positiveTags.join(', ');
       if (customPrompt && customPrompt.trim()) {
@@ -216,7 +241,7 @@ export class InputImagen {
       
       // Generate the image using NovelAIService
       const result = await NovelAIService.generateImage({
-        token,
+        token: novelaiToken,
         prompt: positivePromptText,
         characterPrompts: config.characterPrompts?.length ? config.characterPrompts : undefined,
         negativePrompt: negativePromptText,
@@ -229,7 +254,8 @@ export class InputImagen {
         seed: customSeed || config.seed,
         noiseSchedule: config.noiseSchedule,
         useCoords: config.useCoords,
-        useOrder: config.useOrder
+        useOrder: config.useOrder,
+        ...(apiEndpoint ? { endpoint: apiEndpoint } : {})
       });
 
       // 只处理本地PNG文件路径，不处理base64
@@ -271,6 +297,107 @@ export class InputImagen {
       return {
         success: false,
         error: error?.message || 'Unknown error generating image'
+      };
+    }
+  }
+
+  /**
+   * Auto-generate an image using scene description and NovelAI
+   * This method combines generateSceneDescription and generateImage to create an image without manual input
+   * It supports two modes:
+   * 1. Using character's background image config (similar to PostChatService background generation)
+   * 2. Using custom prompt and seed (more flexible approach)
+   * 
+   * @param character The character object
+   * @param conversationId The conversation ID
+   * @param options Optional settings:
+   *   - customPrompt: Additional prompt to combine with scene description
+   *   - customSeed: Optional seed for image generation
+   *   - useBackgroundConfig: Whether to use NovelAI settings from background image (default: true)
+   * @returns Promise with generation result
+   */
+  static async autoGenerateImage(
+    character: Character,
+    conversationId: string,
+    options?: {
+      customPrompt?: string;
+      customSeed?: number;
+      useBackgroundConfig?: boolean;
+    }
+  ): Promise<GenerationResult> {
+    try {
+      console.log(`[InputImagen] Starting auto image generation for character ${character.id}`);
+      
+      // Default options
+      const useBackgroundConfig = options?.useBackgroundConfig !== false;
+      const customPrompt = options?.customPrompt || '';
+      const customSeed = options?.customSeed;
+      
+      // Generate scene description
+      console.log('[InputImagen] Generating scene description');
+      const sceneDescription = await InputImagen.generateSceneDescription(character.id);
+      
+      if (!sceneDescription || sceneDescription.trim() === '') {
+        return {
+          success: false,
+          error: "Failed to generate scene description"
+        };
+      }
+      
+      console.log(`[InputImagen] Scene description generated: ${sceneDescription}`);
+      
+      // Determine which mode to use based on options and character config
+      if (useBackgroundConfig && character.backgroundImageConfig?.isNovelAI) {
+        // Mode 1: Use settings from background image config (similar to PostChatService)
+        console.log('[InputImagen] Using background image config for generation');
+        
+        // Get NovelAI configuration from character
+        const novelAIConfig = InputImagen.getNovelAIConfig(character);
+        
+        // Combine scene description with existing positive tags
+        // Similar to how PostChatService does it
+        const finalPositiveTags = [
+          ...novelAIConfig.positiveTags,
+          sceneDescription
+        ];
+        
+        if (customPrompt && customPrompt.trim()) {
+          finalPositiveTags.push(customPrompt.trim());
+        }
+        
+        // Generate the image
+        console.log('[InputImagen] Generating image with background config and scene description');
+        return await InputImagen.generateImage(
+          novelAIConfig,
+          finalPositiveTags.join(', '),
+          customSeed || novelAIConfig.seed
+        );
+      } else {
+        // Mode 2: More flexible approach with custom prompt and seed
+        console.log('[InputImagen] Using flexible mode for generation');
+        
+        // Get default NovelAI configuration
+        const novelAIConfig = InputImagen.getNovelAIConfig(character);
+        
+        // Combine custom prompt with scene description
+        let finalPrompt = sceneDescription;
+        if (customPrompt && customPrompt.trim()) {
+          finalPrompt = `${customPrompt.trim()}, ${sceneDescription}`;
+        }
+        
+        // Generate the image
+        console.log('[InputImagen] Generating image with scene description and custom prompt');
+        return await InputImagen.generateImage(
+          novelAIConfig,
+          finalPrompt,
+          customSeed || Math.floor(Math.random() * 2 ** 32)
+        );
+      }
+    } catch (error: any) {
+      console.error('[InputImagen] Error in autoGenerateImage:', error);
+      return {
+        success: false,
+        error: error?.message || 'Unknown error in auto image generation'
       };
     }
   }

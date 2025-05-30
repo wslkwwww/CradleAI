@@ -33,6 +33,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import * as FileSystem from 'expo-file-system'; // 新增
+import { CircleScheduler } from '@/services/circle-scheduler'; // Add import
 
 const { height, width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -115,7 +116,20 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
   useEffect(() => {
     loadScheduledTimes();
     checkNotificationSettings();
+    
+    // Initialize scheduler state when component mounts
+    initializeScheduler();
   }, []);
+
+  // Add method to initialize scheduler
+  const initializeScheduler = async () => {
+    try {
+      const scheduler = CircleScheduler.getInstance();
+      await scheduler.refreshSchedulerState();
+    } catch (error) {
+      console.error('初始化调度器失败:', error);
+    }
+  };
 
   // Check if notifications are already enabled
   const checkNotificationSettings = async () => {
@@ -190,6 +204,15 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
       
       // For backward compatibility, still save to AsyncStorage
       await AsyncStorage.setItem('character_scheduled_times', JSON.stringify(newScheduledTimes));
+      
+      // Refresh scheduler state after saving
+      try {
+        const scheduler = CircleScheduler.getInstance();
+        await scheduler.refreshSchedulerState();
+        console.log('已更新调度器状态');
+      } catch (error) {
+        console.error('更新调度器状态失败:', error);
+      }
     } catch (error) {
       console.error('保存角色发布时间设置失败:', error);
       Alert.alert('错误', '无法保存时间设置');
@@ -233,6 +256,19 @@ const CharacterInteractionSettings: React.FC<CharacterInteractionSettingsProps> 
           repliedToPostsCount: 0,
           repliedToCommentsCount: {}
         };
+      } else {
+        // If disabling, clear scheduled times for this character
+        const newScheduledTimes = { ...scheduledTimes };
+        delete newScheduledTimes[character.id];
+        if (character.conversationId) {
+          delete newScheduledTimes[character.conversationId];
+        }
+        
+        // Clear scheduled times from character
+        updatedCharacter.circleScheduledTimes = [];
+        
+        // Save updated scheduled times
+        await saveScheduledTimes(newScheduledTimes);
       }
       
       await updateCharacter(updatedCharacter);
@@ -2171,7 +2207,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  scheduleGlobalSection: {
+   scheduleGlobalSection: {
     backgroundColor: 'rgba(60, 60, 60, 0.6)',
     borderRadius: 10,
     padding: 16,

@@ -90,7 +90,54 @@ export class NodeSTCore {
             adapter
         };
         console.log(`[NodeSTCore][RequestLog] 已记录请求/响应，适配器: ${adapter}, 请求长度: ${JSON.stringify(request).length}, 响应长度: ${response?.length || 0}`);
+    }    // 已知标签白名单（从ChatDialog.tsx同步）
+    private static readonly KNOWN_TAGS = [
+        'img', 'thinking', 'think', 'mem', 'status', 'StatusBlock', 'statusblock',
+        'summary', 'details',
+        'p', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span',
+        'b', 'strong', 'i', 'em', 'u', 'br', 'hr', 'ul', 'ol', 'li',
+        'table', 'tr', 'td', 'th', 'thead', 'tbody', 'blockquote',
+        'pre', 'code', 'mark', 'figure', 'figcaption', 'video', 'audio',
+        'source', 'section', 'article', 'aside', 'nav', 'header', 'footer',
+        'style', 'script', 'html', 'body', 'head', 'meta', 'link', 'title', 'doctype'
+    ];
+
+    /**
+     * 默认清理AI回复中的未知标签（仅保留KNOWN_TAGS中的标签）
+     * @param text 输入文本
+     * @returns 清理后的文本
+     */
+    private static stripUnknownTags(text: string): string {
+        if (!text || typeof text !== 'string') return text;
+        
+        let result = text;
+        
+        // 匹配所有成对标签（支持下划线、数字、-）
+        result = result.replace(/<([a-zA-Z0-9_\-]+)(\s[^>]*)?>([\s\S]*?)<\/\1>/g, (match, tag, attrs, content) => {
+            // 保证大小写不敏感
+            if (NodeSTCore.KNOWN_TAGS.map(t => t.toLowerCase()).includes(tag.toLowerCase())) {
+                // 已知标签，保留整个标签（但递归处理内容）
+                return `<${tag}${attrs || ''}>${NodeSTCore.stripUnknownTags(content)}</${tag}>`;
+            }
+            // 未知标签，仅保留内容并递归处理
+            return NodeSTCore.stripUnknownTags(content);
+        });
+        
+        // 匹配所有单个标签（自闭合或未闭合）
+        result = result.replace(/<([a-zA-Z0-9_\-]+)(\s[^>]*)?\/?>|<\/([a-zA-Z0-9_\-]+)>/g, (match, openTag, attrs, closeTag) => {
+            const tag = openTag || closeTag;
+            if (NodeSTCore.KNOWN_TAGS.map(t => t.toLowerCase()).includes(tag.toLowerCase())) {
+                return match; // 已知标签，保留
+            }
+            return ''; // 未知标签，移除
+        });
+        
+        // 移除残留的独立 < 或 > 符号（可能是损坏的标签）
+        result = result.replace(/<(?![a-zA-Z0-9_\-\/!])|(?<![a-zA-Z0-9_\-\s="])>/g, '');
+        
+        return result;
     }
+
     /**
      * 应用全局正则脚本到文本
      * @param text 输入文本
@@ -103,13 +150,20 @@ export class NodeSTCore {
         placement: 1 | 2,
         characterId?: string
         
-    ): string {
-        // console.log(`[全局正则] 应用脚本，文本长度: ${text.length}, 脚本数量: ${regexScripts?.length || 0}, 位置: ${placement}`);
+    ): string {        // console.log(`[全局正则] 应用脚本，文本长度: ${text.length}, 脚本数量: ${regexScripts?.length || 0}, 位置: ${placement}`);
         if (!Array.isArray(regexScripts) || typeof text !== 'string') return text;
+        
         let result = text;
+        
+        // 对于AI输出（placement = 2），首先应用默认的未知标签清理
+        if (placement === 2) {
+            result = NodeSTCore.stripUnknownTags(result);
+            console.log(`[NodeSTCore][DefaultTagCleaner] 已清理AI回复中的未知标签，原长度: ${text.length}, 清理后长度: ${result.length}`);
+        }
+        
         for (const script of regexScripts) {
             try {
-                                // === 新增：只应用与当前角色绑定或全部绑定的脚本 ===
+                // =只应用与当前角色绑定或全部绑定的脚本 ===
                 // 支持脚本带 groupBindType/bindCharacterId 字段（由前端注入或后端组装）
                 // groupBindType: 'all' | 'character' | undefined
                 // groupBindCharacterId: string | undefined
@@ -1231,7 +1285,7 @@ export class NodeSTCore {
                     let Mem0Service = null;
                     try {
                         // 动态导入以避免循环依赖
-                        Mem0Service = (await import('@/src/memory/services/Mem0Service')).default.getInstance();
+                        Mem0Service = (await import('@/src/memory/services/Mem0Service.ts')).default.getInstance();
                     } catch (importError) {
                         console.log('[NodeSTCore] 无法导入Mem0Service:', importError);
                     }

@@ -12,15 +12,22 @@ import {
   Image,
   Alert,
   Linking,
+  Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import JSZip from 'jszip';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { NovelAIService, NOVELAI_MODELS, NOVELAI_SAMPLERS, NOVELAI_NOISE_SCHEDULES } from './NovelAIService';
 
-const NOVELAI_API_SUBSCRIPTION = 'https://api.novelai.net/user/subscription';
-const NOVELAI_API_GENERATE = 'https://image.novelai.net/ai/generate-image';
+// Default endpoints
+const DEFAULT_NOVELAI_API_SUBSCRIPTION = 'https://api.novelai.net/user/subscription';
+const DEFAULT_NOVELAI_API_GENERATE = 'https://image.novelai.net/ai/generate-image';
+
+// 自定义端点默认值
+const DEFAULT_CUSTOM_ENDPOINT = 'https://nya.k3scat.com/api/novelai';
+const DEFAULT_CUSTOM_TOKEN = 'sk-HcL44m3i6NAH9G01YQ59NsX41SWu1F8c1xgqU0bi3SEu3Sk9';
 
 interface NovelAITestModalProps {
   visible: boolean;
@@ -35,12 +42,6 @@ interface GenerationResult {
   image_urls?: string[];
 }
 
-interface QueueInfo {
-  position: number;
-  total_pending: number;
-  estimated_wait?: number;
-}
-
 interface TokenCache {
   token: string;
   expiry: number;
@@ -53,9 +54,11 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   onImageGenerated,
 }) => {
   const [token, setToken] = useState('');
-  const [apiServer, setApiServer] = useState('https://image.novelai.net');
+  const [useCustomEndpoint, setUseCustomEndpoint] = useState(false);
+  const [customEndpoint, setCustomEndpoint] = useState(DEFAULT_CUSTOM_ENDPOINT);
+  const [customToken, setCustomToken] = useState(DEFAULT_CUSTOM_TOKEN);
 
-  const [model, setModel] = useState('nai-v3');
+  const [model, setModel] = useState('nai-diffusion-3');
   const [sampler, setSampler] = useState('k_euler_ancestral');
   const [steps, setSteps] = useState('28');
   const [scale, setScale] = useState('11');
@@ -63,22 +66,16 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   const [negativePrompt, setNegativePrompt] = useState('模糊，低质量，变形');
 
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [strength, setStrength] = useState('0.7');
-  const [noise, setNoise] = useState('0.2');
   const [resolution, setResolution] = useState<'portrait' | 'landscape' | 'square'>('portrait');
 
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<GenerationResult>();
   const [logs, setLogs] = useState<string[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
-  const [processedTaskIds, setProcessedTaskIds] = useState<Set<string>>(new Set());
 
   const [showV4Settings, setShowV4Settings] = useState(false);
   const [characterPrompt, setCharacterPrompt] = useState('');
   const [noiseSchedule, setNoiseSchedule] = useState('karras');
-
-  const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
 
   const [tokenStatus, setTokenStatus] = useState<{
     isValid: boolean;
@@ -86,11 +83,11 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   } | null>(null);
 
   const [tokenCache, setTokenCache] = useState<TokenCache | null>(null);
-
   const [savedImagePaths, setSavedImagePaths] = useState<string[]>([]);
+  const [testConnectionResult, setTestConnectionResult] = useState<{success: boolean, message: string} | null>(null);
 
   useEffect(() => {
-    if (model.includes('nai-v4')) {
+    if (model.includes('nai-diffusion-4')) {
       setShowV4Settings(true);
     } else {
       setShowV4Settings(false);
@@ -104,8 +101,10 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         if (savedSettings) {
           const settings = JSON.parse(savedSettings);
           setToken(settings.token || '');
-          setApiServer(settings.apiServer || 'https://image.novelai.net');
-          setModel(settings.model || 'nai-v3');
+          setUseCustomEndpoint(settings.useCustomEndpoint || false);
+          setCustomEndpoint(settings.customEndpoint || DEFAULT_CUSTOM_ENDPOINT);
+          setCustomToken(settings.customToken || DEFAULT_CUSTOM_TOKEN);
+          setModel(settings.model || 'nai-diffusion-3');
           setSampler(settings.sampler || 'k_euler_ancestral');
           setSteps(settings.steps || '28');
           setScale(settings.scale || '11');
@@ -141,25 +140,12 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
       setLogs([]);
       setResult(undefined);
       setTaskId(null);
+      setTestConnectionResult(null);
     }
   }, [visible]);
 
   useEffect(() => {
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-    };
-  }, [pollingInterval]);
-
-  useEffect(() => {
-    if (!visible) {
-      setProcessedTaskIds(new Set());
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    if (!visible || !token.trim()) return;
+    if (!visible || !token.trim() || useCustomEndpoint) return;
 
     if (tokenCache && tokenCache.token === token.trim()) {
       const now = Date.now();
@@ -178,13 +164,15 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     } else {
       setTokenStatus(null);
     }
-  }, [visible, token, tokenCache]);
+  }, [visible, token, tokenCache, useCustomEndpoint]);
 
   const saveSettings = async () => {
     try {
       const settings = {
         token,
-        apiServer,
+        useCustomEndpoint,
+        customEndpoint,
+        customToken,
         model,
         sampler,
         steps,
@@ -193,9 +181,11 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
       };
       await AsyncStorage.setItem('novelai_test_settings', JSON.stringify(settings));
       addLog('设置已保存');
+      Alert.alert('成功', '设置已保存');
     } catch (error) {
       console.error('保存设置失败:', error);
       addLog('保存设置失败: ' + (error instanceof Error ? error.message : String(error)));
+      Alert.alert('错误', '保存设置失败: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -234,6 +224,66 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     }
   };
 
+  const testConnection = async () => {
+    setTestConnectionResult(null);
+    setIsLoading(true);
+    addLog(`开始测试自定义端点连接...`);
+    
+    try {
+      if (!customEndpoint.trim()) {
+        throw new Error('请输入自定义端点URL');
+      }
+      
+      if (!customToken.trim()) {
+        throw new Error('请输入自定义端点Token');
+      }
+      
+      addLog(`测试连接到: ${customEndpoint}`);
+      
+      // 对于自定义端点，尝试发送一个GET请求而不是OPTIONS请求
+      // 许多API不支持OPTIONS请求，但支持GET请求
+      const response = await axios({
+        method: 'get',
+        url: customEndpoint,
+        headers: {
+          'Authorization': `Bearer ${customToken}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        },
+        timeout: 10000,
+      });
+      
+      addLog(`连接成功! 状态码: ${response.status}`);
+      setTestConnectionResult({
+        success: true,
+        message: `连接成功! 自定义端点可访问。`
+      });
+    } catch (error) {
+      console.error('连接测试失败:', error);
+      let errorMessage = '连接测试失败';
+      
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          errorMessage = `连接失败 (${error.response.status}): ${error.response.data?.message || error.message}`;
+        } else if (error.request) {
+          errorMessage = `无法连接到服务器: ${error.message}`;
+          if (error.code === 'ECONNABORTED') {
+            errorMessage = '连接超时。请检查端点URL是否正确，或者网络连接是否稳定。';
+          }
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      addLog(`连接测试失败: ${errorMessage}`);
+      setTestConnectionResult({
+        success: false,
+        message: `连接测试失败: ${errorMessage}`
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const verifyToken = async (inputToken: string): Promise<string> => {
     try {
       if (tokenCache && tokenCache.token === inputToken) {
@@ -250,7 +300,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
       const cleanToken = inputToken.trim();
       addLog(`验证令牌中...`);
 
-      const response = await axios.get(NOVELAI_API_SUBSCRIPTION, {
+      const response = await axios.get(DEFAULT_NOVELAI_API_SUBSCRIPTION, {
         headers: {
           Authorization: `Bearer ${cleanToken}`,
           'User-Agent':
@@ -260,9 +310,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
 
       if (response.status === 200) {
         addLog(`令牌验证成功！`);
-
         await cacheToken(cleanToken);
-
         return cleanToken;
       } else {
         throw new Error('令牌验证失败');
@@ -483,7 +531,6 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
     setResult(undefined);
     setLogs([]);
     setSavedImagePaths([]);
-    setProcessedTaskIds(new Set());
     addLog('开始生成图像...');
     addLog(`模型: ${model}, 采样器: ${sampler}, 步数: ${steps}`);
 
@@ -491,34 +538,50 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
       const newTaskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
       setTaskId(newTaskId);
 
-      const cleanToken = token.trim();
-      if (!cleanToken || cleanToken.length < 10) {
-        throw new Error('Token为空或长度不足，请检查输入');
+      let accessToken: string;
+      let generateEndpoint: string;
+
+      if (useCustomEndpoint) {
+        // 使用自定义端点
+        if (!customEndpoint.trim()) {
+          throw new Error('自定义端点URL不能为空');
+        }
+        
+        if (!customToken.trim()) {
+          throw new Error('自定义端点Token不能为空');
+        }
+        
+        accessToken = customToken.trim();
+        
+        // 确保端点是完整URL - 这里不再需要添加额外的路径
+        // 因为customEndpoint应该已经是完整的API端点
+        generateEndpoint = customEndpoint.trim();
+        
+        addLog(`使用自定义端点: ${generateEndpoint}`);
+        addLog(`使用自定义Token: ${accessToken.substring(0, 8)}...`);
+      } else {
+        // 使用官方端点，需要验证token
+        const cleanToken = token.trim();
+        if (!cleanToken || cleanToken.length < 10) {
+          throw new Error('官方Token为空或长度不足，请检查输入');
+        }
+
+        accessToken = await verifyToken(cleanToken);
+        generateEndpoint = DEFAULT_NOVELAI_API_GENERATE;
+        
+        if (!accessToken) {
+          throw new Error('无法获取有效的访问令牌');
+        }
       }
 
-      const accessToken = await verifyToken(cleanToken);
-
-      if (!accessToken) {
-        throw new Error('无法获取有效的访问令牌');
-      }
-
-      const modelMap: { [key: string]: string } = {
-        nai: 'nai-diffusion',
-        'nai-v1': 'nai-diffusion',
-        'nai-v2': 'nai-diffusion-2',
-        'nai-v3': 'nai-diffusion-3',
-        'nai-v4-preview': 'nai-diffusion-4-curated-preview',
-        'nai-v4-full': 'nai-diffusion-4-full',
-        safe: 'safe-diffusion',
-        furry: 'nai-diffusion-furry',
-      };
-
+      const modelMap: { [key: string]: string } = NOVELAI_MODELS;
       const officialModel = modelMap[model] || model;
-
       const isV4Model = officialModel.includes('nai-diffusion-4');
-
       const dimensions = resolutionToDimensions(resolution);
+      
+      addLog(`使用图像生成端点: ${generateEndpoint}`);
 
+      // 构建请求数据
       const requestData: any = {
         action: 'generate',
         input: prompt,
@@ -548,7 +611,6 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         requestData.parameters.controlnet_strength = 1;
         requestData.parameters.legacy_v3_extend = false;
         requestData.parameters.deliberate_euler_ancestral_bug = false;
-
         requestData.parameters.noise_schedule = noiseSchedule;
 
         const charPrompt = characterPrompt;
@@ -609,17 +671,19 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         requestData.parameters.negative_prompt = negativePrompt;
       }
 
-      if (negativePrompt) {
-        requestData.parameters.negative_prompt = negativePrompt;
-      }
-
       addLog(`已构建请求数据，开始发送请求...`);
+      addLog(`请求数据摘要: 模型=${officialModel}, 分辨率=${dimensions.width}x${dimensions.height}`);
 
-      addLog(`发送请求到 ${NOVELAI_API_GENERATE}`);
+      // 打印请求详情以便调试
+      if (useCustomEndpoint) {
+        addLog(`详细请求信息 - URL: ${generateEndpoint}`);
+        addLog(`详细请求信息 - Headers: Authorization Bearer, Content-Type: application/json`);
+        addLog(`详细请求信息 - 数据长度: ${JSON.stringify(requestData).length}`);
+      }
 
       const response = await axios({
         method: 'post',
-        url: NOVELAI_API_GENERATE,
+        url: generateEndpoint,
         data: requestData,
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -678,18 +742,53 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         if (error.response) {
           try {
             const errorData = error.response.data;
-            if (typeof errorData === 'string') {
-              errorMessage = errorData;
-            } else if (errorData && typeof errorData === 'object') {
-              errorMessage = errorData.message || JSON.stringify(errorData);
-            } else {
-              errorMessage = `服务器错误 (${error.response.status})`;
+            errorMessage = `服务器错误 (${error.response.status})`;
+            
+            // 尝试读取响应体中的详细错误信息
+            if (errorData) {
+              if (typeof errorData === 'string') {
+                errorMessage = errorData;
+              } else if (errorData instanceof Blob) {
+                // 如果响应是Blob，尝试读取为文本
+                try {
+                  const text = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = () => resolve(`无法读取错误信息 Blob (${errorData.size} bytes)`);
+                    reader.readAsText(errorData);
+                  });
+                  errorMessage = `服务器错误 (${error.response.status}): ${text}`;
+                } catch (e) {
+                  errorMessage = `服务器错误 (${error.response.status}): 无法解析错误信息`;
+                }
+              } else if (typeof errorData === 'object') {
+                errorMessage = errorData.message || JSON.stringify(errorData);
+              }
+            }
+            
+            // 添加更详细的信息用于调试
+            if (useCustomEndpoint) {
+              addLog(`请求失败: ${error.response.status} ${error.response.statusText}`);
+              
+              // 打印响应头
+              if (error.response.headers) {
+                const headers = JSON.stringify(error.response.headers);
+                addLog(`响应头: ${headers}`);
+              }
             }
           } catch (e) {
             errorMessage = `服务器错误 (${error.response.status}): ${error.message}`;
           }
         } else if (error.request) {
           errorMessage = `无法连接到服务器: ${error.message}`;
+          
+          // 添加更多网络诊断信息
+          if (useCustomEndpoint) {
+            addLog(`网络错误: 请求已发送但未收到响应`);
+            if (error.code) {
+              addLog(`错误代码: ${error.code}`);
+            }
+          }
         } else {
           errorMessage = `请求配置错误: ${error.message}`;
         }
@@ -777,7 +876,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
   };
 
   const renderTokenStatus = () => {
-    if (!tokenStatus) return null;
+    if (!tokenStatus || useCustomEndpoint) return null;
 
     return (
       <View style={styles.tokenStatusContainer}>
@@ -816,18 +915,70 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>认证设置</Text>
+          <Text style={styles.sectionTitle}>端点设置</Text>
 
-          <Text style={styles.label}>Token</Text>
-          <TextInput
-            style={styles.input}
-            value={token}
-            onChangeText={setToken}
-            placeholder="输入你的NovelAI Token"
-            secureTextEntry
-          />
+          <View style={styles.toggleContainer}>
+            <Text style={styles.toggleLabel}>使用自定义端点</Text>
+            <Switch
+              value={useCustomEndpoint}
+              onValueChange={setUseCustomEndpoint}
+              trackColor={{ false: '#767577', true: '#81b0ff' }}
+              thumbColor={useCustomEndpoint ? '#3498db' : '#f4f3f4'}
+            />
+          </View>
 
-          {renderTokenStatus()}
+          {useCustomEndpoint ? (
+            <>
+              <Text style={styles.label}>自定义端点 URL</Text>
+              <TextInput
+                style={styles.input}
+                value={customEndpoint}
+                onChangeText={setCustomEndpoint}
+                placeholder={DEFAULT_CUSTOM_ENDPOINT}
+              />
+
+              <Text style={styles.label}>自定义端点 Token</Text>
+              <TextInput
+                style={styles.input}
+                value={customToken}
+                onChangeText={setCustomToken}
+                placeholder={DEFAULT_CUSTOM_TOKEN}
+                secureTextEntry
+              />
+
+              <TouchableOpacity
+                style={styles.testConnectionButton}
+                onPress={testConnection}
+                disabled={isLoading}
+              >
+                <Text style={styles.testConnectionText}>测试连接</Text>
+              </TouchableOpacity>
+
+              {testConnectionResult && (
+                <View style={[
+                  styles.testResultContainer,
+                  testConnectionResult.success ? styles.testSuccessContainer : styles.testFailureContainer
+                ]}>
+                  <Text style={styles.testResultText}>
+                    {testConnectionResult.success ? '✓ ' : '✗ '}
+                    {testConnectionResult.message}
+                  </Text>
+                </View>
+              )}
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>NovelAI 官方 Token</Text>
+              <TextInput
+                style={styles.input}
+                value={token}
+                onChangeText={setToken}
+                placeholder="输入你的NovelAI Token"
+                secureTextEntry
+              />
+              {renderTokenStatus()}
+            </>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -835,31 +986,26 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
 
           <Text style={styles.label}>模型</Text>
           <View style={styles.pickerContainer}>
-            {([
-              { id: 'nai-v3', name: 'NAI动漫v3' },
-              { id: 'nai-v4-full', name: 'NAI动漫v4完整' },
-              { id: 'nai-v4-preview', name: 'NAI动漫v4预览' },
-              { id: 'safe', name: '安全扩散' },
-              { id: 'nai', name: 'NAI动漫v1' },
-              { id: 'nai-v2', name: 'NAI动漫v2' },
-              { id: 'furry', name: '兽人扩散' },
-            ]).map((modelOption) => (
+            {Object.entries(NOVELAI_MODELS).map(([name, id]) => (
               <TouchableOpacity
-                key={modelOption.id}
+                key={id}
                 style={[
                   styles.optionButton,
-                  model === modelOption.id && styles.selectedOption,
+                  model === id && styles.selectedOption,
                 ]}
-                onPress={() => setModel(modelOption.id)}
+                onPress={() => setModel(id)}
               >
-                <Text style={styles.optionText}>{modelOption.name}</Text>
+                <Text style={[
+                  styles.optionText,
+                  model === id && styles.selectedOptionText
+                ]}>{name}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
           <Text style={styles.label}>采样器</Text>
           <View style={styles.pickerContainer}>
-            {(['k_euler_ancestral', 'k_euler', 'ddim', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m'] as const).map((samplerOption) => (
+            {NOVELAI_SAMPLERS.map((samplerOption) => (
               <TouchableOpacity
                 key={samplerOption}
                 style={[
@@ -868,7 +1014,10 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
                 ]}
                 onPress={() => setSampler(samplerOption)}
               >
-                <Text style={styles.optionText}>{samplerOption}</Text>
+                <Text style={[
+                  styles.optionText,
+                  sampler === samplerOption && styles.selectedOptionText
+                ]}>{samplerOption}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -902,7 +1051,14 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
                 ]}
                 onPress={() => setResolution(res)}
               >
-                <Text style={styles.optionText}>{res}</Text>
+                <Text style={[
+                  styles.optionText,
+                  resolution === res && styles.selectedOptionText
+                ]}>{
+                  res === 'portrait' ? '纵向 (832×1216)' :
+                  res === 'landscape' ? '横向 (1216×832)' :
+                  '方形 (1024×1024)'
+                }</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -915,28 +1071,6 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
               {showAdvancedSettings ? '隐藏高级设置' : '显示高级设置'}
             </Text>
           </TouchableOpacity>
-
-          {showAdvancedSettings && (
-            <View>
-              <Text style={styles.label}>强度 (仅用于图像到图像)</Text>
-              <TextInput
-                style={styles.input}
-                value={strength}
-                onChangeText={setStrength}
-                placeholder="强度 (0.0-1.0)"
-                keyboardType="numeric"
-              />
-
-              <Text style={styles.label}>噪声 (仅用于图像到图像)</Text>
-              <TextInput
-                style={styles.input}
-                value={noise}
-                onChangeText={setNoise}
-                placeholder="噪声 (0.0-1.0)"
-                keyboardType="numeric"
-              />
-            </View>
-          )}
 
           {showV4Settings && (
             <View style={styles.v4SettingsContainer}>
@@ -954,7 +1088,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
 
               <Text style={styles.label}>噪声调度</Text>
               <View style={styles.pickerContainer}>
-                {(['karras', 'exponential', 'polyexponential'] as const).map((scheduleOption) => (
+                {NOVELAI_NOISE_SCHEDULES.map((scheduleOption) => (
                   <TouchableOpacity
                     key={scheduleOption}
                     style={[
@@ -963,7 +1097,10 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
                     ]}
                     onPress={() => setNoiseSchedule(scheduleOption)}
                   >
-                    <Text style={styles.optionText}>{scheduleOption}</Text>
+                    <Text style={[
+                      styles.optionText,
+                      noiseSchedule === scheduleOption && styles.selectedOptionText
+                    ]}>{scheduleOption}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -995,6 +1132,7 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
           <TouchableOpacity
             style={[styles.button, styles.saveButton]}
             onPress={saveSettings}
+            disabled={isLoading}
           >
             <Text style={styles.buttonText}>保存设置</Text>
           </TouchableOpacity>
@@ -1013,36 +1151,8 @@ const NovelAITestModal: React.FC<NovelAITestModalProps> = ({
         {isLoading && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#3498db" />
-            <Text style={styles.loadingText}>正在生成图像，请稍候...</Text>
+            <Text style={styles.loadingText}>正在处理，请稍候...</Text>
             {taskId && <Text style={styles.taskIdText}>任务ID: {taskId}</Text>}
-
-            {queueInfo && queueInfo.position > 0 && (
-              <View style={styles.queueInfoContainer}>
-                <Text style={styles.queuePositionText}>
-                  队列位置: {queueInfo.position} / {queueInfo.total_pending}
-                </Text>
-                {queueInfo.estimated_wait && (
-                  <Text style={styles.queueTimeText}>
-                    预计等待: {Math.round(queueInfo.estimated_wait / 60)} 分钟
-                  </Text>
-                )}
-                <View style={styles.progressBarContainer}>
-                  <View
-                    style={[
-                      styles.progressBar,
-                      { width: `${Math.max(5, 100 - (queueInfo.position / queueInfo.total_pending) * 100)}%` },
-                    ]}
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={styles.cancelTaskButton}
-                  onPress={() => setIsLoading(false)}
-                >
-                  <Text style={styles.cancelTaskButtonText}>取消任务</Text>
-                </TouchableOpacity>
-              </View>
-            )}
           </View>
         )}
 
@@ -1158,6 +1268,9 @@ const styles = StyleSheet.create({
   optionText: {
     color: '#555',
     fontSize: 14,
+  },
+  selectedOptionText: {
+    color: '#fff',
   },
   advancedButton: {
     alignSelf: 'center',
@@ -1305,46 +1418,6 @@ const styles = StyleSheet.create({
     color: '#6c5ce7',
     marginBottom: 12,
   },
-  queueInfoContainer: {
-    marginTop: 15,
-    width: '100%',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  queuePositionText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 5,
-    fontWeight: 'bold',
-  },
-  queueTimeText: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 10,
-  },
-  progressBarContainer: {
-    width: '100%',
-    height: 8,
-    backgroundColor: '#eaeaea',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 15,
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#3498db',
-  },
-  cancelTaskButton: {
-    backgroundColor: '#e74c3c',
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 5,
-    marginTop: 10,
-  },
-  cancelTaskButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
   tokenStatusContainer: {
     marginVertical: 10,
     padding: 10,
@@ -1374,6 +1447,47 @@ const styles = StyleSheet.create({
     color: '#e74c3c',
     fontWeight: 'bold',
   },
+  toggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 10,
+    paddingVertical: 5,
+  },
+  toggleLabel: {
+    fontSize: 16,
+    color: '#555',
+  },
+  testConnectionButton: {
+    backgroundColor: '#3498db',
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  testConnectionText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  testResultContainer: {
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 5,
+    marginBottom: 15,
+  },
+  testSuccessContainer: {
+    backgroundColor: '#d4edda',
+    borderColor: '#c3e6cb',
+    borderWidth: 1,
+  },
+  testFailureContainer: {
+    backgroundColor: '#f8d7da',
+    borderColor: '#f5c6cb',
+    borderWidth: 1,
+  },
+  testResultText: {
+    fontSize: 14,
+  }
 });
 
 export default NovelAITestModal;

@@ -42,8 +42,11 @@ import { Ionicons } from '@expo/vector-icons';
 import TagSelector from '@/components/TagSelector';
 import ArtistReferenceSelector from '@/components/ArtistReferenceSelector';
 import VoiceSelector from '@/components/VoiceSelector';
+import DouBaoTTSSelector from '@/components/DouBaoTTSSelector';
+import MinimaxTTSSelector from '@/components/MinimaxTTSSelector';
 import { theme } from '@/constants/theme';
-
+import { TTSProvider, TTSConfig } from '@/shared/types';
+import { KNOWN_TAGS } from '@/app/data/knowntags';
 // Default preset entries
 export const DEFAULT_PRESET_ENTRIES = {
   // 可编辑条目
@@ -691,12 +694,17 @@ const CreateChar: React.FC<CreateCharProps> = ({
   const [tagSelectorVisible, setTagSelectorVisible] = useState(false);
   const [selectedArtistPrompt, setSelectedArtistPrompt] = useState<string | null>(null);
   const [artistSelectorVisible, setArtistSelectorVisible] = useState(false);
+  const [douBaoSelectorVisible, setDouBaoSelectorVisible] = useState(false);
+  const [minimaxSelectorVisible, setMinimaxSelectorVisible] = useState(false);
 
-  // Add state for voice related properties
+  // Update voice related state
+  const [ttsProvider, setTtsProvider] = useState<TTSProvider>('cosyvoice');
   const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male');
-  const [voiceTemplateId, setVoiceTemplateId] = useState<string | undefined>(undefined); // Changed from null to undefined
+  const [voiceTemplateId, setVoiceTemplateId] = useState<string | undefined>(undefined);
+  const [selectedDouBaoVoice, setSelectedDouBaoVoice] = useState<string | undefined>(undefined);
+  const [selectedMinimaxVoice, setSelectedMinimaxVoice] = useState<string | undefined>(undefined);
 
-  // 保存角色时，写入extraGreetings
+  // --- 新增：保存角色时，写入extraGreetings
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
       Alert.alert('保存失败', '角色名称不能为空。');
@@ -710,11 +718,15 @@ const CreateChar: React.FC<CreateCharProps> = ({
       // Log that we're saving the character
       console.log('[CreateChar] Saving character:', characterId, 'Mode:', creationMode);
       
+      // 清理first_mes和alternateGreetings中的未知标签
+      const cleanedFirstMes = cleanUnknownTags(roleCard.first_mes || '');
+      const cleanedAlternateGreetings = alternateGreetings.map(g => cleanUnknownTags(g));
+
       // 构建角色数据
       const jsonData = {
         roleCard: {
           name: roleCard.name.trim(),
-          first_mes: roleCard.first_mes || '',
+          first_mes: cleanedFirstMes || '',
           description: roleCard.description || '',
           personality: roleCard.personality || '',
           scenario: roleCard.scenario || '',
@@ -740,7 +752,7 @@ const CreateChar: React.FC<CreateCharProps> = ({
                   key: Array.isArray(entry.key) ? entry.key : [],
                   ...(entry.position === 4 ? { depth: entry.depth || 0 } : {}),
                   order: entry.order || 0,
-                  vectorized: false
+                  vectorized: entry.vectorized || false
                 }
               ])
           )
@@ -772,19 +784,39 @@ const CreateChar: React.FC<CreateCharProps> = ({
           username: user?.settings?.self.nickname || "User",
           content: authorNote.content || '',
           injection_depth: authorNote.injection_depth || 0
-        }
+        },
+        // 保存清理后的alternateGreetings
+        alternateGreetings: cleanedAlternateGreetings.length > 0 ? cleanedAlternateGreetings : [cleanedFirstMes || 'Hello!']
       };
   
-      // Create cradle character specific properties
-      const cradleFields = {
+      // Build TTS configuration
+      const ttsConfig: TTSConfig = {
+        provider: ttsProvider,
+        ...(ttsProvider === 'cosyvoice' && voiceTemplateId ? {
+          cosyvoice: {
+            templateId: voiceTemplateId,
+            gender: voiceGender
+          }
+        } : {}),
+        ...(ttsProvider === 'doubao' && selectedDouBaoVoice ? {
+          doubao: {
+            voiceType: selectedDouBaoVoice
+          }
+        } : {}),
+        ...(ttsProvider === 'minimax' && selectedMinimaxVoice ? {
+          minimax: {
+            voiceId: selectedMinimaxVoice
+          }
+        } : {})
+      };
+      
+      const cradleFields: Partial<CradleCharacter> = {
         inCradleSystem: true,
         cradleStatus: 'growing' as 'growing' | 'mature' | 'ready',
         cradleCreatedAt: Date.now(),
         cradleUpdatedAt: Date.now(),
         feedHistory: [],
-        // Flag to indicate this character is editable via dialog
         isDialogEditable: true,
-        // Store appearance tags even though we're not generating images
         ...(positiveTags.length > 0 ? {
           generationData: {
             appearanceTags: {
@@ -794,7 +826,11 @@ const CreateChar: React.FC<CreateCharProps> = ({
             }
           }
         } : {}),
-        voiceType: voiceTemplateId // Save the selected voice template ID
+        // --- 新增：保存 minimax/doubao/cosyvoice 的 voiceType 和 provider ---
+        voiceType: ttsProvider === 'cosyvoice'
+          ? voiceTemplateId
+          : undefined,
+        ttsConfig: ttsConfig
       };
   
       // 创建新角色对象 - include cradle fields
@@ -812,8 +848,8 @@ const CreateChar: React.FC<CreateCharProps> = ({
         jsonData: JSON.stringify(jsonData),
         // Add cradle-specific fields
         ...cradleFields,
-        // 新增：保存额外开场白
-        extraGreetings: alternateGreetings.length > 0 ? alternateGreetings : undefined
+        // 保存清理后的alternateGreetings
+        extraGreetings: cleanedAlternateGreetings.length > 0 ? cleanedAlternateGreetings : undefined
       };
   
       console.log('[CreateChar] Saving character:', characterId);
@@ -953,6 +989,16 @@ const CreateChar: React.FC<CreateCharProps> = ({
       setIsSaving(false);
     }
   };
+
+  // 工具函数：移除未知标签
+  function cleanUnknownTags(text: string): string {
+    if (!text) return text;
+    // 匹配所有<tag>和</tag>
+    return text.replace(/<\/?([a-zA-Z0-9_:-]+)[^>]*>/g, (match, tag) => {
+      if (KNOWN_TAGS.includes(tag)) return match;
+      return '';
+    });
+  }
 
   // Add component initialization effect to clear data on mount
   useEffect(() => {
@@ -1410,20 +1456,154 @@ const CreateChar: React.FC<CreateCharProps> = ({
     </View>
   );
 
-  // Add a new rendering function for the voice tab
+  // --- 新增 Minimax 标签页内容 ---
+  // 调整 renderVoiceSection UI 以对齐 character-detail
   const renderVoiceSection = () => (
     <View style={styles.tabContent}>
-      <VoiceSelector
-        selectedGender={voiceGender}
-        selectedTemplate={voiceTemplateId || null}
-        onSelectGender={(gender) => {
-          setVoiceGender(gender);
+      {/* TTS Provider Selection */}
+      <View style={styles.ttsProviderSelection}>
+        <TouchableOpacity
+          style={[
+            styles.ttsProviderButton,
+            ttsProvider === 'cosyvoice' && styles.activeTtsProvider
+          ]}
+          onPress={() => setTtsProvider('cosyvoice')}
+        >
+          <Text style={[
+            styles.ttsProviderText,
+            ttsProvider === 'cosyvoice' && styles.activeTtsProviderText
+          ]}>
+            CosyVoice
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            styles.ttsProviderButton,
+            ttsProvider === 'doubao' && styles.activeTtsProvider
+          ]}
+          onPress={() => setTtsProvider('doubao')}
+        >
+          <Text style={[
+            styles.ttsProviderText,
+            ttsProvider === 'doubao' && styles.activeTtsProviderText
+          ]}>
+            豆包TTS
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            styles.ttsProviderButton,
+            ttsProvider === 'minimax' && styles.activeTtsProvider
+          ]}
+          onPress={() => setTtsProvider('minimax')}
+        >
+          <Text style={[
+            styles.ttsProviderText,
+            ttsProvider === 'minimax' && styles.activeTtsProviderText
+          ]}>
+            Minimax
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Provider-specific content */}
+      {ttsProvider === 'cosyvoice' ? (
+        <VoiceSelector
+          selectedGender={voiceGender}
+          selectedTemplate={voiceTemplateId || null}
+          onSelectGender={(gender) => {
+            setVoiceGender(gender);
+            setHasUnsavedChanges(true);
+          }}
+          onSelectTemplate={(templateId) => {
+            setVoiceTemplateId(templateId);
+            setHasUnsavedChanges(true);
+          }}
+        />
+      ) : ttsProvider === 'doubao' ? (
+        <View style={styles.voiceProviderContent}>
+          {selectedDouBaoVoice ? (
+            <View style={styles.selectedVoiceContainer}>
+              <Text style={styles.selectedVoiceLabel}>已选择豆包音色</Text>
+              <View style={styles.selectedVoiceInfo}>
+                <Text style={styles.selectedVoiceText}>
+                  {selectedDouBaoVoice}
+                </Text>
+                <TouchableOpacity
+                  style={styles.changeVoiceButton}
+                  onPress={() => setDouBaoSelectorVisible(true)}
+                >
+                  <Text style={styles.changeVoiceText}>更换</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noVoiceContainer}>
+              <Text style={styles.noVoiceText}>未选择豆包音色</Text>
+              <TouchableOpacity
+                style={styles.selectVoiceButton}
+                onPress={() => setDouBaoSelectorVisible(true)}
+              >
+                <Ionicons name="musical-notes-outline" size={20} color={theme.colors.black} />
+                <Text style={styles.selectVoiceText}>选择音色</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      ) : (
+        <View style={styles.voiceProviderContent}>
+          {selectedMinimaxVoice ? (
+            <View style={styles.selectedVoiceContainer}>
+              <Text style={styles.selectedVoiceLabel}>已选择Minimax音色</Text>
+              <View style={styles.selectedVoiceInfo}>
+                <Text style={styles.selectedVoiceText}>
+                  {selectedMinimaxVoice}
+                </Text>
+                <TouchableOpacity
+                  style={styles.changeVoiceButton}
+                  onPress={() => setMinimaxSelectorVisible(true)}
+                >
+                  <Text style={styles.changeVoiceText}>更换</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noVoiceContainer}>
+              <Text style={styles.noVoiceText}>未选择Minimax音色</Text>
+              <TouchableOpacity
+                style={styles.selectVoiceButton}
+                onPress={() => setMinimaxSelectorVisible(true)}
+              >
+                <Ionicons name="musical-notes-outline" size={20} color={theme.colors.black} />
+                <Text style={styles.selectVoiceText}>选择音色</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* DouBao Voice Selector Modal */}
+      <DouBaoTTSSelector
+        visible={douBaoSelectorVisible}
+        selectedVoice={selectedDouBaoVoice}
+        onSelectVoice={(voiceType) => {
+          setSelectedDouBaoVoice(voiceType);
           setHasUnsavedChanges(true);
         }}
-        onSelectTemplate={(templateId) => {
-          setVoiceTemplateId(templateId);
+        onClose={() => setDouBaoSelectorVisible(false)}
+      />
+
+      {/* Minimax Voice Selector Modal */}
+      <MinimaxTTSSelector
+        visible={minimaxSelectorVisible}
+        selectedVoice={selectedMinimaxVoice}
+        onSelectVoice={(voiceId) => {
+          setSelectedMinimaxVoice(voiceId);
           setHasUnsavedChanges(true);
         }}
+        onClose={() => setMinimaxSelectorVisible(false)}
       />
     </View>
   );
@@ -1721,7 +1901,8 @@ const CreateChar: React.FC<CreateCharProps> = ({
     }
   };
 
-  // Update styles to match CradleCreateForm and use theme colors consistently
+  // --- 样式调整 ---
+  // 替换/新增部分样式，参考 character-detail 页面
   const styles = StyleSheet.create({
     container: {
       flex: 1,
@@ -1777,9 +1958,11 @@ const CreateChar: React.FC<CreateCharProps> = ({
       flex: 1,
     },
     contentContainer: {
-      paddingBottom: 80, // Extra padding for scrolling at bottom
+      flexGrow: 1, // 保证内容撑满
+      paddingBottom: 80,
     },
     tabContent: {
+      flex: 1, // 关键：让tab内容区撑满剩余空间
       padding: 16,
     },
     sectionTitle: {
@@ -1957,7 +2140,7 @@ const CreateChar: React.FC<CreateCharProps> = ({
       borderRadius: 16,
       paddingVertical: 4,
       paddingHorizontal: 8,
-      marginRight: 8,
+           marginRight: 8,
     },
     selectedTagText: {
       fontSize: 12,
@@ -1986,8 +2169,6 @@ const CreateChar: React.FC<CreateCharProps> = ({
       marginVertical: 8,
     },
     openTagSelectorText: {
-      color: theme.colors.black,
-      marginLeft: 8,
       fontWeight: '500',
     },
     // Tag selector modal styles
@@ -2129,6 +2310,125 @@ const CreateChar: React.FC<CreateCharProps> = ({
       fontSize: 12,
       marginLeft: 2,
     },
+    // Add TTS provider selection styles
+    ttsProviderSelection: {
+      flexDirection: 'row',
+      marginBottom: 20,
+      backgroundColor: '#1a1a1a',
+      borderRadius: 12,
+      padding: 6,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+    },
+    ttsProviderButton: {
+      flex: 1,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginHorizontal: 2,
+    },
+    activeTtsProvider: {
+      backgroundColor: theme.colors.primary,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    ttsProviderText: {
+      color: '#ffffff',
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    activeTtsProviderText: {
+      color: theme.colors.black,
+      fontWeight: '700',
+    },
+    voiceProviderContent: {
+      flex: 1,
+      marginTop: 8,
+    },
+    selectedVoiceContainer: {
+      backgroundColor: '#2a2a2a',
+      borderRadius: 12,
+      padding: 20,
+      borderWidth: 2,
+      borderColor: theme.colors.primary,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    selectedVoiceLabel: {
+      fontSize: 16,
+      color: theme.colors.primary,
+      marginBottom: 12,
+      fontWeight: '600',
+    },
+    selectedVoiceInfo: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    selectedVoiceText: {
+      fontSize: 18,
+      color: '#ffffff',
+      fontWeight: '600',
+      flex: 1,
+    },
+    changeVoiceButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 8,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    changeVoiceText: {
+      color: theme.colors.black,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    noVoiceContainer: {
+      backgroundColor: '#2a2a2a',
+      borderRadius: 12,
+      padding: 24,
+      alignItems: 'center',
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.3)',
+      borderStyle: 'dashed',
+    },
+    noVoiceText: {
+      fontSize: 12,
+      color: '#ffffff',
+      marginBottom: 20,
+      textAlign: 'center',
+      fontWeight: '500',
+    },
+    selectVoiceButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 24,
+      paddingVertical: 14,
+      borderRadius: 10,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.4,
+      shadowRadius: 6,
+      elevation: 5,
+    },
+    selectVoiceText: {
+      color: theme.colors.black,
+      fontSize: 12,
+      fontWeight: '700',
+      marginLeft: 8,
+    },
   });
 
   // For embedded usage in tabs, we'll now use the sidebar pattern similar to CradleCreateForm
@@ -2195,12 +2495,9 @@ const CreateChar: React.FC<CreateCharProps> = ({
         </TouchableOpacity>
       </View>
       
-      <ScrollView 
-        style={styles.content} 
-        contentContainerStyle={styles.contentContainer}
-      >
+      <View style={styles.content}>
         {renderContent()}
-      </ScrollView>
+      </View>
       
       {/* Detail Sidebar for expanded editing */}
       <DetailSidebar

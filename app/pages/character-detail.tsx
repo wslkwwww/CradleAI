@@ -41,12 +41,15 @@ import TagSelector from '@/components/TagSelector';
 import ArtistReferenceSelector from '@/components/ArtistReferenceSelector';
 import VoiceSelector from '@/components/VoiceSelector';
 import TextEditorModal from '@/components/common/TextEditorModal';
-
+import DouBaoTTSSelector from '@/components/DouBaoTTSSelector';
+import MinimaxTTSSelector from '@/components/MinimaxTTSSelector';
+import { TTSProvider, TTSConfig } from '@/shared/types';
 import { 
   WorldBookSection,
   PresetSection,
   AuthorNoteSection
 } from '@/components/character/CharacterSections';
+import { KNOWN_TAGS } from '@/app/data/knowntags';
 
 export const DEFAULT_PRESET_ENTRIES = {
   EDITABLE: [
@@ -247,7 +250,12 @@ const CharacterDetail: React.FC = () => {
   const router = useRouter();
   const { characters, updateCharacter } = useCharacters();
   const { user } = useUser();
-
+  // Replace voice-related state with unified TTS config
+  const [ttsProvider, setTtsProvider] = useState<TTSProvider>('cosyvoice');
+  const [selectedDouBaoVoice, setSelectedDouBaoVoice] = useState<string | undefined>(undefined);
+  const [selectedMinimaxVoice, setSelectedMinimaxVoice] = useState<string | undefined>(undefined);
+  const [douBaoSelectorVisible, setDouBaoSelectorVisible] = useState(false);
+  const [minimaxSelectorVisible, setMinimaxSelectorVisible] = useState(false);
   const [character, setCharacter] = useState<Character | null>(null);
   const [roleCard, setRoleCard] = useState<Partial<RoleCardJson>>({
     name: '',
@@ -491,7 +499,26 @@ const CharacterDetail: React.FC = () => {
             ...prev,
             first_mes: greetings[0] || ''
           }));
+                  if (foundCharacter.ttsConfig) {
+          const ttsConfig = foundCharacter.ttsConfig;
+          setTtsProvider(ttsConfig.provider);
           
+          if (ttsConfig.cosyvoice) {
+            setVoiceTemplateId(ttsConfig.cosyvoice.templateId);
+            setVoiceGender(ttsConfig.cosyvoice.gender);
+          }
+          if (ttsConfig.doubao) {
+            setSelectedDouBaoVoice(ttsConfig.doubao.voiceType);
+          }
+          if (ttsConfig.minimax) {
+            setSelectedMinimaxVoice(ttsConfig.minimax.voiceId);
+          }
+        } else if (foundCharacter.voiceType) {
+          // Legacy support
+          setVoiceTemplateId(foundCharacter.voiceType);
+          setVoiceGender(foundCharacter.voiceType.endsWith('a') ? 'female' : 'male');
+          setTtsProvider('cosyvoice');
+        }
         } catch (parseError) {
           setRoleCard({
             name: foundCharacter.name || '',
@@ -682,6 +709,16 @@ const CharacterDetail: React.FC = () => {
     handleRoleCardChange('name', newName);
   };
 
+  // 工具函数：移除未知标签
+function cleanUnknownTags(text: string): string {
+  if (!text) return text;
+  // 匹配所有<tag>和</tag>
+  return text.replace(/<\/?([a-zA-Z0-9_:-]+)[^>]*>/g, (match, tag) => {
+    if (KNOWN_TAGS.includes(tag)) return match;
+    return '';
+  });
+}
+
   const saveCharacter = async () => {
     if (!roleCard.name?.trim()) {
       Alert.alert('保存失败', '角色名称不能为空。');
@@ -771,18 +808,46 @@ const CharacterDetail: React.FC = () => {
         injection_depth: authorNote.injection_depth || 0
       };
       
+      // 清理first_mes和alternateGreetings中的未知标签
+      const cleanedFirstMes = cleanUnknownTags(roleCard.first_mes || '');
+      const cleanedAlternateGreetings = alternateGreetings.map(g => cleanUnknownTags(g));
+
+      // 优化：如果first_mes为空，自动填充为"Hello!"
+      const safeFirstMes = cleanedFirstMes?.trim() ? cleanedFirstMes : "Hello!";
+
       const jsonData = {
         roleCard: {
           ...roleCard,
-          name: roleCard.name.trim()
+          name: roleCard.name.trim(),
+          first_mes: safeFirstMes // 保证first_mes有值且已清理
         },
         worldBook: worldBookData,
         preset: presetData,
         authorNote: authorNoteData,
-        // 确保保存多开场白数据
-        alternateGreetings: alternateGreetings
+        // 确保保存多开场白数据，且已清理
+        alternateGreetings: cleanedAlternateGreetings.length > 0 ? cleanedAlternateGreetings : [safeFirstMes]
       };
-      
+            
+      // 构建TTS配置
+      const ttsConfig: TTSConfig = {
+        provider: ttsProvider,
+        ...(ttsProvider === 'cosyvoice' && voiceTemplateId ? {
+          cosyvoice: {
+            templateId: voiceTemplateId,
+            gender: voiceGender
+          }
+        } : {}),
+        ...(ttsProvider === 'doubao' && selectedDouBaoVoice ? {
+          doubao: {
+            voiceType: selectedDouBaoVoice
+          }
+        } : {}),
+        ...(ttsProvider === 'minimax' && selectedMinimaxVoice ? {
+          minimax: {
+            voiceId: selectedMinimaxVoice
+          }
+        } : {})
+      };
       const cradleFields: Partial<CradleCharacter> = {
         inCradleSystem: character.inCradleSystem ?? true,
         cradleStatus: character.cradleStatus ?? 'growing',
@@ -799,7 +864,8 @@ const CharacterDetail: React.FC = () => {
             }
           }
         } : {}),
-        voiceType: voiceTemplateId
+        voiceType: voiceTemplateId,
+        ttsConfig: ttsConfig
       };
       
       const updatedCharacter: Character & Partial<CradleCharacter> = {
@@ -810,7 +876,8 @@ const CharacterDetail: React.FC = () => {
         updatedAt: Date.now(),
         jsonData: JSON.stringify(jsonData),
         ...cradleFields,
-        extraGreetings: alternateGreetings.length > 0 ? alternateGreetings : undefined
+        // 保存清理后的alternateGreetings
+        extraGreetings: cleanedAlternateGreetings.length > 0 ? cleanedAlternateGreetings : undefined
       };
       
       await updateCharacter(updatedCharacter);
@@ -1326,20 +1393,152 @@ const renderTagGenerationSection = () => (
     </Modal>
   </View>
 );
-
   const renderVoiceSection = () => (
-    <View style={[styles.tabContent, { flex: 1 }]}>
-      <VoiceSelector
-        selectedGender={voiceGender}
-        selectedTemplate={voiceTemplateId || null}
-        onSelectGender={(gender) => {
-          setVoiceGender(gender);
+  <View style={[styles.tabContent, { flex: 1 }]}>
+      {/* TTS Provider Selection */}
+      <View style={styles.ttsProviderSelection}>
+        <TouchableOpacity
+          style={[
+            styles.ttsProviderButton,
+            ttsProvider === 'cosyvoice' && styles.activeTtsProvider
+          ]}
+          onPress={() => setTtsProvider('cosyvoice')}
+        >
+          <Text style={[
+            styles.ttsProviderText,
+            ttsProvider === 'cosyvoice' && styles.activeTtsProviderText
+          ]}>
+            CosyVoice
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            styles.ttsProviderButton,
+            ttsProvider === 'doubao' && styles.activeTtsProvider
+          ]}
+          onPress={() => setTtsProvider('doubao')}
+        >
+          <Text style={[
+            styles.ttsProviderText,
+            ttsProvider === 'doubao' && styles.activeTtsProviderText
+          ]}>
+            豆包TTS
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            styles.ttsProviderButton,
+            ttsProvider === 'minimax' && styles.activeTtsProvider
+          ]}
+          onPress={() => setTtsProvider('minimax')}
+        >
+          <Text style={[
+            styles.ttsProviderText,
+            ttsProvider === 'minimax' && styles.activeTtsProviderText
+          ]}>
+            Minimax
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Provider-specific content */}
+      {ttsProvider === 'cosyvoice' ? (
+        <VoiceSelector
+          selectedGender={voiceGender}
+          selectedTemplate={voiceTemplateId || null}
+          onSelectGender={(gender) => {
+            setVoiceGender(gender);
+            setHasUnsavedChanges(true);
+          }}
+          onSelectTemplate={(templateId) => {
+            setVoiceTemplateId(templateId);
+            setHasUnsavedChanges(true);
+          }}
+        />
+      ) : ttsProvider === 'doubao' ? (
+        <View style={styles.voiceProviderContent}>
+          {selectedDouBaoVoice ? (
+            <View style={styles.selectedVoiceContainer}>
+              <Text style={styles.selectedVoiceLabel}>已选择豆包音色</Text>
+              <View style={styles.selectedVoiceInfo}>
+                <Text style={styles.selectedVoiceText}>
+                  {selectedDouBaoVoice}
+                </Text>
+                <TouchableOpacity
+                  style={styles.changeVoiceButton}
+                  onPress={() => setDouBaoSelectorVisible(true)}
+                >
+                  <Text style={styles.changeVoiceText}>更换</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noVoiceContainer}>
+              <Text style={styles.noVoiceText}>未选择豆包音色</Text>
+              <TouchableOpacity
+                style={styles.selectVoiceButton}
+                onPress={() => setDouBaoSelectorVisible(true)}
+              >
+                <Ionicons name="musical-notes-outline" size={20} color={theme.colors.black} />
+                <Text style={styles.selectVoiceText}>选择音色</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      ) : (
+        <View style={styles.voiceProviderContent}>
+          {selectedMinimaxVoice ? (
+            <View style={styles.selectedVoiceContainer}>
+              <Text style={styles.selectedVoiceLabel}>已选择Minimax音色</Text>
+              <View style={styles.selectedVoiceInfo}>
+                <Text style={styles.selectedVoiceText}>
+                  {selectedMinimaxVoice}
+                </Text>
+                <TouchableOpacity
+                  style={styles.changeVoiceButton}
+                  onPress={() => setMinimaxSelectorVisible(true)}
+                >
+                  <Text style={styles.changeVoiceText}>更换</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noVoiceContainer}>
+              <Text style={styles.noVoiceText}>未选择Minimax音色</Text>
+              <TouchableOpacity
+                style={styles.selectVoiceButton}
+                onPress={() => setMinimaxSelectorVisible(true)}
+              >
+                <Ionicons name="musical-notes-outline" size={20} color={theme.colors.black} />
+                <Text style={styles.selectVoiceText}>选择音色</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* DouBao Voice Selector Modal */}
+      <DouBaoTTSSelector
+        visible={douBaoSelectorVisible}
+        selectedVoice={selectedDouBaoVoice}
+        onSelectVoice={(voiceType) => {
+          setSelectedDouBaoVoice(voiceType);
           setHasUnsavedChanges(true);
         }}
-        onSelectTemplate={(templateId) => {
-          setVoiceTemplateId(templateId);
+        onClose={() => setDouBaoSelectorVisible(false)}
+      />
+
+      {/* Minimax Voice Selector Modal */}
+      <MinimaxTTSSelector
+        visible={minimaxSelectorVisible}
+        selectedVoice={selectedMinimaxVoice}
+        onSelectVoice={(voiceId) => {
+          setSelectedMinimaxVoice(voiceId);
           setHasUnsavedChanges(true);
         }}
+        onClose={() => setMinimaxSelectorVisible(false)}
       />
     </View>
   );
@@ -1479,7 +1678,6 @@ const renderAppearanceSection = () => (
 );
 
 
-
   if (isLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -1542,176 +1740,181 @@ const renderAppearanceSection = () => (
           <Text style={[styles.tabText, activeTab === 'voice' && styles.activeTabText]}>声线</Text>
         </TouchableOpacity>
       </View>
-
-      {activeTab === 'voice' ? (
-        renderVoiceSection()
-      ) : (
-        <ScrollView style={styles.content}>
+      <View style={{ flex: 1 }}>
+        {/* 替换 ScrollView 为 View，避免嵌套 VirtualizedList 警告 */}
+        <View style={styles.content}>
           {activeTab === 'basic' ? (
-            <View style={styles.tabContent}>
-              {/* 新增：多开场白UI */}
-              <View style={styles.greetingsContainer}>
-                <View style={styles.greetingsHeader}>
-                  <Text style={styles.greetingsTitle}>开场白</Text>
-                  <View style={styles.greetingsActions}>
-                    <TouchableOpacity 
-                      style={styles.greetingActionButton}
-                      onPress={handleAddGreeting}
-                    >
-                      <Ionicons name="add-circle-outline" size={20} color="#FFD700" />
-                      <Text style={styles.greetingActionText}>添加</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[
-                        styles.greetingActionButton, 
-                        alternateGreetings.length <= 1 && styles.disabledButton
-                      ]}
-                      onPress={handleDeleteGreeting}
-                      disabled={alternateGreetings.length <= 1}
-                    >
-                      <Ionicons name="trash-outline" size={20} color={alternateGreetings.length <= 1 ? "#666" : "#ff6666"} />
-                      <Text style={[styles.greetingActionText, alternateGreetings.length <= 1 && styles.disabledText]}>删除</Text>
-                    </TouchableOpacity>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+              <View style={styles.tabContent}>
+                {/* 新增：多开场白UI */}
+                <View style={styles.greetingsContainer}>
+                  <View style={styles.greetingsHeader}>
+                    <Text style={styles.greetingsTitle}>开场白</Text>
+                    <View style={styles.greetingsActions}>
+                      <TouchableOpacity 
+                        style={styles.greetingActionButton}
+                        onPress={handleAddGreeting}
+                      >
+                        <Ionicons name="add-circle-outline" size={20} color="#FFD700" />
+                        <Text style={styles.greetingActionText}>添加</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[
+                          styles.greetingActionButton, 
+                          alternateGreetings.length <= 1 && styles.disabledButton
+                        ]}
+                        onPress={handleDeleteGreeting}
+                        disabled={alternateGreetings.length <= 1}
+                      >
+                        <Ionicons name="trash-outline" size={20} color={alternateGreetings.length <= 1 ? "#666" : "#ff6666"} />
+                        <Text style={[styles.greetingActionText, alternateGreetings.length <= 1 && styles.disabledText]}>删除</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
+                  <CharacterAttributeEditor
+                    title={`开场白 #${selectedGreetingIndex + 1}`}
+                    value={roleCard.first_mes || ''}
+                    onChangeText={(text) => handleRoleCardChange('first_mes', text)}
+                    placeholder="角色与用户的第一次对话内容..."
+                    style={styles.attributeSection}
+                    alternateGreetings={alternateGreetings}
+                    selectedGreetingIndex={selectedGreetingIndex}
+                    onSelectGreeting={handleSelectGreeting}
+                  />
                 </View>
                 <CharacterAttributeEditor
-                  title={`开场白 #${selectedGreetingIndex + 1}`}
-                  value={roleCard.first_mes || ''}
-                  onChangeText={(text) => handleRoleCardChange('first_mes', text)}
-                  placeholder="角色与用户的第一次对话内容..."
+                  title="角色描述"
+                  value={roleCard.description || ''}
+                  onChangeText={(text) => handleRoleCardChange('description', text)}
+                  placeholder="描述角色的外表、背景等基本信息..."
                   style={styles.attributeSection}
-                  alternateGreetings={alternateGreetings}
-                  selectedGreetingIndex={selectedGreetingIndex}
-                  onSelectGreeting={handleSelectGreeting}
+                  onPress={() =>
+                    openTextEditorModal(
+                      'description',
+                      '编辑角色描述',
+                      roleCard.description || '',
+                      '描述角色的外表、背景等基本信息...'
+                    )
+                  }
+                />
+              
+                <CharacterAttributeEditor
+                  title="性格特征"
+                  value={roleCard.personality || ''}
+                  onChangeText={(text) => handleRoleCardChange('personality', text)}
+                  placeholder="描述角色的性格、习惯、喜好等..."
+                  style={styles.attributeSection}
+                  onPress={() =>
+                    openTextEditorModal(
+                      'personality',
+                      '编辑性格特征',
+                      roleCard.personality || '',
+                      '描述角色的性格、习惯、喜好等...'
+                    )
+                  }
+                />
+              
+                <CharacterAttributeEditor
+                  title="场景设定"
+                  value={roleCard.scenario || ''}
+                  onChangeText={(text) => handleRoleCardChange('scenario', text)}
+                  placeholder="描述角色所在的环境、情境..."
+                  style={styles.attributeSection}
+                  onPress={() =>
+                    openTextEditorModal(
+                      'scenario',
+                      '编辑场景设定',
+                      roleCard.scenario || '',
+                      '描述角色所在的环境、情境...'
+                    )
+                  }
+                />
+              
+                <CharacterAttributeEditor
+                  title="对话示例"
+                  value={roleCard.mes_example || ''}
+                  onChangeText={(text) => handleRoleCardChange('mes_example', text)}
+                  placeholder="提供一些角色对话的范例..."
+                  style={styles.attributeSection}
+                  onPress={() =>
+                    openTextEditorModal(
+                      'mes_example',
+                      '编辑对话示例',
+                      roleCard.mes_example || '',
+                      '提供一些角色对话的范例...'
+                    )
+                  }
                 />
               </View>
-              <CharacterAttributeEditor
-                title="角色描述"
-                value={roleCard.description || ''}
-                onChangeText={(text) => handleRoleCardChange('description', text)}
-                placeholder="描述角色的外表、背景等基本信息..."
-                style={styles.attributeSection}
-                onPress={() =>
-                  openTextEditorModal(
-                    'description',
-                    '编辑角色描述',
-                    roleCard.description || '',
-                    '描述角色的外表、背景等基本信息...'
-                  )
-                }
-              />
-              
-              <CharacterAttributeEditor
-                title="性格特征"
-                value={roleCard.personality || ''}
-                onChangeText={(text) => handleRoleCardChange('personality', text)}
-                placeholder="描述角色的性格、习惯、喜好等..."
-                style={styles.attributeSection}
-                onPress={() =>
-                  openTextEditorModal(
-                    'personality',
-                    '编辑性格特征',
-                    roleCard.personality || '',
-                    '描述角色的性格、习惯、喜好等...'
-                  )
-                }
-              />
-              
-              <CharacterAttributeEditor
-                title="场景设定"
-                value={roleCard.scenario || ''}
-                onChangeText={(text) => handleRoleCardChange('scenario', text)}
-                placeholder="描述角色所在的环境、情境..."
-                style={styles.attributeSection}
-                onPress={() =>
-                  openTextEditorModal(
-                    'scenario',
-                    '编辑场景设定',
-                    roleCard.scenario || '',
-                    '描述角色所在的环境、情境...'
-                  )
-                }
-              />
-              
-              <CharacterAttributeEditor
-                title="对话示例"
-                value={roleCard.mes_example || ''}
-                onChangeText={(text) => handleRoleCardChange('mes_example', text)}
-                placeholder="提供一些角色对话的范例..."
-                style={styles.attributeSection}
-                onPress={() =>
-                  openTextEditorModal(
-                    'mes_example',
-                    '编辑对话示例',
-                    roleCard.mes_example || '',
-                    '提供一些角色对话的范例...'
-                  )
-                }
-              />
-            </View>
+            </ScrollView>
           ) : activeTab === 'advanced' ? (
-            <View style={styles.tabContent}>
-              {/* 新增：世界书导入按钮 */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <TouchableOpacity
-                  style={[styles.importPresetButton, { marginRight: 8 }]}
-                  onPress={handleImportWorldBook}
-                >
-                  <Ionicons name="book-outline" size={16} color="#FFD700" />
-                  <Text style={styles.importPresetText}>导入世界书</Text>
-                </TouchableOpacity>
-                {/* 保持原有预设导入按钮 */}
-                <TouchableOpacity 
-                  style={styles.importPresetButton}
-                  onPress={handleImportPreset}
-                >
-                  <Ionicons name="cloud-download-outline" size={16} color="#FFD700" />
-                  <Text style={styles.importPresetText}>导入预设</Text>
-                </TouchableOpacity>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+              <View style={styles.tabContent}>
+                {/* 新增：世界书导入按钮 */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                  <TouchableOpacity
+                    style={[styles.importPresetButton, { marginRight: 8 }]}
+                    onPress={handleImportWorldBook}
+                  >
+                    <Ionicons name="book-outline" size={16} color="#FFD700" />
+                    <Text style={styles.importPresetText}>导入世界书</Text>
+                  </TouchableOpacity>
+                  {/* 保持原有预设导入按钮 */}
+                  <TouchableOpacity 
+                    style={styles.importPresetButton}
+                    onPress={handleImportPreset}
+                  >
+                    <Ionicons name="cloud-download-outline" size={16} color="#FFD700" />
+                    <Text style={styles.importPresetText}>导入预设</Text>
+                  </TouchableOpacity>
+                </View>
+                <WorldBookSection 
+                  entries={worldBookEntries}
+                  onAdd={handleAddWorldBookEntry}
+                  onUpdate={handleUpdateWorldBookEntry}
+                  onReorder={handleReorderWorldBook}
+                  onViewDetail={handleViewDetail}
+                  onDelete={handleDeleteWorldBookEntry}
+                />
+                
+                <AuthorNoteSection
+                  content={authorNote.content || ''}
+                  injection_depth={authorNote.injection_depth || 0}
+                  onUpdateContent={(text) => {
+                    setAuthorNote(prev => ({ ...prev, content: text }));
+                    setHasUnsavedChanges(true);
+                  }}
+                  onUpdateDepth={(depth) => {
+                    setAuthorNote(prev => ({ ...prev, injection_depth: depth }));
+                    setHasUnsavedChanges(true);
+                  }}
+                  onViewDetail={handleViewDetail}
+                />
+                
+                <View style={styles.presetSectionHeader}>
+                  <Text style={styles.sectionTitle}>预设设定</Text>
+                </View>
+                
+                <PresetSection
+                  entries={presetEntries}
+                  onAdd={handleAddPresetEntry}
+                  onUpdate={handleUpdatePresetEntry}
+                  onMove={handleMoveEntry}
+                  onReorder={handleReorderPresets}
+                  onViewDetail={handleViewDetail}
+                  onDelete={handleDeletePresetEntry}
+                />
               </View>
-              <WorldBookSection 
-                entries={worldBookEntries}
-                onAdd={handleAddWorldBookEntry}
-                onUpdate={handleUpdateWorldBookEntry}
-                onReorder={handleReorderWorldBook}
-                onViewDetail={handleViewDetail}
-                onDelete={handleDeleteWorldBookEntry}
-              />
-              
-              <AuthorNoteSection
-                content={authorNote.content || ''}
-                injection_depth={authorNote.injection_depth || 0}
-                onUpdateContent={(text) => {
-                  setAuthorNote(prev => ({ ...prev, content: text }));
-                  setHasUnsavedChanges(true);
-                }}
-                onUpdateDepth={(depth) => {
-                  setAuthorNote(prev => ({ ...prev, injection_depth: depth }));
-                  setHasUnsavedChanges(true);
-                }}
-                onViewDetail={handleViewDetail}
-              />
-              
-              <View style={styles.presetSectionHeader}>
-                <Text style={styles.sectionTitle}>预设设定</Text>
-              </View>
-              
-              <PresetSection
-                entries={presetEntries}
-                onAdd={handleAddPresetEntry}
-                onUpdate={handleUpdatePresetEntry}
-                onMove={handleMoveEntry}
-                onReorder={handleReorderPresets}
-                onViewDetail={handleViewDetail}
-                onDelete={handleDeletePresetEntry}
-              />
-            </View>
+            </ScrollView>
           ) : activeTab === 'appearance' ? (
-            renderAppearanceSection()
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+              {renderAppearanceSection()}
+            </ScrollView>
+          ) : activeTab === 'voice' ? (
+            renderVoiceSection()
           ) : null}
-        </ScrollView>
-      )}
-      
+        </View>
+      </View>      
       <BlurView intensity={30} tint="dark" style={styles.bottomBar}>
         <ActionButton
           title="取消"
@@ -1887,6 +2090,7 @@ const styles = StyleSheet.create({
   },
   tabContent: {
     padding: 16,
+    flex: 1, // 新增：让tab内容区自动填满父容器
   },
   attributeSection: {
     marginTop: 20,
@@ -2248,6 +2452,124 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 2,
   },
-});
-
+    // Add TTS provider selection styles
+    ttsProviderSelection: {
+      flexDirection: 'row',
+      marginBottom: 20,
+      backgroundColor: '#1a1a1a',
+      borderRadius: 12,
+      padding: 6,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+    },
+    ttsProviderButton: {
+      flex: 1,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginHorizontal: 2,
+    },
+    activeTtsProvider: {
+      backgroundColor: theme.colors.primaryDark,
+      elevation: 4,
+    },
+    ttsProviderText: {
+      color: '#ffffff',
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    activeTtsProviderText: {
+      color: theme.colors.black,
+      fontWeight: '700',
+    },
+    douBaoContainer: {
+      flex: 1,
+      paddingTop: 8,
+    },
+    selectedVoiceContainer: {
+      backgroundColor: '#2a2a2a',
+      borderRadius: 12,
+      padding: 20,
+      borderWidth: 2,
+      borderColor: theme.colors.primary,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    selectedVoiceLabel: {
+      fontSize: 16,
+      color: theme.colors.primary,
+      marginBottom: 12,
+      fontWeight: '600',
+    },
+    selectedVoiceInfo: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    selectedVoiceText: {
+      fontSize: 18,
+      color: '#ffffff',
+      fontWeight: '600',
+      flex: 1,
+    },
+    changeVoiceButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 8,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    changeVoiceText: {
+      color: theme.colors.black,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    noVoiceContainer: {
+      backgroundColor: '#2a2a2a',
+      borderRadius: 12,
+      padding: 24,
+      alignItems: 'center',
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.3)',
+      borderStyle: 'dashed',
+    },
+    noVoiceText: {
+      fontSize: 12,
+      color: '#ffffff',
+      marginBottom: 20,
+      textAlign: 'center',
+      fontWeight: '500',
+    },
+    selectVoiceButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 24,
+      paddingVertical: 14,
+      borderRadius: 10,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.4,
+      shadowRadius: 6,
+      elevation: 5,
+    },
+    selectVoiceText: {
+      color: theme.colors.black,
+      fontSize: 12,
+      fontWeight: '700',
+      marginLeft: 8,
+    },
+      voiceProviderContent: {
+    flex: 1,
+    marginTop: 8,
+  },
+  });
 export default CharacterDetail;

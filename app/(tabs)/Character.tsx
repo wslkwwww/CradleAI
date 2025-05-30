@@ -944,13 +944,24 @@ const CharactersScreen: React.FC = () => {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="light-content" backgroundColor={COLOR_BACKGROUND} />
-        <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>角色管理</Text>
-            <View style={styles.headerButtons}></View>
-          </View>
+        {/* 保持常态下的顶部栏和浮动按钮 */}
+        {renderHeader()}
+        {renderAddMenu()}
+        {/* 用绝对定位的 ActivityIndicator 覆盖内容区域 */}
+        <View style={{
+          ...StyleSheet.absoluteFillObject,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: 'rgba(40,40,40,0.7)',
+          zIndex: 999,
+        }}>
+          <ActivityIndicator size="large" color="#fff" />
         </View>
-        <ActivityIndicator size="large" color="#fff" style={styles.loader} />
+        {renderCreationModal()}
+        {renderDeleteButton()}
+        {renderManageFloatingButtons()}
+        {/* 其它弹窗不变 */}
+        {renderImportOptionsModal()}
       </SafeAreaView>
     );
   }
@@ -1209,7 +1220,7 @@ const CharacterCard: React.FC<{
               onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
               onError={(error) => {
                 console.error('Video error in character card:', error);
-                setVideoError(error?.toString() || 'Failed to load video');
+                setVideoError(error);
               }}
               useNativeControls={false}
             />

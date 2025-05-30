@@ -4,6 +4,7 @@ import { decode as atob, encode as btoa } from 'base-64';
 import JSZip from 'jszip';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { getUserSettingsGlobally } from '@/utils/settings-helper';
 
 const NOVELAI_API_SUBSCRIPTION = 'https://api.novelai.net/user/subscription';
 const NOVELAI_API_GENERATE = 'https://image.novelai.net/ai/generate-image';
@@ -62,6 +63,7 @@ interface NovelAIGenerateParams {
   noiseSchedule?: string;
   useCoords?: boolean;
   useOrder?: boolean;
+  endpoint?: string; // 新增：允许外部传入endpoint
 }
 
 export class NovelAIService {
@@ -141,7 +143,18 @@ export class NovelAIService {
 
   static async generateImage(params: NovelAIGenerateParams): Promise<{ imageUrls: string[], seed: number }> {
     console.log('[NovelAI] Starting image generation...');
-    
+
+    // --- 新增：自动从settings-helper获取NovelAI API设置 ---
+    const settings = getUserSettingsGlobally();
+    let useCustomEndpoint = false;
+    let customEndpoint = '';
+    let customToken = '';
+    if (settings?.chat?.novelai) {
+      useCustomEndpoint = !!settings.chat.novelai.useCustomEndpoint;
+      customEndpoint = settings.chat.novelai.customEndpoint || '';
+      customToken = settings.chat.novelai.customToken || '';
+    }
+
     try {
       const {
         token,
@@ -247,12 +260,23 @@ export class NovelAIService {
       console.log('[NovelAI] Sending request with data:', JSON.stringify(requestData, null, 2));
       
       // Make the API request
+      let apiUrl = params.endpoint || NOVELAI_API_GENERATE;
+      let apiToken = params.token;
+
+      // 打印实际请求的url和token信息（仅前6位+长度，避免泄漏）
+      console.log(`[NovelAI] Requesting endpoint: ${apiUrl}`);
+      if (apiToken) {
+        console.log(`[NovelAI] Using token: ${apiToken.slice(0, 6)}... (length: ${apiToken.length})`);
+      }
+
+      // 如果启用自定义端点，则覆盖url和token
+      // 已由外部传入endpoint和token，无需再处理
       const response = await axios({
         method: 'post',
-        url: NOVELAI_API_GENERATE,
+        url: apiUrl,
         data: requestData,
         headers: {
-          Authorization: `Bearer ${cleanToken}`,
+          Authorization: `Bearer ${apiToken}`,
           'Content-Type': 'application/json',
           Accept: 'application/x-zip-compressed, image/png, image/jpeg, image/webp',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',

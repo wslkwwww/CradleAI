@@ -41,13 +41,13 @@ export class CircleScheduler {
   // Map to track update callbacks by postId
   private updateCallbacks: Map<string, UpdateCallback[]> = new Map();
 
+  // Add activation state
+  private isActive: boolean = false;
+  private checkInterval: any = null;
+
   private constructor() {
     console.log('【CircleScheduler】创建调度器实例');
-    // Load scheduled times on startup
-    this.loadScheduledTimes();
-    
-    // Start the scheduled post checking loop
-    this.startScheduledPostsCheck();
+    // Don't automatically start - wait for activation
   }
 
   // Get the singleton instance
@@ -277,17 +277,86 @@ export class CircleScheduler {
     return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
   }
 
+  // Add method to check if any scheduled tasks exist
+  public async hasScheduledTasks(): Promise<boolean> {
+    await this.loadScheduledTimes();
+    return Object.keys(this.scheduledPostsCache).length > 0;
+  }
+
+  // Add method to activate scheduler
+  public async activate(): Promise<void> {
+    if (this.isActive) {
+      console.log('【CircleScheduler】调度器已激活，跳过');
+      return;
+    }
+
+    const hasScheduled = await this.hasScheduledTasks();
+    if (!hasScheduled) {
+      console.log('【CircleScheduler】没有定时任务，不启动调度器');
+      return;
+    }
+
+    console.log('【CircleScheduler】激活调度器，开始监控定时任务');
+    this.isActive = true;
+    
+    // Load scheduled times on startup
+    await this.loadScheduledTimes();
+    
+    // Start the scheduled post checking loop
+    this.startScheduledPostsCheck();
+  }
+
+  // Add method to deactivate scheduler
+  public async deactivate(): Promise<void> {
+    if (!this.isActive) {
+      return;
+    }
+
+    console.log('【CircleScheduler】停用调度器');
+    this.isActive = false;
+    
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
+    }
+  }
+
+  // Add method to refresh scheduler state
+  public async refreshSchedulerState(): Promise<void> {
+    const hasScheduled = await this.hasScheduledTasks();
+    
+    if (hasScheduled && !this.isActive) {
+      console.log('【CircleScheduler】检测到新的定时任务，激活调度器');
+      await this.activate();
+    } else if (!hasScheduled && this.isActive) {
+      console.log('【CircleScheduler】没有定时任务，停用调度器');
+      await this.deactivate();
+    }
+  }
+
   // Start the periodic check for scheduled posts
   private startScheduledPostsCheck(): void {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+    }
+    
     // Initial check
     this.checkForScheduledPosts();
     
     // Set up recurring checks
-    setInterval(() => this.checkForScheduledPosts(), 60000); // Check every minute
+    this.checkInterval = setInterval(() => {
+      if (this.isActive) {
+        this.checkForScheduledPosts();
+      }
+    }, 60000); // Check every minute
   }
 
   // Check if any posts should be scheduled based on current time
   private async checkForScheduledPosts(): Promise<void> {
+    if (!this.isActive) {
+      return;
+    }
+
     try {
       // Don't check too frequently
       const now = Date.now();
@@ -298,6 +367,13 @@ export class CircleScheduler {
       
       // Reload the scheduled times in case they were updated
       await this.loadScheduledTimes();
+      
+      // If no scheduled tasks exist after reloading, deactivate
+      if (Object.keys(this.scheduledPostsCache).length === 0) {
+        console.log('【CircleScheduler】没有定时任务，自动停用调度器');
+        await this.deactivate();
+        return;
+      }
       
       // Get current time as HH:MM
       const date = new Date();

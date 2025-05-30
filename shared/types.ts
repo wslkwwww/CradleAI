@@ -16,6 +16,28 @@ export interface User {
     coverImage? : string | null;
 }
 
+export type TTSProvider = 'cosyvoice' | 'doubao' | 'minimax';
+
+export interface TTSSettings {
+  enabled: boolean;
+  appid?: string;
+  token?: string;
+  voiceType?: string;
+  encoding?: 'wav' | 'pcm' | 'ogg_opus' | 'mp3';
+  speedRatio?: number;
+  transport?: 'stream' | 'http'; // 新增
+  provider?: TTSProvider; // 统一使用 TTSProvider 类型
+  minimaxApiToken?: string; // Minimax TTS API token
+  minimaxModel?: string; // Minimax TTS model ID
+  // 合并 MinimaxTTSInput 字段
+  minimaxEmotion?: 'neutral' | 'happy' | 'sad' | 'angry' | 'fear' | 'disgust' | 'surprise';
+  minimaxVoiceId?: string;
+  minimaxLanguageBoost?: string;
+  minimaxEnglishNormalization?: boolean;
+  cosyvoiceServerUrl?: string; // CosyVoice server URL
+  useRealtimeUpdates?: boolean; // 是否使用实时更新
+}
+
 export interface GlobalSettings {
     self: {
         nickname: string;
@@ -38,12 +60,13 @@ export interface GlobalSettings {
     };
     license: {
       enabled: boolean;
-      licenseKey?: string,
-      deviceId?: string,
-      planId?: string,
-      expiryDate?: string,
-      isValid?: boolean,
+      licenseKey?: string;
+      deviceId?: string;
+      planId?: string;
+      expiryDate?: string;
+      isValid?: boolean;
     }
+    tts?: TTSSettings;
 }
 
 // Add new types for API forwarding functionality
@@ -190,6 +213,7 @@ export interface ChatMessage {
     timestamp?: number; 
     is_chat_history_placeholder ?: boolean;
     characterId?: string; // 角色ID
+    isMemorySummary?: boolean; // 是否为记忆摘要
 }
 
 export interface SidebarItemProps {
@@ -284,6 +308,8 @@ export interface Character {
   memX?: number;
   autoMessage?: boolean; // Whether character can send auto-messages
   autoMessageInterval?: number; // Time in minutes before triggering auto-message
+  autoImageEnabled?: boolean; // Whether to generate images automatically
+  customImageEnabled?: boolean; // Whether to use custom image generation
   notificationEnabled?: boolean; // Whether to show notifications for this character
   circleInteraction?: boolean;
   circlePostFrequency?: 'low' | 'medium' | 'high';
@@ -347,6 +373,7 @@ export interface Character {
   extrabackgroundimage?: string | null;
   // 新增：自动后处理开关
   enableAutoExtraBackground?: boolean;
+  ttsConfig?: TTSConfig; // 新增：TTS配置
 }
 
 export interface Message {
@@ -708,6 +735,10 @@ export interface ChatSettings {
     steps?: number;
     scale?: number;
     noiseSchedule?: string;
+    // --- 新增自定义端点支持 ---
+    useCustomEndpoint?: boolean;
+    customEndpoint?: string;
+    customToken?: string;
   };
   OpenAIcompatible?: {
     enabled: boolean;
@@ -766,4 +797,32 @@ export interface OpenAICompatibleProviderConfig {
   endpoint: string;
   temperature: number;
   max_tokens: number;
+}
+
+
+// TTS Configuration for different providers
+export interface TTSConfig {
+  provider: TTSProvider;
+  // CosyVoice configuration
+  cosyvoice?: {
+    templateId: string;
+    gender: 'male' | 'female';
+    instruction?: string; // Optional instruction for CosyVoice
+  };
+  // DouBao configuration  
+  doubao?: {
+    voiceType: string;
+    emotion?: string;
+  };
+  // Minimax configuration
+  minimax?: {
+    voiceId: string;
+    emotion?: string;
+  };
+}
+
+// Legacy voiceType field for backward compatibility
+export interface VoiceSettings {
+  voiceType?: string; // Legacy field for cosyvoice templateId
+  ttsConfig?: TTSConfig; // New unified TTS config
 }

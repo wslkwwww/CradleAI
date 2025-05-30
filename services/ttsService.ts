@@ -391,7 +391,7 @@ class TTSService {
       // Verify license before making the API call
       const isLicenseValid = await this.verifyLicense();
       if (!isLicenseValid) {
-        throw new Error('需要有效的许可证才能生成语音，请先在API设置中激活您的许可证');
+        throw new Error('生成失败');
       }
 
       // Get license headers

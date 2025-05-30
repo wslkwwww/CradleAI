@@ -19,6 +19,7 @@ import {
 import { MaterialIcons, Ionicons, } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
 import { useUser } from '@/constants/UserContext';
+import { useCharacters } from '@/constants/CharactersContext';
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { theme } from '@/constants/theme';
 import { useRegex } from '@/constants/RegexContext';
@@ -35,6 +36,9 @@ import { getApiSettings } from '@/utils/settings-helper';
 import { TableMemoryService } from '@/services/table-memory-service'; // 新增
 import { TableMemory } from '@/src/memory';
 import MemoOverlay from './MemoOverlay'; // 新增：引入MemoOverlay
+import PostChatService from '@/services/PostChat-service'; // 修正：使用正确的导入路径
+import AutoImageService from '@/services/AutoImageService';
+
 interface ChatInputProps {
   onSendMessage: (text: string, sender: 'user' | 'bot', isLoading?: boolean, metadata?: Record<string, any>) => void;
   selectedConversationId: string | null;
@@ -49,6 +53,7 @@ interface ChatInputProps {
   onShowVNDB?: () => void;
   onShowMemoryPanel?: () => void;
   onShowFullHistory?: () => void; // 新增
+  onGenerateImage?: (imageId: string, prompt: string) => void; // 新增：生成图片回调
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -62,7 +67,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   isTtsEnhancerEnabled = false,
   onTtsEnhancerToggle,
   onShowFullHistory, // 新增
+  onGenerateImage, // 新增：生成图片回调
 }) => {
+  const autoImageService = AutoImageService.getInstance();
   const [text, setText] = useState('');
   const [inputHeight, setInputHeight] = useState(40); // Initial height
   const [isLoading, setIsLoading] = useState(false);
@@ -101,6 +108,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
  const [novelAIConfig, setNovelAIConfig] = useState<any>(null);
  const [allPositiveTags, setAllPositiveTags] = useState<string[]>([]);
  const [isContinuing, setIsContinuing] = useState(false); // 新增：继续说按钮loading状态
+ 
+  // 新增：获取 CharactersContext 方法
+  const { clearGeneratedImages, clearAllGeneratedImages } = useCharacters();
+ 
+  // Add this state for custom prompt input
+  const [customImagePrompt, setCustomImagePrompt] = useState<string>('');
+  const [showCustomImagePromptModal, setShowCustomImagePromptModal] = useState<boolean>(false);
  
   useEffect(() => {
     const keyboardDidHideListener = Keyboard.addListener(
@@ -199,6 +213,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setText('');
     setIsLoading(true);
 
+    // 立即插入用户消息和 isLoading 消息
+    const processedMessage = applyRegexTools(messageToSend, 'user');
+    
+    try {
+      // 先发送用户消息，确保立即显示
+      console.log('[ChatInput] 发送用户消息:', processedMessage);
+      await onSendMessage(processedMessage, 'user');
+      
+
+    } catch (error) {
+      console.error('Error sending user message:', error);
+    }
+
     // 新增：获取记忆系统开关状态
     let tableMemoryEnabled = false;
     let vectorMemoryEnabled = false;
@@ -217,9 +244,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     const useZhipuEmbedding = !!apiSettings.useZhipuEmbedding;
 
     try {
-      const processedMessage = applyRegexTools(messageToSend, 'user');
       const isImageRelated = processedMessage.includes('![') && processedMessage.includes(')');
-      
       // === 记忆系统分支 ===
       let userMemoryAdded = false;
       if (
@@ -258,8 +283,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
         }
       }
 
-      onSendMessage(processedMessage, 'user');
-      
       // === 用户消息添加到向量记忆 ===
       if (
         selectedCharacter?.id &&
@@ -282,14 +305,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
         }
       }
       
-      onSendMessage('', 'bot', true); // 只插入一次 loading
-      
-      // console.log('[ChatInput] 开始同一角色继续对话处理...');
-      // console.log(`[ChatInput] 用户消息: "${messageToSend}"`);
-      // console.log(`[ChatInput] 会话ID: ${conversationId}`);
-      // console.log(`[ChatInput] 角色ID: ${selectedCharacter?.id}`);
-      // console.log(`[ChatInput] 角色名称: ${selectedCharacter?.name}`);
-      // console.log(`[ChatInput] API提供商: ${user?.settings?.chat.apiProvider || 'gemini'}`);
+      console.log('[ChatInput] 开始同一角色继续对话处理...');
+      console.log(`[ChatInput] 用户消息: "${messageToSend}"`);
+      console.log(`[ChatInput] 会话ID: ${conversationId}`);
+      console.log(`[ChatInput] 角色ID: ${selectedCharacter?.id}`);
+      console.log(`[ChatInput] 角色名称: ${selectedCharacter?.name}`);
+      console.log(`[ChatInput] API提供商: ${user?.settings?.chat.apiProvider || 'gemini'}`);
       
       const result = await NodeSTManager.processChatMessage({
         userMessage: messageToSend,
@@ -310,8 +331,31 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
       if (result.success) {
         const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
-        onSendMessage(processedResponse, 'bot'); // 只调用一次
-        
+        console.log('[ChatInput] NodeST处理成功，发送AI回复:', processedResponse.substring(0, 100) + '...');
+        await onSendMessage(processedResponse, 'bot'); // 只调用一次
+
+        // === 新增：AI回复后触发自动图片生成 ===
+        if (
+          selectedCharacter &&
+          (selectedCharacter.autoImageEnabled || selectedCharacter.customImageEnabled) &&
+          typeof onGenerateImage === 'function'
+        ) {
+          // 获取当前会话所有消息（假设父组件会同步最新消息）
+          // 这里我们只关心最后一条AI回复
+          const messages = [
+            // 用户消息
+            { id: `user-${Date.now()}`, text: processedMessage, sender: 'user', isLoading: false, timestamp: Date.now() },
+            // AI回复
+            { id: `bot-${Date.now()}`, text: processedResponse, sender: 'bot', isLoading: false, timestamp: Date.now() }
+          ];
+          // 触发自动图片生成（只针对AI回复）
+          await autoImageService.triggerAutoImageGeneration(
+            selectedCharacter,
+            messages,
+            onGenerateImage
+          );
+        }
+
         // === 表格记忆服务，仅在表格记忆开关开启时调用 ===
         if (
           selectedCharacter?.id &&
@@ -413,8 +457,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
     setIsContinuing(true);
     try {
-      // 发送“继续”消息，带特殊标记
-      onSendMessage('继续', 'user', false, { isContinue: true });
+      // 发送"继续"消息，带特殊标记
+      await onSendMessage('继续', 'user', false, { isContinue: true });
+      
 
       // 直接复用主流程
       const result = await NodeSTManager.processChatMessage({
@@ -431,7 +476,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
         character: selectedCharacter,
         characterId: selectedCharacter?.id,
       });
-      setIsContinuing(false);
       if (result.success) {
         const processedResponse = applyRegexTools(result.text || '抱歉，未收到有效回复。', 'ai');
         onSendMessage(processedResponse, 'bot');
@@ -447,6 +491,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         isErrorMessage: true, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
+    } finally {
+      setIsContinuing(false);
     }
   };
 
@@ -548,13 +594,52 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
         );
       }
       
-      onSendMessage(`![用户图片](image:${imageCacheId})`, "user");
+      // 构造图片消息内容
+      const imageMessage = `![用户图片](image:${imageCacheId})`;
+      
+      // 发送用户图片消息到UI
+      console.log(`[ChatInput] Sending image message with ID: ${imageCacheId}`);
+      await onSendMessage(imageMessage, "user");
+      
+      // 同时保存到NodeST存储以确保持久化
+      try {
+        await StorageAdapter.addUserMessage(selectedConversationId, imageMessage);
+        console.log(`[ChatInput] Image message saved to NodeST storage`);
+      } catch (error) {
+        console.error('[ChatInput] Failed to save image message to NodeST:', error);
+      }
+      
+      // 发送loading消息
+      setTimeout(() => {
+        onSendMessage('正在分析图片...', 'bot', true);
+      }, 100);
+      
+      // 等待一小段时间确保loading消息已显示
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       if (response) {
         const processedResponse = applyRegexTools(response, 'ai');
+        
+        // 发送AI回复到UI
         onSendMessage(processedResponse, 'bot');
+        
+        // 同时保存到NodeST存储以确保持久化
+        try {
+          await StorageAdapter.addAiMessage(selectedConversationId, processedResponse);
+          console.log(`[ChatInput] AI response saved to NodeST storage`);
+        } catch (error) {
+          console.error('[ChatInput] Failed to save AI response to NodeST:', error);
+        }
       } else {
-        onSendMessage('抱歉，无法解析这张图片。', 'bot');
+        const errorMessage = '抱歉，无法解析这张图片。';
+        onSendMessage(errorMessage, 'bot');
+        
+        // 保存错误消息到NodeST存储
+        try {
+          await StorageAdapter.addAiMessage(selectedConversationId, errorMessage);
+        } catch (error) {
+          console.error('[ChatInput] Failed to save error message to NodeST:', error);
+        }
       }
       
       setSelectedImage(null);
@@ -562,7 +647,15 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
       
     } catch (error) {
       console.error('Error sending image:', error);
-      onSendMessage('抱歉，处理图片时出现了错误，请重试。', 'bot');
+      const errorMessage = '抱歉，处理图片时出现了错误，请重试。';
+      onSendMessage(errorMessage, 'bot');
+      
+      // 保存错误消息到NodeST存储
+      try {
+        await StorageAdapter.addAiMessage(selectedConversationId, errorMessage);
+      } catch (storageError) {
+        console.error('[ChatInput] Failed to save error message to NodeST:', storageError);
+      }
     } finally {
       setIsLoading(false);
       setShowActions(false);
@@ -587,8 +680,23 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
       
       const geminiAdapter = new GeminiAdapter(apiKey);
       
-      onSendMessage(`请将这张图片${imagePrompt}`, "user");
-      onSendMessage('', "bot", true);
+      const userMessage = `请将这张图片${imagePrompt}`;
+      
+      // 发送用户请求到UI
+      await onSendMessage(userMessage, "user");
+      
+      // 同时保存到NodeST存储
+      try {
+        await StorageAdapter.addUserMessage(selectedConversationId, userMessage);
+        console.log(`[ChatInput] Edit request saved to NodeST storage`);
+      } catch (error) {
+        console.error('[ChatInput] Failed to save edit request to NodeST:', error);
+      }
+      
+      // 发送loading消息
+      setTimeout(() => {
+        onSendMessage('正在编辑图片...', "bot", true);
+      }, 100);
       
       let imageInput;
       if (referenceImageType === 'url') {
@@ -617,7 +725,16 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
           
           const imageMessage = `![编辑后的图片](image:${cacheResult.id})`;
           
+          // 发送AI响应到UI
           onSendMessage(imageMessage, 'bot');
+          
+          // 同时保存到NodeST存储
+          try {
+            await StorageAdapter.addAiMessage(selectedConversationId, imageMessage);
+            console.log(`[ChatInput] Edited image message saved to NodeST storage`);
+          } catch (error) {
+            console.error('[ChatInput] Failed to save edited image message to NodeST:', error);
+          }
           
           setTimeout(() => {
             Alert.alert(
@@ -646,14 +763,38 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
           }, 500);
         } catch (cacheError) {
           console.error('[ChatInput] Error caching edited image:', cacheError);
-          onSendMessage('图像已编辑，但保存过程中出现错误。', 'bot');
+          const errorMessage = '图像已编辑，但保存过程中出现错误。';
+          onSendMessage(errorMessage, 'bot');
+          
+          // 保存错误消息到NodeST存储
+          try {
+            await StorageAdapter.addAiMessage(selectedConversationId, errorMessage);
+          } catch (error) {
+            console.error('[ChatInput] Failed to save error message to NodeST:', error);
+          }
         }
       } else {
-        onSendMessage('抱歉，我无法编辑这张图片。可能是因为编辑指令不够明确，或者模型暂不支持这种编辑操作。', 'bot');
+        const errorMessage = '抱歉，我无法编辑这张图片。可能是因为编辑指令不够明确，或者模型暂不支持这种编辑操作。';
+        onSendMessage(errorMessage, 'bot');
+        
+        // 保存错误消息到NodeST存储
+        try {
+          await StorageAdapter.addAiMessage(selectedConversationId, errorMessage);
+        } catch (error) {
+          console.error('[ChatInput] Failed to save error message to NodeST:', error);
+        }
       }
     } catch (error) {
       console.error('Error editing image:', error);
-      onSendMessage('抱歉，编辑图片时出现了错误，请重试。', 'bot');
+      const errorMessage = '抱歉，编辑图片时出现了错误，请重试。';
+      onSendMessage(errorMessage, 'bot');
+      
+      // 保存错误消息到NodeST存储
+      try {
+        await StorageAdapter.addAiMessage(selectedConversationId, errorMessage);
+      } catch (storageError) {
+        console.error('[ChatInput] Failed to save error message to NodeST:', storageError);
+      }
     } finally {
       setIsGeneratingImage(false);
       setShowImageEditGenModal(false);
@@ -677,11 +818,31 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
         [
           { text: '取消', style: 'cancel' },
           { 
-            text: '清空缓存', 
+            text: '清空当前会话图片', 
+            onPress: async () => {
+              if (selectedConversationId) {
+                // 清空当前会话的生成图片缓存
+                await clearGeneratedImages(selectedConversationId);
+                Alert.alert('成功', '已清空当前会话的生成图片缓存');
+              } else {
+                Alert.alert('错误', '没有选择会话');
+              }
+            }
+          },
+          { 
+            text: '清空所有缓存', 
             style: 'destructive',
             onPress: async () => {
+              // 清空图片文件缓存
               const result = await ImageManager.clearCache();
-              Alert.alert(result.success ? '成功' : '错误', result.message);
+              
+              // 清空生成图片记录缓存
+              await clearAllGeneratedImages();
+              
+              Alert.alert(
+                result.success ? '成功' : '错误', 
+                result.success ? '已清空所有图片缓存和生成图片记录' : result.message
+              );
             }
           }
         ]
@@ -700,7 +861,7 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
   const handleResetConversation = () => {
     Alert.alert(
       '确定要重置对话吗？',
-      '这将清除所有对话历史记录，但保留角色的开场白。',
+      '这将清除所有对话历史记录、生成的图片和图片缓存，但保留角色的开场白。',
       [
         { text: '取消', style: 'cancel' },
         { 
@@ -718,6 +879,14 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
               const apiKey = user?.settings?.chat.characterApiKey || '';
 
               console.log('[ChatInput] Resetting conversation:', selectedConversationId);
+
+              // 清空当前会话的生成图片缓存
+              await clearGeneratedImages(selectedConversationId);
+              
+              // 清空图片文件缓存
+              await ImageManager.clearCache();
+              
+              console.log('[ChatInput] Cleared generated images and image cache');
 
               const success = await NodeSTManager.resetChatHistory(conversationId);
               
@@ -922,7 +1091,7 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
 
 
 
-  // 修改图片生成方法，生成后直接插入消息流，不弹窗
+  // 修改图片生成方法，使用专门的回调而不是消息流
   const handleImageGeneration = async () => {
     if (!selectedConversationId) {
       Alert.alert('错误', '请先选择一个角色');
@@ -931,20 +1100,12 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
 
     try {
       setIsGeneratingImage(true);
-
-      const apiKey = user?.settings?.chat.characterApiKey || '';
-      const novelaiToken = user?.settings?.chat?.novelai?.token || '';
-
-      if (!novelaiToken) {
-        throw new Error("NovelAI令牌未设置，请在设置中配置");
-      }
-
+      
       // 准备生成参数
       const userCustomSeed = useSeed && customSeed ? parseInt(customSeed, 10) : undefined;
       console.log('[ChatInput] Generating image with seed:', userCustomSeed);
 
       const result = await InputImagen.generateImage(
-        novelaiToken,
         novelAIConfig,
         imagePrompt,
         userCustomSeed
@@ -954,8 +1115,10 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
         try {
           console.log(`[ChatInput] Image generated successfully with ID: ${result.imageId}`);
 
-          // 直接插入图片消息到对话流
-          onSendMessage(`![图片](image:${result.imageId})`, 'bot');
+          // 使用新的回调函数而不是发送消息
+          if (onGenerateImage) {
+            onGenerateImage(result.imageId, imagePrompt);
+          }
 
           setTimeout(() => {
             setShowImageGenModal(false);
@@ -964,14 +1127,14 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
           }, 500);
         } catch (displayError) {
           console.error('[ChatInput] Error displaying generated image:', displayError);
-          onSendMessage('图像已生成，但显示过程中出现错误。', 'bot');
+          Alert.alert('错误', '图像已生成，但显示过程中出现错误。');
         }
       } else {
-        onSendMessage(`抱歉，我现在无法生成这个图片。${result.error ? '错误: ' + result.error : ''}`, 'bot');
+        Alert.alert('错误', `生成图片失败: ${result.error || '未知错误'}`);
       }
     } catch (error) {
       console.error('Error generating image:', error);
-      onSendMessage('抱歉，生成图片时出现了错误，请重试。', 'bot');
+      Alert.alert('错误', '生成图片时出现了错误，请重试。');
     } finally {
       setIsGeneratingImage(false);
     }
@@ -1039,6 +1202,112 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
     setInputHeight(newHeight);
   };
 
+  // Add the new method after handleImageGeneration
+  const handleAutoGenerateImage = async () => {
+    if (!selectedConversationId || !selectedCharacter) {
+      Alert.alert('错误', '请先选择一个角色');
+      return;
+    }
+
+    try {
+      setShowActions(false);
+      setIsGeneratingImage(true);
+      
+      // Show generating indicator to the user
+      Alert.alert('提示', '正在自动生成场景图片，请稍候...');
+      
+      // Options for auto generation
+      const hasNovelAIBackground = selectedCharacter.backgroundImageConfig?.isNovelAI === true;
+      const options = {
+        // Use background config if available, otherwise use flexible mode
+        useBackgroundConfig: hasNovelAIBackground,
+        // We don't pass custom prompt or seed here since we're using completely automatic generation
+      };
+      
+      console.log('[ChatInput] Auto generating image for character:', selectedCharacter.name);
+      console.log('[ChatInput] Using background config:', hasNovelAIBackground);
+      
+      // Call the autoGenerateImage method with options
+      const result = await PostChatService.getInstance().autoGenerateImage(
+        selectedCharacter.id,
+        conversationId,
+        options,
+        // The callback will be called if image generation is successful
+        (imageId: string, prompt: string) => {
+          if (onGenerateImage) {
+            onGenerateImage(imageId, prompt);
+          }
+        }
+      );
+
+      if (result.success) {
+        console.log(`[ChatInput] Auto image generated successfully with ID: ${result.imageId}`);
+        Alert.alert('成功', '已自动生成场景图片');
+      } else {
+        Alert.alert('错误', `生成图片失败: ${result.error || '未知错误'}`);
+      }
+    } catch (error) {
+      console.error('Error auto generating image:', error);
+      Alert.alert('错误', '生成图片时出现了错误，请重试。');
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  // Add new method for custom prompt auto generation
+  const handleCustomAutoGenerateImage = async () => {
+    setShowActions(false);
+    setShowCustomImagePromptModal(true);
+  };
+
+  // Method to execute custom prompt generation
+  const executeCustomAutoGeneration = async () => {
+    if (!selectedConversationId || !selectedCharacter) {
+      Alert.alert('错误', '请先选择一个角色');
+      return;
+    }
+
+    try {
+      setIsGeneratingImage(true);
+      setShowCustomImagePromptModal(false);
+      
+      // Show generating indicator to the user
+      Alert.alert('提示', '正在生成自定义场景图片，请稍候...');
+      
+      const options = {
+        customPrompt: customImagePrompt,
+        useBackgroundConfig: false // Use flexible mode for custom prompts
+      };
+      
+      console.log('[ChatInput] Custom auto generating image with prompt:', customImagePrompt);
+      
+      const result = await PostChatService.getInstance().autoGenerateImage(
+        selectedCharacter.id,
+        conversationId,
+        options,
+        (imageId: string, prompt: string) => {
+          if (onGenerateImage) {
+            onGenerateImage(imageId, prompt);
+          }
+        }
+      );
+
+      if (result.success) {
+        console.log(`[ChatInput] Custom auto image generated successfully with ID: ${result.imageId}`);
+        Alert.alert('成功', '已生成自定义场景图片');
+        // Clear the prompt for next time
+        setCustomImagePrompt('');
+      } else {
+        Alert.alert('错误', `生成图片失败: ${result.error || '未知错误'}`);
+      }
+    } catch (error) {
+      console.error('Error custom auto generating image:', error);
+      Alert.alert('错误', '生成图片时出现了错误，请重试。');
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {showActions && (
@@ -1068,9 +1337,14 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
                 onPress={openImageOptions}>
                 <View style={styles.actionMenuItemInner}>
                   <Ionicons name="images" size={18} color="#3498db" />
-                  <Text style={styles.actionMenuItemText}>发送图片</Text>
+                  <Text style={styles.sendimgText}>发送图片</Text>
                 </View>
               </TouchableOpacity>
+
+              {/* Add a section title for image generation
+              <View style={styles.actionMenuSectionTitle}>
+                <Text style={styles.actionMenuSectionText}>图片生成</Text>
+              </View> */}
 
               <TouchableOpacity 
                 style={styles.actionMenuItem}
@@ -1079,6 +1353,26 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
                 <View style={styles.actionMenuItemInner}>
                   <Ionicons name="brush" size={18} color="#9b59b6" />
                   <Text style={styles.actionMenuItemText}>生成图片</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleAutoGenerateImage}>
+                <View style={styles.actionMenuItemInner}>
+                  <Ionicons name="image" size={18} color="#2ecc71" />
+                  <Text style={styles.actionMenuItemText}>自动生成场景图</Text>
+                </View>
+              </TouchableOpacity> */}
+              
+              <TouchableOpacity 
+                style={styles.actionMenuItem}
+                activeOpacity={0.7}
+                onPress={handleCustomAutoGenerateImage}>
+                <View style={styles.actionMenuItemInner}>
+                  <Ionicons name="create" size={18} color="#2ecc71" />
+                  <Text style={styles.actionMenuItemText}>自定义生成场景图</Text>
                 </View>
               </TouchableOpacity>
               
@@ -1503,6 +1797,46 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={showCustomImagePromptModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCustomImagePromptModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>自定义生成提示词</Text>
+            <TextInput
+              style={[styles.urlInput, {height: 100}]}
+              placeholder="输入自定义生成提示词..."
+              placeholderTextColor="#999"
+              value={customImagePrompt}
+              onChangeText={setCustomImagePrompt}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.modalButton}
+                onPress={() => setShowCustomImagePromptModal(false)}
+              >
+                <Text style={styles.modalButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={executeCustomAutoGeneration}
+                disabled={isGeneratingImage}
+              >
+                <Text style={[styles.modalButtonText, {color: '#fff'}]}>
+                  {isGeneratingImage ? '生成中...' : '生成自定义场景图片'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1605,6 +1939,13 @@ const styles = StyleSheet.create({
   },
   actionMenuItemText: {
     color: '#fff',
+    fontSize: 15,
+    fontWeight: '400',
+    marginLeft: 12,
+    flex: 1,
+  },
+    sendimgText: {
+    color: 'black',
     fontSize: 15,
     fontWeight: '400',
     marginLeft: 12,
@@ -1860,6 +2201,19 @@ const styles = StyleSheet.create({
     imageErrorText: {
       color: '#e74c3c',
       marginTop: 8,
+    },
+    // Add new styles for the section title
+    actionMenuSectionTitle: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      marginTop: 4,
+      backgroundColor: 'rgba(0, 0, 0, 0.2)',
+      borderRadius: 4,
+    },
+    actionMenuSectionText: {
+      color: '#ccc',
+      fontSize: 12,
+      fontWeight: 'bold',
     },
 });
 

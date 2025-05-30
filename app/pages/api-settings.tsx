@@ -31,15 +31,115 @@ import { updateCloudServiceStatus } from '@/utils/settings-helper';
 import { mcpAdapter } from '@/NodeST/nodest/utils/mcp-adapter';
 import { NovelAIService } from '@/components/NovelAIService';
 import { v4 as uuidv4 } from 'uuid'; // For unique ids
+import axios from 'axios';
+import { getTTSSettingsAsync } from '@/utils/settings-helper';
+import { Audio } from 'expo-av'; // 新增
+import { MinimaxTTS } from '@/services/minimax-tts/MinimaxTTS'; // 新增
 
 const screenWidth = Dimensions.get('window').width;
+const TTS_PROVIDERS = [
+  { key: 'doubao', label: '豆包 TTS' },
+  { key: 'minimax', label: 'Minimax TTS' },
+  { key: 'cosyvoice', label: 'CosyVoice TTS' }, // 可选：如果你想支持 cosyvoice
+];
 
 const ApiSettings = () => {
   const router = useRouter();
   const { user, updateSettings } = useUser();
   const [isTesting, setIsTesting] = useState(false);
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
+  // 新增：TTS provider 下拉选择
+  const [ttsProvider, setTtsProvider] = useState<'doubao' | 'minimax' | 'cosyvoice'>(
+    user?.settings?.tts?.provider || 'doubao'
+  );
 
+  // 豆包TTS参数
+  const [ttsEnabled, setTtsEnabled] = useState(user?.settings?.tts?.enabled || false);
+  const [ttsAppId, setTtsAppId] = useState(user?.settings?.tts?.appid || '');
+  const [ttsToken, setTtsToken] = useState(user?.settings?.tts?.token || '');
+  const [ttsVoiceType, setTtsVoiceType] = useState(user?.settings?.tts?.voiceType || 'zh_male_M392_conversation_wvae_bigtts');
+  const [ttsTransport, setTtsTransport] = useState<'stream' | 'http'>(user?.settings?.tts?.transport === 'http' ? 'http' : 'stream');
+
+  // MinimaxTTS参数
+  const [minimaxApiToken, setMinimaxApiToken] = useState(user?.settings?.tts?.minimaxApiToken || '');
+  const [minimaxModel, setMinimaxModel] = useState(user?.settings?.tts?.minimaxModel || 'minimax/speech-02-turbo');
+  const [isTestingMinimax, setIsTestingMinimax] = useState(false); // 新增
+  // 进入页面时从全局/本地存储异步加载TTS设置，优先使用user.settings中的值
+  useEffect(() => {
+    const loadTTSSettings = async () => {
+      try {
+        // 如果user.settings.tts存在且包含有效数据，优先使用
+        if (user?.settings?.tts?.appid && user?.settings?.tts?.token) {
+          console.log('[API设置] 从user.settings加载TTS设置');
+          setTtsEnabled(!!user.settings.tts.enabled);
+          setTtsAppId(user.settings.tts.appid);
+          setTtsToken(user.settings.tts.token);
+          setTtsVoiceType(user.settings.tts.voiceType || 'zh_male_M392_conversation_wvae_bigtts');
+          setTtsTransport(user.settings.tts.transport === 'http' ? 'http' : 'stream');
+          return;
+        }
+
+        // 尝试从持久化存储加载
+        const ttsSettings = await getTTSSettingsAsync();
+        if (ttsSettings.provider === 'minimax') {
+          setTtsProvider('minimax');
+          setTtsEnabled(!!ttsSettings.enabled);
+          setMinimaxApiToken(ttsSettings.minimaxApiToken || '');
+          setMinimaxModel(ttsSettings.minimaxModel || 'minimax/speech-02-turbo');
+        } else {
+          setTtsProvider('doubao');
+          setTtsEnabled(!!ttsSettings.enabled);
+          setTtsAppId(ttsSettings.appid || '');
+          setTtsToken(ttsSettings.token || '');
+          setTtsVoiceType(ttsSettings.voiceType || 'zh_male_M392_conversation_wvae_bigtts');
+          setTtsTransport(ttsSettings.transport === 'http' ? 'http' : 'stream');
+        }
+      } catch (error) {
+        console.error('[API设置] 加载TTS设置失败:', error);
+      }
+    };
+
+    loadTTSSettings();
+  }, [user?.settings?.tts]);
+
+  // 豆包TTS测试方法（补充到组件顶部）
+  const testTtsConnection = async () => {
+    try {
+      setIsTesting(true);
+
+      if (!ttsAppId || !ttsToken) {
+        Alert.alert('错误', '请输入豆包TTS AppID和Token');
+        return;
+      }
+
+      const { createTTSService } = require('@/services');
+      const ttsService = createTTSService({
+        appid: ttsAppId,
+        token: ttsToken,
+        voice_type: ttsVoiceType,
+        encoding: 'mp3'
+      });
+
+      const testText = '你好，这是豆包语音合成测试。';
+      let audioBuffer: Buffer | null = null;
+      if (ttsTransport === 'stream') {
+        audioBuffer = await ttsService.streamSynthesize(testText);
+      } else {
+        audioBuffer = await ttsService.quickSynthesize(testText);
+      }
+
+      if (audioBuffer && audioBuffer.length > 0) {
+        Alert.alert('连接成功', `成功合成音频，大小: ${(audioBuffer.length / 1024).toFixed(1)}KB`);
+      } else {
+        Alert.alert('连接失败', '未能生成有效的音频数据');
+      }
+    } catch (error) {
+      console.error('豆包TTS测试失败:', error);
+      Alert.alert('连接失败', error instanceof Error ? error.message : '未知错误');
+    } finally {
+      setIsTesting(false);
+    }
+  };
   // 互斥逻辑：只允许一个 provider 被启用
   const [providerType, setProviderType] = useState<'gemini' | 'openrouter' | 'openai-compatible'>(
     user?.settings?.chat?.apiProvider === 'openrouter'
@@ -72,7 +172,7 @@ const ApiSettings = () => {
     }
   };
 
-  const getProviderDisplayName = (type: string): string => {
+  const getProviderDisplayName = (type = ''): string => {
     switch (type) {
       case 'gemini': return 'Gemini';
       case 'openrouter': return 'OpenRouter';
@@ -194,11 +294,23 @@ const ApiSettings = () => {
   const [novelAIToken, setNovelAIToken] = useState(
     user?.settings?.chat?.novelai?.token || ''
   );
+  // 新增：NovelAI自定义端点设置
+  const [novelAIUseCustomEndpoint, setNovelAIUseCustomEndpoint] = useState(
+    user?.settings?.chat?.novelai?.useCustomEndpoint || false
+  );
+  const [novelAICustomEndpoint, setNovelAICustomEndpoint] = useState(
+    user?.settings?.chat?.novelai?.customEndpoint || 'https://nya.k3scat.com/api/novelai'
+  );
+  const [novelAICustomToken, setNovelAICustomToken] = useState(
+    user?.settings?.chat?.novelai?.customToken || 'sk-HcL44m3i6NAH9G01YQ59NsX41SWu1F8c1xgqU0bi3SEu3Sk9'
+  );
   const [isTestingNovelAI, setIsTestingNovelAI] = useState(false);
   const [novelAITokenStatus, setNovelAITokenStatus] = useState<{
     isValid: boolean;
     message: string;
   } | null>(null);
+  // 新增：自定义端点测试结果
+  const [novelAITestConnectionResult, setNovelAITestConnectionResult] = useState<{success: boolean, message: string} | null>(null);
 
   const [isModelSelectorVisible, setIsModelSelectorVisible] = useState(false);
 
@@ -297,10 +409,32 @@ const ApiSettings = () => {
     setOpenAIExpandedId(null);
   };
 
-  // 切换provider
-  const selectOpenAIProvider = (id: string) => {
-    setSelectedProviderId(id);
-    setOpenAIExpandedId(id);
+  // 新增：Minimax TTS 测试方法
+  const testMinimaxTTS = async () => {
+    try {
+      setIsTestingMinimax(true);
+      if (!minimaxApiToken || !minimaxModel) {
+        Alert.alert('错误', '请输入 Replicate API Token 和模型名称');
+        return;
+      }
+      const tts = new MinimaxTTS(minimaxApiToken, minimaxModel);
+      const resp = await tts.textToSpeech({ text: '你好' });
+      if (!resp.audioPath) throw new Error('未收到音频地址');
+      // 播放音频
+      if (Platform.OS === 'web') {
+        const audio = new window.Audio(resp.audioPath);
+        audio.play();
+      } else {
+        const { sound } = await Audio.Sound.createAsync({ uri: resp.audioPath });
+        await sound.playAsync();
+      }
+      Alert.alert('成功', '收到音频并已播放');
+    } catch (err: any) {
+      console.error('Minimax TTS 测试失败:', err);
+      Alert.alert('测试失败', err?.message || String(err));
+    } finally {
+      setIsTestingMinimax(false);
+    }
   };
 
   // 退出编辑
@@ -654,7 +788,8 @@ const ApiSettings = () => {
       }
       setIsTesting(true);
 
-      const url = `${currentOpenAIProvider.endpoint.replace(/\/$/, '')}/v1/chat/completions`;
+      // 直接使用用户填写的 endpoint，不再自动补全 /v1/chat/completions
+      const url = currentOpenAIProvider.endpoint;
       const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${currentOpenAIProvider.apiKey}`,
@@ -745,7 +880,7 @@ const ApiSettings = () => {
     }
   };
 
-  // Save settings
+  // 保存设置
   const saveSettings = async () => {
     try {
       // Filter out empty additional API keys
@@ -757,6 +892,40 @@ const ApiSettings = () => {
 
       // 取当前 openai-compatible provider
       const openaiProvider = openAIProviders.find(p => p.id === selectedProviderId) || openAIProviders[0];
+
+      // --- NovelAI设置持久化 ---
+      const novelaiSettings = {
+        enabled: novelAIEnabled,
+        token: novelAIToken,
+        useCustomEndpoint: novelAIUseCustomEndpoint,
+        customEndpoint: novelAICustomEndpoint,
+        customToken: novelAICustomToken,
+        model: 'NAI Diffusion V4',
+        sampler: 'k_euler_ancestral',
+        steps: 28,
+        scale: 11,
+        noiseSchedule: 'karras'
+      };
+
+      // 新增：TTS设置
+      let ttsSettings: any = { enabled: ttsEnabled, provider: ttsProvider };
+      if (ttsProvider === 'doubao') {
+        ttsSettings = {
+          ...ttsSettings,
+          appid: ttsAppId,
+          token: ttsToken,
+          voiceType: ttsVoiceType,
+          encoding: 'mp3',
+          speedRatio: 1.0,
+          transport: ttsTransport
+        };
+      } else if (ttsProvider === 'minimax') {
+        ttsSettings = {
+          ...ttsSettings,
+          minimaxApiToken,
+          minimaxModel
+        };
+      }
 
       if (useActivationCode && licenseInfo) {
         const apiSettings: Partial<GlobalSettings> = {
@@ -789,15 +958,7 @@ const ApiSettings = () => {
               useBackupModels: useBackupModels,
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
             },
-            novelai: {
-              enabled: novelAIEnabled,
-              token: novelAIToken,
-              model: 'NAI Diffusion V4',
-              sampler: 'k_euler_ancestral',
-              steps: 28,
-              scale: 11,
-              noiseSchedule: 'karras'
-            },
+            novelai: novelaiSettings,
             OpenAIcompatible: {
               enabled: openaiCompatibleEnabled,
               apiKey: openaiProvider?.apiKey || '',
@@ -814,6 +975,7 @@ const ApiSettings = () => {
             ...user?.settings?.search,
             braveSearchApiKey: braveSearchApiKey
           },
+          tts: ttsSettings, // 新增TTS设置
           license: {
             enabled: true,
             licenseKey: licenseInfo.licenseKey,
@@ -930,15 +1092,7 @@ const ApiSettings = () => {
               useBackupModels: useBackupModels,
               backupModels: user?.settings?.chat?.openrouter?.backupModels || []
             },
-            novelai: {
-              enabled: novelAIEnabled,
-              token: novelAIToken,
-              model: 'NAI Diffusion V4',
-              sampler: 'k_euler_ancestral',
-              steps: 28,
-              scale: 11,
-              noiseSchedule: 'karras'
-            },
+            novelai: novelaiSettings,
             OpenAIcompatible: {
               enabled: openaiCompatibleEnabled,
               apiKey: openaiProvider?.apiKey || '',
@@ -955,6 +1109,7 @@ const ApiSettings = () => {
             ...user?.settings?.search,
             braveSearchApiKey: braveSearchApiKey
           },
+          tts: ttsSettings, // 新增TTS设置
           license: {
             enabled: false
           }
@@ -1076,50 +1231,100 @@ const ApiSettings = () => {
     }
     setIsModelSelectorVisible(false);
   };
-        // 统一测试入口
-        const handleUnifiedTestConnection = async () => {
-          if (providerType === 'openrouter') {
-            // 简单调用 OpenRouter 的文本生成方法
-            try {
-              setIsTesting(true);
-              if (!openRouterKey) {
-                Alert.alert('错误', '请输入OpenRouter API Key');
-                return;
-              }
-              const { OpenRouterAdapter } = require('@/utils/openrouter-adapter');
-              const adapter = new OpenRouterAdapter(openRouterKey, selectedModel || 'openai/gpt-3.5-turbo');
-              const result = await adapter.generateContent([
-                { role: 'user', parts: [{ text: '你好' }] }
-              ]);
-              Alert.alert('连接成功', `收到回复: ${result}`);
-            } catch (err: any) {
-              Alert.alert('连接失败', err?.message || String(err));
-            } finally {
-              setIsTesting(false);
-            }
-          } else if (providerType === 'openai-compatible') {
-            await testOpenAIcompatibleConnection();
-          } else if (providerType === 'gemini') {
-            // 简单调用 Gemini 的文本生成方法
-            try {
-              setIsTesting(true);
-              if (!geminiKey) {
-                Alert.alert('错误', '请输入Gemini API Key');
-                return;
-              }
-              const { GeminiAdapter } = require('@/NodeST/nodest/utils/gemini-adapter');
-              const adapter = new GeminiAdapter(geminiKey);
-              const result = await adapter.generateContent([
-                { role: 'user', parts: [{ text: '你好' }] }
-              ]);
-              Alert.alert('连接成功', `收到回复: ${result}`);
-            } catch (err: any) {
-              Alert.alert('连接失败', err?.message || String(err));
-            } finally {
-              setIsTesting(false);
-            }
+
+  // NovelAI自定义端点测试逻辑（参考NovelAITestModal）
+  const testNovelAICustomEndpoint = async () => {
+    setNovelAITestConnectionResult(null);
+    setIsTestingNovelAI(true);
+    try {
+      if (!novelAICustomEndpoint.trim()) {
+        throw new Error('请输入自定义端点URL');
+      }
+      if (!novelAICustomToken.trim()) {
+        throw new Error('请输入自定义端点Token');
+      }
+      const response = await axios({
+        method: 'get',
+        url: novelAICustomEndpoint,
+        headers: {
+          'Authorization': `Bearer ${novelAICustomToken}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        },
+        timeout: 10000,
+      });
+      setNovelAITestConnectionResult({
+        success: true,
+        message: `连接成功! 自定义端点可访问。`
+      });
+      Alert.alert('连接成功', '自定义端点可访问');
+    } catch (error: any) {
+      let errorMessage = '连接测试失败';
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          errorMessage = `连接失败 (${error.response.status}): ${error.response.data?.message || error.message}`;
+        } else if (error.request) {
+          errorMessage = `无法连接到服务器: ${error.message}`;
+          if (error.code === 'ECONNABORTED') {
+            errorMessage = '连接超时。请检查端点URL是否正确，或者网络连接是否稳定。';
           }
-        };
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      setNovelAITestConnectionResult({
+        success: false,
+        message: `连接测试失败: ${errorMessage}`
+      });
+      Alert.alert('连接失败', errorMessage);
+    } finally {
+      setIsTestingNovelAI(false);
+    }
+  };
+
+  // 统一测试入口
+  const handleUnifiedTestConnection = async () => {
+    if (providerType === 'openrouter') {
+      // 简单调用 OpenRouter 的文本生成方法
+      try {
+        setIsTesting(true);
+        if (!openRouterKey) {
+          Alert.alert('错误', '请输入OpenRouter API Key');
+          return;
+        }
+        const { OpenRouterAdapter } = require('@/utils/openrouter-adapter');
+        const adapter = new OpenRouterAdapter(openRouterKey, selectedModel || 'openai/gpt-3.5-turbo');
+        const result = await adapter.generateContent([
+          { role: 'user', parts: [{ text: '你好' }] }
+        ]);
+        Alert.alert('连接成功', `收到回复: ${result}`);
+      } catch (err: any) {
+        Alert.alert('连接失败', err?.message || String(err));
+      } finally {
+        setIsTesting(false);
+      }
+    } else if (providerType === 'openai-compatible') {
+      await testOpenAIcompatibleConnection();
+    } else if (providerType === 'gemini') {
+      // 简单调用 Gemini 的文本生成方法
+      try {
+        setIsTesting(true);
+        if (!geminiKey) {
+          Alert.alert('错误', '请输入Gemini API Key');
+          return;
+        }
+        const { GeminiAdapter } = require('@/NodeST/nodest/utils/gemini-adapter');
+        const adapter = new GeminiAdapter(geminiKey);
+        const result = await adapter.generateContent([
+          { role: 'user', parts: [{ text: '你好' }] }
+        ]);
+        Alert.alert('连接成功', `收到回复: ${result}`);
+      } catch (err: any) {
+        Alert.alert('连接失败', err?.message || String(err));
+      } finally {
+        setIsTesting(false);
+      }
+    }
+  };
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={theme.colors.background} />
@@ -1388,7 +1593,7 @@ const ApiSettings = () => {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>OpenAI兼容API</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={{ color: '#aaa', fontSize: 12, marginRight: 12 }}>无需填写v1后缀</Text>
+                  <Text style={{ color: '#aaa', fontSize: 12, marginRight: 12 }}>填写完整的端点</Text>
                   <TouchableOpacity
                     style={{ marginRight: 8 }}
                     onPress={addOpenAIProvider}
@@ -1648,36 +1853,94 @@ const ApiSettings = () => {
                   thumbColor={novelAIEnabled ? '#8a2be2' : '#f4f3f4'}
                 />
                 {novelAIEnabled && (
-                  <TouchableOpacity
-                    style={{ marginLeft: 8 }}
-                    onPress={testNovelAIToken}
-                    disabled={isTestingNovelAI || !novelAIToken}
-                  >
-                    {isTestingNovelAI ? (
-                      <ActivityIndicator size={18} color="#fff" />
+                  <>
+                    {novelAIUseCustomEndpoint ? (
+                      <TouchableOpacity
+                        style={{ marginLeft: 8 }}
+                        onPress={testNovelAICustomEndpoint}
+                        disabled={isTestingNovelAI}
+                      >
+                        {isTestingNovelAI ? (
+                          <ActivityIndicator size={18} color="#fff" />
+                        ) : (
+                          <Ionicons name="flash-outline" size={18} color="#fff" />
+                        )}
+                      </TouchableOpacity>
                     ) : (
-                      <Ionicons name="flash-outline" size={18} color="#fff" />
+                      <TouchableOpacity
+                        style={{ marginLeft: 8 }}
+                        onPress={testNovelAIToken}
+                        disabled={isTestingNovelAI || !novelAIToken}
+                      >
+                        {isTestingNovelAI ? (
+                          <ActivityIndicator size={18} color="#fff" />
+                        ) : (
+                          <Ionicons name="flash-outline" size={18} color="#fff" />
+                        )}
+                      </TouchableOpacity>
                     )}
-                  </TouchableOpacity>
+                  </>
                 )}
               </View>
             </View>
             {novelAIEnabled && (
               <View style={styles.contentSection}>
-                <Text style={styles.inputLabel}>NovelAI Token</Text>
-                <TextInput
-                  style={styles.input}
-                  value={novelAIToken}
-                  onChangeText={setNovelAIToken}
-                  placeholder="输入 NovelAI Token"
-                  placeholderTextColor="#999"
-                  secureTextEntry={true}
-                />
-                <Text style={styles.helperText}>
-                  需要登录 <Text style={styles.link}>novelai.net</Text> 获取 Token，用于生成高质量动漫图片
-                </Text>
-                {renderNovelAITokenStatus()}
-                {/* 按钮已移至标题栏 */}
+                <View style={styles.switchContainer}>
+                  <Text style={styles.inputLabel}>使用自定义端点</Text>
+                  <Switch
+                    value={novelAIUseCustomEndpoint}
+                    onValueChange={setNovelAIUseCustomEndpoint}
+                    trackColor={{ false: '#767577', true: 'rgba(100, 210, 255, 0.4)' }}
+                    thumbColor={novelAIUseCustomEndpoint ? '#3498db' : '#f4f3f4'}
+                  />
+                </View>
+                {novelAIUseCustomEndpoint ? (
+                  <>
+                    <Text style={styles.inputLabel}>自定义端点 URL（无需/generate-image后缀）</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={novelAICustomEndpoint}
+                      onChangeText={setNovelAICustomEndpoint}
+                      placeholder="https://nya.k3scat.com/api/novelai"
+                      autoCapitalize="none"
+                    />
+                    <Text style={styles.inputLabel}>自定义端点 Token</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={novelAICustomToken}
+                      onChangeText={setNovelAICustomToken}
+                      placeholder="sk-xxx"
+                      secureTextEntry={true}
+                    />
+                    {novelAITestConnectionResult && (
+                      <View style={[
+                        styles.tokenStatusContainer,
+                        novelAITestConnectionResult.success ? { borderLeftColor: '#27ae60', backgroundColor: '#d4edda' } : { borderLeftColor: '#e74c3c', backgroundColor: '#f8d7da' }
+                      ]}>
+                        <Text style={{ color: novelAITestConnectionResult.success ? '#27ae60' : '#e74c3c' }}>
+                          {novelAITestConnectionResult.success ? '✓ ' : '✗ '}
+                          {novelAITestConnectionResult.message}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.inputLabel}>NovelAI Token</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={novelAIToken}
+                      onChangeText={setNovelAIToken}
+                      placeholder="输入 NovelAI Token"
+                      placeholderTextColor="#999"
+                      secureTextEntry={true}
+                    />
+                    <Text style={styles.helperText}>
+                      需要登录 <Text style={styles.link}>novelai.net</Text> 获取 Token，用于生成高质量动漫图片
+                    </Text>
+                    {renderNovelAITokenStatus()}
+                  </>
+                )}
               </View>
             )}
           </View>
@@ -1754,6 +2017,154 @@ const ApiSettings = () => {
                   可从 <Text style={styles.link}>智谱清言开放平台</Text> 获取 API Key
                 </Text>
                 {/* 按钮已移至标题栏 */}
+              </View>
+            )}
+          </View>
+
+          {/* 新增：豆包TTS设置区域 */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>语音合成（TTS）</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Switch
+                  value={ttsEnabled}
+                  onValueChange={setTtsEnabled}
+                  trackColor={{ false: '#767577', true: 'rgba(255, 158, 205, 0.4)' }}
+                  thumbColor={ttsEnabled ? theme.colors.primary : '#f4f3f4'}
+                />
+                {/* Minimax 测试按钮，仅在 provider=minimax 且启用时显示 */}
+                {ttsEnabled && ttsProvider === 'minimax' && (
+                  <TouchableOpacity
+                    style={{ marginLeft: 8 }}
+                    onPress={testMinimaxTTS}
+                    disabled={isTestingMinimax}
+                  >
+                    {isTestingMinimax ? (
+                      <ActivityIndicator size={18} color="#fff" />
+                    ) : (
+                      <Ionicons name="flash-outline" size={18} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+            {ttsEnabled && (
+              <View style={styles.contentSection}>
+                {/* Provider 下拉选择 */}
+                <Text style={styles.inputLabel}>TTS 服务商</Text>
+                <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+                  {TTS_PROVIDERS.map(p => (
+                    <TouchableOpacity
+                      key={p.key}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        marginRight: 20,
+                        opacity: ttsProvider === p.key ? 1 : 0.6
+                      }}
+                      onPress={() => setTtsProvider(p.key as any)}
+                    >
+                      <Ionicons
+                        name={ttsProvider === p.key ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={theme.colors.primary}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={{ color: '#fff' }}>{p.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {/* 豆包TTS参数 */}
+                {ttsProvider === 'doubao' && (
+                  <>
+                    <Text style={styles.inputLabel}>App ID</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={ttsAppId}
+                      onChangeText={setTtsAppId}
+                      placeholder="输入豆包TTS App ID"
+                      placeholderTextColor="#999"
+                      autoCapitalize="none"
+                    />
+                    <Text style={styles.inputLabel}>Token</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={ttsToken}
+                      onChangeText={setTtsToken}
+                      placeholder="输入豆包TTS Token"
+                      placeholderTextColor="#999"
+                      secureTextEntry={true}
+                    />
+                    <Text style={styles.inputLabel}>音色类型</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={ttsVoiceType}
+                      onChangeText={setTtsVoiceType}
+                      placeholder="音色类型"
+                      placeholderTextColor="#999"
+                    />
+                    <Text style={styles.inputLabel}>传输方式</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          marginRight: 20,
+                          opacity: ttsTransport === 'stream' ? 1 : 0.6
+                        }}
+                        onPress={() => setTtsTransport('stream')}
+                      >
+                        <Ionicons
+                          name={ttsTransport === 'stream' ? 'radio-button-on' : 'radio-button-off'}
+                          size={18}
+                          color={theme.colors.primary}
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text style={{ color: '#fff' }}>流式传输</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          opacity: ttsTransport === 'http' ? 1 : 0.6
+                        }}
+                        onPress={() => setTtsTransport('http')}
+                      >
+                        <Ionicons
+                          name={ttsTransport === 'http' ? 'radio-button-on' : 'radio-button-off'}
+                          size={18}
+                          color={theme.colors.primary}
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text style={{ color: '#fff' }}>HTTP传输</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+                {/* MinimaxTTS参数 */}
+                {ttsProvider === 'minimax' && (
+                  <>
+                    <Text style={styles.inputLabel}>Replicate API Token</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={minimaxApiToken}
+                      onChangeText={setMinimaxApiToken}
+                      placeholder="输入 Replicate API Token"
+                      placeholderTextColor="#999"
+                      autoCapitalize="none"
+                      secureTextEntry={true}
+                    />
+                    <Text style={styles.inputLabel}>模型名称</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={minimaxModel}
+                      onChangeText={setMinimaxModel}
+                      placeholder="如 minimax/speech-02-turbo"
+                      placeholderTextColor="#999"
+                      autoCapitalize="none"
+                    />
+                  </>
+                )}
               </View>
             )}
           </View>

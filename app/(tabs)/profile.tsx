@@ -20,12 +20,14 @@ import ListItem from '@/components/ListItem';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadingIndicator from '@/components/LoadingIndicator';
 import { theme } from '@/constants/theme';
+import NovelAITestModal from '@/components/NovelAITestModal';
 
 const Profile: React.FC = () => {
   const { user, updateAvatar } = useUser();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
+  const [showNovelAITestModal, setShowNovelAITestModal] = useState(false);
 
   const pickImage = useCallback(async () => {
     try {
@@ -56,6 +58,11 @@ const Profile: React.FC = () => {
   const handleCleanupComplete = () => {
     // 可以在清理完成后执行一些操作
     console.log("NodeST 数据清理完成");
+  };
+
+  const handleNovelAIImageGenerated = (imageUrl: string, taskId?: string) => {
+    console.log('NovelAI 图像已生成:', imageUrl, '任务ID:', taskId);
+    Alert.alert('成功', '图像已成功生成并保存到应用中');
   };
 
   return (
@@ -106,13 +113,22 @@ const Profile: React.FC = () => {
           onPress={() => router.push('../pages/custom-settings-manager')}
         />
 
+        {/* NovelAI Test
+        <ListItem
+          title="NovelAI 测试"
+          leftIcon="image-outline"
+          chevron={true}
+          onPress={() => setShowNovelAITestModal(true)}
+          subtitle="测试NovelAI连接和图像生成"
+        /> */}
+
         {/* 新增：rFramework测试入口 */}
         <ListItem
-          title="rFramework测试"
+          title="预设/世界书测试"
           leftIcon="flask-outline"
           chevron={true}
           onPress={() => router.push('/components/testframework')}
-          subtitle="测试buildRFrameworkWithChatHistory"
+          subtitle="测试消息格式"
         />
 
         {/* 新增：工具设置入口 */}
@@ -130,6 +146,7 @@ const Profile: React.FC = () => {
           leftIcon="settings-outline"
           chevron={true}
           onPress={() => router.push('/pages/global-settings')}
+          subtitle="预设 | 世界书 | 正则"
         />
         
         {/* Chat UI Settings button */}
@@ -188,6 +205,13 @@ const Profile: React.FC = () => {
         cancelAction={() => setShowPermissionDialog(false)}
         destructive={false}
         icon="alert-circle"
+      />
+
+      {/* NovelAI Test Modal */}
+      <NovelAITestModal
+        visible={showNovelAITestModal}
+        onClose={() => setShowNovelAITestModal(false)}
+        onImageGenerated={handleNovelAIImageGenerated}
       />
 
       {/* 使用新的LoadingIndicator组件 */}

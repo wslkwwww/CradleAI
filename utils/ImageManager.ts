@@ -288,18 +288,27 @@ export class ImageManager {
     // Trim any whitespace from the ID to handle formatting issues
     const trimmedId = id.trim();
     
+    // Add more debugging to track the issue
+    console.log(`[ImageManager] getImageInfo called with ID: ${trimmedId.substring(0, 8)}...`);
+    
     const info = this.imageRegistry.get(trimmedId);
     
     if (!info) {
       console.warn(`[ImageManager] getImageInfo: No image found with ID: ${trimmedId}`);
       
-      // Log the first few registry entries to help debug
+      // Log the registry size and some sample IDs for debugging
+      console.log(`[ImageManager] Registry size: ${this.imageRegistry.size}`);
       const entries = Array.from(this.imageRegistry.entries()).slice(0, 5);
       console.log('[ImageManager] Current registry entries (first 5):', 
-        entries.map(([id]) => id.substring(0, 8) + '...'));
+        entries.map(([id, info]) => ({
+          id: id.substring(0, 8) + '...',
+          path: info.originalPath
+        })));
       
       return undefined;
     }
+    
+    console.log(`[ImageManager] Found image: ${info.originalPath}`);
     
     // Validate file paths
     const checkPath = async (path: string): Promise<boolean> => {

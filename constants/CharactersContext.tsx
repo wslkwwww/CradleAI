@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import {  SidebarItemProps, CharactersContextType, Memo,CradleSettings, } from '@/constants/types';
 import { WorldBookJson,CradleCharacter } from '@/shared/types';
 import * as FileSystem from 'expo-file-system';
@@ -13,6 +13,14 @@ import { CharacterGeneratorService } from '@/NodeST/nodest/services/character-ge
 import { NodeSTManager } from '@/utils/NodeSTManager';
 import { getApiSettings } from '@/utils/settings-helper';
 import { StorageAdapter } from '@/NodeST/nodest/utils/storage-adapter';
+import AudioCacheManager from '@/utils/AudioCacheManager';
+
+// 新增：定义生成图片的接口
+export interface GeneratedImage {
+  id: string;
+  prompt: string;
+  timestamp: number;
+}
 
 const CharactersContext = createContext<CharactersContextType | undefined>(undefined);
 // Initialize CradleService with API key from environment or settings
@@ -30,6 +38,8 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [messagesMap, setMessagesMap] = useState<{ [conversationId: string]: Message[] }>({});
   const [memos, setMemos] = useState<Memo[]>([]);
   const [favorites, setFavorites] = useState<CirclePost[]>([]);
+  // 新增：生成图片缓存状态
+  const [generatedImages, setGeneratedImages] = useState<{ [conversationId: string]: GeneratedImage[] }>({});
   const updateCharacterExtraBackgroundImage = async (characterId: string, extrabackgroundimage: string) => {
     try {
       // 读取最新角色列表
@@ -92,6 +102,7 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadCradleSettings();
     loadCradleCharacters();
     loadCradleApiSettings(); // Add loading API settings
+    loadGeneratedImages(); // 新增：加载生成图片缓存
   }, []);
 
   const loadMessages = async () => {
@@ -241,15 +252,16 @@ export const CharactersProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // 保存到文件系统
       console.log('[Context 5] Saving to filesystem...');
       const updatedCharacters = [...existingCharacters, character];
-      // 新增：确保extraGreetings被写入
+      // 新增：确保extraGreetings、voiceType、ttsConfig被写入
       await FileSystem.writeAsStringAsync(
         FileSystem.documentDirectory + 'characters.json',
         JSON.stringify(updatedCharacters.map(c => ({
           ...c,
-          ...(c.extraGreetings ? { extraGreetings: c.extraGreetings } : {})
+          ...(c.extraGreetings ? { extraGreetings: c.extraGreetings } : {}),
+          ...(c.voiceType ? { voiceType: c.voiceType } : {}),
+          ...(c.ttsConfig ? { ttsConfig: c.ttsConfig } : {})
         })))
       ).catch(error => {
-        // console.error('[Context Error 4] Filesystem write failed:', error);
         throw error;
       });
     
@@ -322,7 +334,9 @@ const updateCharacter = async (character: Character) => {
           FileSystem.documentDirectory + 'characters.json',
           JSON.stringify(updatedCharacters.map(c => ({
             ...c,
-            ...(c.extraGreetings ? { extraGreetings: c.extraGreetings } : {})
+            ...(c.extraGreetings ? { extraGreetings: c.extraGreetings } : {}),
+            ...(c.voiceType ? { voiceType: c.voiceType } : {}),
+            ...(c.ttsConfig ? { ttsConfig: c.ttsConfig } : {})
           }))),
           { encoding: FileSystem.EncodingType.UTF8 }
         );
@@ -381,7 +395,9 @@ const updateCharacter = async (character: Character) => {
       FileSystem.documentDirectory + 'characters.json',
       JSON.stringify(updatedCharacters.map(c => ({
         ...c,
-        ...(c.extraGreetings ? { extraGreetings: c.extraGreetings } : {})
+        ...(c.extraGreetings ? { extraGreetings: c.extraGreetings } : {}),
+        ...(c.voiceType ? { voiceType: c.voiceType } : {}),
+        ...(c.ttsConfig ? { ttsConfig: c.ttsConfig } : {})
       }))),
       { encoding: FileSystem.EncodingType.UTF8 }
     );
@@ -450,6 +466,17 @@ const updateCharacter = async (character: Character) => {
         saveMessages(updatedMessages);
         return updatedMessages;
       });
+
+      // 4. 清理删除角色的音频缓存
+      try {
+        const audioCacheManager = AudioCacheManager.getInstance();
+        for (const id of ids) {
+          await audioCacheManager.clearConversationAudio(id);
+          console.log(`[CharactersContext] Cleared audio cache for deleted character: ${id}`);
+        }
+      } catch (error) {
+        console.error('[CharactersContext] Failed to clear audio cache for deleted characters:', error);
+      }
 
     } catch (error) {
       console.error('Failed to delete characters:', error);
@@ -575,6 +602,15 @@ const updateCharacter = async (character: Character) => {
     delete newMessagesMap[conversationId];
     setMessagesMap(newMessagesMap);
     await saveMessages(newMessagesMap);
+    
+    // 清理该会话的音频缓存
+    try {
+      const audioCacheManager = AudioCacheManager.getInstance();
+      await audioCacheManager.clearConversationAudio(conversationId);
+      console.log(`[CharactersContext] Cleared audio cache for conversation: ${conversationId}`);
+    } catch (error) {
+      console.error('[CharactersContext] Failed to clear audio cache:', error);
+    }
   };
 
   // Add new function to remove a specific message by ID
@@ -1730,6 +1766,140 @@ const generateCharacterFromCradle = async (cradleIdOrCharacter: string | CradleC
     readyCharacters
   };
 };
+
+// 新增分页获取消息的方法
+const PAGE_SIZE = 30;
+
+const getMessagesPaged = async (
+  conversationId: string,
+  page: number = 1,
+  pageSize: number = PAGE_SIZE
+): Promise<{
+  messages: Message[];
+  total: number;
+  hasMore: boolean;
+  page: number;
+  pageSize: number;
+}> => {
+  // 1. 获取全量消息
+  const allMessages = await getMessages(conversationId);
+  const total = allMessages.length;
+
+  // 2. 计算分页
+  const start = Math.max(0, total - page * pageSize);
+  const end = total - (page - 1) * pageSize;
+  const messages = allMessages.slice(start, end);
+
+  // 3. 是否还有更多
+  const hasMore = start > 0;
+
+  return {
+    messages,
+    total,
+    hasMore,
+    page,
+    pageSize,
+  };
+};
+
+  // 新增：加载生成图片缓存
+  const loadGeneratedImages = async () => {
+    try {
+      const imagesStr = await FileSystem.readAsStringAsync(
+        FileSystem.documentDirectory + 'generated_images.json',
+        { encoding: FileSystem.EncodingType.UTF8 }
+      ).catch(() => '{}');
+
+      const loadedImages = JSON.parse(imagesStr);
+      setGeneratedImages(loadedImages);
+      console.log('[CharactersContext] 已加载生成图片缓存:', Object.keys(loadedImages).length, '个会话');
+    } catch (error) {
+      console.error('[CharactersContext] 加载生成图片缓存失败:', error);
+      setGeneratedImages({});
+    }
+  };
+
+  // 新增：保存生成图片缓存
+  const saveGeneratedImages = async (newImagesMap: { [conversationId: string]: GeneratedImage[] }) => {
+    try {
+      await FileSystem.writeAsStringAsync(
+        FileSystem.documentDirectory + 'generated_images.json',
+        JSON.stringify(newImagesMap),
+        { encoding: FileSystem.EncodingType.UTF8 }
+      );
+    } catch (error) {
+      console.error('[CharactersContext] 保存生成图片缓存失败:', error);
+    }
+  };
+
+  // 新增：添加生成图片
+  const addGeneratedImage = async (conversationId: string, image: GeneratedImage) => {
+    setGeneratedImages(prevMap => {
+      const currentImages = prevMap[conversationId] || [];
+      
+      // 检查图片是否已存在
+      const imageExists = currentImages.some(img => img.id === image.id);
+      if (imageExists) {
+        return prevMap; // 如果图片已存在，返回原状态
+      }
+      
+      const newImages = [...currentImages, image];
+      const updatedMap = {
+        ...prevMap,
+        [conversationId]: newImages
+      };
+      
+      saveGeneratedImages(updatedMap);
+      return updatedMap;
+    });
+  };
+
+  // 新增：删除生成图片
+  const deleteGeneratedImage = async (conversationId: string, imageId: string) => {
+    setGeneratedImages(prevMap => {
+      const currentImages = prevMap[conversationId] || [];
+      
+      // 过滤掉要删除的图片
+      const updatedImages = currentImages.filter(img => img.id !== imageId);
+      
+      // 如果没有变化，返回原状态
+      if (updatedImages.length === currentImages.length) {
+        return prevMap;
+      }
+      
+      const updatedMap = {
+        ...prevMap,
+        [conversationId]: updatedImages
+      };
+      
+      saveGeneratedImages(updatedMap);
+      return updatedMap;
+    });
+  };
+
+  // 新增：清空指定会话的生成图片
+  const clearGeneratedImages = async (conversationId: string) => {
+    setGeneratedImages(prevMap => {
+      const updatedMap = { ...prevMap };
+      delete updatedMap[conversationId];
+      
+      saveGeneratedImages(updatedMap);
+      return updatedMap;
+    });
+  };
+
+  // 新增：清空所有生成图片缓存
+  const clearAllGeneratedImages = async () => {
+    setGeneratedImages({});
+    await saveGeneratedImages({});
+    console.log('[CharactersContext] 已清空所有生成图片缓存');
+  };
+
+  // 新增：获取指定会话的生成图片
+  const getGeneratedImages = (conversationId: string): GeneratedImage[] => {
+    return generatedImages[conversationId] || [];
+  };
+
   return (
     <CharactersContext.Provider
       value={{
@@ -1774,7 +1944,15 @@ const generateCharacterFromCradle = async (cradleIdOrCharacter: string | CradleC
         setCharacterAvatar, // 新增
         setCharacterBackgroundImage, // 新增
         updateCharacterExtraBackgroundImage, // 新增
-      }}
+        getMessagesPaged, // 新增
+        PAGE_SIZE,        // 可导出分页大小
+        // 新增：生成图片相关方法
+        addGeneratedImage,
+        deleteGeneratedImage,
+        clearGeneratedImages,
+        clearAllGeneratedImages,
+        getGeneratedImages,
+      } as CharactersContextType}
     >
       {children}
     </CharactersContext.Provider>

@@ -7,6 +7,8 @@ import NovelAIService from '@/components/NovelAIService';
 import { getApiSettings } from '@/utils/settings-helper';
 import CloudServiceProviderClass from '@/services/cloud-service-provider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { InputImagen } from '@/services/InputImagen';
+import { CharacterLoader } from '@/src/utils/character-loader';
 
 const EXTRA_BG_IDS_KEY_PREFIX = 'extraBgProcessedIds-';
 
@@ -478,7 +480,88 @@ export class PostChatService {
 
   public clearProcessedMessages(characterId: string): void {
     this.processedMessageIds.set(characterId, new Set());
-    this.saveProcessedMessageIds(characterId);
+    this.saveProcessedMessageIds(characterId).catch(console.error);
+  }
+
+  /**
+   * Auto generate an image using scene description and NovelAI
+   * @param characterId The character ID
+   * @param conversationId The conversation ID
+   * @param options Optional settings:
+   *   - customPrompt: Additional prompt to combine with scene description
+   *   - customSeed: Optional seed for image generation
+   *   - useBackgroundConfig: Whether to use NovelAI settings from background (default: true)
+   * @param onImageGenerated Callback when image is generated successfully
+   * @returns Promise with success status and error or imageId
+   */
+  public async autoGenerateImage(
+    characterId: string,
+    conversationId: string,
+    options?: {
+      customPrompt?: string;
+      customSeed?: number;
+      useBackgroundConfig?: boolean;
+    },
+    onImageGenerated?: (imageId: string, prompt: string) => void
+  ): Promise<{ success: boolean; imageId?: string; error?: string; prompt?: string }> {
+    try {
+      console.log(`[PostChatService] Starting auto image generation for character ${characterId}`);
+      
+      // Find the character using CharacterLoader
+      const character = await CharacterLoader.loadCharacterById(characterId);
+      
+      if (!character) {
+        return {
+          success: false,
+          error: "Character not found"
+        };
+      }
+      
+      // Only check for NovelAI config if we're using background config mode
+      if (options?.useBackgroundConfig !== false && !character.backgroundImageConfig?.isNovelAI) {
+        console.log('[PostChatService] Character does not have NovelAI background configuration, falling back to flexible mode');
+        // We'll continue with flexible mode
+      }
+      
+      // Call the InputImagen auto generate method with the provided options
+      const result = await InputImagen.autoGenerateImage(
+        character,
+        conversationId,
+        options
+      );
+      
+      if (result.success && result.imageId) {
+        // Get the scene description to use as prompt
+        const sceneDescription = await InputImagen.generateSceneDescription(characterId);
+        
+        // Final prompt might include custom prompt
+        const finalPrompt = options?.customPrompt 
+          ? `${options.customPrompt}, ${sceneDescription || ''}` 
+          : (sceneDescription || '场景图片');
+        
+        // Call the callback if provided
+        if (onImageGenerated && result.imageId) {
+          onImageGenerated(result.imageId, finalPrompt);
+        }
+        
+        return {
+          success: true,
+          imageId: result.imageId,
+          prompt: finalPrompt
+        };
+      } else {
+        return {
+          success: false,
+          error: result.error || "Unknown error generating image"
+        };
+      }
+    } catch (error: any) {
+      console.error('[PostChatService] Error auto generating image:', error);
+      return {
+        success: false,
+        error: error?.message || "Unknown error in auto generation process"
+      };
+    }
   }
 }
 

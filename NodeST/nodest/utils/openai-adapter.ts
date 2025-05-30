@@ -232,7 +232,8 @@ export class OpenAIAdapter {
       });
     }
 
-    const url = `${this.endpoint}/v1/chat/completions`;
+    // 这里不再自动拼接 /v1/chat/completions，完全以 endpoint 字段为准
+    const url = this.endpoint;
     const headers = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${this.apiKey}`
@@ -1971,11 +1972,11 @@ export class OpenAIAdapter {
 </response_guidelines>`;
             
             // 使用标准的生成内容方法生成最终回复
-            // 插入顺序：历史消息 + system(搜索内容) + 用户消息
+            // 插入顺序：历史消息 + model(记忆/搜索内容) + 用户消息
             const finalPrompt: ChatMessage[] = [
               ...contents.slice(0, -1),
               {
-                role: "system",
+                role: "user",
                 parts: [{ text: combinedPrompt }]
               },
               contents[contents.length - 1]
@@ -2037,11 +2038,11 @@ export class OpenAIAdapter {
 </response_guidelines>`;
       
       // 使用标准的生成内容方法生成最终回复
-      // 插入顺序：历史消息 + system(搜索内容) + 用户消息
+      // 插入顺序：历史消息 + model(记忆/搜索内容) + 用户消息
       const finalPrompt: ChatMessage[] = [
         ...contents.slice(0, -1),
         {
-          role: "system",
+          role: "user",
           parts: [{ text: combinedPrompt }]
         },
         contents[contents.length - 1]

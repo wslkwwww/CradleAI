@@ -53,6 +53,7 @@
     "expo-web-browser": "~14.1.6",
     "jszip": "^3.10.1",
     "node-libs-react-native": "^1.2.1",
+    "pako": "^2.1.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.2",
@@ -74,6 +75,7 @@
     "react-native-video": "^6.13.0",
     "react-native-web": "~0.20.0",
     "react-native-webview": "^13.13.5",
+    "replicate": "^1.0.1",
     "stream-browserify": "^3.0.0",
     "uuid": "^11.1.0"
   },
@@ -85,6 +87,7 @@
     "@types/jest": "^29.5.14",
     "@types/libsodium-wrappers-sumo": "^0.7.8",
     "@types/node": "^22.15.14",
+    "@types/pako": "^2.0.3",
     "@types/react": "~19.0.10",
     "expo-module-scripts": "^4.1.6",
     "jest": "^29.7.0",
