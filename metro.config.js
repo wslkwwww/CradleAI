@@ -20,4 +20,18 @@ config.resolver.extraNodeModules = {
 // 确保能够处理 mjs 文件
 config.resolver.sourceExts.push('mjs');
 
+// 在生产环境中移除console语句
+if (process.env.NODE_ENV === 'production') {
+  config.transformer.minifierConfig = {
+    keep_fnames: true,
+    mangle: {
+      keep_fnames: true,
+    },
+    compress: {
+      drop_console: true,
+      drop_debugger: true,
+    },
+  };
+}
+
 module.exports = config;
