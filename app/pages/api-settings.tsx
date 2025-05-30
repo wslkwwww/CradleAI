@@ -348,10 +348,10 @@ const ApiSettings = () => {
     user?.settings?.chat?.novelai?.useCustomEndpoint || false
   );
   const [novelAICustomEndpoint, setNovelAICustomEndpoint] = useState(
-    user?.settings?.chat?.novelai?.customEndpoint || 'https://nya.k3scat.com/api/novelai'
+    user?.settings?.chat?.novelai?.customEndpoint || ''
   );
   const [novelAICustomToken, setNovelAICustomToken] = useState(
-    user?.settings?.chat?.novelai?.customToken || 'sk-HcL44m3i6NAH9G01YQ59NsX41SWu1F8c1xgqU0bi3SEu3Sk9'
+    user?.settings?.chat?.novelai?.customToken || ''
   );
   const [isTestingNovelAI, setIsTestingNovelAI] = useState(false);
   const [novelAITokenStatus, setNovelAITokenStatus] = useState<{
@@ -2046,7 +2046,7 @@ const ApiSettings = () => {
                       style={styles.input}
                       value={novelAICustomEndpoint}
                       onChangeText={setNovelAICustomEndpoint}
-                      placeholder="https://nya.k3scat.com/api/novelai"
+                      placeholder="h"
                       autoCapitalize="none"
                     />
                     <Text style={styles.inputLabel}>自定义端点 Token</Text>
@@ -2054,7 +2054,7 @@ const ApiSettings = () => {
                       style={styles.input}
                       value={novelAICustomToken}
                       onChangeText={setNovelAICustomToken}
-                      placeholder="sk-xxx"
+                      placeholder=""
                       secureTextEntry={true}
                     />
                     {novelAITestConnectionResult && (

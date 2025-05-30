@@ -26,8 +26,8 @@ const DEFAULT_NOVELAI_API_SUBSCRIPTION = 'https://api.novelai.net/user/subscript
 const DEFAULT_NOVELAI_API_GENERATE = 'https://image.novelai.net/ai/generate-image';
 
 // 自定义端点默认值
-const DEFAULT_CUSTOM_ENDPOINT = 'https://nya.k3scat.com/api/novelai';
-const DEFAULT_CUSTOM_TOKEN = 'sk-HcL44m3i6NAH9G01YQ59NsX41SWu1F8c1xgqU0bi3SEu3Sk9';
+const DEFAULT_CUSTOM_ENDPOINT = '';
+const DEFAULT_CUSTOM_TOKEN = '';
 
 interface NovelAITestModalProps {
   visible: boolean;
