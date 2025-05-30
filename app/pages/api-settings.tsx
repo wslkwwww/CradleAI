@@ -32,15 +32,16 @@ import { mcpAdapter } from '@/NodeST/nodest/utils/mcp-adapter';
 import { NovelAIService } from '@/components/NovelAIService';
 import { v4 as uuidv4 } from 'uuid'; // For unique ids
 import axios from 'axios';
-import { getTTSSettingsAsync } from '@/utils/settings-helper';
+import { getTTSSettingsAsync, updateTTSSettings, getTTSSettings } from '@/utils/settings-helper';
 import { Audio } from 'expo-av'; // 新增
 import { MinimaxTTS } from '@/services/minimax-tts/MinimaxTTS'; // 新增
+import { synthesizeWithCosyVoice } from '@/services/unified-tts'; // 新增
 
 const screenWidth = Dimensions.get('window').width;
 const TTS_PROVIDERS = [
   { key: 'doubao', label: '豆包 TTS' },
   { key: 'minimax', label: 'Minimax TTS' },
-  { key: 'cosyvoice', label: 'CosyVoice TTS' }, // 可选：如果你想支持 cosyvoice
+  { key: 'cosyvoice', label: 'CosyVoice TTS' }, // 新增
 ];
 
 const ApiSettings = () => {
@@ -64,6 +65,12 @@ const ApiSettings = () => {
   const [minimaxApiToken, setMinimaxApiToken] = useState(user?.settings?.tts?.minimaxApiToken || '');
   const [minimaxModel, setMinimaxModel] = useState(user?.settings?.tts?.minimaxModel || 'minimax/speech-02-turbo');
   const [isTestingMinimax, setIsTestingMinimax] = useState(false); // 新增
+
+  // CosyVoiceTTS参数（与Minimax一致）
+  const [cosyvoiceApiToken, setCosyvoiceApiToken] = useState(user?.settings?.tts?.minimaxApiToken || '');
+  const [cosyvoiceModel, setCosyvoiceModel] = useState('chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d');
+  const [isTestingCosyvoice, setIsTestingCosyvoice] = useState(false);
+
   // 进入页面时从全局/本地存储异步加载TTS设置，优先使用user.settings中的值
   useEffect(() => {
     const loadTTSSettings = async () => {
@@ -86,6 +93,11 @@ const ApiSettings = () => {
           setTtsEnabled(!!ttsSettings.enabled);
           setMinimaxApiToken(ttsSettings.minimaxApiToken || '');
           setMinimaxModel(ttsSettings.minimaxModel || 'minimax/speech-02-turbo');
+        } else if (ttsSettings.provider === 'cosyvoice') {
+          setTtsProvider('cosyvoice');
+          setTtsEnabled(!!ttsSettings.enabled);
+          setCosyvoiceApiToken(ttsSettings.minimaxApiToken || '');
+          setCosyvoiceModel(ttsSettings.cosyvoiceReplicateModel || 'chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d');
         } else {
           setTtsProvider('doubao');
           setTtsEnabled(!!ttsSettings.enabled);
@@ -434,6 +446,79 @@ const ApiSettings = () => {
       Alert.alert('测试失败', err?.message || String(err));
     } finally {
       setIsTestingMinimax(false);
+    }
+  };
+
+  const testCosyvoiceTTS = async () => {
+    try {
+      setIsTestingCosyvoice(true);
+      if (!cosyvoiceApiToken) {
+        Alert.alert('错误', '请输入 Replicate API Token');
+        return;
+      }
+
+      // 重新初始化统一TTS服务，确保使用最新token
+      try {
+        const { unifiedTTSService } = require('@/services/unified-tts');
+        await unifiedTTSService.updateConfig({});
+        console.log('[testCosyvoiceTTS] 统一TTS服务已重新初始化');
+      } catch (initError) {
+        console.warn('[testCosyvoiceTTS] 统一TTS服务重新初始化失败:', initError);
+      }
+
+      // 检查当前TTS设置
+      try {
+        const currentSettings = getTTSSettings();
+        console.log('[testCosyvoiceTTS] 当前TTS设置:', {
+          enabled: currentSettings.enabled,
+          provider: currentSettings.provider,
+          hasReplicateToken: !!currentSettings.replicateApiToken,
+          hasMinimaxToken: !!currentSettings.minimaxApiToken,
+          cosyvoiceApiToken: cosyvoiceApiToken ? '有值' : '无值'
+        });
+      } catch (settingsError) {
+        console.error('[testCosyvoiceTTS] 获取TTS设置失败:', settingsError);
+      }
+
+      // 日志：调用 synthesizeWithCosyVoice 前
+      console.log('[CosyVoiceTTS] 调用 synthesizeWithCosyVoice 参数:', {
+        text: '你好',
+        task: 'zero-shot voice clone',
+        templateIdOrSourceAudio: 'template1a'
+      });
+      // 直接调用统一TTS接口
+      const resp = await synthesizeWithCosyVoice(
+        '你好',
+        'zero-shot voice clone',
+        'template1a'
+      );
+      // 日志：收到 synthesizeWithCosyVoice 返回
+      console.log('[CosyVoiceTTS] synthesizeWithCosyVoice 返回:', resp);
+
+      if (!resp.data?.audioPath) throw new Error('未收到音频地址');
+      
+      // 新增：详细检查音频路径
+      const audioPath = resp.data.audioPath;
+      console.log('[CosyVoiceTTS] 音频文件路径:', audioPath);
+      console.log('[CosyVoiceTTS] 音频路径类型:', typeof audioPath);
+      console.log('[CosyVoiceTTS] 音频路径长度:', audioPath ? audioPath.length : 'null/undefined');
+      console.log('[CosyVoiceTTS] 是否为URL:', /^https?:\/\//.test(audioPath || ''));
+      console.log('[CosyVoiceTTS] 是否为本地文件:', /^file:\/\//.test(audioPath || ''));
+
+      if (Platform.OS === 'web') {
+        const audio = new window.Audio(resp.data?.audioPath);
+        audio.play();
+      } else {
+        console.log('[CosyVoiceTTS] 尝试播放音频文件:', audioPath);
+        const { sound } = await Audio.Sound.createAsync({ uri: resp.data?.audioPath });
+        await sound.playAsync();
+      }
+      Alert.alert('成功', '收到音频并已播放');
+    } catch (err: any) {
+      console.error('CosyVoice TTS 测试失败:', err);
+      Alert.alert('测试失败', err?.message || String(err));
+    } finally {
+      setIsTestingCosyvoice(false);
     }
   };
 
@@ -925,6 +1010,12 @@ const ApiSettings = () => {
           minimaxApiToken,
           minimaxModel
         };
+      } else if (ttsProvider === 'cosyvoice') {
+        ttsSettings = {
+          ...ttsSettings,
+          minimaxApiToken: cosyvoiceApiToken, // 复用统一token
+          cosyvoiceReplicateModel: cosyvoiceModel
+        };
       }
 
       if (useActivationCode && licenseInfo) {
@@ -988,6 +1079,14 @@ const ApiSettings = () => {
 
         // First update settings
         await updateSettings(apiSettings);
+
+        // 新增：同步TTS设置到本地存储，确保adapter能获取到最新token
+        try {
+          await updateTTSSettings(ttsSettings);
+          console.log('[API设置] TTS设置已同步到本地存储');
+        } catch (ttsError) {
+          console.error('[API设置] TTS设置同步失败:', ttsError);
+        }
 
         // Update the Brave Search API key
         if (braveSearchApiKey) {
@@ -1116,6 +1215,14 @@ const ApiSettings = () => {
         };
 
         await updateSettings(apiSettings);
+
+        // 新增：同步TTS设置到本地存储，确保adapter能获取到最新token
+        try {
+          await updateTTSSettings(ttsSettings);
+          console.log('[API设置] TTS设置已同步到本地存储（第二分支）');
+        } catch (ttsError) {
+          console.error('[API设置] TTS设置同步失败（第二分支）:', ttsError);
+        }
 
         // Update the Brave Search API key
         if (braveSearchApiKey) {
@@ -1781,7 +1888,7 @@ const ApiSettings = () => {
                     // 当用户修改激活码时，清除以前的license信息
                     if (licenseInfo && text !== licenseInfo.licenseKey) {
                       console.log('已修改，清除现有信息');
-                      setLicenseInfo(null);
+                                           setLicenseInfo(null);
                     }
                     setActivationCode(text);
                   }}
@@ -2046,6 +2153,20 @@ const ApiSettings = () => {
                     )}
                   </TouchableOpacity>
                 )}
+                {/* CosyVoice 测试按钮，仅在 provider=cosyvoice 且启用时显示 */}
+                {ttsEnabled && ttsProvider === 'cosyvoice' && (
+                  <TouchableOpacity
+                    style={{ marginLeft: 8 }}
+                    onPress={testCosyvoiceTTS}
+                    disabled={isTestingCosyvoice}
+                  >
+                    {isTestingCosyvoice ? (
+                      <ActivityIndicator size={18} color="#fff" />
+                    ) : (
+                      <Ionicons name="flash-outline" size={18} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
             {ttsEnabled && (
@@ -2160,6 +2281,30 @@ const ApiSettings = () => {
                       value={minimaxModel}
                       onChangeText={setMinimaxModel}
                       placeholder="如 minimax/speech-02-turbo"
+                      placeholderTextColor="#999"
+                      autoCapitalize="none"
+                    />
+                  </>
+                )}
+                {/* CosyVoiceTTS参数 */}
+                {ttsProvider === 'cosyvoice' && (
+                  <>
+                    <Text style={styles.inputLabel}>Replicate API Token</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={cosyvoiceApiToken}
+                      onChangeText={setCosyvoiceApiToken}
+                      placeholder="输入 Replicate API Token"
+                      placeholderTextColor="#999"
+                      autoCapitalize="none"
+                      secureTextEntry={true}
+                    />
+                    <Text style={styles.inputLabel}>模型名称</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={cosyvoiceModel}
+                      onChangeText={setCosyvoiceModel}
+                      placeholder="如 chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d"
                       placeholderTextColor="#999"
                       autoCapitalize="none"
                     />

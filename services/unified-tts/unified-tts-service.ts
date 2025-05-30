@@ -26,33 +26,6 @@ export class UnifiedTTSService {
     this.initializeAdapters();
   }
 
-  private async initializeAdapters() {
-    try {
-      // Load settings if no config provided
-      if (Object.keys(this.config).length === 0) {
-        await this.loadConfigFromSettings();
-      }
-
-      // Initialize CosyVoice adapter
-      this.adapters.set('cosyvoice', new CosyVoiceAdapter());
-
-      // Initialize Doubao adapter if configured
-      if (this.config.doubao?.appid && this.config.doubao?.token) {
-        this.adapters.set('doubao', new DoubaoAdapter());
-      }
-
-      // Initialize Minimax adapter if configured
-      if (this.config.minimax?.apiToken) {
-        this.adapters.set('minimax', new MinimaxAdapter(
-          this.config.minimax.apiToken,
-          this.config.minimax.model
-        ));
-      }
-    } catch (error) {
-      console.error('[UnifiedTTSService] Failed to initialize adapters:', error);
-    }
-  }
-
   private async loadConfigFromSettings() {
     try {
       const ttsSettings = await getTTSSettingsAsync();
@@ -73,17 +46,63 @@ export class UnifiedTTSService {
         this.config.minimax = {
           apiToken: ttsSettings.minimaxApiToken,
           model: ttsSettings.minimaxModel,
-          voiceId: ttsSettings.voiceType // 修正：voiceId从voiceType
+          voiceId: ttsSettings.voiceType
         };
       }
 
-      // CosyVoice is always available
-      this.config.cosyvoice = {
-        serverUrl: ttsSettings.cosyvoiceServerUrl || 'https://tts.cradleintro.top',
-        useRealtimeUpdates: ttsSettings.useRealtimeUpdates || false
-      };
+      // Load CosyVoice config (using same Replicate token as Minimax)
+      const cosyvoiceToken = ttsSettings.replicateApiToken || ttsSettings.minimaxApiToken;
+      if (cosyvoiceToken) {
+        this.config.cosyvoice = {
+          // 移除旧的服务器端配置，改为 Replicate 配置
+          replicateApiToken: cosyvoiceToken,
+          replicateModel: ttsSettings.cosyvoiceReplicateModel || 'chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d'
+        };
+      }
     } catch (error) {
       console.error('[UnifiedTTSService] Failed to load config from settings:', error);
+    }
+  }
+
+  private async initializeAdapters() {
+    try {
+      // Load settings if no config provided
+      if (Object.keys(this.config).length === 0) {
+        await this.loadConfigFromSettings();
+      }
+
+      console.log('[UnifiedTTSService] Initializing adapters with config:', this.config);
+
+      // Initialize CosyVoice adapter (基于 Replicate)
+      if (this.config.cosyvoice?.replicateApiToken) {
+        this.adapters.set('cosyvoice', new CosyVoiceAdapter());
+        console.log('[UnifiedTTSService] CosyVoice adapter initialized');
+      } else {
+        console.log('[UnifiedTTSService] CosyVoice adapter NOT initialized - missing replicateApiToken');
+      }
+
+      // Initialize Doubao adapter if configured
+      if (this.config.doubao?.appid && this.config.doubao?.token) {
+        this.adapters.set('doubao', new DoubaoAdapter());
+        console.log('[UnifiedTTSService] Doubao adapter initialized');
+      } else {
+        console.log('[UnifiedTTSService] Doubao adapter NOT initialized - missing appid/token');
+      }
+
+      // Initialize Minimax adapter if configured
+      if (this.config.minimax?.apiToken) {
+        this.adapters.set('minimax', new MinimaxAdapter(
+          this.config.minimax.apiToken,
+          this.config.minimax.model
+        ));
+        console.log('[UnifiedTTSService] Minimax adapter initialized');
+      } else {
+        console.log('[UnifiedTTSService] Minimax adapter NOT initialized - missing apiToken');
+      }
+
+      console.log('[UnifiedTTSService] Available providers:', this.getAvailableProviders());
+    } catch (error) {
+      console.error('[UnifiedTTSService] Failed to initialize adapters:', error);
     }
   }
 

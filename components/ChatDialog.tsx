@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, memo } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,10 @@ import {
   Keyboard,
   Platform,
   TextInput,
+  StatusBar,
+  KeyboardEvent,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview'; // Add WebView import
 import Animated, {
   useSharedValue,
@@ -22,16 +25,23 @@ import Animated, {
   withTiming,
   withSequence,
   withDelay,
+  FadeIn,
+  Layout,
 } from 'react-native-reanimated';
 import { Message, ChatDialogProps, User } from '@/shared/types';
-import { Ionicons } from '@expo/vector-icons';
-import { theme } from '@/constants/theme';
+import { Ionicons, MaterialIcons, FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { parseHtmlText, containsComplexHtml, optimizeHtmlForRendering } from '@/utils/textParser';
-import { ratingService } from '@/services/ratingService';
+import { Audio } from 'expo-av'; // 新增
 import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageManager from '@/utils/ImageManager';
-import { ttsService, AudioState } from '@/services/ttsService';
+import {
+  synthesizeWithCosyVoice,
+  synthesizeWithDoubao,
+  synthesizeWithMinimax,
+  UnifiedTTSRequest,
+  UnifiedTTSResponse,
+} from '@/services/unified-tts';
 import { useDialogMode } from '@/constants/DialogModeContext';
 import { DeviceEventEmitter } from 'react-native';
 import Markdown from 'react-native-markdown-display';
@@ -40,6 +50,119 @@ import Slider from '@react-native-community/slider';
 import type { RenderFunction, ASTNode } from 'react-native-markdown-display';
 import { useRouter } from 'expo-router';
 import { Character } from '@/shared/types';
+import * as FileSystem from 'expo-file-system';
+import { ChatUISettings } from '@/app/pages/chat-ui-settings';
+import AudioCacheManager from '@/utils/AudioCacheManager';
+
+// Default UI settings in case the file isn't loaded
+const DEFAULT_UI_SETTINGS: ChatUISettings = {
+  // Regular mode
+  regularUserBubbleColor: 'rgb(255, 224, 195)',
+  regularUserBubbleAlpha: 0.95,
+  regularBotBubbleColor: 'rgb(68, 68, 68)',
+  regularBotBubbleAlpha: 0.85,
+  regularUserTextColor: '#333333',
+  regularBotTextColor: '#ffffff',
+  
+  // Background focus mode
+  bgUserBubbleColor: 'rgb(255, 224, 195)',
+  bgUserBubbleAlpha: 0.95,
+  bgBotBubbleColor: 'rgb(68, 68, 68)',
+  bgBotBubbleAlpha: 0.9,
+  bgUserTextColor: '#333333',
+  bgBotTextColor: '#ffffff',
+  
+  // Visual novel mode
+  vnDialogColor: 'rgb(0, 0, 0)',
+  vnDialogAlpha: 0.7,
+  vnTextColor: '#ffffff',
+  
+  // Global sizes
+  bubblePaddingMultiplier: 1.0,
+  textSizeMultiplier: 1.0,
+  
+  // Markdown styles - matching current ChatDialog defaults
+  markdownHeadingColor: '#ff79c6',
+  markdownCodeBackgroundColor: '#111',
+  markdownCodeTextColor: '#fff',
+  markdownQuoteColor: '#d0d0d0',
+  markdownQuoteBackgroundColor: '#111',
+  markdownLinkColor: '#3498db',
+  markdownBoldColor: '#ff79c6',
+  markdownTextColor: '#fff', // 新增
+  markdownTextScale: 1.0,
+  markdownCodeScale: 1.0
+};
+
+// Hook to load UI settings
+function useChatUISettings() {
+  const [settings, setSettings] = useState<ChatUISettings>(DEFAULT_UI_SETTINGS);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [fileHash, setFileHash] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const settingsFile = `${FileSystem.documentDirectory}chat_ui_settings.json`;
+
+    async function loadSettingsAndHash() {
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(settingsFile);
+        if (fileInfo.exists) {
+          const fileContent = await FileSystem.readAsStringAsync(settingsFile);
+          const loadedSettings = JSON.parse(fileContent);
+          // 计算简单hash
+          const hash = String(fileContent.length) + '_' + String(fileContent.split('').reduce((a, b) => a + b.charCodeAt(0), 0));
+          if (isMounted) {
+            setSettings(loadedSettings);
+            setFileHash(hash);
+          }
+        } else {
+          if (isMounted) {
+            setSettings(DEFAULT_UI_SETTINGS);
+            setFileHash(null);
+          }
+        }
+      } catch (error) {
+        if (isMounted) setSettings(DEFAULT_UI_SETTINGS);
+      } finally {
+        if (isMounted) setIsLoaded(true);
+      }
+    }
+
+    loadSettingsAndHash();
+
+    // 定时检测文件内容变化
+    interval = setInterval(async () => {
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(settingsFile);
+        if (fileInfo.exists) {
+          const fileContent = await FileSystem.readAsStringAsync(settingsFile);
+          const hash = String(fileContent.length) + '_' + String(fileContent.split('').reduce((a, b) => a + b.charCodeAt(0), 0));
+          if (hash !== fileHash) {
+            setSettings(JSON.parse(fileContent));
+            setFileHash(hash);
+          }
+        }
+      } catch {}
+    }, 1000);
+
+    return () => {
+      isMounted = false;
+      if (interval) clearInterval(interval);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return { settings, isLoaded };
+}
+
+// Add new interface for generated image
+interface GeneratedImage {
+  id: string;
+  prompt: string;
+  timestamp: number;
+}
 
 interface ExtendedChatDialogProps extends ChatDialogProps {
   messageMemoryState?: Record<string, string>;
@@ -56,6 +179,11 @@ interface ExtendedChatDialogProps extends ChatDialogProps {
   showMemoryButton?: boolean;
   isMemoryPanelVisible?: boolean;
   onToggleMemoryPanel?: () => void;
+  onLoadMore?: () => void; // 新增
+  loadingMore?: boolean;   // 新增
+  hasMore?: boolean;       // 新增
+  generatedImages?: GeneratedImage[]; // 新增：生成的图片列表
+  onDeleteGeneratedImage?: (imageId: string) => void; // 新增：删除生成图片的回调
 }
 
 const { width, height } = Dimensions.get('window');
@@ -203,6 +331,23 @@ const isWebViewContent = (text: string): boolean => {
   return false;
 };
 
+// 新增：提取被三重反引号包裹的HTML内容
+function extractHtmlFromCodeBlock(text: string): string {
+  if (!text) return '';
+  
+  // 检查是否有三重反引号包裹的HTML内容
+  const codeBlockMatch = text.match(/```(?:html)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    const content = codeBlockMatch[1].trim();
+    // 检查提取的内容是否为HTML页面
+    if (isFullHtmlPage(content) || containsStructuralTags(content)) {
+      return content;
+    }
+  }
+  
+  // 如果没有找到三重反引号包裹的HTML，返回原始文本
+  return text;
+}
 
 // 修改 enhanceHtmlWithMarkdown，支持混合 html、markdown、css 的完整渲染
 const enhanceHtmlWithMarkdown = (raw: string): string => {
@@ -419,6 +564,739 @@ const ChatHistoryModal = memo(function ChatHistoryModal({
   );
 });
 
+// Add ImageMessage component to render generated images
+const ImageMessage = memo(function ImageMessage({
+  imageId,
+  prompt,
+  timestamp,
+  onOpenFullscreen,
+  onSave,
+  onShare,
+  onDelete, // 新增：删除图片回调
+}: {
+  imageId: string;
+  prompt: string;
+  timestamp: number;
+  onOpenFullscreen: (imageId: string) => void;
+  onSave: (imageId: string) => void;
+  onShare: (imageId: string) => void;
+  onDelete: (imageId: string) => void; // 新增：删除图片回调
+}) {
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // 新增：删除确认状态
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false); // Default collapsed
+
+  useEffect(() => {
+    const loadImageInfo = async () => {
+      try {
+        setIsLoading(true);
+        // Use the static method directly
+        const info = await ImageManager.getImageInfo(imageId);
+        if (info) {
+          setImagePath(info.originalPath);
+        }
+      } catch (error) {
+        console.error('[ImageMessage] Error loading image info:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadImageInfo();
+  }, [imageId]);
+
+  const formattedTime = useMemo(() => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, [timestamp]);
+
+  // 新增：处理删除确认
+  const handleDeletePress = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  // 新增：取消删除
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+  };
+
+  // 新增：确认删除
+  const handleConfirmDelete = () => {
+    onDelete(imageId);
+    setShowDeleteConfirm(false);
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.imageMessageContainer}>
+        <View style={styles.imageMessageLoading}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.imageMessageLoadingText}>加载图片中...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!imagePath) {
+    return (
+      <View style={styles.imageMessageContainer}>
+        <View style={styles.imageMessageError}>
+          <Ionicons name="alert-circle-outline" size={32} color="#e74c3c" />
+          <Text style={styles.imageMessageErrorText}>无法加载图片</Text>
+          {/* 新增：删除按钮 */}
+          <TouchableOpacity
+            style={[
+              styles.imageMessageAction,
+              { marginTop: 12, alignSelf: 'center' }
+            ]}
+            onPress={handleDeletePress}
+          >
+            <Ionicons name="trash-outline" size={22} color="#e74c3c" />
+            <Text style={{ color: '#e74c3c', marginLeft: 6, fontSize: 15 }}>删除</Text>
+          </TouchableOpacity>
+        </View>
+        {/* 删除确认弹窗 */}
+        <Modal
+          visible={showDeleteConfirm}
+          transparent={true}
+          animationType="fade"
+        >
+          <View style={styles.deleteConfirmModalContainer}>
+            <View style={styles.deleteConfirmModalContent}>
+              <Text style={styles.deleteConfirmTitle}>删除图片</Text>
+              <Text style={styles.deleteConfirmText}>确定要删除这张图片吗？</Text>
+              <View style={styles.deleteConfirmButtons}>
+                <TouchableOpacity
+                  style={[styles.deleteConfirmButton, styles.deleteConfirmCancelButton]}
+                  onPress={handleCancelDelete}
+                >
+                  <Text style={styles.deleteConfirmButtonText}>取消</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.deleteConfirmButton, styles.deleteConfirmDeleteButton]}
+                  onPress={handleConfirmDelete}
+                >
+                  <Text style={[styles.deleteConfirmButtonText, { color: '#fff' }]}>删除</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.imageMessageContainer}>
+      <TouchableOpacity 
+        style={[
+          styles.imageMessageHeader,
+          isPromptExpanded ? styles.imageMessageHeaderExpanded : styles.imageMessageHeaderCollapsed
+        ]}
+        onPress={() => setIsPromptExpanded(!isPromptExpanded)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.imageMessagePromptContainer}>
+          {isPromptExpanded ? (
+            <Text style={styles.imageMessagePrompt} numberOfLines={3}>{prompt}</Text>
+          ) : (
+            <Text style={styles.imageMessagePromptCollapsed} numberOfLines={1}>
+              {prompt.length > 20 ? prompt.substring(0, 20) + '...' : prompt}
+            </Text>
+          )}
+          <View style={styles.imageMessageHeaderRight}>
+            <Text style={styles.imageMessageTime}>{formattedTime}</Text>
+            <Ionicons 
+              name={isPromptExpanded ? "chevron-up" : "chevron-down"} 
+              size={16} 
+              color="#aaa" 
+              style={{marginLeft: 8}}
+            />
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={[
+          styles.imageMessageContent,
+          isPromptExpanded ? styles.imageMessageContentSmaller : styles.imageMessageContentLarger
+        ]}
+        onPress={() => onOpenFullscreen(imageId)}
+        activeOpacity={0.9}
+      >
+        <Image 
+          source={{ uri: imagePath }} 
+          style={styles.imageMessageImage}
+          resizeMode="contain"
+        />
+      </TouchableOpacity>
+      <View style={styles.imageMessageActions}>
+        <TouchableOpacity 
+          style={styles.imageMessageAction}
+          onPress={() => onOpenFullscreen(imageId)}
+        >
+          <Ionicons name="expand-outline" size={22} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.imageMessageAction}
+          onPress={() => onSave(imageId)}
+        >
+          <Ionicons name="download-outline" size={22} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.imageMessageAction}
+          onPress={() => onShare(imageId)}
+        >
+          <Ionicons name="share-social-outline" size={22} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.imageMessageAction, { marginLeft: 8 }]}
+          onPress={handleDeletePress}
+        >
+          <Ionicons name="trash-outline" size={22} color="#e74c3c" />
+        </TouchableOpacity>
+      </View>
+
+      {/* 删除确认弹窗 */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.deleteConfirmModalContainer}>
+          <View style={styles.deleteConfirmModalContent}>
+            <Text style={styles.deleteConfirmTitle}>删除图片</Text>
+            <Text style={styles.deleteConfirmText}>确定要删除这张图片吗？</Text>
+            <View style={styles.deleteConfirmButtons}>
+              <TouchableOpacity
+                style={[styles.deleteConfirmButton, styles.deleteConfirmCancelButton]}
+                onPress={handleCancelDelete}
+              >
+                <Text style={styles.deleteConfirmButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.deleteConfirmButton, styles.deleteConfirmDeleteButton]}
+                onPress={handleConfirmDelete}
+              >
+                <Text style={[styles.deleteConfirmButtonText, { color: '#fff' }]}>删除</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+});
+
+// Add new VisualNovelImageDisplay component after the ImageMessage component
+const VisualNovelImageDisplay = memo(function VisualNovelImageDisplay({
+  images,
+  onOpenFullscreen,
+  onSave,
+  onShare,
+  onDelete,
+}: {
+  images: GeneratedImage[];
+  onOpenFullscreen: (imageId: string) => void;
+  onSave: (imageId: string) => void;
+  onShare: (imageId: string) => void;
+  onDelete: (imageId: string) => void;
+}) {
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false); // Default collapsed
+
+  // Load the current image
+  useEffect(() => {
+    const loadImage = async () => {
+      if (!images.length) return;
+      
+      try {
+        setIsLoading(true);
+        const currentImage = images[currentImageIndex];
+        const info = await ImageManager.getImageInfo(currentImage.id);
+        
+        if (info) {
+          setImagePath(info.originalPath);
+        } else {
+          setImagePath(null);
+        }
+      } catch (error) {
+        console.error('[VisualNovelImageDisplay] Error loading image:', error);
+        setImagePath(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadImage();
+  }, [images, currentImageIndex]);
+
+  // If no images, don't render anything
+  if (!images.length) return null;
+
+  const currentImage = images[currentImageIndex];
+  const formattedTime = new Date(currentImage.timestamp).toLocaleTimeString([], { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+
+  return (
+    <View style={styles.vnImageDisplayContainer}>
+      {/* Collapsible prompt area */}
+      <TouchableOpacity 
+        style={[
+          styles.vnImageDisplayHeader, 
+          isPromptExpanded ? styles.vnImageDisplayHeaderExpanded : styles.vnImageDisplayHeaderCollapsed
+        ]}
+        onPress={() => setIsPromptExpanded(!isPromptExpanded)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.vnImageDisplayPromptContainer}>
+          {isPromptExpanded ? (
+            <Text style={styles.vnImageDisplayPrompt} numberOfLines={3}>
+              {currentImage.prompt}
+            </Text>
+          ) : (
+            <Text style={styles.vnImageDisplayPromptCollapsed} numberOfLines={1}>
+              {currentImage.prompt.length > 20 ? 
+                currentImage.prompt.substring(0, 20) + '...' : 
+                currentImage.prompt}
+            </Text>
+          )}
+          <View style={styles.vnImageDisplayHeaderRight}>
+            <Text style={styles.vnImageDisplayTime}>{formattedTime}</Text>
+            <Ionicons 
+              name={isPromptExpanded ? "chevron-up" : "chevron-down"} 
+              size={16} 
+              color="#aaa" 
+              style={{marginLeft: 8}}
+            />
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={[
+          styles.vnImageDisplayContent,
+          isPromptExpanded ? styles.vnImageDisplayContentSmaller : styles.vnImageDisplayContentLarger
+        ]}
+        onPress={() => onOpenFullscreen(currentImage.id)}
+        activeOpacity={0.9}
+      >
+        {isLoading ? (
+          <View style={styles.vnImageDisplayLoading}>
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.vnImageDisplayLoadingText}>加载图片中...</Text>
+          </View>
+        ) : !imagePath ? (
+          <View style={styles.vnImageDisplayError}>
+            <Ionicons name="alert-circle-outline" size={32} color="#e74c3c" />
+            <Text style={styles.vnImageDisplayErrorText}>无法加载图片</Text>
+          </View>
+        ) : (
+          <Image 
+            source={{ uri: imagePath }} 
+            style={styles.vnImageDisplayImage}
+            resizeMode="contain"
+          />
+        )}
+      </TouchableOpacity>
+
+      <View style={styles.vnImageDisplayActions}>
+        {images.length > 1 && (
+          <View style={styles.vnImageDisplayPagination}>
+            <TouchableOpacity
+              style={[
+                styles.actionCircleButton,
+                { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent' },
+                currentImageIndex === 0 && styles.vnImageDisplayPaginationButtonDisabled
+              ]}
+              onPress={() => setCurrentImageIndex(prev => Math.max(0, prev - 1))}
+              disabled={currentImageIndex === 0}
+            >
+              <Ionicons 
+                name="chevron-back" 
+                size={BUTTON_ICON_SIZE} 
+                color={currentImageIndex === 0 ? "#666" : "#fff"} 
+              />
+            </TouchableOpacity>
+            <Text style={styles.vnImageDisplayPaginationText}>
+              {currentImageIndex + 1} / {images.length}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.actionCircleButton,
+                { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent' },
+                currentImageIndex === images.length - 1 && styles.vnImageDisplayPaginationButtonDisabled
+              ]}
+              onPress={() => setCurrentImageIndex(prev => Math.min(images.length - 1, prev + 1))}
+              disabled={currentImageIndex === images.length - 1}
+            >
+              <Ionicons 
+                name="chevron-forward" 
+                size={BUTTON_ICON_SIZE} 
+                color={currentImageIndex === images.length - 1 ? "#666" : "#fff"} 
+              />
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={styles.vnImageDisplayActionButtons}>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+            ]}
+            onPress={() => onOpenFullscreen(currentImage.id)}
+          >
+            <Ionicons name="expand-outline" size={BUTTON_ICON_SIZE} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+            ]}
+            onPress={() => onSave(currentImage.id)}
+          >
+            <Ionicons name="download-outline" size={BUTTON_ICON_SIZE} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+            ]}
+            onPress={() => onShare(currentImage.id)}
+          >
+            <Ionicons name="share-social-outline" size={BUTTON_ICON_SIZE} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+            ]}
+            onPress={() => onDelete(currentImage.id)}
+          >
+            <Ionicons name="trash-outline" size={BUTTON_ICON_SIZE} color="#e74c3c" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+});
+
+// Add new ImagesCarousel component after the VisualNovelImageDisplay component
+const ImagesCarousel = memo(function ImagesCarousel({
+  images,
+  onOpenFullscreen,
+  onSave,
+  onShare,
+  onDelete,
+  mode,
+}: {
+  images: GeneratedImage[];
+  onOpenFullscreen: (imageId: string) => void;
+  onSave: (imageId: string) => void;
+  onShare: (imageId: string) => void;
+  onDelete: (imageId: string) => void;
+  mode: string; // normal or background-focus
+}) {
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false); // Default collapsed
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Load the current image
+  useEffect(() => {
+    const loadImage = async () => {
+      if (!images.length) return;
+      
+      try {
+        setIsLoading(true);
+        const currentImage = images[currentImageIndex];
+        const info = await ImageManager.getImageInfo(currentImage.id);
+        
+        if (info) {
+          setImagePath(info.originalPath);
+        } else {
+          setImagePath(null);
+        }
+      } catch (error) {
+        console.error('[ImagesCarousel] Error loading image:', error);
+        setImagePath(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadImage();
+  }, [images, currentImageIndex]);
+
+  // If no images, don't render anything
+  if (!images.length) return null;
+
+  const currentImage = images[currentImageIndex];
+  const formattedTime = new Date(currentImage.timestamp).toLocaleTimeString([], { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+
+  // Handle delete confirmation
+  const handleDeletePress = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+  };
+
+  const handleConfirmDelete = () => {
+    onDelete(currentImage.id);
+    setShowDeleteConfirm(false);
+  };
+
+  const containerStyle = mode === 'background-focus' 
+    ? [styles.imagesCarouselContainer, styles.imagesCarouselBackgroundFocus]
+    : styles.imagesCarouselContainer;
+
+  return (
+    <View style={containerStyle}>
+      {/* Header with prompt and timestamp */}
+      <TouchableOpacity 
+        style={[
+          styles.imagesCarouselHeader, 
+          isPromptExpanded ? styles.imagesCarouselHeaderExpanded : styles.imagesCarouselHeaderCollapsed
+        ]}
+        onPress={() => setIsPromptExpanded(!isPromptExpanded)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.imagesCarouselPromptContainer}>
+          {isPromptExpanded ? (
+            <Text style={styles.imagesCarouselPrompt} numberOfLines={3}>
+              {currentImage.prompt}
+            </Text>
+          ) : (
+            <Text style={styles.imagesCarouselPromptCollapsed} numberOfLines={1}>
+              {currentImage.prompt.length > 20 ? 
+                currentImage.prompt.substring(0, 20) + '...' : 
+                currentImage.prompt}
+            </Text>
+          )}
+          <View style={styles.imagesCarouselHeaderRight}>
+            <Text style={styles.imagesCarouselTime}>{formattedTime}</Text>
+            <Ionicons 
+              name={isPromptExpanded ? "chevron-up" : "chevron-down"} 
+              size={16} 
+              color="#aaa" 
+              style={{marginLeft: 8}}
+            />
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* Image content */}
+      <TouchableOpacity 
+        style={[
+          styles.imagesCarouselContent,
+          mode === 'background-focus' && styles.imagesCarouselContentBackgroundFocus
+        ]}
+        onPress={() => onOpenFullscreen(currentImage.id)}
+        activeOpacity={0.9}
+      >
+        {isLoading ? (
+          <View style={styles.imagesCarouselLoading}>
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.imagesCarouselLoadingText}>加载图片中...</Text>
+          </View>
+        ) : !imagePath ? (
+          <View style={styles.imagesCarouselError}>
+            <Ionicons name="alert-circle-outline" size={32} color="#e74c3c" />
+            <Text style={styles.imagesCarouselErrorText}>无法加载图片</Text>
+          </View>
+        ) : (
+          <Image 
+            source={{ uri: imagePath }} 
+            style={styles.imagesCarouselImage}
+            resizeMode="contain"
+          />
+        )}
+      </TouchableOpacity>
+
+      {/* Controls */}
+      <View style={[
+        styles.imagesCarouselControls,
+        mode === 'background-focus' && {
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          paddingVertical: 10,
+          zIndex: 30,
+        }
+      ]}>
+        {images.length > 1 && (
+          <View style={styles.imagesCarouselPagination}>
+            <TouchableOpacity
+              style={[
+                styles.actionCircleButton,
+                { width: BUTTON_SIZE, height: BUTTON_SIZE },
+                mode === 'background-focus' && { 
+                  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                  borderRadius: BUTTON_SIZE / 2,
+                },
+                currentImageIndex === 0 && styles.imagesCarouselPaginationButtonDisabled
+              ]}
+              onPress={() => setCurrentImageIndex(prev => Math.max(0, prev - 1))}
+              disabled={currentImageIndex === 0}
+            >
+              <Ionicons 
+                name="chevron-back" 
+                size={BUTTON_ICON_SIZE} 
+                color={currentImageIndex === 0 ? "#666" : "#fff"} 
+              />
+            </TouchableOpacity>
+            <Text style={[
+              styles.imagesCarouselPaginationText,
+              mode === 'background-focus' && { fontSize: 14, fontWeight: 'bold' }
+            ]}>
+              {currentImageIndex + 1} / {images.length}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.actionCircleButton,
+                { width: BUTTON_SIZE, height: BUTTON_SIZE },
+                mode === 'background-focus' && { 
+                  backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                  borderRadius: BUTTON_SIZE / 2,
+                },
+                currentImageIndex === images.length - 1 && styles.imagesCarouselPaginationButtonDisabled
+              ]}
+              onPress={() => setCurrentImageIndex(prev => Math.min(images.length - 1, prev + 1))}
+              disabled={currentImageIndex === images.length - 1}
+            >
+              <Ionicons 
+                name="chevron-forward" 
+                size={BUTTON_ICON_SIZE} 
+                color={currentImageIndex === images.length - 1 ? "#666" : "#fff"} 
+              />
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={styles.imagesCarouselActions}>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { 
+                width: BUTTON_SIZE, 
+                height: BUTTON_SIZE, 
+                marginLeft: 8,
+                ...(mode === 'background-focus' ? {
+                  padding: 8,
+                  marginHorizontal: 6
+                } : {})
+              }
+            ]}
+            onPress={() => onOpenFullscreen(currentImage.id)}
+          >
+            <Ionicons name="expand-outline" size={BUTTON_ICON_SIZE} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { 
+                width: BUTTON_SIZE, 
+                height: BUTTON_SIZE, 
+                marginLeft: 8,
+                ...(mode === 'background-focus' ? {
+                  padding: 8,
+                  marginHorizontal: 6
+                } : {})
+              }
+            ]}
+            onPress={() => onSave(currentImage.id)}
+          >
+            <Ionicons name="download-outline" size={BUTTON_ICON_SIZE} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { 
+                width: BUTTON_SIZE, 
+                height: BUTTON_SIZE, 
+                marginLeft: 8,
+                ...(mode === 'background-focus' ? {
+                  padding: 8,
+                  marginHorizontal: 6
+                } : {})
+              }
+            ]}
+            onPress={() => onShare(currentImage.id)}
+          >
+            <Ionicons name="share-social-outline" size={BUTTON_ICON_SIZE} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.actionCircleButton,
+              { 
+                width: BUTTON_SIZE, 
+                height: BUTTON_SIZE, 
+                marginLeft: 8,
+                ...(mode === 'background-focus' ? {
+                  padding: 8,
+                  marginHorizontal: 6
+                } : {})
+              }
+            ]}
+            onPress={handleDeletePress}
+          >
+            <Ionicons name="trash-outline" size={BUTTON_ICON_SIZE} color="#e74c3c" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.deleteConfirmModalContainer}>
+          <View style={styles.deleteConfirmModalContent}>
+            <Text style={styles.deleteConfirmTitle}>删除图片</Text>
+            <Text style={styles.deleteConfirmText}>确定要删除这张图片吗？</Text>
+            <View style={styles.deleteConfirmButtons}>
+              <TouchableOpacity
+                style={[styles.deleteConfirmButton, styles.deleteConfirmCancelButton]}
+                onPress={handleCancelDelete}
+              >
+                <Text style={styles.deleteConfirmButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.deleteConfirmButton, styles.deleteConfirmDeleteButton]}
+                onPress={handleConfirmDelete}
+              >
+                <Text style={[styles.deleteConfirmButtonText, { color: '#fff' }]}>删除</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+});
+
+// Add new interface for combined message/image items
+interface CombinedItem {
+  id: string;
+  type: 'message' | 'image';
+  message?: Message;
+  image?: GeneratedImage;
+  timestamp: number;
+}
+
 const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   messages,
   style,
@@ -429,14 +1307,20 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   user = null,
   isHistoryModalVisible = false,
   setHistoryModalVisible,
-  // === 新增：解构 props，避免 TS 报错 ===
   onEditAiMessage,
   onDeleteAiMessage,
   onEditUserMessage,
   onDeleteUserMessage,
+  onLoadMore,
+  loadingMore,
+  hasMore,
+  generatedImages = [], // 新增：生成的图片列表
+  onDeleteGeneratedImage, // 新增：删除生成图片的回调
 }) => {
-    const router = useRouter();
-  const flatListRef = useRef<FlatList<Message>>(null);
+  // Get safe area insets for proper spacing
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const flatListRef = useRef<FlatList<CombinedItem>>(null);
   const fadeAnim = useSharedValue(0);
   const translateAnim = useSharedValue(0);
   const dot1Scale = useSharedValue(1);
@@ -448,9 +1332,31 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   const [ratedMessages, setRatedMessages] = useState<Record<string, boolean>>({});
   const [scrollPositions, setScrollPositions] = useState<Record<string, number>>({});
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [audioStates, setAudioStates] = useState<Record<string, AudioState>>({});
-  const [ttsEnhancerEnabled, setTtsEnhancerEnabled] = useState(false);
+  
+  // 新增：图片信息缓存
+  const [imageInfoCache, setImageInfoCache] = useState<Record<string, any>>({});
+  
+  // 使用 AudioCacheManager 替代原有的音频状态管理
+  const audioCacheManager = useMemo(() => AudioCacheManager.getInstance(), []);
+  const [audioStates, setAudioStates] = useState<Record<string, {
+    isLoading: boolean;
+    hasAudio: boolean;
+    isPlaying: boolean;
+    isComplete: boolean;
+    error: string | null;
+  }>>({});
+
   const { mode, visualNovelSettings, updateVisualNovelSettings, isHistoryModalVisible: contextHistoryModalVisible, setHistoryModalVisible: contextSetHistoryModalVisible } = useDialogMode();
+
+  // 判断是否等待AI回复：最后一条消息是用户消息且没有后续bot消息
+  const isWaitingForAI = useMemo(() => {
+    if (!messages.length) return false;
+    const last = messages[messages.length - 1];
+    return last.sender === 'user';
+  }, [messages]);
+
+  // Load UI settings
+  const { settings: uiSettings, isLoaded: uiSettingsLoaded } = useChatUISettings();
 
   // 这里假设通过window.__topBarVisible传递（如需更优雅方案可通过props传递）
   const [isTopBarVisible, setIsTopBarVisible] = useState(true);
@@ -470,10 +1376,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   // 新增：视觉小说展开/收起状态和背景透明度
   const [vnExpanded, setVnExpanded] = useState(false);
   const [vnBgAlpha, setVnBgAlpha] = useState(() => {
-    // 从 visualNovelSettings.backgroundColor 解析 alpha
-    const match = visualNovelSettings.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+),?\s*([0-9\.]+)?\)/);
-    if (match && match[4]) return parseFloat(match[4]);
-    return 0.7;
+    return uiSettings.vnDialogAlpha;
   });
   const [showAlphaSlider, setShowAlphaSlider] = useState(false);
 
@@ -489,11 +1392,42 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   // 计算文本区最大高度
   const getVNTextMaxHeight = () => {
     if (vnExpanded) {
-      // 展开时，顶部紧贴topbar，底部10，减去header和actions高度
-      return height - (VN_HEADER_HEIGHT + VN_ACTIONS_HEIGHT + VN_VERTICAL_PADDING + 10);
+      // Expanded: adjust for keyboard when visible
+      // Subtract keyboard height, header, actions, vertical padding, and safe margin for input
+      const keyboardAdjustment = keyboardVisible ? keyboardHeight : 0;
+      return height - (VN_HEADER_HEIGHT + VN_ACTIONS_HEIGHT + VN_VERTICAL_PADDING + 160 + keyboardAdjustment);
     }
-    // 收起时，固定高度
-    return 220;
+    // Collapsed: fixed height or adjust for small screens with keyboard
+    const keyboardAdjustment = keyboardVisible ? keyboardHeight * 0.5 : 0; // Use partial adjustment when collapsed
+    return Math.max(100, 220 - keyboardAdjustment); // Ensure minimum height of 100
+  };
+
+  // Update getCollapsedAbsTop to adjust position when keyboard is visible
+  const getCollapsedAbsTop = () => {
+    // Parameters for position calculation
+    const chatInputHeight = 120; 
+    const minDialogHeight = 240;
+    const spacing = 30; // Extra spacing
+    const safeAreaBottom = 24; // Safe area for iPhones with notch
+    
+    // Adjust calculation when keyboard is visible
+    if (keyboardVisible) {
+      // Move dialog up when keyboard is visible, but keep it at a reasonable position
+      const keyboardAdjustment = keyboardHeight * 0.8; // Use 80% of keyboard height for adjustment
+      const calculatedTop = height - chatInputHeight - minDialogHeight - spacing - safeAreaBottom - keyboardAdjustment;
+      
+      // Ensure it's not too high or too low
+      const minTop = height * 0.1; // Allow it to go higher when keyboard is visible
+      const maxTop = height - minDialogHeight - keyboardHeight - spacing;
+      return Math.min(Math.max(calculatedTop, minTop), maxTop);
+    }
+    
+    // Original calculation for when keyboard is not visible
+    const calculatedTop = height - chatInputHeight - minDialogHeight - spacing - safeAreaBottom;
+    
+    // Ensure it's not too high (minimum distance from top is 30%)
+    const minTop = height * 0.3;
+    return Math.max(calculatedTop, minTop);
   };
 
   // 同步 visualNovelSettings.backgroundColor 和 vnBgAlpha
@@ -504,39 +1438,59 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
 
   // 调整背景色
   const getVnBgColor = () => {
-    // 取原色的rgb部分，替换alpha
-    const match = visualNovelSettings.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+),?/);
-    if (match) {
-      const [_, r, g, b] = match;
-      return `rgba(${r},${g},${b},${vnBgAlpha})`;
-    }
-    return `rgba(0,0,0,${vnBgAlpha})`;
+    const color = uiSettings.vnDialogColor;
+    const rgbValues = color.match(/\d+/g)?.slice(0, 3);
+    return rgbValues ? `rgba(${rgbValues.join(',')},${vnBgAlpha})` : `rgba(0,0,0,${vnBgAlpha})`;
   };
 
   const handleAlphaChange = (alpha: number) => {
     setVnBgAlpha(alpha);
     // 更新 visualNovelSettings
-    const match = visualNovelSettings.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+),?/);
-    let newColor = `rgba(0,0,0,${alpha})`;
-    if (match) {
-      const [_, r, g, b] = match;
-      newColor = `rgba(${r},${g},${b},${alpha})`;
-    }
+    const color = uiSettings.vnDialogColor;
+    const rgbValues = color.match(/\d+/g)?.slice(0, 3);
+    const newColor = rgbValues ? `rgba(${rgbValues.join(',')},${alpha})` : `rgba(0,0,0,${alpha})`;
     updateVisualNovelSettings({ backgroundColor: newColor });
   };
 
-
-
-  useEffect(() => {
-    const checkTtsEnhancerStatus = () => {
-      const settings = ttsService.getEnhancerSettings();
-      setTtsEnhancerEnabled(settings.enabled);
+  function getTextStyle(isUser: boolean) {
+  // 兼容三种模式
+  if (mode === 'normal') {
+    return {
+      color: isUser ? uiSettings.regularUserTextColor : uiSettings.regularBotTextColor,
+      fontSize: Math.min(Math.max(14, width * 0.04), 16) * uiSettings.textSizeMultiplier,
     };
+  } else if (mode === 'background-focus') {
+    return {
+      color: isUser ? uiSettings.bgUserTextColor : uiSettings.bgBotTextColor,
+      fontSize: Math.min(Math.max(14, width * 0.04), 16) * uiSettings.textSizeMultiplier,
+    };
+  } else if (mode === 'visual-novel') {
+    return {
+      color: uiSettings.vnTextColor,
+      fontSize: 16 * uiSettings.textSizeMultiplier,
+    };
+  }
+  return {};
+}
 
-    checkTtsEnhancerStatus();
-    const intervalId = setInterval(checkTtsEnhancerStatus, 5000);
-    return () => clearInterval(intervalId);
-  }, []);
+function getBubbleStyle(isUser: boolean) {
+  if (mode === 'normal') {
+    const color = isUser ? uiSettings.regularUserBubbleColor : uiSettings.regularBotBubbleColor;
+    const alpha = isUser ? uiSettings.regularUserBubbleAlpha : uiSettings.regularBotBubbleAlpha;
+    const rgb = color.match(/\d+/g)?.slice(0, 3);
+    return { backgroundColor: rgb ? `rgba(${rgb.join(',')},${alpha})` : undefined };
+  } else if (mode === 'background-focus') {
+    const color = isUser ? uiSettings.bgUserBubbleColor : uiSettings.bgBotBubbleColor;
+    const alpha = isUser ? uiSettings.bgUserBubbleAlpha : uiSettings.bgBotBubbleAlpha;
+    const rgb = color.match(/\d+/g)?.slice(0, 3);
+    return { backgroundColor: rgb ? `rgba(${rgb.join(',')},${alpha})` : undefined };
+  }
+  return {};
+}
+
+function getBubblePadding() {
+  return (RESPONSIVE_PADDING + 4) * uiSettings.bubblePaddingMultiplier;
+}
 
   useEffect(() => {
     if (selectedCharacter?.id && selectedCharacter.id !== currentConversationId) {
@@ -623,73 +1577,239 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     transform: [{ scale: dot3Scale.value }]
   }));
 
-  const updateAudioState = (messageId: string) => {
-    const state = ttsService.getAudioState(messageId);
+  // 新增：在组件初始化时加载音频缓存状态
+  useEffect(() => {
+    const loadAudioStates = async () => {
+      try {
+        // 1. 先获取当前内存中的状态
+        const cachedStates = audioCacheManager.getAllAudioStates();
+        setAudioStates(cachedStates);
+
+        // 2. 获取当前对话的所有bot消息ID
+        const botMessageIds = messages
+          .filter(msg => msg.sender === 'bot' && !msg.isLoading)
+          .map(msg => msg.id);
+
+        if (botMessageIds.length > 0) {
+          // 3. 检查这些消息是否有缓存的音频文件，并更新状态
+          await audioCacheManager.initializeAudioStatesForMessages(botMessageIds);
+          
+          // 4. 重新获取更新后的状态
+          const updatedStates = audioCacheManager.getAllAudioStates();
+          setAudioStates(updatedStates);
+          
+          console.log(`[ChatDialog] Loaded audio states for ${botMessageIds.length} bot messages`);
+        }
+      } catch (error) {
+        console.error('[ChatDialog] Failed to load audio states:', error);
+      }
+    };
+
+    // 只在有有效对话ID时才加载音频状态
+    if (selectedCharacter?.id) {
+      loadAudioStates();
+    }
+  }, [audioCacheManager, selectedCharacter?.id]); // 只依赖会话ID，当切换对话时重新检查
+
+  // 新增：当消息加载完成后，单独检查新消息的音频状态
+  useEffect(() => {
+    const checkNewMessagesAudio = async () => {
+      if (!selectedCharacter?.id || messages.length === 0) return;
+
+      try {
+        const botMessageIds = messages
+          .filter(msg => msg.sender === 'bot' && !msg.isLoading)
+          .map(msg => msg.id);
+
+        if (botMessageIds.length > 0) {
+          // 只检查当前没有音频状态的消息
+          const uncheckedIds = botMessageIds.filter(id => !audioStates[id]);
+          
+          if (uncheckedIds.length > 0) {
+            console.log(`[ChatDialog] Checking audio for ${uncheckedIds.length} new messages`);
+            await audioCacheManager.initializeAudioStatesForMessages(uncheckedIds);
+            
+            const updatedStates = audioCacheManager.getAllAudioStates();
+            setAudioStates(updatedStates);
+          }
+        }
+      } catch (error) {
+        console.error('[ChatDialog] Failed to check new messages audio:', error);
+      }
+    };
+
+    // 延迟执行，避免在消息加载过程中频繁触发
+    const timeoutId = setTimeout(checkNewMessagesAudio, 500);
+    return () => clearTimeout(timeoutId);
+  }, [messages.length, selectedCharacter?.id, audioCacheManager]); // 依赖消息数量而不是整个messages数组
+
+  // 新增：同步音频状态变化
+  const updateAudioState = useCallback((messageId: string, state: {
+    isLoading?: boolean;
+    hasAudio?: boolean;
+    isPlaying?: boolean;
+    isComplete?: boolean;
+    error?: string | null;
+  }) => {
+    audioCacheManager.updateAudioState(messageId, state);
     setAudioStates(prev => ({
       ...prev,
-      [messageId]: state
-    }));
-  };
-
-  const handleTTSButtonPress = async (messageId: string, text: string) => {
-    try {
-      const templateId = selectedCharacter?.voiceType || 'template1';
-
-      console.log(`[ChatDialog] Using voice template: ${templateId} for character: ${selectedCharacter?.name}`);
-
-      setAudioStates(prev => ({
-        ...prev,
-        [messageId]: {
-          ...prev[messageId],
-          isLoading: true,
-          error: null
-        }
-      }));
-
-      const result = await ttsService.generateTTS(messageId, text, templateId);
-
-      updateAudioState(messageId);
-
-      if (result.hasAudio && !result.error) {
-        await handlePlayAudio(messageId);
-      } else if (result.error) {
-        if (result.error !== 'Audio generation timed out after 30 seconds') {
-          Alert.alert('语音生成失败', '无法生成语音，请稍后再试。');
-        }
-      }
-    } catch (error) {
-      console.error('Failed to generate TTS:', error);
-      setAudioStates(prev => ({
-        ...prev,
-        [messageId]: {
-          ...prev[messageId],
+      [messageId]: {
+        ...prev[messageId] || {
           isLoading: false,
-          error: error instanceof Error ? error.message : '未知错误'
-        }
-      }));
+          hasAudio: false,
+          isPlaying: false,
+          isComplete: false,
+          error: null
+        },
+        ...state
+      }
+    }));
+  }, [audioCacheManager]);
+
+const handleTTSButtonPress = async (messageId: string, text: string) => {
+  try {
+    // 获取当前会话ID
+    const conversationId = selectedCharacter?.id || 'default';
+    
+    // 1. 读取角色 ttsConfig
+    const ttsConfig = selectedCharacter?.ttsConfig;
+    let provider = ttsConfig?.provider;
+
+    updateAudioState(messageId, {
+      isLoading: true,
+      error: null
+    });
+
+    let result: UnifiedTTSResponse | null = null;
+
+    if (provider === 'cosyvoice') {
+      // 新实现：自动传递 templateId，交由 unified-tts 处理 source_audio/source_transcript
+      const templateId = ttsConfig?.cosyvoice?.templateId || '';
+      const instruction = ttsConfig?.cosyvoice?.instruction || '';
+      result = await synthesizeWithCosyVoice(text, undefined, templateId);
+    } else if (provider === 'doubao') {
+      const voiceType = ttsConfig?.doubao?.voiceType || '';
+      const emotion = ttsConfig?.doubao?.emotion || '';
+      result = await synthesizeWithDoubao(text, voiceType, emotion);
+    } else if (provider === 'minimax') {
+      const voiceId = ttsConfig?.minimax?.voiceId || '';
+      const emotion = ttsConfig?.minimax?.emotion || '';
+      result = await synthesizeWithMinimax(text, voiceId, emotion);
+    } else {
+      const voiceType = selectedCharacter?.voiceType || '';
+      result = await synthesizeWithDoubao(text, voiceType, '');
     }
-  };
+
+    // 处理 audioPath 字段并使用 AudioCacheManager 缓存
+    if (result?.success && result.data?.audioPath) {
+      try {
+        // 使用 AudioCacheManager 缓存音频文件
+        const cachedPath = await audioCacheManager.cacheAudioFile(
+          messageId,
+          conversationId,
+          result.data.audioPath
+        );
+
+        updateAudioState(messageId, {
+          isLoading: false,
+          hasAudio: true,
+          error: null
+        });
+
+        console.log(`[ChatDialog] Audio cached for message ${messageId} at ${cachedPath}`);
+      } catch (cacheError) {
+        console.error('[ChatDialog] Failed to cache audio:', cacheError);
+        updateAudioState(messageId, {
+          isLoading: false,
+          hasAudio: false,
+          error: 'Failed to cache audio'
+        });
+      }
+    } else {
+      updateAudioState(messageId, {
+        isLoading: false,
+        hasAudio: false,
+        error: result?.error || '无法生成语音'
+      });
+      Alert.alert('语音生成失败', result?.error || '无法生成语音，请稍后再试。');
+    }
+  } catch (error) {
+    console.error('Failed to generate TTS:', error);
+    updateAudioState(messageId, {
+      isLoading: false,
+      error: error instanceof Error ? error.message : '未知错误'
+    });
+    Alert.alert('语音生成失败', '无法生成语音，请稍后再试。');
+  }
+};
 
   const handlePlayAudio = async (messageId: string) => {
     try {
-      const state = ttsService.getAudioState(messageId);
-
-      if (state.isPlaying) {
-        await ttsService.stopAudio(messageId);
-      } else {
-        await ttsService.playAudio(messageId);
+      // 使用 AudioCacheManager 获取音频实例
+      const sound = await audioCacheManager.getAudioSound(messageId);
+      if (!sound) {
+        throw new Error('No audio available');
       }
 
-      updateAudioState(messageId);
+      const currentState = audioStates[messageId] || {
+        isLoading: false,
+        hasAudio: true,
+        isPlaying: false,
+        isComplete: false,
+        error: null
+      };
+
+      // 停止其它正在播放的音频
+      await audioCacheManager.stopAllAudio();
+      // 更新所有音频状态为停止状态
+      const updatedStates = { ...audioStates };
+      Object.keys(updatedStates).forEach(id => {
+        if (id !== messageId && updatedStates[id].isPlaying) {
+          updatedStates[id] = { ...updatedStates[id], isPlaying: false };
+          audioCacheManager.updateAudioState(id, { isPlaying: false });
+        }
+      });
+      setAudioStates(updatedStates);
+
+      // 切换播放/暂停
+      if (currentState.isPlaying) {
+        await sound.pauseAsync();
+        updateAudioState(messageId, { isPlaying: false });
+      } else {
+        // 监听播放结束
+        sound.setOnPlaybackStatusUpdate(async status => {
+          if (status.isLoaded && status.didJustFinish) {
+            updateAudioState(messageId, {
+              isPlaying: false,
+              isComplete: true
+            });
+          }
+        });
+        await sound.replayAsync();
+        updateAudioState(messageId, {
+          isPlaying: true,
+          isComplete: false
+        });
+      }
     } catch (error) {
       console.error('Failed to play audio:', error);
+      updateAudioState(messageId, {
+        isPlaying: false,
+        error: error instanceof Error ? error.message : '未知错误'
+      });
       Alert.alert('播放失败', '无法播放语音，请稍后再试。');
     }
   };
 
+  // 组件卸载时清理当前会话的音频（可选，如果想要跨会话保留可以移除这个）
   useEffect(() => {
     return () => {
-      ttsService.cleanup();
+      // 不再需要清理，因为音频会持久化保存
+      // 如果需要清理当前会话的音频，可以调用：
+      // if (selectedCharacter?.id) {
+      //   audioCacheManager.clearConversationAudio(selectedCharacter.id);
+      // }
     };
   }, []);
 
@@ -734,333 +1854,475 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     return /(<\s*(thinking|think|status|mem|websearch|char-think|StatusBlock|statusblock|font)[^>]*>[\s\S]*?<\/\s*(thinking|think|status|mem|websearch|char-think|StatusBlock|statusblock|font)\s*>)/i.test(text);
   };
 
-const processMessageContent = (text: string, isUser: boolean, opts?: { isHtmlPagePlaceholder?: boolean }) => {
-  // 新增：如果是HTML页面占位，直接显示占位文本
-  if (opts?.isHtmlPagePlaceholder) {
-    return (
-      <Text style={isUser ? styles.userMessageText : styles.botMessageText}>
-        [页面消息]
-      </Text>
-    );
-  }
+  // 新增：缓存图片信息的函数
+  const getCachedImageInfo = useCallback((imageId: string) => {
+    if (imageInfoCache[imageId]) {
+      return imageInfoCache[imageId];
+    }
+    
+    try {
+      const imageInfo = ImageManager.getImageInfo(imageId);
+      setImageInfoCache(prev => ({
+        ...prev,
+        [imageId]: imageInfo
+      }));
+      return imageInfo;
+    } catch (error) {
+      console.error(`[ChatDialog] Error getting image info for ${imageId}:`, error);
+      setImageInfoCache(prev => ({
+        ...prev,
+        [imageId]: null
+      }));
+      return null;
+    }
+  }, [imageInfoCache]);
 
-  if (!text || text.trim() === '') {
-    return (
-      <Text style={isUser ? styles.userMessageText : styles.botMessageText}>
-        (Empty message)
-      </Text>
-    );
-  }
+  // 清除过期的图片缓存
+  useEffect(() => {
+    const imageIds = new Set<string>();
+    
+    // 收集当前消息中的所有图片ID
+    messages.forEach(message => {
+      const imageIdRegex = /!\[(.*?)\]\(image:([^\s)]+)\)/g;
+      let match: RegExpExecArray | null;
+      while ((match = imageIdRegex.exec(message.text)) !== null) {
+        imageIds.add(match[2]);
+      }
+    });
+    
+    // 清除不再使用的图片缓存
+    setImageInfoCache(prev => {
+      const newCache: Record<string, any> = {};
+      Array.from(imageIds).forEach(id => {
+        if (prev[id] !== undefined) {
+          newCache[id] = prev[id];
+        }
+      });
+      return newCache;
+    });
+  }, [messages]);
 
-  if (containsCustomTags(text) || /<\/?[a-z][^>]*>/i.test(text)) {
-    // 渲染前先移除未知标签
-    const cleanedText = stripUnknownTags(text);
-    return (
-      <RichTextRenderer
-        html={optimizeHtmlForRendering(cleanedText)}
-        baseStyle={isUser ? styles.userMessageText : styles.botMessageText}
-        onImagePress={(url) => setFullscreenImage(url)}
-        maxImageHeight={MAX_IMAGE_HEIGHT}
-      />
-    );
-  }
-
-  // Enhanced check for Markdown code blocks with triple backticks
-  const codeBlockPattern = /```([a-zA-Z0-9]*)\n([\s\S]*?)```/g;
-  const hasCodeBlock = codeBlockPattern.test(text);
-  
-  const markdownPattern = /(^|\n)(\s{0,3}#|```|>\s|[*+-]\s|\d+\.\s|\|.*\|)/;
-  if (hasCodeBlock || markdownPattern.test(text)) {
-    return (
-      <View style={{ width: '100%' }}>
-        <Markdown
-          style={{
-            body: isUser ? styles.userMessageText : styles.botMessageText,
-            text: isUser ? styles.userMessageText : styles.botMessageText,
-            // Enhanced code block styling
-            code_block: { 
-              backgroundColor: '#111',
-              color: '#fff',
-              borderRadius: 6,
-              padding: 12,
-              fontSize: 14,
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-              marginVertical: 10,
-            },
-            code_block_text: {
-              backgroundColor: '#111', // 显式设置背景
-              color: '#fff',           // 显式设置字体颜色
-              fontSize: 14,
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-              padding: 0,
-            },
-            fence: {
-              backgroundColor: '#111',
-              borderRadius: 6,
-              marginVertical: 10,
-              width: '100%',
-            },
-            fence_code: {
-              backgroundColor: '#111',
-              color: '#fff',
-              borderRadius: 6,
-              padding: 12,
-              fontSize: 14,
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-              width: '100%',
-            },
-            fence_code_text: {
-              backgroundColor: '#111',
-              color: '#fff',
-              fontSize: 14,
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-              padding: 0,
-            },
-            heading1: { fontSize: 24, fontWeight: 'bold', marginVertical: 10 },
-            heading2: { fontSize: 22, fontWeight: 'bold', marginVertical: 8 },
-            heading3: { fontSize: 20, fontWeight: 'bold', marginVertical: 6 },
-            heading4: { fontSize: 18, fontWeight: 'bold', marginVertical: 5 },
-            heading5: { fontSize: 16, fontWeight: 'bold', marginVertical: 4 },
-            heading6: { fontSize: 14, fontWeight: 'bold', marginVertical: 3 },
-            bullet_list: { marginVertical: 6 },
-            ordered_list: { marginVertical: 6 },
-            list_item: { flexDirection: 'row', alignItems: 'flex-start', marginVertical: 2 },
-            blockquote: { backgroundColor: '#111', borderLeftWidth: 4, borderLeftColor: '#aaa', padding: 8, marginVertical: 6 },
-            table: { borderWidth: 1, borderColor: '#666', marginVertical: 8 },
-            th: { backgroundColor: '#444', color: '#fff', fontWeight: 'bold', padding: 6 },
-            tr: { borderBottomWidth: 1, borderColor: '#666' },
-            td: { padding: 6, color: '#fff' },
-            hr: { borderBottomWidth: 1, borderColor: '#aaa', marginVertical: 8 },
-            link: { color: '#3498db', textDecorationLine: 'underline' },
-            image: { width: 220, height: 160, borderRadius: 8, marginVertical: 8, alignSelf: 'center' },
-          }}
-          onLinkPress={(url: string) => {
-            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:')) {
-              if (typeof window !== 'undefined') {
-                window.open(url, '_blank');
-              } else {
-                setFullscreenImage(url);
-              }
-              return true;
-            }
-            return false;
-          }}
-          rules={{
-            fence: (
-              node: ASTNode,
-              children: React.ReactNode[],
-              parent: ASTNode[],
-              styles: any
-            ) => {
-              return (
-                <View key={node.key} style={styles.code_block}>
-                  <Text style={styles.code_block_text}>
-                    {node.content || ''}
-                  </Text>
-                </View>
-              );
-            }
-          }}
-        >
-          {text}
-        </Markdown>
-      </View>
-    );
-  }
-
-  const rawImageMarkdownRegex = /^!\[(.*?)\]\(image:([a-f0-9]+)\)$/;
-  const rawImageMatch = text.trim().match(rawImageMarkdownRegex);
-
-  if (rawImageMatch) {
-    const alt = rawImageMatch[1] || "图片";
-    const imageId = rawImageMatch[2];
-
-    const imageInfo = ImageManager.getImageInfo(imageId);
-    const imageStyle = getImageDisplayStyle(imageInfo);
-
-    if (imageInfo) {
+  // 修改处理消息内容的函数，应用文本样式和缓存图片信息
+  const processMessageContent = useCallback((text: string, isUser: boolean, opts?: { isHtmlPagePlaceholder?: boolean }) => {
+    // 新增：如果是HTML页面占位，直接显示占位文本
+    if (opts?.isHtmlPagePlaceholder) {
       return (
-        <View style={styles.imageWrapper}>
-          <TouchableOpacity
-            style={styles.imageContainer}
-            onPress={() => handleOpenFullscreenImage(imageId)}
-          >
-            <Image
-              source={{ uri: imageInfo.originalPath }}
-              style={imageStyle}
-              resizeMode="contain"
-              onError={(e) => console.error(`Error loading image: ${e.nativeEvent.error}`, imageInfo.originalPath)}
-            />
-          </TouchableOpacity>
-          <Text style={styles.imageCaption}>{alt}</Text>
-        </View>
+        <Text style={[
+          isUser ? styles.userMessageText : styles.botMessageText,
+          getTextStyle(isUser)
+        ]}>
+          [页面消息]
+        </Text>
       );
-    } else {
-      console.error(`No image info found for ID: ${imageId}`);
+    }
+
+    if (!text || text.trim() === '') {
       return (
-        <View style={styles.imageError}>
-          <Ionicons name="alert-circle" size={36} color="#e74c3c" />
-          <Text style={styles.imageErrorText}>图片无法加载 (ID: {imageId.substring(0, 8)}...)</Text>
+        <Text style={[
+          isUser ? styles.userMessageText : styles.botMessageText,
+          getTextStyle(isUser)
+        ]}>
+          (Empty message)
+        </Text>
+      );
+    }
+
+    if (containsCustomTags(text) || /<\/?[a-z][^>]*>/i.test(text)) {
+      // 渲染前先移除未知标签
+      const cleanedText = stripUnknownTags(text);
+      return (
+        <RichTextRenderer
+          html={optimizeHtmlForRendering(cleanedText)}
+          baseStyle={[isUser ? styles.userMessageText : styles.botMessageText, getTextStyle(isUser)]}
+          onImagePress={(url) => setFullscreenImage(url)}
+          maxImageHeight={MAX_IMAGE_HEIGHT}
+        />
+      );
+    }
+
+    // Enhanced check for Markdown code blocks with triple backticks
+    const codeBlockPattern = /```([a-zA-Z0-9]*)\n([\s\S]*?)```/g;
+    const hasCodeBlock = codeBlockPattern.test(text);
+    
+    const markdownPattern = /(^|\n)(\s{0,3}#|```|>\s|[*+-]\s|\d+\.\s|\|.*\|)/;
+    if (hasCodeBlock || markdownPattern.test(text)) {
+      return (
+        <View style={{ width: '100%' }}>
+          <Markdown
+            style={{
+              body: {
+                ...(isUser ? styles.userMessageText : styles.botMessageText),
+                color: uiSettings.markdownTextColor, // 应用自定义颜色
+              },
+              text: {
+                ...(isUser ? styles.userMessageText : styles.botMessageText),
+                color: uiSettings.markdownTextColor, // 应用自定义颜色
+              },
+              // Enhanced code block styling with UI settings
+              code_block: { 
+                backgroundColor: uiSettings.markdownCodeBackgroundColor,
+                color: uiSettings.markdownCodeTextColor,
+                borderRadius: 6,
+                padding: 12,
+                fontSize: 14 * uiSettings.markdownCodeScale,
+                fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                marginVertical: 10,
+              },
+              code_block_text: {
+                backgroundColor: uiSettings.markdownCodeBackgroundColor,
+                color: uiSettings.markdownCodeTextColor,
+                fontSize: 14 * uiSettings.markdownCodeScale,
+                fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                padding: 0,
+              },
+              fence: {
+                backgroundColor: uiSettings.markdownCodeBackgroundColor,
+                borderRadius: 6,
+                marginVertical: 10,
+                width: '100%',
+              },
+              fence_code: {
+                backgroundColor: uiSettings.markdownCodeBackgroundColor,
+                color: uiSettings.markdownCodeTextColor,
+                borderRadius: 6,
+                padding: 12,
+                fontSize: 14 * uiSettings.markdownCodeScale,
+                fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                width: '100%',
+              },
+              fence_code_text: {
+                backgroundColor: uiSettings.markdownCodeBackgroundColor,
+                color: uiSettings.markdownCodeTextColor,
+                fontSize: 14 * uiSettings.markdownCodeScale,
+                fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                padding: 0,
+              },
+              heading1: { 
+                fontSize: 24 * uiSettings.markdownTextScale, 
+                fontWeight: 'bold', 
+                marginVertical: 10,
+                color: uiSettings.markdownHeadingColor 
+              },
+              heading2: { 
+                fontSize: 22 * uiSettings.markdownTextScale, 
+                fontWeight: 'bold', 
+                marginVertical: 8,
+                color: uiSettings.markdownHeadingColor
+              },
+              heading3: { 
+                fontSize: 20 * uiSettings.markdownTextScale, 
+                fontWeight: 'bold', 
+                marginVertical: 6,
+                color: uiSettings.markdownHeadingColor
+              },
+              heading4: { 
+                fontSize: 18 * uiSettings.markdownTextScale, 
+                fontWeight: 'bold', 
+                marginVertical: 5,
+                color: uiSettings.markdownHeadingColor
+              },
+              heading5: { 
+                fontSize: 16 * uiSettings.markdownTextScale, 
+                fontWeight: 'bold', 
+                marginVertical: 4,
+                color: uiSettings.markdownHeadingColor
+              },
+              heading6: { 
+                fontSize: 14 * uiSettings.markdownTextScale, 
+                fontWeight: 'bold', 
+                marginVertical: 3,
+                color: uiSettings.markdownHeadingColor
+              },
+              bullet_list: { marginVertical: 6 },
+              ordered_list: { marginVertical: 6 },
+              list_item: { flexDirection: 'row', alignItems: 'flex-start', marginVertical: 2 },
+              blockquote: { 
+                backgroundColor: uiSettings.markdownQuoteBackgroundColor, 
+                borderLeftWidth: 4, 
+                borderLeftColor: '#aaa', 
+                padding: 8, 
+                marginVertical: 6 
+              },
+              blockquote_text: {
+                color: uiSettings.markdownQuoteColor,
+              },
+              table: { borderWidth: 1, borderColor: '#666', marginVertical: 8 },
+              th: { backgroundColor: '#444', color: '#fff', fontWeight: 'bold', padding: 6 },
+              tr: { borderBottomWidth: 1, borderColor: '#666' },
+              td: { padding: 6, color: '#fff' },
+              hr: { borderBottomWidth: 1, borderColor: '#aaa', marginVertical: 8 },
+              link: { color: uiSettings.markdownLinkColor, textDecorationLine: 'underline' },
+              strong: { color: uiSettings.markdownBoldColor, fontWeight: 'bold' },
+              image: { width: 220, height: 160, borderRadius: 8, marginVertical: 8, alignSelf: 'center' },
+            }}
+            onLinkPress={(url: string) => {
+              if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:')) {
+                if (typeof window !== 'undefined') {
+                  window.open(url, '_blank');
+                } else {
+                  setFullscreenImage(url);
+                }
+                return true;
+              }
+              return false;
+            }}
+            rules={{
+              fence: (
+                node: ASTNode,
+                children: React.ReactNode[],
+                parent: ASTNode[],
+                styles: any
+              ) => {
+                return (
+                  <View key={node.key} style={styles.code_block}>
+                    <Text style={styles.code_block_text}>
+                      {node.content || ''}
+                    </Text>
+                  </View>
+                );
+              }
+            }}
+          >
+            {text}
+          </Markdown>
         </View>
       );
     }
-  }
 
-  const hasCustomTags = (
-    /<\s*(thinking|think|status|mem|websearch)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status|mem|websearch)\s*>/i.test(text) ||
-    /<\s*char\s+think\s*>([\s\S]*?)<\/\s*char\s+think\s*>/i.test(text)
-  );
+    const rawImageMarkdownRegex = /!\[(.*?)\]\(image:([a-zA-Z0-9\-_]+)\)/;
+    const rawImageMatch = text.trim().match(rawImageMarkdownRegex);
 
-  const hasMarkdown = /```[\w]*\s*([\s\S]*?)```/.test(text) ||
+    if (rawImageMatch) {
+      const alt = rawImageMatch[1] || "图片";
+      const imageId = rawImageMatch[2];
+
+      const imageInfo = getCachedImageInfo(imageId);
+      const imageStyle = getImageDisplayStyle(imageInfo);
+
+      if (imageInfo) {
+        return (
+          <View style={styles.imageWrapper}>
+            <TouchableOpacity
+              style={styles.imageContainer}
+              onPress={() => handleOpenFullscreenImage(imageId)}
+            >
+              <Image
+                source={{ uri: imageInfo.originalPath }}
+                style={imageStyle}
+                resizeMode="contain"
+                onError={(e) => console.error(`Error loading image: ${e.nativeEvent.error}`, imageInfo.originalPath)}
+              />
+            </TouchableOpacity>
+            <Text style={styles.imageCaption}>{alt}</Text>
+          </View>
+        );
+      } else {
+        console.error(`No image info found for ID: ${imageId}`);
+        return (
+          <View style={styles.imageError}>
+            <Ionicons name="alert-circle" size={36} color="#e74c3c" />
+            <Text style={styles.imageErrorText}>图片无法加载 (ID: {imageId.substring(0, 8)}...)</Text>
+          </View>
+        );
+      }
+    }
+
+    const hasCustomTags = (
+      /<\s*(thinking|think|status|mem|websearch)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status|mem|websearch)\s*>/i.test(text) ||
+      /<\s*char\s+think\s*>([\s\S]*?)<\/\s*char\s+think\s*>/i.test(text)
+    );
+
+    const hasMarkdown = /```[\w]*\s*([\s\S]*?)```/.test(text) ||
                      /!\[[\s\S]*?\]\([\s\S]*?\)/.test(text) ||
                      /\*\*([\s\S]*?)\*\*/.test(text) ||
                      /\*([\s\S]*?)\*/.test(text);
 
-  const hasHtml = /<\/?[a-z][^>]*>/i.test(text);
+    const hasHtml = /<\/?[a-z][^>]*>/i.test(text);
 
-  const imageIdRegex = /!\[(.*?)\]\(image:([^\s)]+)\)/g;
-  let match: RegExpExecArray | null;
-  const matches: { alt: string, id: string }[] = [];
+    const imageIdRegex = /!\[(.*?)\]\(image:([^\s)]+)\)/g;
+    let match: RegExpExecArray | null;
+    const matches: { alt: string, id: string }[] = [];
 
-  while ((match = imageIdRegex.exec(text)) !== null) {
-    matches.push({
-      alt: match[1] || "图片",
-      id: match[2]
-    });
-  }
+    while ((match = imageIdRegex.exec(text)) !== null) {
+      matches.push({
+        alt: match[1] || "图片",
+        id: match[2]
+      });
+    }
 
-  if (matches.length > 0) {
-    return (
-      <View>
-        {matches.map((img, idx) => {
-          const imageInfo = ImageManager.getImageInfo(img.id);
-          const imageStyle = getImageDisplayStyle(imageInfo);
-          if (imageInfo) {
+    if (matches.length > 0) {
+      console.log(`[ChatDialog] Found ${matches.length} image references in message`);
+      return (
+        <View>
+          {matches.map((img, idx) => {
+            console.log(`[ChatDialog] Processing image ${idx+1}/${matches.length}, ID: ${img.id.substring(0, 8)}...`);
+            const imageInfo = getCachedImageInfo(img.id);
+            const imageStyle = getImageDisplayStyle(imageInfo);
+            if (imageInfo) {
+              console.log(`[ChatDialog] Image info found, path: ${imageInfo.originalPath}`);
+              return (
+                <TouchableOpacity 
+                  key={img.id + '-' + idx}
+                  style={styles.imageWrapper}
+                  onPress={() => handleOpenFullscreenImage(img.id)}
+                >
+                  <Image
+                    source={{ uri: imageInfo.originalPath }}
+                    style={imageStyle}
+                    resizeMode="contain"
+                    onError={(e) => console.error(`Error loading image: ${e.nativeEvent.error}`, imageInfo.originalPath)}
+                  />
+                  <Text style={styles.imageCaption}>{img.alt}</Text>
+                </TouchableOpacity>
+              );
+            } else {
+              console.error(`[ChatDialog] No image info found for ID: ${img.id}`);
+              return (
+                <View key={idx} style={styles.imageError}>
+                  <Ionicons name="alert-circle" size={36} color="#e74c3c" />
+                  <Text style={styles.imageErrorText}>图片无法加载 (ID: {img.id.substring(0, 8)}...)</Text>
+                </View>
+              );
+            }
+          })}
+        </View>
+      );
+    }
+
+    const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+|image:[^\s)]+)\)/g;
+    let urlMatches: { alt: string, url: string }[] = [];
+
+    imageMarkdownRegex.lastIndex = 0;
+
+    while ((match = imageMarkdownRegex.exec(text)) !== null) {
+      urlMatches.push({
+        alt: match[1] || "图片",
+        url: match[2]
+      });
+    }
+
+    if (urlMatches.length > 0) {
+      return (
+        <View>
+          {urlMatches.map((img, idx) => {
+            const isImageId = img.url.startsWith('image:');
+            const isDataUrl = img.url.startsWith('data:');
+            const isLargeDataUrl = isDataUrl && img.url.length > 100000;
+
+            // Handle image: prefix (local image ID)
+            if (isImageId) {
+              const imageId = img.url.substring(6); // Remove 'image:' prefix
+              const imageInfo = getCachedImageInfo(imageId);
+              const imageStyle = getImageDisplayStyle(imageInfo);
+              
+              if (imageInfo) {
+                return (
+                  <TouchableOpacity 
+                    key={idx}
+                    style={styles.imageWrapper}
+                    onPress={() => handleOpenFullscreenImage(imageId)}
+                  >
+                    <Image
+                      source={{ uri: imageInfo.originalPath }}
+                      style={imageStyle}
+                      resizeMode="contain"
+                      onError={(e) => console.error(`Error loading image: ${e.nativeEvent.error}`, imageInfo.originalPath)}
+                    />
+                    <Text style={styles.imageCaption}>{img.alt}</Text>
+                  </TouchableOpacity>
+                );
+              } else {
+                console.error(`No image info found for ID: ${imageId}`);
+                return (
+                  <View key={idx} style={styles.imageError}>
+                    <Ionicons name="alert-circle" size={36} color="#e74c3c" />
+                    <Text style={styles.imageErrorText}>图片无法加载 (ID: {imageId.substring(0, 8)}...)</Text>
+                  </View>
+                );
+              }
+            }
+
+            if (isLargeDataUrl) {
+              return (
+                <View key={idx} style={styles.imageWrapper}>
+                  <TouchableOpacity
+                    style={styles.imageDataUrlWarning}
+                    onPress={() => setFullscreenImage(img.url)}
+                  >
+                    <Ionicons name="image" size={36} color="#999" />
+                    <Text style={styles.imageDataUrlWarningText}>
+                      {img.alt} (点击查看)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+
             return (
               <TouchableOpacity 
-                key={img.id + '-' + idx}
+                key={idx}
                 style={styles.imageWrapper}
-                onPress={() => handleOpenFullscreenImage(img.id)}
+                onPress={() => setFullscreenImage(img.url)}
               >
                 <Image
-                  source={{ uri: imageInfo.originalPath }}
-                  style={imageStyle}
+                  source={{ uri: img.url }}
+                  style={styles.messageImage}
                   resizeMode="contain"
-                  onError={(e) => console.error(`Error loading image: ${e.nativeEvent.error}`, imageInfo.originalPath)}
+                  onError={(e) => console.error(`Error loading image URL: ${e.nativeEvent.error}`)}
                 />
                 <Text style={styles.imageCaption}>{img.alt}</Text>
               </TouchableOpacity>
             );
-          } else {
-            return (
-              <View key={idx} style={styles.imageError}>
-                <Ionicons name="alert-circle" size={36} color="#e74c3c" />
-                <Text style={styles.imageErrorText}>图片无法加载 (ID: {img.id.substring(0, 8)}...)</Text>
-              </View>
-            );
-          }
-        })}
-      </View>
-    );
-  }
+          })}
+        </View>
+      );
+    }
 
-  const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
-  let urlMatches: { alt: string, url: string }[] = [];
+    const linkRegex = /\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
+    let linkMatches: { text: string, url: string }[] = [];
 
-  imageMarkdownRegex.lastIndex = 0;
+    while ((match = linkRegex.exec(text)) !== null) {
+      linkMatches.push({
+        text: match[1],
+        url: match[2]
+      });
+    }
 
-  while ((match = imageMarkdownRegex.exec(text)) !== null) {
-    urlMatches.push({
-      alt: match[1] || "图片",
-      url: match[2]
-    });
-  }
-
-  if (urlMatches.length > 0) {
-    return (
-      <View>
-        {urlMatches.map((img, idx) => {
-          const isDataUrl = img.url.startsWith('data:');
-          const isLargeDataUrl = isDataUrl && img.url.length > 100000;
-
-          if (isLargeDataUrl) {
-            return (
-              <View key={idx} style={styles.imageWrapper}>
-                <TouchableOpacity
-                  style={styles.imageDataUrlWarning}
-                  onPress={() => setFullscreenImage(img.url)}
-                >
-                  <Ionicons name="image" size={36} color="#999" />
-                  <Text style={styles.imageDataUrlWarningText}>
-                    {img.alt} (点击查看)
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            );
-          }
-
-          return (
-            <TouchableOpacity 
+    if (linkMatches.length > 0) {
+      return (
+        <View>
+          {linkMatches.map((link, idx) => (
+            <TouchableOpacity
               key={idx}
-              style={styles.imageWrapper}
-              onPress={() => setFullscreenImage(img.url)}
+              style={styles.linkButton}
+              onPress={() => {
+                if (typeof window !== 'undefined') {
+                  window.open(link.url, '_blank');
+                } else {
+                  setFullscreenImage(link.url);
+                }
+              }}
             >
-              <Image
-                source={{ uri: img.url }}
-                style={styles.messageImage}
-                resizeMode="contain"
-                onError={(e) => console.error(`Error loading image URL: ${e.nativeEvent.error}`)}
-              />
-              <Text style={styles.imageCaption}>{img.alt}</Text>
+              <Ionicons name="link" size={16} color="#3498db" style={styles.linkIcon} />
+              <Text style={styles.linkText}>{link.text}</Text>
             </TouchableOpacity>
-          );
-        })}
-      </View>
-    );
-  }
+          ))}
+        </View>
+      );
+    }
 
-  const linkRegex = /\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
-  let linkMatches: { text: string, url: string }[] = [];
-
-  while ((match = linkRegex.exec(text)) !== null) {
-    linkMatches.push({
-      text: match[1],
-      url: match[2]
-    });
-  }
-
-  if (linkMatches.length > 0) {
-    return (
-      <View>
-        {linkMatches.map((link, idx) => (
-          <TouchableOpacity
-            key={idx}
-            style={styles.linkButton}
-            onPress={() => {
-              if (typeof window !== 'undefined') {
-                window.open(link.url, '_blank');
-              } else {
-                setFullscreenImage(link.url);
-              }
-            }}
-          >
-            <Ionicons name="link" size={16} color="#3498db" style={styles.linkIcon} />
-            <Text style={styles.linkText}>{link.text}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    );
-  }
-
-  return renderMessageText(text, isUser);
-};
+    return renderMessageText(text, isUser);
+  }, [getCachedImageInfo, uiSettings, getTextStyle, containsCustomTags, stripUnknownTags, optimizeHtmlForRendering, getImageDisplayStyle]);
 
   const renderMessageText = (text: string, isUser: boolean) => {
     const segments = parseHtmlText(text);
     return (
-      <Text style={isUser ? styles.userMessageText : styles.botMessageText}>
+      <Text style={[
+        isUser ? styles.userMessageText : styles.botMessageText,
+        getTextStyle(isUser)
+      ]}>
         {segments.map((segment, index) => (
-          <Text key={index} style={segment.style}>
+          <Text key={index} style={[segment.style, getTextStyle(isUser)]}>
             {segment.text}
           </Text>
         ))}
@@ -1090,7 +2352,13 @@ const getAiMessageIndex = (realIndex: number): number => {
 
   const renderTTSButtons = (message: Message) => {
     if (message.sender !== 'bot' || message.isLoading) return null;
-    const audioState = audioStates[message.id] || ttsService.getAudioState(message.id);
+    const audioState = audioStates[message.id] || {
+      isLoading: false,
+      hasAudio: false,
+      isPlaying: false,
+      isComplete: false,
+      error: null
+    };
     const isVisualNovel = mode === 'visual-novel';
 
     if (audioState.isLoading) {
@@ -1145,7 +2413,6 @@ const getAiMessageIndex = (realIndex: number): number => {
     setEditTargetMsgId(message.id);
     setEditTargetAiIndex(messageIndex);
     setEditModalVisible(true);
-    // isUser 用于区分编辑哪个类型的消息
   };
 
   const handleDeleteButton = (message: Message, messageIndex: number, isUser: boolean) => {
@@ -1181,16 +2448,106 @@ const getAiMessageIndex = (realIndex: number): number => {
     return messages.slice(-30);
   }, [messages, mode, isHistoryModalVisible]);
 
+// 新增：缓存 combinedItems，避免每次都新建对象，key 保持稳定
+const combinedItems = useMemo(() => {
+  if (mode === 'visual-novel') {
+    return visibleMessages.map(message => ({
+      type: 'message' as const,
+      message,
+      timestamp: message.timestamp || 0,
+      id: message.id, // 增加 id 字段
+    }));
+  }
+  
+  // First, separate message items into two groups: user messages being loaded and regular messages
+  const userLoadingMessages: CombinedItem[] = [];
+  const regularMessages: CombinedItem[] = [];
+  
+  visibleMessages.forEach(message => {
+    const item = {
+      type: 'message' as const,
+      message,
+      timestamp: message.timestamp || 0,
+      id: message.id,
+    };
+    
+    // Separate the last user message that's waiting for AI response
+    if (message.sender === 'user' && isWaitingForAI && message.id === visibleMessages[visibleMessages.length - 1].id) {
+      userLoadingMessages.push(item);
+    } else {
+      regularMessages.push(item);
+    }
+  });
+  
+  // For normal and background-focus modes, we want:
+  // 1. Regular messages (sorted by timestamp)
+  // 2. User loading message (if any) at the end
+  
+  // Regular messages sorted by timestamp (no image items in the new version)
+  const combined = [...regularMessages].sort((a, b) => a.timestamp - b.timestamp);
+  
+  // Always append user loading messages at the end
+  return [...combined, ...userLoadingMessages];
+  
+  // eslint-disable-next-line
+}, [visibleMessages, mode, isWaitingForAI]);
+
+  // 处理图片相关操作
+  const handleOpenFullscreenImage = useCallback((imageId: string) => {
+    if (imageId) {
+      setFullscreenImageId(imageId);
+      const imageInfo = ImageManager.getImageInfo(imageId);
+
+      if (imageInfo) {
+        setFullscreenImage(imageInfo.originalPath);
+        setImageLoading(false);
+      } else {
+        setFullscreenImage(null);
+        Alert.alert('错误', '无法加载图片');
+      }
+    }
+  }, []);
+
+  const handleSaveGeneratedImage = useCallback(async (imageId: string) => {
+    try {
+      const result = await ImageManager.saveToGallery(imageId);
+      Alert.alert(result.success ? '成功' : '错误', result.message);
+    } catch (error) {
+      console.error('[ChatDialog] Error saving image:', error);
+      Alert.alert('错误', '保存图片失败');
+    }
+  }, []);
+
+  const handleShareGeneratedImage = useCallback(async (imageId: string) => {
+    try {
+      const shared = await ImageManager.shareImage(imageId);
+      if (!shared) {
+        Alert.alert('错误', '分享功能不可用');
+      }
+    } catch (error) {
+      console.error('[ChatDialog] Error sharing image:', error);
+      Alert.alert('错误', '分享图片失败');
+    }
+  }, []);
+
+  const handleDeleteGeneratedImage = useCallback((imageId: string) => {
+    if (onDeleteGeneratedImage) {
+      onDeleteGeneratedImage(imageId);
+    }
+  }, [onDeleteGeneratedImage]);
+
   const renderMessageContent = (message: Message, isUser: boolean, index: number) => {
-    // 新增：常规/背景强调模式下，遇到完整HTML页面只显示占位
+    // 常规/背景强调模式下，遇到完整HTML页面只显示占位
     const isHtmlPage = isWebViewContent(message.text);
     if ((mode !== 'visual-novel') && isHtmlPage) {
       return (
-        <View style={[
-          styles.messageContent,
-          isUser ? styles.userMessageContent : styles.botMessageContent,
-          message.isLoading && styles.loadingMessage
-        ]}>
+        <Animated.View 
+          style={[
+            styles.messageContent,
+            isUser ? styles.userMessageContent : styles.botMessageContent,
+            message.isLoading && styles.loadingMessage
+          ]}
+        >
           {!isUser && (
             <Image
               source={
@@ -1204,16 +2561,18 @@ const getAiMessageIndex = (realIndex: number): number => {
           <View style={isUser ? styles.userMessageWrapper : styles.botMessageTextContainer}>
             {processMessageContent(message.text, isUser, { isHtmlPagePlaceholder: true })}
           </View>
-        </View>
+        </Animated.View>
       );
     }
 
     return (
-      <View style={[
-        styles.messageContent,
-        isUser ? styles.userMessageContent : styles.botMessageContent,
-        message.isLoading && styles.loadingMessage
-      ]}>
+      <Animated.View 
+        style={[
+          styles.messageContent,
+          isUser ? styles.userMessageContent : styles.botMessageContent,
+          message.isLoading && styles.loadingMessage
+               ]}
+      >
         {!isUser && (
           <Image
             source={
@@ -1225,6 +2584,7 @@ const getAiMessageIndex = (realIndex: number): number => {
           />
         )}
         {isUser ? (
+          // 用户消息 - 简洁版本，没有操作按钮
           <View style={[styles.userMessageWrapper, {maxWidth: MAX_WIDTH}]}>
             {user?.avatar && (
               <Image
@@ -1232,15 +2592,44 @@ const getAiMessageIndex = (realIndex: number): number => {
                 style={[styles.userMessageAvatar, { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2 }]}
               />
             )}
-            <LinearGradient
-              colors={['rgba(255, 224, 195, 0.95)', 'rgba(255, 200, 170, 0.95)']}
-              style={[styles.userGradient, {borderRadius: 18, borderTopRightRadius: 4}]}
-            >
-              {processMessageContent(message.text, true)}
-            </LinearGradient>
+            {mode === 'normal' || mode === 'background-focus' ? (
+              <LinearGradient
+                colors={[
+                  uiSettings.regularUserBubbleColor.replace('rgb', 'rgba').replace(')', `,${uiSettings.regularUserBubbleAlpha})`),
+                  uiSettings.regularUserBubbleColor.replace('rgb', 'rgba').replace(')', `,${uiSettings.regularUserBubbleAlpha - 0.05})`)
+                ]}
+                style={[
+                  styles.userGradient, 
+                  { borderRadius: 18, borderTopRightRadius: 4 },
+                  { padding: getBubblePadding(), paddingHorizontal: getBubblePadding() + 4 }
+                ]}
+              >
+                {processMessageContent(message.text, true)}
+              </LinearGradient>
+            ) : (
+              <View style={[
+                styles.userGradient,
+                getBubbleStyle(true),
+                { borderRadius: 18, borderTopRightRadius: 4 },
+                { padding: getBubblePadding(), paddingHorizontal: getBubblePadding() + 4 }
+              ]}>
+                {processMessageContent(message.text, true)}
+              </View>
+            )}
           </View>
         ) : (
-          <View style={[styles.botMessageTextContainer, {maxWidth: MAX_WIDTH}]}>
+          // AI消息 - 带操作按钮
+          <View style={[
+            styles.botMessageTextContainer, 
+            getBubbleStyle(false),
+            {maxWidth: MAX_WIDTH},
+            { 
+              padding: getBubblePadding(), 
+              paddingHorizontal: getBubblePadding() + 4,
+              paddingTop: getBubblePadding() + 8,
+              paddingBottom: getBubblePadding() + 4 // Reduce bottom padding for actions container
+            }
+          ]}>
             {message.isLoading ? (
               <View style={styles.loadingContainer}>
                 <Animated.View style={[styles.loadingDot, dot1Style]} />
@@ -1248,28 +2637,31 @@ const getAiMessageIndex = (realIndex: number): number => {
                 <Animated.View style={[styles.loadingDot, dot3Style]} />
               </View>
             ) : (
-              processMessageContent(message.text, false)
-            )
-            }
-            {!message.isLoading && !isUser && renderMessageActions(message, index)}
+              <>
+                {processMessageContent(message.text, false)}
+                {/* AI消息操作按钮放在内部，但有明确的分隔 */}
+                <View style={styles.botMessageActionsContainer}>
+                  {renderMessageActions(message, index)}
+                </View>
+              </>
+            )}
           </View>
         )}
-      </View>
+      </Animated.View>
     );
   };
 
   const renderMessageActions = (message: Message, visibleIndex: number) => {
-    if (message.isLoading) return null;
+    if (message.isLoading || message.sender !== 'bot') return null;
+    
     const isBot = message.sender === 'bot' && !message.isLoading;
-    const isUser = message.sender === 'user' && !message.isLoading;
     const isAutoMessage = !!message.metadata?.isAutoMessageResponse;
     const isRegenerating = regeneratingMessageId === message.id;
     // 用完整 messages 找到真实 index
     const realIndex = getRealMessageIndexById(messages, message.id);
     const aiIndex = getAiMessageIndex(realIndex);
-    const userIndex = realIndex;
 
-    // --- 新增: 判断是否为first_mes ---
+    // --- 判断是否为first_mes ---
     let isFirstMes = false;
     if (message.metadata?.isFirstMes) {
       isFirstMes = true;
@@ -1290,14 +2682,15 @@ const getAiMessageIndex = (realIndex: number): number => {
       }
     }
 
+    // 机器人消息的操作按钮
     return (
       <View style={styles.messageActionsRow}>
         <View style={styles.messageActionsLeft}>
-          {isBot && !isAutoMessage && renderTTSButtons(message)}
+          {!isAutoMessage && renderTTSButtons(message)}
         </View>
         <View style={styles.messageActionsRight}>
           {/* AI 消息操作按钮 */}
-          {isBot && !isAutoMessage && !isFirstMes && (
+          {!isAutoMessage && !isFirstMes && (
             <>
               <TouchableOpacity
                 style={[
@@ -1340,32 +2733,7 @@ const getAiMessageIndex = (realIndex: number): number => {
               </TouchableOpacity>
             </>
           )}
-          {/* 用户消息操作按钮 */}
-          {isUser && (
-            <>
-              <TouchableOpacity
-                style={[
-                  styles.actionCircleButton,
-                  { width: BUTTON_SIZE, height: BUTTON_SIZE, marginLeft: BUTTON_MARGIN }
-                ]}
-                onPress={() => handleEditButton(message, userIndex, true)}
-                disabled={!!regeneratingMessageId}
-              >
-                <Ionicons name="create-outline" size={BUTTON_ICON_SIZE} color={regeneratingMessageId ? "#999999" : "#f1c40f"} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.actionCircleButton,
-                  { width: BUTTON_SIZE, height: BUTTON_SIZE, marginLeft: BUTTON_MARGIN }
-                ]}
-                onPress={() => handleDeleteButton(message, userIndex, true)}
-                disabled={!!regeneratingMessageId}
-              >
-                <Ionicons name="trash-outline" size={BUTTON_ICON_SIZE} color={regeneratingMessageId ? "#999999" : "#e74c3c"} />
-              </TouchableOpacity>
-            </>
-          )}
-          {/* 新增：最后一条消息显示log跳转按钮 */}
+          {/* 最后一条消息显示log跳转按钮 */}
           {isLastMessage(visibleIndex) && (
             <TouchableOpacity
               style={[
@@ -1384,22 +2752,7 @@ const getAiMessageIndex = (realIndex: number): number => {
   };
 
 
-
-  const handleOpenFullscreenImage = (imageId: string | null) => {
-    if (imageId) {
-      setFullscreenImageId(imageId);
-      const imageInfo = ImageManager.getImageInfo(imageId);
-
-      if (imageInfo) {
-        setFullscreenImage(imageInfo.originalPath);
-        setImageLoading(false);
-      } else {
-        setFullscreenImage(null);
-        Alert.alert('错误', '无法加载图片');
-      }
-    }
-  };
-
+  // Handle fullscreen image operations
   const handleSaveImage = async () => {
     try {
       if (fullscreenImageId) {
@@ -1432,11 +2785,35 @@ const getAiMessageIndex = (realIndex: number): number => {
     }
   };
 
+  // Update the renderVisualNovelDialog function to include the VisualNovelImageDisplay component
   const renderVisualNovelDialog = () => {
     const lastMessage = messages.length > 0
       ? messages[messages.length - 1]
       : null;
     if (!lastMessage || !selectedCharacter) return null;
+
+    // Check if there are generated images to display
+    const hasGeneratedImages = generatedImages && generatedImages.length > 0;
+    const shouldUseAbsolute = !vnExpanded && hasGeneratedImages;
+
+    // Modify the collapsedStackStyle to account for keyboard
+    const collapsedStackStyle = shouldUseAbsolute
+      ? {
+          position: 'absolute' as const,
+          left: 0,
+          right: 0,
+          top: getCollapsedAbsTop(),
+          bottom: keyboardVisible ? keyboardHeight : 0, // Adjust bottom based on keyboard
+          zIndex: 1,
+          flexDirection: 'column' as const,
+          alignItems: 'stretch' as const,
+          justifyContent: 'flex-end' as const,
+          pointerEvents: 'box-none' as const,
+        }
+      : [
+          styles.visualNovelDialogStack,
+          keyboardVisible && { bottom: keyboardHeight } // Add bottom adjustment when keyboard is visible
+        ];
 
     const showUserMessage =
       lastMessage.sender === 'user' ||
@@ -1463,14 +2840,14 @@ const getAiMessageIndex = (realIndex: number): number => {
     const isUser = showUserMessage;
     const isRegenerating = regeneratingMessageId === lastMessage.id;
 
-  // 增强 shouldRenderAsWebView 判断
-  const shouldRenderAsWebView = !isUser && !lastMessage.isLoading && (
-    isWebViewContent(displayText) || 
-    displayText.match(/```(?:html)?\s*<!DOCTYPE\s+html[\s\S]*?```/i) ||
-    displayText.match(/```(?:html)?\s*<html[\s\S]*?```/i)
-  );
+    // Enhance shouldRenderAsWebView judgment
+    const shouldRenderAsWebView = !isUser && !lastMessage.isLoading && (
+      isWebViewContent(displayText) || 
+      displayText.match(/```(?:html)?\s*<!DOCTYPE\s+html[\s\S]*?```/i) ||
+      displayText.match(/```(?:html)?\s*<html[\s\S]*?```/i)
+    );
 
-    // 判断是否first_mes
+    // Check if first_mes
     let isFirstMes = false;
     if (lastMessage.metadata?.isFirstMes) {
       isFirstMes = true;
@@ -1491,21 +2868,60 @@ const getAiMessageIndex = (realIndex: number): number => {
       }
     }
 
-   return (
-    <>
-      <View style={[
-        styles.visualNovelContainer,
-        {
-          backgroundColor: getVnBgColor(),
-          top: vnExpanded ? 0 : undefined,
-          bottom: 10,
-          left: 10,
-          right: 10,
-          maxHeight: vnExpanded ? height - 10 : 320,
-          minHeight: 200,
-        }
-      ]}>
-        {/* 右上角：背景透明度按钮 */}
+    // 新增：定义 generatedImages 区域高度
+     const VN_IMAGE_AREA_HEIGHT = hasGeneratedImages ? 220 : 0;
+
+    // 关键：收起且无图片时吸底，否则普通布局
+    const vnContainerStyle = vnExpanded
+      ? [
+          styles.visualNovelContainer,
+          styles.visualNovelContainerExpanded,
+          { backgroundColor: getVnBgColor() },
+          keyboardVisible && { bottom: keyboardHeight } // Add when keyboard is visible
+        ]
+      : [
+          styles.visualNovelContainer,
+          !hasGeneratedImages
+            ? [
+                styles.visualNovelContainerCollapsedAbs, 
+                { top: getCollapsedAbsTop() }
+              ]
+            : styles.visualNovelContainerCollapsed,
+          {
+            backgroundColor: getVnBgColor(),
+            maxHeight: height - 10 - VN_IMAGE_AREA_HEIGHT - 16 - (keyboardVisible ? keyboardHeight : 0),
+            minHeight: Math.min(200, height - (keyboardVisible ? keyboardHeight + 50 : 50)),
+            marginTop: hasGeneratedImages ? 8 : 0,
+          }
+        ];
+    // --- 关键修改结束 ---
+
+    return (
+    // 关键：收起且有图片时整体绝对定位
+    <View style={shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack}>
+      {hasGeneratedImages && !vnExpanded && (
+        <Animated.View 
+          entering={FadeIn.duration(400)} 
+          style={styles.vnImageDisplayOuter}
+        >
+          <VisualNovelImageDisplay
+            images={generatedImages}
+            onOpenFullscreen={handleOpenFullscreenImage}
+            onSave={handleSaveGeneratedImage}
+            onShare={handleShareGeneratedImage}
+            onDelete={handleDeleteGeneratedImage}
+          />
+        </Animated.View>
+      )}
+
+      {/* 关键：这里用 vnContainerStyle */}
+      <Animated.View 
+        entering={FadeIn.duration(350)}
+        style={vnContainerStyle}
+      >
+        {/* Rest of the existing visual novel dialog code... */}
+        
+        {/* Right top: background transparency button */}
         <View style={styles.visualNovelAlphaButtonFixed}>
           <TouchableOpacity
             ref={ref => { alphaBtnRef.current = ref }}
@@ -1520,7 +2936,7 @@ const getAiMessageIndex = (realIndex: number): number => {
             <Ionicons name="color-filter-outline" size={BUTTON_ICON_SIZE} color="#fff" />
           </TouchableOpacity>
         </View>
-        {/* 左下角：展开/收回按钮 */}
+        {/* Left bottom: expand/collapse button */}
         <View style={styles.visualNovelExpandButtonFixed}>
           <TouchableOpacity
             style={[
@@ -1532,7 +2948,7 @@ const getAiMessageIndex = (realIndex: number): number => {
             <Ionicons name={vnExpanded ? "chevron-down" : "chevron-up"} size={BUTTON_ICON_SIZE} color="#fff" />
           </TouchableOpacity>
         </View>
-        {/* 历史按钮仍在右上角，避免遮挡，放在顶部内侧 */}
+        {/* History button still in top right, avoid overlap, place inside top */}
         <View style={styles.visualNovelHistoryButtonFixed}>
           <TouchableOpacity
             style={[
@@ -1544,7 +2960,7 @@ const getAiMessageIndex = (realIndex: number): number => {
             <Ionicons name="time-outline" size={BUTTON_ICON_SIZE} color="#fff" />
           </TouchableOpacity>
         </View>
-        {/* 透明度调节pad，绝对定位到透明度按钮右侧 */}
+        {/* Transparency adjustment pad, absolute position to the right of transparency button */}
         {showAlphaSlider && (
           <View
             style={[
@@ -1571,7 +2987,7 @@ const getAiMessageIndex = (realIndex: number): number => {
             />
           </View>
         )}
-        {/* 展开时不显示头像和名称 */}
+        {/* Don't show avatar and name when expanded */}
         {!vnExpanded && (
           <View style={styles.visualNovelHeader}>
             <Image
@@ -1587,179 +3003,208 @@ const getAiMessageIndex = (realIndex: number): number => {
           </View>
         )}
           
-          {/* WebView content replaces ScrollView when appropriate */}
-  {shouldRenderAsWebView ? (
-    <View style={[
-      styles.visualNovelWebViewContainer,
-      { 
-        maxHeight: getVNTextMaxHeight(),
-        marginTop: vnExpanded ? 8 : 0,
-      }
-    ]}>
-      <WebView
-        style={styles.visualNovelWebView}
-        originWhitelist={['*']}
-        source={{ 
-          html: enhanceHtmlWithMarkdown(displayText) // 使用增强后的处理函数
-        }}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        startInLoadingState={true}
-        scalesPageToFit={false}
-        injectedJavaScript={`
-          // Make content fit mobile viewport
-          document.querySelector('meta[name="viewport"]')?.remove();
-          var meta = document.createElement('meta');
-          meta.name = 'viewport';
-          meta.content = 'width=device-width, initial-scale=1, maximum-scale=1';
-          document.getElementsByTagName('head')[0].appendChild(meta);
-          true;
-        `}
-        renderLoading={() => (
-          <View style={styles.webViewLoading}>
-            <ActivityIndicator size="small" color="#fff" />
-            <Text style={styles.webViewLoadingText}>加载中...</Text>
+        {/* WebView content replaces ScrollView when appropriate */}
+        {shouldRenderAsWebView ? (
+          <View style={[
+            styles.visualNovelWebViewContainer,
+            { 
+              height: getVNTextMaxHeight(),
+              marginTop: vnExpanded ? 8 : 0,
+            }
+          ]}>
+            <WebView
+              style={[styles.visualNovelWebView, { width: '100%', height: '100%' }]} // 修改这里
+              originWhitelist={['*']}
+              source={{ 
+                html: enhanceHtmlWithMarkdown(extractHtmlFromCodeBlock(displayText)) // Use enhanced processing function
+              }}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              startInLoadingState={true}
+              scalesPageToFit={false}
+              injectedJavaScript={`
+                // Make content fit mobile viewport
+                document.querySelector('meta[name="viewport"]')?.remove();
+                var meta = document.createElement('meta');
+                meta.name = 'viewport';
+                meta.content = 'width=device-width, initial-scale=1, maximum-scale=1';
+                document.getElementsByTagName('head')[0].appendChild(meta);
+                true;
+              `}
+              renderLoading={() => (
+                <View style={styles.webViewLoading}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.webViewLoadingText}>加载中...</Text>
+                </View>
+              )}
+            />
           </View>
+        ) : vnExpanded ? (
+          // 展开模式：使用 ScrollView 包装文本内容
+          <ScrollView
+            style={[
+              styles.visualNovelTextContainer,
+              {
+                maxHeight: getVNTextMaxHeight(),
+                marginBottom: 0,
+                marginTop: 8,
+              }
+            ]}
+            contentContainerStyle={{ 
+              flexGrow: 1,
+              paddingBottom: 20, // 底部留出一些空间
+            }}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+          >
+            <View style={styles.visualNovelTextWrapper}>
+              {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
+                <RichTextRenderer 
+                  html={optimizeHtmlForRendering(stripUnknownTags(displayText))}
+                  baseStyle={{ 
+                    color: visualNovelSettings.textColor,
+                    fontFamily: visualNovelSettings.fontFamily,
+                    fontSize: 16,
+                    lineHeight: 22
+                  }}
+                  onImagePress={(url) => setFullscreenImage(url)}
+                  maxImageHeight={MAX_IMAGE_HEIGHT}
+                />
+              ) : (
+                <Text style={[
+                  styles.visualNovelText,
+                  { 
+                    fontFamily: visualNovelSettings.fontFamily, 
+                    color: visualNovelSettings.textColor 
+                  }
+                ]}>
+                  {displayText}
+                </Text>
+              )}
+            </View>
+          </ScrollView>
+        ) : (
+          // 收起模式：保持原有的 ScrollView（无变化）
+          <ScrollView
+            style={[
+              styles.visualNovelTextContainer,
+              {
+                maxHeight: getVNTextMaxHeight(),
+                marginBottom: 0,
+                marginTop: 0,
+              }
+            ]}
+            contentContainerStyle={{ flexGrow: 1 }}
+          >
+            <View style={styles.visualNovelTextWrapper}>
+              {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
+                <RichTextRenderer 
+                  html={optimizeHtmlForRendering(stripUnknownTags(displayText))}
+                  baseStyle={{ 
+                    color: visualNovelSettings.textColor,
+                    fontFamily: visualNovelSettings.fontFamily,
+                    fontSize: 16,
+                    lineHeight: 22
+                  }}
+                  onImagePress={(url) => setFullscreenImage(url)}
+                  maxImageHeight={MAX_IMAGE_HEIGHT}
+                />
+              ) : (
+                <Text style={[
+                  styles.visualNovelText,
+                  { 
+                    fontFamily: visualNovelSettings.fontFamily, 
+                    color: visualNovelSettings.textColor 
+                  }
+                ]}>
+                  {displayText}
+                </Text>
+              )}
+            </View>
+          </ScrollView>
         )}
-      />
-    </View>
-          ) : (
-            <ScrollView
-              style={[
-                styles.visualNovelTextContainer,
-                {
-                  maxHeight: getVNTextMaxHeight(),
-                  marginBottom: 0,
-                  marginTop: vnExpanded ? 8 : 0,
-                }
-              ]}
-              contentContainerStyle={{ flexGrow: 1 }}
-            >
-              <View style={styles.visualNovelTextWrapper}>
-                {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
-                  <RichTextRenderer 
-                    html={optimizeHtmlForRendering(stripUnknownTags(displayText))}
-                    baseStyle={{ 
-                      color: visualNovelSettings.textColor,
-                      fontFamily: visualNovelSettings.fontFamily,
-                      fontSize: 16,
-                      lineHeight: 22
-                    }}
-                    onImagePress={(url) => setFullscreenImage(url)}
-                    maxImageHeight={MAX_IMAGE_HEIGHT}
-                  />
-                ) : (
-                  <Text style={[
-                    styles.visualNovelText,
-                    { 
-                      fontFamily: visualNovelSettings.fontFamily, 
-                      color: visualNovelSettings.textColor 
-                    }
-                  ]}>
-                    {displayText}
-                  </Text>
-                )}
-              </View>
-            </ScrollView>
+        
+        <View style={styles.visualNovelActions}>
+          {/* Volume button */}
+          {!isUser && !lastMessage.isLoading && (
+            <>
+              <TouchableOpacity
+                style={[
+                  styles.actionCircleButton,
+                  { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginRight: BUTTON_MARGIN }
+                ]}
+                onPress={() => renderTTSButtons(lastMessage)?.props?.onPress?.()}
+                disabled={renderTTSButtons(lastMessage)?.props?.disabled}
+              >
+                <Ionicons
+                  name="volume-high"
+                  size={BUTTON_ICON_SIZE}
+                  color="#fff"
+                />
+              </TouchableOpacity>
+            </>
           )}
-          
-          <View style={styles.visualNovelActions}>
-            {/* 音量按钮 */}
-            {!isUser && !lastMessage.isLoading && (
-              <>
-                <TouchableOpacity
-                  style={[
-                    styles.actionCircleButton,
-                    { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginRight: BUTTON_MARGIN }
-                  ]}
-                  onPress={() => renderTTSButtons(lastMessage)?.props?.onPress?.()}
-                  disabled={renderTTSButtons(lastMessage)?.props?.disabled}
-                >
-                  <Ionicons
-                    name="volume-high"
-                    size={BUTTON_ICON_SIZE}
-                    color="#fff"
-                  />
-                </TouchableOpacity>
-              </>
-            )}
-            {/* 音量按钮左侧：再生、编辑、删除按钮（仅AI消息，非first_mes），无论展开或收起都显示 */}
-            {!isUser && !lastMessage.isLoading && !isFirstMes && (
-              <View style={styles.visualNovelActionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.actionCircleButton,
-                    { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
-                  ]}
-                  onPress={() => {
-                    setEditModalText(lastMessage.text);
-                    setEditTargetMsgId(lastMessage.id);
-                    setEditTargetAiIndex(aiIndex);
-                    setEditModalVisible(true);
-                  }}
-                  disabled={!!regeneratingMessageId}
-                >
-                  <Ionicons name="create-outline" size={BUTTON_ICON_SIZE} color={regeneratingMessageId ? "#999999" : "#f1c40f"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.actionCircleButton,
-                    { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
-                  ]}
-                  onPress={() => {
-                    Alert.alert(
-                      '删除AI消息',
-                      '确定要删除该AI消息及其对应的用户消息吗？',
-                      [
-                        { text: '取消', style: 'cancel' },
-                        {
-                          text: '删除',
-                          style: 'destructive',
-                          onPress: () => {
-                            if (onDeleteAiMessage) onDeleteAiMessage(lastMessage.id, aiIndex);
-                          }
+          {/* Left of volume button: regenerate, edit, delete buttons (AI messages only, non-first_mes), show regardless of expanded or collapsed */}
+          {!isUser && !lastMessage.isLoading && !isFirstMes && (
+            <View style={styles.visualNovelActionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.actionCircleButton,
+                  { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+                ]}
+                onPress={() => {
+                  handleEditButton(lastMessage, aiIndex, false);
+                }}
+                disabled={!!regeneratingMessageId}
+              >
+                <Ionicons name="create-outline" size={BUTTON_ICON_SIZE} color={regeneratingMessageId ? "#999999" : "#f1c40f"} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.actionCircleButton,
+                  { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+                ]}
+                onPress={() => {
+                  Alert.alert(
+                    '删除AI消息',
+                    '确定要删除该AI消息及其对应的用户消息吗？',
+                    [
+                      { text: '取消', style: 'cancel' },
+                      {
+                        text: '删除',
+                        style: 'destructive',
+                        onPress: () => {
+                          if (onDeleteAiMessage) onDeleteAiMessage(lastMessage.id, aiIndex);
                         }
-                      ]
-                    );
-                  }}
-                  disabled={!!regeneratingMessageId}
-                >
-                  <Ionicons name="trash-outline" size={BUTTON_ICON_SIZE} color={regeneratingMessageId ? "#999999" : "#e74c3c"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.actionCircleButton,
-                    isRegenerating && styles.actionCircleButtonActive,
-                    { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
-                  ]}
-                  disabled={isRegenerating || !!regeneratingMessageId}
-                  onPress={() => onRegenerateMessage && onRegenerateMessage(lastMessage.id, aiIndex)}
-                >
-                  {isRegenerating ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Ionicons
-                      name="refresh"
-                      size={BUTTON_ICON_SIZE}
-                      color={regeneratingMessageId ? "#999999" : "#3498db"}
-                    />
-                  )}
-                </TouchableOpacity>
-                {/* 新增：视觉小说模式下的log跳转按钮 */}
-                <TouchableOpacity
-                  style={[
-                    styles.actionCircleButton,
-                    { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
-                  ]}
-                  onPress={() => router.push('/pages/log')}
-                  accessibilityLabel="查看请求日志"
-                >
-                  <Ionicons name="document-text-outline" size={BUTTON_ICON_SIZE} color="#4a6fa5" />
-                </TouchableOpacity>
-              </View>
-            )}
-            {/* 非AI消息时也显示log按钮（如用户消息） */}
-            {((isUser || lastMessage.isLoading) && (
+                      }
+                    ]
+                  );
+                }}
+                disabled={!!regeneratingMessageId}
+              >
+                <Ionicons name="trash-outline" size={BUTTON_ICON_SIZE} color={regeneratingMessageId ? "#999999" : "#e74c3c"} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.actionCircleButton,
+                  isRegenerating && styles.actionCircleButtonActive,
+                  { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+                ]}
+                disabled={isRegenerating || !!regeneratingMessageId}
+                onPress={() => onRegenerateMessage && onRegenerateMessage(lastMessage.id, aiIndex)}
+              >
+
+                {isRegenerating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons
+                    name="refresh"
+                    size={BUTTON_ICON_SIZE}
+                    color={regeneratingMessageId ? "#999999" : "#3498db"}
+                  />
+                )}
+              </TouchableOpacity>
+              {/* Add: log jump button in visual novel mode */}
               <TouchableOpacity
                 style={[
                   styles.actionCircleButton,
@@ -1770,47 +3215,133 @@ const getAiMessageIndex = (realIndex: number): number => {
               >
                 <Ionicons name="document-text-outline" size={BUTTON_ICON_SIZE} color="#4a6fa5" />
               </TouchableOpacity>
-            ))}
-          </View>
+            </View>
+          )}
+          {/* Also show log button for non-AI messages (like user messages) */}
+          {((isUser || lastMessage.isLoading) && (
+            <TouchableOpacity
+              style={[
+                styles.actionCircleButton,
+                { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
+              ]}
+              onPress={() => router.push('/pages/log')}
+              accessibilityLabel="查看请求日志"
+            >
+              <Ionicons name="document-text-outline" size={BUTTON_ICON_SIZE} color="#4a6fa5" />
+            </TouchableOpacity>
+          ))}
         </View>
-      </>
-    );
+      </Animated.View>
+    </View>
+  );
+};
+
+  // Previous image handling functions have been consolidated
+
+  // 添加辅助函数来判断是否显示时间组
+  const shouldShowTimeGroup = (item: Message, index: number) => {
+    // 不显示刚发送的用户消息的时间
+    if (item.sender === 'user' && item.isLoading === true) return false;
+    return index === 0 || index % 5 === 0 ||
+      (index > 0 && new Date(item.timestamp || 0).getHours() !==
+        new Date(visibleMessages[index - 1]?.timestamp || 0).getHours());
   };
 
+  // 渲染消息项
+  const renderItem = useCallback(({ item, index }: { item: CombinedItem; index: number }) => {
+    if (item.type === 'message' && item.message) {
+      const message = item.message;
+      const isUser = message.sender === 'user';
+      // 判断是否为最后一条消息且等待AI回复
+      const isLastUser = isUser && index === combinedItems.length - 1 && isWaitingForAI;
 
-
-  // 2. renderItem 只依赖必要的 props，避免依赖整个 messages
-  const renderItem = useCallback(
-    ({ item, index }: { item: Message, index: number }) => {
-      const isUser = item.sender === 'user';
-      // 只用 visibleMessages 计算 showTime
-      const showTime = index === 0 || index % 5 === 0 ||
-        (index > 0 && new Date(item.timestamp || 0).getHours() !==
-          new Date(visibleMessages[index - 1]?.timestamp || 0).getHours());
-
-      // 用完整 messages 找到真实 index
-      const realIndex = getRealMessageIndexById(messages, item.id);
+      // 只对最后一条消息做 entering 动画，其余不做
+      const enteringAnimation = (index === combinedItems.length - 1)
+        ? FadeIn.duration(300)
+        : undefined;
+      
+      // 计算是否显示时间组
+      const showTimeGroup = index === 0 || 
+        (index > 0 && 
+         (combinedItems[index - 1].timestamp === undefined || 
+          new Date(item.timestamp).getHours() !== new Date(combinedItems[index - 1].timestamp).getHours()));
 
       return (
-        <View key={item.id} style={styles.messageWrapper}>
-          {showTime && item.timestamp && renderTimeGroup(item.timestamp)}
-          <View
-            style={[
-              styles.messageContainer,
-              isUser ? styles.userMessageContainer : styles.botMessageContainer,
-            ]}
-          >
-            {renderMessageContent(item, isUser, realIndex)}
+        <View style={styles.messageWrapper}>
+          <View style={[
+            styles.messageContainer,
+            isUser ? styles.userMessageContainer : styles.botMessageContainer,
+          ]}>
+            {renderMessageContent(message, isUser, index)}
+            {/* 最后一条用户消息右侧显示 loading indicator */}
+            {isLastUser && (
+              <View style={{ justifyContent: 'center', marginRight: 8 ,marginTop: 2 }}>
+                <ActivityIndicator size="small" color="#bbb" />
+              </View>
+            )}
           </View>
         </View>
       );
-    },
-    [visibleMessages, messages, selectedCharacter, ratedMessages, audioStates, user]
-  );
+    }
+    
+    // 默认返回空视图
+    return null;
+  }, [
+    messages, 
+    regeneratingMessageId, 
+    audioStates, 
+    ratedMessages, 
+    isWaitingForAI,
+    combinedItems,
+    renderTimeGroup,
+    renderMessageContent
+  ]);
+// 修改 keyExtractor，避免用 Math.random
+const keyExtractor = useCallback((item: CombinedItem) => {
+  if (item.type === 'image' && item.image) {
+    return `image-${item.image.id}`;
+  } else if (item.type === 'message' && item.message) {
+    return `message-${item.message.id}`;
+  }
+  // fallback
+  return String(item.id || '');
+}, []);
 
-  // 3. keyExtractor 只用 item.id，保证 key 稳定
-  const keyExtractor = useCallback((item: Message) => {
-    return item.id;
+  // FlatList onScroll 监听顶部
+  const handleFlatListScroll = useCallback((event: any) => {
+    if (event.nativeEvent.contentOffset.y <= 0 && hasMore && !loadingMore) {
+      // 滚动到顶部，触发加载更多
+      if (onLoadMore) onLoadMore();
+    }
+    handleScroll(event); // 保持原有滚动处理
+  }, [onLoadMore, hasMore, loadingMore, handleScroll]);
+
+  // Add keyboard state tracking
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  
+  // Add keyboard event listeners
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e: KeyboardEvent) => {
+        setKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates.height);
+      }
+    );
+    
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
   }, []);
 
   return (
@@ -1846,31 +3377,80 @@ const getAiMessageIndex = (realIndex: number): number => {
                 {renderEmptyState()}
               </ScrollView>
             ) : (
-              <FlatList
-                ref={flatListRef}
-                data={visibleMessages}
-                renderItem={renderItem}
-                keyExtractor={keyExtractor}
-                style={[
-                  styles.container, 
-                  style,
-                  mode === 'background-focus' && styles.backgroundFocusContainer
-                ]}
-                contentContainerStyle={[
-                  styles.content,
-                  mode === 'background-focus' && styles.backgroundFocusPadding
-                ]}
-                onScroll={handleScroll}
-                scrollEventThrottle={16}
-                showsVerticalScrollIndicator={true}
-                ListFooterComponent={() => <View style={styles.endSpacer} />}
-                initialNumToRender={20}
-                maxToRenderPerBatch={10}
-                windowSize={21}
-                removeClippedSubviews={Platform.OS !== 'web'}
-                automaticallyAdjustContentInsets={false}
-                keyboardShouldPersistTaps="handled"
-              />
+              <>
+                {/* Render carousel in background-focus mode in the top half */}
+                {mode === 'background-focus' && generatedImages.length > 0 && (
+                  <View style={[
+                    styles.backgroundFocusImagesContainer,
+                    { 
+                      // Calculate top padding based on safe area insets and TopBar visibility
+                      paddingTop: isTopBarVisible 
+                        ? insets.top + 10 // TopBar visible: use safe area inset + small buffer
+                        : Math.max(StatusBar.currentHeight || 0, 10) // TopBar hidden: use status bar height or minimal padding
+                    }
+                  ]}>
+                    <ImagesCarousel
+                      images={generatedImages}
+                      onOpenFullscreen={handleOpenFullscreenImage}
+                      onSave={handleSaveGeneratedImage}
+                      onShare={handleShareGeneratedImage}
+                      onDelete={handleDeleteGeneratedImage}
+                      mode={mode}
+                    />
+                  </View>
+                )}
+                
+                <FlatList
+                  ref={flatListRef}
+                  data={combinedItems}
+                  renderItem={renderItem}
+                  keyExtractor={keyExtractor}
+                  style={[
+                    styles.container, 
+                    style,
+                    mode === 'background-focus' && styles.backgroundFocusContainer
+                  ]}
+                  contentContainerStyle={[
+                    styles.content,
+                    mode === 'background-focus' && styles.backgroundFocusPadding
+                  ]}
+                  onScroll={handleFlatListScroll}
+                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={true}
+                  ListHeaderComponent={
+                    <>
+                      {/* Show carousel in normal mode at the top of the list */}
+                      {mode === 'normal' && generatedImages.length > 0 && (
+                        <ImagesCarousel
+                          images={generatedImages}
+                          onOpenFullscreen={handleOpenFullscreenImage}
+                          onSave={handleSaveGeneratedImage}
+                          onShare={handleShareGeneratedImage}
+                          onDelete={handleDeleteGeneratedImage}
+                          mode={mode}
+                        />
+                      )}
+                      {hasMore && loadingMore ? (
+                        <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                          <ActivityIndicator size="small" color="#fff" />
+                          <Text style={{ color: '#fff', marginTop: 4, fontSize: 13 }}>加载更多消息...</Text>
+                        </View>
+                      ) : hasMore ? (
+                        <View style={{ paddingVertical: 8, alignItems: 'center' }}>
+                          <Text style={{ color: '#bbb', fontSize: 12 }}>上滑加载更多</Text>
+                        </View>
+                      ) : null}
+                    </>
+                  }
+                  ListFooterComponent={() => <View style={styles.endSpacer} />}
+                  initialNumToRender={20}
+                  maxToRenderPerBatch={10}
+                  windowSize={21}
+                  removeClippedSubviews={Platform.OS !== 'web'}
+                  automaticallyAdjustContentInsets={false}
+                  keyboardShouldPersistTaps="handled"
+                />
+              </>
             )}
           </View>
           {/* 历史消息 Modal */}
@@ -1878,7 +3458,6 @@ const getAiMessageIndex = (realIndex: number): number => {
             visible={!!isHistoryModalVisible}
             messages={messages}
             onClose={() => setHistoryModalVisible && setHistoryModalVisible(false)}
-
             selectedCharacter={selectedCharacter}
             user={user}
           />
@@ -2037,6 +3616,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     minHeight: 40,
   },
+  userMessageActionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 4,
+    marginRight: 4,
+  },
   userGradient: {
     padding: RESPONSIVE_PADDING + 4,
     paddingHorizontal: RESPONSIVE_PADDING + 8,
@@ -2053,6 +3638,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: RESPONSIVE_PADDING + 8,
     width: '100%',
     paddingTop: RESPONSIVE_PADDING + 12,
+    paddingBottom: RESPONSIVE_PADDING + 4, // Reduce bottom padding
     maxWidth: '98%',
     marginTop: AVATAR_SIZE / 2,
   },
@@ -2078,48 +3664,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
     opacity: 0.7,
   },
-  messageActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: BUTTON_MARGIN,
-    width: '100%',
-    minHeight: BUTTON_SIZE,
-  },
-  messageActionsLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  messageActionsRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    flex: 1,
-  },
-  actionCircleButton: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: BUTTON_SIZE / 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 0,
-    marginVertical: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  actionCircleButtonActive: {
-    backgroundColor: 'rgba(255,224,195,0.85)',
-  },
   timeGroup: {
     alignItems: 'center',
     marginVertical: RESPONSIVE_PADDING,
   },
   timeText: {
     color: '#ddd',
-    fontSize: Math.min(Math.max(10, width * 0.03), 12),
+    fontSize: 12,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
     paddingHorizontal: 10,
     paddingVertical: 2,
@@ -2302,24 +3853,15 @@ const styles = StyleSheet.create({
   },
   backgroundFocusContainer: {
     position: 'absolute',
-    top: '50%',
+    top: '50%', // Start from 50% down
     left: 0,
     right: 0,
     bottom: 0,
     maxHeight: '50%',
+    zIndex: 1, // Ensure messages are below the images
   },
   backgroundFocusPadding: {
     paddingTop: 20,
-  },
-  visualNovelContainer: {
-    position: 'absolute',
-    borderRadius: 16,
-    padding: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
   },
   visualNovelHeaderRow: {
     flexDirection: 'row-reverse',
@@ -2562,15 +4104,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   visualNovelWebViewContainer: {
-    flex: 1,
-    overflow: 'hidden',
     borderRadius: 8,
     backgroundColor: '#fff',
     marginBottom: 8,
-  },
+ },
   visualNovelWebView: {
     flex: 1,
     backgroundColor: 'transparent',
+      width: '100%',   
+    height: '100%',   
   },
   webViewLoading: {
     position: 'absolute',
@@ -2618,6 +4160,511 @@ const styles = StyleSheet.create({
     right: 60,
     zIndex: 30,
   },
-});
+    messageActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: BUTTON_MARGIN,
+    width: '100%',
+    minHeight: BUTTON_SIZE,
+  },
+  messageActionsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  messageActionsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flex: 1,
+  },
+  actionCircleButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 0,
+    marginVertical: 0,
+    padding: 4,
+  },
+  actionCircleButtonActive: {
+    backgroundColor: 'rgba(255,224,195,0.85)',
+  },
+  // Image message styles
+  imageGroupContainer: {
+    marginVertical: 10,
+    width: '100%',
+  },
+  imageMessageContainer: {
+    marginVertical: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(30, 30, 30, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  imageMessageHeader: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  imageMessageHeaderExpanded: {
+    paddingVertical: 12,
+  },
+  imageMessageHeaderCollapsed: {
+    paddingVertical: 6,
+  },
+  imageMessagePromptContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  imageMessagePrompt: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+  },
+  imageMessagePromptCollapsed: {
+    color: '#ddd',
+    fontSize: 12,
+    flex: 1,
+  },
+  imageMessageHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  imageMessageTime: {
+    color: '#aaa',
+    fontSize: 12,
+    marginLeft: 8,
+  },
+  imageMessageContent: {
+    width: '100%',
+    height: 300,
+    backgroundColor: '#111',
+  },
+  imageMessageContentSmaller: {
+    height: 250,
+  },
+  imageMessageContentLarger: {
+    height: 320,
+  },
+  imageMessageImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imageMessageActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  imageMessageAction: {
+    padding: 8,
+    marginHorizontal: 4,
+  },
+  imageMessageLoading: {
+    width: '100%',
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#222',
+  },
+  imageMessageLoadingText: {
+    color: '#fff',
+    marginTop: 12,
+  },
+  imageMessageError: {
+    width: '100%',
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#222',
+  },
+  imageMessageErrorText: {
+    color: '#e74c3c',
+    marginTop: 8,
+  },
+  loadingMoreContainer: {
+    padding: 16,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  loadingMoreText: {
+    color: '#888',
+    marginLeft: 8,
+  },
+  loadMoreButton: {
+    padding: 12,
+    backgroundColor: 'rgba(50, 50, 50, 0.5)',
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 8,
+    marginHorizontal: 16,
+  },
+  loadMoreButtonText: {
+    color: '#ddd',
+  },
+  deleteConfirmModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteConfirmModalContent: {
+    backgroundColor: '#333',
+    padding: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    width: '80%',
+    maxWidth: 300,
+  },
+  deleteConfirmTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#fff',
+  },
+  deleteConfirmText: {
+    fontSize: 16,
+    marginBottom: 20,
+    color: '#ddd',
+    textAlign: 'center',
+  },
+  deleteConfirmButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  deleteConfirmButton: {
+    padding: 10,
+    borderRadius: 5,
+    marginHorizontal: 5,
+    flex: 1,
+    alignItems: 'center',
+  },
+  deleteConfirmCancelButton: {
+    backgroundColor: '#555',
+  },
+  deleteConfirmDeleteButton: {
+    backgroundColor: '#e74c3c',
+  },
+  deleteConfirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  vnImageDisplayContainer: {
+    marginVertical: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(30, 30, 30, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  vnImageDisplayHeader: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  vnImageDisplayHeaderExpanded: {
+    paddingVertical: 12,
+  },
+  vnImageDisplayHeaderCollapsed: {
+    paddingVertical: 6,
+  },
+  vnImageDisplayPromptContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  vnImageDisplayPrompt: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+  },
+  vnImageDisplayPromptCollapsed: {
+    color: '#ddd',
+    fontSize: 12,
+    flex: 1,
+  },
+  vnImageDisplayHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  vnImageDisplayTime: {
+    color: '#aaa',
+    fontSize: 12,
+    marginLeft: 8,
+  },
+  vnImageDisplayContent: {
+    width: '100%',
+    height: 300,
+    backgroundColor: '#111',
+  },
+  vnImageDisplayContentSmaller: {
+    height: 250,
+  },
+  vnImageDisplayContentLarger: {
+    height: 320,
+  },
+  vnImageDisplayImage: {
+    width: '100%',
+    height: '100%',
+  },
+  vnImageDisplayActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+    vnImageDisplayAction: {
+     padding: 8,
+     marginHorizontal: 4,
+   },
+   vnImageDisplayActionButton: {
+     padding: 8,
+     marginHorizontal: 4,
+     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+     borderRadius: 20,
+     width: 40,
+     height: 40,
+     justifyContent: 'center',
+     alignItems: 'center',
+   },
+   vnImageDisplayLoading: {
+     width: '100%',
+     height: 200,
+     justifyContent: 'center',
+     alignItems: 'center',
+     backgroundColor: '#222',
+   },
+   vnImageDisplayLoadingText: {
+     color: '#fff',
+     marginTop: 12,
+   },
+   vnImageDisplayError: {
+     width: '100%',
+     height: 150,
+     justifyContent: 'center',
+     alignItems: 'center',
+     backgroundColor: '#222',
+   },
+   vnImageDisplayErrorText: {
+     color: '#e74c3c',
+     marginTop: 8,
+   },
+   vnImageDisplayPagination: {
+     flexDirection: 'row',
+     alignItems: 'center',
+     marginRight: 8,
+   },
+   vnImageDisplayPaginationButton: {
+     padding: 4,
+     borderRadius: 4,
+     marginHorizontal: 2,
+   },
+   vnImageDisplayPaginationButtonDisabled: {
+     backgroundColor: '#666',
+   },
+   vnImageDisplayPaginationText: {
+     color: '#fff',
+     fontSize: 12,
+     marginHorizontal: 4,
+   },
+   vnImageDisplayActionButtons: {
+     flexDirection: 'row',
+     alignItems: 'center',
+     marginLeft: 8,
+   },
+   // 添加新样式
+   botMessageActionsContainer: {
+     marginTop: 8, // Add top margin for separation
+     padding: 6, // Add padding
+     borderTopWidth: 1, // Add top border
+     borderTopColor: 'rgba(255, 255, 255, 0.1)', // Light border color
+     flexDirection: 'row',
+     justifyContent: 'flex-end',
+     alignItems: 'center',
+   },
+     visualNovelDialogStack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0, // This will be adjusted when keyboard is visible
+    zIndex: 1, // Keep only this zIndex
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    justifyContent: 'flex-end',
+    pointerEvents: 'box-none',
+  },
+  vnImageDisplayOuter: {
+    marginHorizontal: 18,
+    marginTop: 18,
+    marginBottom: 0,
+    zIndex: 12,
+  },
+  visualNovelContainer: {
+    // 公共部分
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  visualNovelContainerExpanded: {
+    // 展开时绝对定位铺满
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    margin: 0,
+    borderRadius: 0,
+    zIndex: 20,
+  },
+  visualNovelContainerCollapsed: {
+    // 收起时普通布局（有图片时）
+    position: 'relative',
+    borderRadius: 16,
+    marginTop: 0,
+    zIndex: 10,
+  },
+  visualNovelContainerCollapsedAbs: {
+    // 收起且无图片时吸底
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    // top 将通过内联样式动态设置
+    bottom: 0,
+    marginBottom: 0,
+    borderRadius: 16,
+    zIndex: 1, // 保证低于 ChatInput
+  },
+  // ImagesCarousel styles
+  imagesCarouselContainer: {
+    marginVertical: 12,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(30, 30, 30, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  imagesCarouselBackgroundFocus: {
+    marginTop: 20,
+    height: '90%', // Use most of the available space in background-focus mode
+    maxHeight: height * 0.42, // Limit maximum height
+  },
 
+  backgroundFocusImagesContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '48%', // Use slightly higher percentage to ensure pagination controls are visible
+    zIndex: 20, // Higher z-index to ensure it's above the message list
+    justifyContent: 'center',
+    // Base padding removed - will be set dynamically in the component
+  },
+  imagesCarouselHeader: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  imagesCarouselHeaderExpanded: {
+    paddingVertical: 12,
+  },
+  imagesCarouselHeaderCollapsed: {
+    paddingVertical: 6,
+  },
+  imagesCarouselPromptContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  imagesCarouselPrompt: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+  },
+  imagesCarouselPromptCollapsed: {
+    color: '#ddd',
+    fontSize: 12,
+    flex: 1,
+  },
+  imagesCarouselHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  imagesCarouselTime: {
+    color: '#aaa',
+    fontSize: 12,
+    marginLeft: 8,
+  },
+  imagesCarouselContent: {
+    width: '100%',
+    height: 240,
+    backgroundColor: '#111',
+  },
+  // 确保在背景强调模式下，内容区域足够高以显示完整图片
+  imagesCarouselContentBackgroundFocus: {
+    height: '70%',
+  },
+  imagesCarouselImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imagesCarouselControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  imagesCarouselPagination: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  imagesCarouselPaginationButtonDisabled: {
+    opacity: 0.5,
+  },
+  imagesCarouselPaginationText: {
+    color: '#fff',
+    fontSize: 12,
+    marginHorizontal: 8,
+  },
+  imagesCarouselActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  imagesCarouselLoading: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#222',
+  },
+  imagesCarouselLoadingText: {
+    color: '#fff',
+    marginTop: 12,
+  },
+  imagesCarouselError: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#222',
+  },
+  imagesCarouselErrorText: {
+    color: '#e74c3c',
+    marginTop: 8,
+  },
+});
 export default ChatDialog;

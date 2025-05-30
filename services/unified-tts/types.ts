@@ -10,10 +10,9 @@ export interface UnifiedTTSRequest {
   // Provider-specific parameters
   providerSpecific?: {
     // CosyVoice specific
-    templateId?: string;
-    instruction?: string;
-    task?: string;
-    email?: string;
+    task?: 'zero-shot voice clone' | 'cross-lingual voice clone' | 'Instructed Voice Generation';
+    source_audio?: string;
+    source_transcript?: string;
     
     // Doubao specific
     enableEmotion?: boolean;
@@ -58,8 +57,8 @@ export type TTSStatusCallback = (status: UnifiedTTSStatus) => void;
 
 export interface TTSProviderConfig {
   cosyvoice?: {
-    serverUrl?: string;
-    useRealtimeUpdates?: boolean;
+    replicateApiToken: string;
+    replicateModel?: string;
   };
   doubao?: {
     appid: string;

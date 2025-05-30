@@ -324,10 +324,10 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
     selectedGroupId ? groups.find(g => g.groupId === selectedGroupId) || null : null,
   [selectedGroupId, groups]);
 
-  // 新增：保存自动消息 inputText
+// 保存自动消息 inputText
 const [autoMessageInputText, setAutoMessageInputText] = useState<string | null>(null);
 
-// 新增：加载自动消息 inputText
+//加载自动消息 inputText
 useEffect(() => {
   (async () => {
     try {
@@ -344,7 +344,7 @@ useEffect(() => {
   })();
 }, []);
 
-// 修改 filteredMessages，同时过滤掉自动消息 inputText 的 user 消消息
+// 过滤掉自动消息 inputText 的 user 消消息
 const filteredMessages = useMemo(() => {
   return messages.filter(msg => {
     // 过滤掉标记为自动消息输入的用户消息
@@ -613,7 +613,6 @@ const filteredMessages = useMemo(() => {
 
     const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
     let metadata = undefined;
-    // ...existing metadata logic
 
     const newMessageObj: Message = {
       id: messageId,
@@ -1283,14 +1282,7 @@ const filteredMessages = useMemo(() => {
       const newState = !prev;
       AsyncStorage.setItem('braveSearchEnabled', JSON.stringify(newState))
         .catch(err => console.error('[App] Failed to save search preference:', err));
-      
-      // Alert.alert(
-      //   newState ? '已启用搜索' : '已禁用搜索',
-      //   newState 
-      //     ? '现在AI可以使用Brave搜索来回答需要最新信息的问题' 
-      //     : '已关闭网络搜索功能，AI将只使用已有知识回答问题',
-      //   [{ text: '确定', style: 'default' }]
-      // );
+
       
       return newState;
     });

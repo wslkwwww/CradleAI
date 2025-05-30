@@ -115,6 +115,60 @@ export class AudioCacheManager {
   }
 
   /**
+   * 下载远程音频文件，支持多种方式（复用MinimaxTTS的多层fallback机制）
+   */
+  private async downloadAudioFileWithFallback(audioUrl: string, filePath: string): Promise<string> {
+    // For web, just return the URL
+    if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {
+      return audioUrl;
+    }
+    try {
+      // Validate URL
+      if (!audioUrl || (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://'))) {
+        throw new Error('Invalid audio URL format');
+      }
+      // Clean and encode the URL properly
+      const cleanUrl = encodeURI(decodeURI(audioUrl));
+      // Try downloading with explicit headers
+      const downloadResult = await FileSystem.downloadAsync(
+        cleanUrl,
+        filePath,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; Expo FileSystem)',
+            'Accept': 'audio/mpeg, audio/wav, audio/*, */*',
+          },
+        }
+      );
+      if (downloadResult.status === 200) {
+        return downloadResult.uri;
+      } else {
+        throw new Error(`Download failed with status: ${downloadResult.status}`);
+      }
+    } catch (error) {
+      // Try alternative approach: fetch + base64
+      try {
+        const response = await fetch(audioUrl);
+        if (!response.ok) {
+          throw new Error(`Fetch failed with status: ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        // @ts-ignore
+        const base64 = typeof Buffer !== 'undefined'
+          ? Buffer.from(arrayBuffer).toString('base64')
+          : btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        await FileSystem.writeAsStringAsync(filePath, base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        return filePath;
+      } catch (fetchError) {
+        // Final fallback: return the original URL for direct streaming
+        return audioUrl;
+      }
+    }
+  }
+
+  /**
    * 缓存音频文件
    */
   public async cacheAudioFile(
@@ -136,18 +190,30 @@ export class AudioCacheManager {
       // 生成新的缓存路径
       const cachedPath = this.generateAudioFilePath(conversationId, messageId);
 
-      // 复制音频文件到缓存目录
-      await FileSystem.copyAsync({
-        from: audioPath,
-        to: cachedPath,
-      });
+      let localAudioPath = audioPath;
+      // 判断 audioPath 是否为远程 URL
+      if (/^https?:\/\//.test(audioPath)) {
+        console.log(`[AudioCacheManager] Downloading remote audio: ${audioPath}`);
+        // 使用多种下载方式
+        localAudioPath = await this.downloadAudioFileWithFallback(audioPath, cachedPath);
+      } else if (/^file:\/\//.test(audioPath) || audioPath.startsWith(FileSystem.documentDirectory || '')) {
+        // 本地文件，直接复制
+        await FileSystem.copyAsync({
+          from: audioPath,
+          to: cachedPath,
+        });
+        localAudioPath = cachedPath;
+      } else {
+        // 既不是远程URL，也不是本地文件，直接报错
+        throw new Error(`Unsupported audioPath format: ${audioPath}`);
+      }
 
       // 更新映射
-      this.audioFileMap.set(messageId, cachedPath);
+      this.audioFileMap.set(messageId, localAudioPath);
       await this.saveAudioFileMap();
 
-      console.log(`[AudioCacheManager] Cached audio for message ${messageId} at ${cachedPath}`);
-      return cachedPath;
+      console.log(`[AudioCacheManager] Cached audio for message ${messageId} at ${localAudioPath}`);
+      return localAudioPath;
     } catch (error) {
       console.error('[AudioCacheManager] Failed to cache audio file:', error);
       throw error;
@@ -454,4 +520,4 @@ export class AudioCacheManager {
   }
 }
 
-export default AudioCacheManager; 
+export default AudioCacheManager;

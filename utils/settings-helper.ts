@@ -308,6 +308,9 @@ export function getTTSSettings(): {
   // 新增cosyvoice相关字段
   cosyvoiceServerUrl?: string;
   useRealtimeUpdates?: boolean;
+  // 新增：CosyVoice 使用与 Minimax 共享的 Replicate token
+  replicateApiToken?: string;
+  cosyvoiceReplicateModel?: string;
 } {
   const settings = getUserSettingsGlobally();
   if (!settings || !settings.tts) {
@@ -326,14 +329,17 @@ export function getTTSSettings(): {
     minimaxApiToken,
     minimaxModel,
     cosyvoiceServerUrl,
-    useRealtimeUpdates
+    useRealtimeUpdates,
+    // CosyVoice 使用与 Minimax 共享的 Replicate token
+    replicateApiToken: minimaxApiToken,
+    cosyvoiceReplicateModel: 'chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d'
   };
 }
 
 /**
  * Update TTS configuration directly
  */
-export function updateTTSSettings(ttsConfig: {
+export async function updateTTSSettings(ttsConfig: {
   enabled: boolean;
   appid?: string;
   token?: string;
@@ -346,7 +352,7 @@ export function updateTTSSettings(ttsConfig: {
   // 新增cosyvoice相关字段
   cosyvoiceServerUrl?: string;
   useRealtimeUpdates?: boolean;
-}): void {
+}): Promise<void> {
   try {
     // 1. 更新全局设置
     const currentSettings = getUserSettingsGlobally();
@@ -391,6 +397,15 @@ export function updateTTSSettings(ttsConfig: {
       localStorage.setItem('cosyvoice_use_realtime_updates', ttsConfig.useRealtimeUpdates ? 'true' : 'false');
       console.log('[SettingsHelper] TTS设置已保存到localStorage');
     }
+
+    // 新增：通知统一TTS服务重新初始化
+    try {
+      const { unifiedTTSService } = require('@/services/unified-tts');
+      await unifiedTTSService.updateConfig({});
+      console.log('[SettingsHelper] 统一TTS服务已重新初始化');
+    } catch (error) {
+      console.warn('[SettingsHelper] 统一TTS服务重新初始化失败:', error);
+    }
   } catch (error) {
     console.error('[SettingsHelper] Failed to update TTS settings:', error);
   }
@@ -413,13 +428,21 @@ export async function getTTSSettingsAsync(): Promise<{
   // 新增cosyvoice相关字段
   cosyvoiceServerUrl?: string;
   useRealtimeUpdates?: boolean;
+  // 新增：CosyVoice 使用与 Minimax 共享的 Replicate token
+  replicateApiToken?: string;
+  cosyvoiceReplicateModel?: string;
 }> {
   try {
     // 1. 先尝试从全局设置中获取
     const settings = getUserSettingsGlobally();
-    if (settings?.tts?.appid && settings?.tts?.token) {
+    if (settings?.tts) {
       console.log('[SettingsHelper] 从全局设置中获取TTS配置');
-      return settings.tts;
+      return {
+        ...settings.tts,
+        // CosyVoice 使用与 Minimax 共享的 Replicate token
+        replicateApiToken: settings.tts.minimaxApiToken,
+        cosyvoiceReplicateModel: 'chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d'
+      };
     }
     
     // 2. 尝试从AsyncStorage获取完整配置（React Native）
@@ -470,8 +493,11 @@ export async function getTTSSettingsAsync(): Promise<{
         minimaxModel: minimaxModel || undefined,
         // 新增cosyvoice字段
         cosyvoiceServerUrl: await AsyncStorage.getItem('cosyvoice_server_url') || undefined,
-        useRealtimeUpdates: (await AsyncStorage.getItem('cosyvoice_use_realtime_updates')) === 'true'
-      };
+        useRealtimeUpdates: (await AsyncStorage.getItem('cosyvoice_use_realtime_updates')) === 'true',
+        // CosyVoice 使用与 Minimax 共享的 Replicate token
+        replicateApiToken: minimaxApiToken || undefined,
+        cosyvoiceReplicateModel: 'chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d'
+    };
     } catch (e) {
       // 忽略AsyncStorage不可用的错误
     }
@@ -522,7 +548,10 @@ export async function getTTSSettingsAsync(): Promise<{
         minimaxModel: minimaxModel || undefined,
         // 新增cosyvoice字段
         cosyvoiceServerUrl: localStorage.getItem('cosyvoice_server_url') || undefined,
-        useRealtimeUpdates: localStorage.getItem('cosyvoice_use_realtime_updates') === 'true'
+        useRealtimeUpdates: localStorage.getItem('cosyvoice_use_realtime_updates') === 'true',
+        // CosyVoice 使用与 Minimax 共享的 Replicate token
+        replicateApiToken: minimaxApiToken || undefined,
+        cosyvoiceReplicateModel: 'chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d'
       };
     }
     
