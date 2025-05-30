@@ -197,7 +197,7 @@ const ChatUISettingsScreen: React.FC = () => {
           />
         </View>
       </View>
-      <View style={[styles.colorPreview, { 
+      <View style={[styles.colorSwatch, { 
         backgroundColor: color.replace('rgb', 'rgba').replace(')', `,${alpha})`) 
       }]} />
     </View>
@@ -212,9 +212,7 @@ const ChatUISettingsScreen: React.FC = () => {
           onColorChange={onColorChange}
           style={styles.colorPicker}
         />
-      </View>
-      <View style={[styles.colorPreview, { backgroundColor: color || '#ffffff' }]}>
-        <Text style={{ color: '#fff', fontWeight: 'bold', textShadowColor: 'rgba(0,0,0,0.7)', textShadowRadius: 2 }}>示例文本</Text>
+        <View style={[styles.colorSwatch, { backgroundColor: color || '#ffffff' }]} />
       </View>
     </View>
   );
@@ -523,28 +521,18 @@ const ChatUISettingsScreen: React.FC = () => {
             <View style={styles.markdownPreviewContainer}>
               <Text style={styles.settingLabel}>预览</Text>
               <View style={styles.markdownPreview}>
-                <View style={[styles.markdownPreviewContent, {backgroundColor: '#333'}]}>
-                  <Text style={{color: settings.markdownHeadingColor, fontSize: 20 * settings.markdownTextScale, fontWeight: 'bold', marginBottom: 8}}>
-                    标题示例
-                  </Text>
-                  <Text style={{color: settings.markdownTextColor, fontSize: 16 * settings.markdownTextScale, marginBottom: 8}}>
-                    这是普通文本，包含<Text style={{color: settings.markdownBoldColor, fontWeight: 'bold'}}>粗体文本</Text>和
-                    <Text style={{color: settings.markdownLinkColor, textDecorationLine: 'underline'}}>链接文本</Text>。
-                  </Text>
-                  <View style={{backgroundColor: settings.markdownQuoteBackgroundColor, borderLeftWidth: 4, borderLeftColor: '#aaa', padding: 8, marginVertical: 8}}>
-                    <Text style={{color: settings.markdownQuoteColor, fontSize: 16 * settings.markdownTextScale}}>
-                      这是引用块内容
-                    </Text>
-                  </View>
-                  <View style={{backgroundColor: settings.markdownCodeBackgroundColor, padding: 12, borderRadius: 6, marginTop: 8}}>
-                    <Text style={{color: settings.markdownCodeTextColor, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 14 * settings.markdownCodeScale}}>
-                      // 这是代码块示例{'\n'}
-                      function example() {'{'}
-                      {'\n'}  console.log("Hello world");
-                      {'\n'}{' }'}
-                    </Text>
-                  </View>
-                </View>
+                <Text style={{color: settings.markdownHeadingColor, fontSize: 18 * settings.markdownTextScale, fontWeight: 'bold', marginBottom: 6}}>
+                  # 标题示例
+                </Text>
+                <Text style={{color: settings.markdownTextColor, fontSize: 14 * settings.markdownTextScale, marginBottom: 6}}>
+                  普通文本 <Text style={{color: settings.markdownBoldColor, fontWeight: 'bold'}}>**粗体**</Text> <Text style={{color: settings.markdownLinkColor}}>链接</Text>
+                </Text>
+                <Text style={{color: settings.markdownQuoteColor, fontSize: 14 * settings.markdownTextScale, fontStyle: 'italic', marginBottom: 6}}>
+                  {'>'} 引用文本
+                </Text>
+                <Text style={{color: settings.markdownCodeTextColor, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12 * settings.markdownCodeScale, backgroundColor: settings.markdownCodeBackgroundColor, padding: 4, borderRadius: 4}}>
+                  `代码示例`
+                </Text>
               </View>
             </View>
           </View>
@@ -565,7 +553,7 @@ const ChatUISettingsScreen: React.FC = () => {
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <>
-              <Ionicons name="save-outline" size={20} color="#fff" />
+              <Ionicons name="save-outline" size={20} color="black" />
               <Text style={styles.saveButtonText}>保存设置</Text>
             </>
           )}
@@ -671,12 +659,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 40
   },
-  colorPreview: {
-    height: 40,
-    borderRadius: 8,
-    marginTop: 8,
-    justifyContent: 'center',
-    alignItems: 'center'
+  colorSwatch: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#555',
+    marginLeft: 12,
   },
   sliderContainer: {
     flexDirection: 'row',
@@ -724,7 +713,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#555',
   },
   saveButtonText: {
-    color: '#fff',
+    color: 'black',
     fontWeight: 'bold',
     marginLeft: 8,
   },
@@ -733,14 +722,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   markdownPreview: {
+    backgroundColor: '#2a2a2a',
+    padding: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#555',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  markdownPreviewContent: {
-    padding: 16,
-    backgroundColor: '#333',
   },
 });
 

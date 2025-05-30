@@ -55,10 +55,6 @@ const Profile: React.FC = () => {
     }
   }, [updateAvatar]);
 
-  const handleCleanupComplete = () => {
-    // 可以在清理完成后执行一些操作
-    console.log("NodeST 数据清理完成");
-  };
 
   const handleNovelAIImageGenerated = (imageUrl: string, taskId?: string) => {
     console.log('NovelAI 图像已生成:', imageUrl, '任务ID:', taskId);
@@ -90,7 +86,11 @@ const Profile: React.FC = () => {
       </View>
 
       {/* Menu Items */}
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.menuContainer}
+        contentContainerStyle={styles.menuContent}
+        showsVerticalScrollIndicator={false}
+      >
         <ListItem
           title="API 设置"
           leftIcon="cloud-outline"
@@ -232,21 +232,21 @@ const styles = StyleSheet.create({
   },
   headerImage: {
     width: '100%',
-    height: 200,
+    height: 160, // Reduced from 200
   },
   header: {
-    marginTop: -60, // Overlap with header image
-    padding: 16,
+    marginTop: -50, // Reduced from -60
+    padding: 12, // Reduced from 16
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20,
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    marginBottom: 16,
+    width: 75, // Reduced from 90
+    height: 75, // Reduced from 90
+    borderRadius: 37.5, // Adjusted accordingly
+    marginBottom: 12, // Reduced from 16
     borderWidth: 3,
     borderColor: 'rgba(255, 255, 255, 0.3)',
     shadowColor: '#000',
@@ -257,16 +257,24 @@ const styles = StyleSheet.create({
   },
   editAvatarButton: {
     position: 'absolute',
-    bottom: 16,
+    bottom: 12, // Adjusted from 16
     right: 0,
     backgroundColor: theme.colors.primary,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26, // Reduced from 30
+    height: 26, // Reduced from 30
+    borderRadius: 13, // Adjusted accordingly
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
     borderColor: theme.colors.background,
+  },
+  menuContainer: {
+    flex: 1,
+    paddingHorizontal: 8, // Add horizontal padding
+  },
+  menuContent: {
+    paddingVertical: 8, // Add vertical padding
+    paddingBottom: 20, // Extra bottom padding
   },
   content: {
     flex: 1,

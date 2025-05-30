@@ -36,6 +36,8 @@ import { getTTSSettingsAsync, updateTTSSettings, getTTSSettings } from '@/utils/
 import { Audio } from 'expo-av'; // 新增
 import { MinimaxTTS } from '@/services/minimax-tts/MinimaxTTS'; // 新增
 import { synthesizeWithCosyVoice } from '@/services/unified-tts'; // 新增
+import { GeminiAdapter } from '@/NodeST/nodest/utils/gemini-adapter';
+import { OpenRouterAdapter } from '@/utils/openrouter-adapter';
 
 const screenWidth = Dimensions.get('window').width;
 const TTS_PROVIDERS = [
@@ -70,7 +72,24 @@ const ApiSettings = () => {
   const [cosyvoiceApiToken, setCosyvoiceApiToken] = useState(user?.settings?.tts?.minimaxApiToken || '');
   const [cosyvoiceModel, setCosyvoiceModel] = useState('chenxwh/cosyvoice2-0.5b:669b1cd618f2747d2237350e868f5c313f3b548fc803ca4e57adfaba778b042d');
   const [isTestingCosyvoice, setIsTestingCosyvoice] = useState(false);
+  // 新增：TTS provider 下拉选择状态
+  const [showTTSProviderDropdown, setShowTTSProviderDropdown] = useState(false);
 
+  // TTS provider 下拉显示名
+  const getTTSProviderDisplayName = (type: string): string => {
+    switch (type) {
+      case 'doubao': return '豆包 TTS';
+      case 'minimax': return 'Minimax TTS';
+      case 'cosyvoice': return 'CosyVoice TTS';
+      default: return 'Unknown';
+    }
+  };
+
+  // TTS provider 切换
+  const handleTTSProviderTypeChange = (type: 'doubao' | 'minimax' | 'cosyvoice') => {
+    setTtsProvider(type);
+    setShowTTSProviderDropdown(false);
+  };
   // 进入页面时从全局/本地存储异步加载TTS设置，优先使用user.settings中的值
   useEffect(() => {
     const loadTTSSettings = async () => {
@@ -114,8 +133,8 @@ const ApiSettings = () => {
     loadTTSSettings();
   }, [user?.settings?.tts]);
 
-  // 豆包TTS测试方法（补充到组件顶部）
-  const testTtsConnection = async () => {
+  // 豆包TTS测试方法（修正createTTSService导入方式）
+  const testdoubaoTtsConnection = async () => {
     try {
       setIsTesting(true);
 
@@ -124,7 +143,25 @@ const ApiSettings = () => {
         return;
       }
 
-      const { createTTSService } = require('@/services');
+      // 修正：直接import而不是require，且确保路径为@/services/tts/doubao
+      let createTTSService: any;
+      try {
+        // 动态import，兼容性更好
+        createTTSService = (await import('@/services/doubaotts/doubaotts-service')).createTTSService;
+      } catch (e) {
+        // fallback: 尝试老路径
+        try {
+          createTTSService = (await import('@/services/doubaotts/doubaotts-service')).createTTSService;
+        } catch {
+          createTTSService = undefined;
+        }
+      }
+
+      if (typeof createTTSService !== 'function') {
+        Alert.alert('错误', '未找到豆包TTS实现（createTTSService）。请检查依赖或联系开发者。');
+        return;
+      }
+
       const ttsService = createTTSService({
         appid: ttsAppId,
         token: ttsToken,
@@ -882,7 +919,7 @@ const ApiSettings = () => {
       const body = JSON.stringify({
         model: currentOpenAIProvider.model,
         messages: [
-          { role: 'user', content: 'Explain quantum computing in simple terms.' }
+          { role: 'user', content: '你好呀' }
         ],
         temperature: currentOpenAIProvider.temperature ?? 0.7,
         max_tokens: currentOpenAIProvider.max_tokens ?? 8192,
@@ -1398,7 +1435,7 @@ const ApiSettings = () => {
           Alert.alert('错误', '请输入OpenRouter API Key');
           return;
         }
-        const { OpenRouterAdapter } = require('@/utils/openrouter-adapter');
+        
         const adapter = new OpenRouterAdapter(openRouterKey, selectedModel || 'openai/gpt-3.5-turbo');
         const result = await adapter.generateContent([
           { role: 'user', parts: [{ text: '你好' }] }
@@ -1419,13 +1456,14 @@ const ApiSettings = () => {
           Alert.alert('错误', '请输入Gemini API Key');
           return;
         }
-        const { GeminiAdapter } = require('@/NodeST/nodest/utils/gemini-adapter');
+        
         const adapter = new GeminiAdapter(geminiKey);
         const result = await adapter.generateContent([
           { role: 'user', parts: [{ text: '你好' }] }
         ]);
         Alert.alert('连接成功', `收到回复: ${result}`);
       } catch (err: any) {
+        console.error('Gemini API 测试失败:', err);
         Alert.alert('连接失败', err?.message || String(err));
       } finally {
         setIsTesting(false);
@@ -1825,7 +1863,7 @@ const ApiSettings = () => {
                         style={styles.input}
                         value={editingProvider.model}
                         onChangeText={v => setOpenAIProviders(providers =>
-                          providers.map(p => p.id === editingProvider.id ? { ...p, model: v } : p)
+                          providers.map(p => editingProvider.id ? { ...p, model: v } : p)
                         )}
                         placeholder="输入模型名"
                         placeholderTextColor="#999"
@@ -2139,7 +2177,21 @@ const ApiSettings = () => {
                   trackColor={{ false: '#767577', true: 'rgba(255, 158, 205, 0.4)' }}
                   thumbColor={ttsEnabled ? theme.colors.primary : '#f4f3f4'}
                 />
-                {/* Minimax 测试按钮，仅在 provider=minimax 且启用时显示 */}
+                {/* 豆包TTS测试按钮 */}
+                {ttsEnabled && ttsProvider === 'doubao' && (
+                  <TouchableOpacity
+                    style={{ marginLeft: 8 }}
+                    onPress={testdoubaoTtsConnection}
+                    disabled={isTesting}
+                  >
+                    {isTesting ? (
+                      <ActivityIndicator size={18} color="#fff" />
+                    ) : (
+                      <Ionicons name="flash-outline" size={18} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                {/* Minimax 测试按钮 */}
                 {ttsEnabled && ttsProvider === 'minimax' && (
                   <TouchableOpacity
                     style={{ marginLeft: 8 }}
@@ -2153,7 +2205,7 @@ const ApiSettings = () => {
                     )}
                   </TouchableOpacity>
                 )}
-                {/* CosyVoice 测试按钮，仅在 provider=cosyvoice 且启用时显示 */}
+                {/* CosyVoice 测试按钮 */}
                 {ttsEnabled && ttsProvider === 'cosyvoice' && (
                   <TouchableOpacity
                     style={{ marginLeft: 8 }}
@@ -2171,30 +2223,17 @@ const ApiSettings = () => {
             </View>
             {ttsEnabled && (
               <View style={styles.contentSection}>
-                {/* Provider 下拉选择 */}
+                {/* TTS Provider 下拉选择 */}
                 <Text style={styles.inputLabel}>TTS 服务商</Text>
-                <View style={{ flexDirection: 'row', marginBottom: 12 }}>
-                  {TTS_PROVIDERS.map(p => (
-                    <TouchableOpacity
-                      key={p.key}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        marginRight: 20,
-                        opacity: ttsProvider === p.key ? 1 : 0.6
-                      }}
-                      onPress={() => setTtsProvider(p.key as any)}
-                    >
-                      <Ionicons
-                        name={ttsProvider === p.key ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={theme.colors.primary}
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={{ color: '#fff' }}>{p.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <TouchableOpacity
+                  style={styles.providerDropdown}
+                  onPress={() => setShowTTSProviderDropdown(true)}
+                >
+                  <Text style={styles.providerDropdownText}>
+                    {getTTSProviderDisplayName(ttsProvider)}
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color="#fff" />
+                </TouchableOpacity>
                 {/* 豆包TTS参数 */}
                 {ttsProvider === 'doubao' && (
                   <>
@@ -2392,6 +2431,62 @@ const ApiSettings = () => {
             >
               <Text style={styles.dropdownItemText}>OpenAI兼容</Text>
               {providerType === 'openai-compatible' && (
+                <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* TTS Provider Selection Modal */}
+      <Modal
+        visible={showTTSProviderDropdown}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowTTSProviderDropdown(false)}
+      >
+        <TouchableOpacity 
+          style={styles.dropdownOverlay} 
+          activeOpacity={1}
+          onPress={() => setShowTTSProviderDropdown(false)}
+        >
+          <View style={[
+            styles.dropdownContent,
+            { width: Math.min(screenWidth * 0.9, 400) }
+          ]}>
+            <TouchableOpacity
+              style={[
+                styles.dropdownItem,
+                ttsProvider === 'doubao' && styles.dropdownItemSelected
+              ]}
+              onPress={() => handleTTSProviderTypeChange('doubao')}
+            >
+              <Text style={styles.dropdownItemText}>豆包 TTS</Text>
+              {ttsProvider === 'doubao' && (
+                <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.dropdownItem,
+                ttsProvider === 'minimax' && styles.dropdownItemSelected
+              ]}
+              onPress={() => handleTTSProviderTypeChange('minimax')}
+            >
+              <Text style={styles.dropdownItemText}>Minimax TTS</Text>
+              {ttsProvider === 'minimax' && (
+                <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.dropdownItem,
+                ttsProvider === 'cosyvoice' && styles.dropdownItemSelected
+              ]}
+              onPress={() => handleTTSProviderTypeChange('cosyvoice')}
+            >
+              <Text style={styles.dropdownItemText}>CosyVoice TTS</Text>
+              {ttsProvider === 'cosyvoice' && (
                 <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
               )}
             </TouchableOpacity>
