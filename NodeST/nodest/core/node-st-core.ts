@@ -2504,6 +2504,7 @@ export class NodeSTCore {
             // 基础变量替换
             text = text
                 .replace(/{{lastMessage}}/g, userMessage)
+                .replace(/{{lastusermessage}}/g, userMessage) // 新增宏，等价于{{lastMessage}}
                 .replace(/{{char}}/g, charName)
                 .replace(/{{user}}/g, userName);
 
@@ -2566,6 +2567,7 @@ export class NodeSTCore {
                 // 生成1到max之间的随机整数
                 return Math.floor(Math.random() * max + 1).toString();
             });
+            
 
             // 应用正则替换规则
             if (roleCard?.data?.extensions?.regex_scripts) {
