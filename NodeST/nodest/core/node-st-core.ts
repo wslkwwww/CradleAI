@@ -3925,5 +3925,23 @@ export class NodeSTCore {
             return false;
         }
     }
+        /**
+     * 获取指定会话的角色开场白（first_mes）
+     * @param conversationId 会话ID
+     * @returns first_mes 字符串或 null
+     */
+    static async getFirstMes(conversationId: string): Promise<string | null> {
+        try {
+            const filePath = NodeSTCore.characterDataDir + `nodest_${conversationId}_role.json`;
+            const fileInfo = await FileSystem.getInfoAsync(filePath);
+            if (!fileInfo.exists) return null;
+            const content = await FileSystem.readAsStringAsync(filePath);
+            const roleCard = JSON.parse(content);
+            return roleCard && typeof roleCard.first_mes === 'string' ? roleCard.first_mes : null;
+        } catch (error) {
+            console.error('[NodeSTCore] getFirstMes error:', error);
+            return null;
+        }
+    }
 }
 

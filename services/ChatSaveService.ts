@@ -39,7 +39,8 @@ class ChatSaveService {
     characterName: string,
     messages: Message[],
     description: string, 
-    thumbnail?: string
+    thumbnail?: string,
+    firstMes?: string // 新增参数
   ): Promise<ChatSave> {
     try {
       // Get existing saves
@@ -47,7 +48,44 @@ class ChatSaveService {
       
       // Create backup timestamp
       const timestamp = Date.now();
-      
+
+      // === 修复：如果是空白存档，先清空聊天历史 ===
+      let saveMessages = messages;
+      if (messages.length === 0) {
+        // 构造空白 ChatHistoryEntity
+        let emptyHistory: ChatHistoryEntity = {
+          name: "Chat History",
+          role: "system",
+          identifier: "chatHistory",
+          parts: []
+        };
+        // 优先从 StorageAdapter.getFirstMes 获取开场白
+        let firstMesToUse = firstMes && firstMes.trim() ? firstMes : undefined;
+        if (!firstMesToUse) {
+          try {
+            firstMesToUse = (await StorageAdapter.getFirstMes(conversationId)) ?? undefined;
+          } catch (e) {
+            // ignore
+          }
+        }
+        if (!firstMesToUse || !firstMesToUse.trim()) {
+          firstMesToUse = 'Hello';
+        }
+        if (firstMesToUse) {
+          emptyHistory.parts = [
+            {
+              role: "model",
+              parts: [{ text: firstMesToUse }],
+              is_first_mes: false
+            }
+          ];
+        }
+        // 覆盖当前会话的历史
+        await StorageAdapter.saveJson(StorageAdapter.getStorageKey(conversationId, '_history'), emptyHistory);
+        // 这里saveMessages依然为空，存档内容为[]
+      }
+      // ===
+
       // Use StorageAdapter to backup the current chat history
       const backupSuccess = await StorageAdapter.backupChatHistory(conversationId, timestamp);
       
@@ -63,9 +101,9 @@ class ChatSaveService {
         characterName,
         timestamp,
         description,
-        messageIds: messages.map(m => m.id),
-        messages: [...messages], // Create a deep copy of messages
-        previewText: this.generatePreviewText(messages),
+        messageIds: saveMessages.map(m => m.id),
+        messages: [...saveMessages], // Create a deep copy of messages
+        previewText: this.generatePreviewText(saveMessages),
         thumbnail: thumbnail,
         backupTimestamp: timestamp // Store the backup timestamp for restoration
       };

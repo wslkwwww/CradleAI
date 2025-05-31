@@ -1767,7 +1767,7 @@ const CreateChar: React.FC<CreateCharProps> = ({
       return renderVoiceSection();
     } else {
       return (
-        <View style={styles.tabContent}>
+        <ScrollView style={styles.tabContent} contentContainerStyle={{ paddingBottom: 80 }}>
           {/* Character basic information section */}
           <Text style={styles.sectionTitle}>角色信息</Text>
           <CharacterAttributeEditor
@@ -1896,7 +1896,7 @@ const CreateChar: React.FC<CreateCharProps> = ({
             }}
             onViewDetail={handleViewDetail}
           />
-        </View>
+        </ScrollView>
       );
     }
   };

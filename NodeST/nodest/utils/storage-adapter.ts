@@ -910,4 +910,13 @@ export class StorageAdapter {
   static async addAiMessage(conversationId: string, aiMessage: string): Promise<boolean> {
     return await NodeSTCore.addAiMessage(conversationId, aiMessage);
   }
+
+  /**
+   * 获取指定会话的角色开场白（first_mes）
+   * @param conversationId 会话ID
+   * @returns first_mes 字符串或 null
+   */
+  static async getFirstMes(conversationId: string): Promise<string | null> {
+    return await NodeSTCore.getFirstMes(conversationId);
+  }
 }

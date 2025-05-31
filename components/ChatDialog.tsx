@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview'; // Add WebView import
+import * as Clipboard from 'expo-clipboard'; // 添加 Clipboard 导入
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -1439,17 +1440,56 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   // 调整背景色
   const getVnBgColor = () => {
     const color = uiSettings.vnDialogColor;
-    const rgbValues = color.match(/\d+/g)?.slice(0, 3);
-    return rgbValues ? `rgba(${rgbValues.join(',')},${vnBgAlpha})` : `rgba(0,0,0,${vnBgAlpha})`;
+    const rgb = parseColor(color);
+    return rgb ? `rgba(${rgb.join(',')},${vnBgAlpha})` : `rgba(0,0,0,${vnBgAlpha})`;
   };
 
   const handleAlphaChange = (alpha: number) => {
     setVnBgAlpha(alpha);
     // 更新 visualNovelSettings
     const color = uiSettings.vnDialogColor;
-    const rgbValues = color.match(/\d+/g)?.slice(0, 3);
-    const newColor = rgbValues ? `rgba(${rgbValues.join(',')},${alpha})` : `rgba(0,0,0,${alpha})`;
+    const rgb = parseColor(color);
+    const newColor = rgb ? `rgba(${rgb.join(',')},${alpha})` : `rgba(0,0,0,${alpha})`;
     updateVisualNovelSettings({ backgroundColor: newColor });
+  };
+
+  // 新增：HEX 转 RGB 的辅助函数
+  const hexToRgb = (hex: string): [number, number, number] | null => {
+    // 移除 # 前缀
+    const cleanHex = hex.replace('#', '');
+    
+    // 支持 3 位和 6 位 HEX
+    if (cleanHex.length === 3) {
+      const r = parseInt(cleanHex[0] + cleanHex[0], 16);
+      const g = parseInt(cleanHex[1] + cleanHex[1], 16);
+      const b = parseInt(cleanHex[2] + cleanHex[2], 16);
+      return [r, g, b];
+    } else if (cleanHex.length === 6) {
+      const r = parseInt(cleanHex.substring(0, 2), 16);
+      const g = parseInt(cleanHex.substring(2, 4), 16);
+      const b = parseInt(cleanHex.substring(4, 6), 16);
+      return [r, g, b];
+    }
+    
+    return null;
+  };
+
+  // 新增：解析颜色的辅助函数，支持 RGB 和 HEX 格式
+  const parseColor = (color: string): [number, number, number] | null => {
+    if (!color) return null;
+    
+    // 检查是否为 HEX 格式
+    if (color.startsWith('#')) {
+      return hexToRgb(color);
+    }
+    
+    // 检查是否为 RGB 格式
+    const rgbMatch = color.match(/\d+/g);
+    if (rgbMatch && rgbMatch.length >= 3) {
+      return [parseInt(rgbMatch[0]), parseInt(rgbMatch[1]), parseInt(rgbMatch[2])];
+    }
+    
+    return null;
   };
 
   function getTextStyle(isUser: boolean) {
@@ -1477,13 +1517,27 @@ function getBubbleStyle(isUser: boolean) {
   if (mode === 'normal') {
     const color = isUser ? uiSettings.regularUserBubbleColor : uiSettings.regularBotBubbleColor;
     const alpha = isUser ? uiSettings.regularUserBubbleAlpha : uiSettings.regularBotBubbleAlpha;
-    const rgb = color.match(/\d+/g)?.slice(0, 3);
-    return { backgroundColor: rgb ? `rgba(${rgb.join(',')},${alpha})` : undefined };
+    const rgb = parseColor(color);
+    if (rgb && rgb.length >= 3) {
+      return { backgroundColor: `rgba(${rgb.join(',')},${alpha})` };
+    }
+    // 如果解析失败，对于bot消息提供回退颜色，用户消息返回空对象使用默认渐变
+    if (!isUser) {
+      return { backgroundColor: `rgba(68, 68, 68, 0.85)` }; // 回退到默认bot颜色
+    }
+    return {}; // 用户消息使用默认渐变
   } else if (mode === 'background-focus') {
     const color = isUser ? uiSettings.bgUserBubbleColor : uiSettings.bgBotBubbleColor;
     const alpha = isUser ? uiSettings.bgUserBubbleAlpha : uiSettings.bgBotBubbleAlpha;
-    const rgb = color.match(/\d+/g)?.slice(0, 3);
-    return { backgroundColor: rgb ? `rgba(${rgb.join(',')},${alpha})` : undefined };
+    const rgb = parseColor(color);
+    if (rgb && rgb.length >= 3) {
+      return { backgroundColor: `rgba(${rgb.join(',')},${alpha})` };
+    }
+    // 如果解析失败，对于bot消息提供回退颜色，用户消息返回空对象使用默认渐变
+    if (!isUser) {
+      return { backgroundColor: `rgba(68, 68, 68, 0.9)` }; // 回退到默认bot颜色，背景强调模式稍微深一点
+    }
+    return {}; // 用户消息使用默认渐变
   }
   return {};
 }
@@ -2053,6 +2107,11 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
               hr: { borderBottomWidth: 1, borderColor: '#aaa', marginVertical: 8 },
               link: { color: uiSettings.markdownLinkColor, textDecorationLine: 'underline' },
               strong: { color: uiSettings.markdownBoldColor, fontWeight: 'bold' },
+              em: { 
+              color: uiSettings.markdownTextColor, 
+              fontStyle: 'italic',
+              fontSize: Math.min(Math.max(14, width * 0.04), 16) * uiSettings.markdownTextScale
+             },
               image: { width: 220, height: 160, borderRadius: 8, marginVertical: 8, alignSelf: 'center' },
             }}
             onLinkPress={(url: string) => {
@@ -2584,7 +2643,7 @@ const combinedItems = useMemo(() => {
           />
         )}
         {isUser ? (
-          // 用户消息 - 简洁版本，没有操作按钮
+          // 用户消息 - 添加复制按钮
           <View style={[styles.userMessageWrapper, {maxWidth: MAX_WIDTH}]}>
             {user?.avatar && (
               <Image
@@ -2592,30 +2651,44 @@ const combinedItems = useMemo(() => {
                 style={[styles.userMessageAvatar, { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2 }]}
               />
             )}
-            {mode === 'normal' || mode === 'background-focus' ? (
-              <LinearGradient
-                colors={[
-                  uiSettings.regularUserBubbleColor.replace('rgb', 'rgba').replace(')', `,${uiSettings.regularUserBubbleAlpha})`),
-                  uiSettings.regularUserBubbleColor.replace('rgb', 'rgba').replace(')', `,${uiSettings.regularUserBubbleAlpha - 0.05})`)
-                ]}
-                style={[
-                  styles.userGradient, 
+            <View style={styles.userMessageBubbleContainer}>
+              {mode === 'normal' || mode === 'background-focus' ? (
+                <LinearGradient
+                  colors={[
+                    uiSettings.regularUserBubbleColor.replace('rgb', 'rgba').replace(')', `,${uiSettings.regularUserBubbleAlpha})`),
+                    uiSettings.regularUserBubbleColor.replace('rgb', 'rgba').replace(')', `,${uiSettings.regularUserBubbleAlpha - 0.05})`)
+                  ]}
+                  style={[
+                    styles.userGradient, 
+                    { borderRadius: 18, borderTopRightRadius: 4 },
+                    { padding: getBubblePadding(), paddingHorizontal: getBubblePadding() + 4 }
+                  ]}
+                >
+                  {processMessageContent(message.text, true)}
+                </LinearGradient>
+              ) : (
+                <View style={[
+                  styles.userGradient,
+                  getBubbleStyle(true),
                   { borderRadius: 18, borderTopRightRadius: 4 },
                   { padding: getBubblePadding(), paddingHorizontal: getBubblePadding() + 4 }
-                ]}
-              >
-                {processMessageContent(message.text, true)}
-              </LinearGradient>
-            ) : (
-              <View style={[
-                styles.userGradient,
-                getBubbleStyle(true),
-                { borderRadius: 18, borderTopRightRadius: 4 },
-                { padding: getBubblePadding(), paddingHorizontal: getBubblePadding() + 4 }
-              ]}>
-                {processMessageContent(message.text, true)}
+                ]}>
+                  {processMessageContent(message.text, true)}
+                </View>
+              )}
+              {/* 用户消息操作按钮 */}
+              <View style={styles.userMessageActionsContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.actionCircleButton,
+                    { width: BUTTON_SIZE, height: BUTTON_SIZE, marginTop: BUTTON_MARGIN }
+                  ]}
+                  onPress={() => copyMessageText(message.text)}
+                >
+                  <Ionicons name="copy-outline" size={BUTTON_ICON_SIZE} color="#666" />
+                </TouchableOpacity>
               </View>
-            )}
+            </View>
           </View>
         ) : (
           // AI消息 - 带操作按钮
@@ -2687,6 +2760,16 @@ const combinedItems = useMemo(() => {
       <View style={styles.messageActionsRow}>
         <View style={styles.messageActionsLeft}>
           {!isAutoMessage && renderTTSButtons(message)}
+          {/* 复制按钮放在左侧 */}
+          <TouchableOpacity
+            style={[
+              styles.actionCircleButton,
+              { width: BUTTON_SIZE, height: BUTTON_SIZE, marginLeft: BUTTON_MARGIN }
+            ]}
+            onPress={() => copyMessageText(message.text)}
+          >
+            <Ionicons name="copy-outline" size={BUTTON_ICON_SIZE} color="#888" />
+          </TouchableOpacity>
         </View>
         <View style={styles.messageActionsRight}>
           {/* AI 消息操作按钮 */}
@@ -3144,6 +3227,20 @@ const combinedItems = useMemo(() => {
               </TouchableOpacity>
             </>
           )}
+          {/* 复制按钮 - 对所有消息都显示 */}
+          <TouchableOpacity
+            style={[
+              styles.actionCircleButton,
+              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginRight: BUTTON_MARGIN }
+            ]}
+            onPress={() => copyMessageText(displayText)}
+          >
+            <Ionicons
+              name="copy-outline"
+              size={BUTTON_ICON_SIZE}
+              color="#fff"
+            />
+          </TouchableOpacity>
           {/* Left of volume button: regenerate, edit, delete buttons (AI messages only, non-first_mes), show regardless of expanded or collapsed */}
           {!isUser && !lastMessage.isLoading && !isFirstMes && (
             <View style={styles.visualNovelActionRow}>
@@ -3319,6 +3416,29 @@ const keyExtractor = useCallback((item: CombinedItem) => {
   // Add keyboard state tracking
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  
+  // 新增：复制消息文本功能
+  const copyMessageText = useCallback(async (text: string) => {
+    try {
+      // 移除HTML标签和特殊标记，保留纯文本
+      let cleanText = text
+        .replace(/<[^>]*>/g, '') // 移除HTML标签
+        .replace(/!\[(.*?)\]\([^)]+\)/g, '$1') // 移除图片markdown，保留alt文本
+        .replace(/\[(.*?)\]\([^)]+\)/g, '$1') // 移除链接markdown，保留链接文本
+        .replace(/\*\*(.*?)\*\*/g, '$1') // 移除粗体标记
+        .replace(/\*(.*?)\*/g, '$1') // 移除斜体标记
+        .replace(/`([^`]+)`/g, '$1') // 移除行内代码标记
+        .replace(/```[\s\S]*?```/g, '[代码块]') // 替换代码块为标识
+        .trim();
+      
+      await Clipboard.setStringAsync(cleanText);
+      // 简单的成功提示
+      Alert.alert('复制成功', '消息文本已复制到剪贴板');
+    } catch (error) {
+      console.error('复制失败:', error);
+      Alert.alert('复制失败', '无法复制消息文本');
+    }
+  }, []);
   
   // Add keyboard event listeners
   useEffect(() => {
@@ -4543,6 +4663,12 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     borderRadius: 16,
     zIndex: 1, // 保证低于 ChatInput
+  },
+  // 新增：用户消息相关样式
+  userMessageBubbleContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    flex: 1,
   },
   // ImagesCarousel styles
   imagesCarouselContainer: {

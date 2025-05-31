@@ -77,7 +77,8 @@
     "react-native-webview": "^13.13.5",
     "replicate": "^1.0.1",
     "stream-browserify": "^3.0.0",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "expo-clipboard": "~7.1.4"
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",

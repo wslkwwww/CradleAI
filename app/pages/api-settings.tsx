@@ -952,7 +952,7 @@ const ApiSettings = () => {
 
       Alert.alert('连接成功', `收到回复: ${content}`);
     } catch (err: any) {
-      console.error('[OpenAIcompatible] 测试连接失败:', err);
+      console.error('[OpenAIcompatible] 测试连接失败:', err? err.message : '未知错误');
       Alert.alert('连接失败', err?.message || '未知错误');
     } finally {
       setIsTesting(false);
@@ -1797,7 +1797,7 @@ const ApiSettings = () => {
                         {provider.name || `渠道${idx + 1}`}
                       </Text>
                       <Text style={{ color: '#aaa', marginLeft: 8, fontSize: 12 }}>
-                        {provider.endpoint ? provider.endpoint.replace(/^https?:\/\//, '').split('/')[0] : ''}
+                        {provider.model || '未设置模型'}
                       </Text>
                     </TouchableOpacity>
                     {openAIManageMode && (
@@ -1812,7 +1812,6 @@ const ApiSettings = () => {
                   </View>
                 ))}
 
-                {/* 展开编辑区域 */}
                 {/* 展开编辑区域 */}
                 {openAIExpandedId && (() => {
                   const editingProvider = openAIProviders.find(p => p.id === openAIExpandedId);
@@ -1843,7 +1842,7 @@ const ApiSettings = () => {
                         onChangeText={v => setOpenAIProviders(providers =>
                           providers.map(p => p.id === editingProvider.id ? { ...p, endpoint: v } : p)
                         )}
-                        placeholder="如 https://api.openai.com"
+                        placeholder="如 https://api.openai.com/v1/chat/completions"
                         placeholderTextColor="#999"
                         autoCapitalize="none"
                       />
@@ -1863,7 +1862,7 @@ const ApiSettings = () => {
                         style={styles.input}
                         value={editingProvider.model}
                         onChangeText={v => setOpenAIProviders(providers =>
-                          providers.map(p => editingProvider.id ? { ...p, model: v } : p)
+                          providers.map(p => p.id === editingProvider.id ? { ...p, model: v } : p)
                         )}
                         placeholder="输入模型名"
                         placeholderTextColor="#999"
@@ -1881,7 +1880,9 @@ const ApiSettings = () => {
                         minimumTrackTintColor={theme.colors.primary}
                         maximumTrackTintColor="#888"
                         thumbTintColor={theme.colors.primary}
-                        onValueChange={val => updateCurrentOpenAIProvider('temperature', parseFloat(val.toFixed(2)))}
+                        onValueChange={val => setOpenAIProviders(providers =>
+                          providers.map(p => p.id === editingProvider.id ? { ...p, temperature: parseFloat(val.toFixed(2)) } : p)
+                        )}
                       />
                       {/* Max Tokens 滑块 */}
                       <Text style={styles.inputLabel}>
@@ -1896,7 +1897,9 @@ const ApiSettings = () => {
                         minimumTrackTintColor={theme.colors.primary}
                         maximumTrackTintColor="#888"
                         thumbTintColor={theme.colors.primary}
-                        onValueChange={val => updateCurrentOpenAIProvider('max_tokens', Math.round(val))}
+                        onValueChange={val => setOpenAIProviders(providers =>
+                          providers.map(p => p.id === editingProvider.id ? { ...p, max_tokens: Math.round(val) } : p)
+                        )}
                       />
                     </View>
                   );

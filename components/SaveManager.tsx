@@ -35,6 +35,8 @@ interface SaveManagerProps {
   onLoadSave?: (save: ChatSave) => void;
   onPreviewSave?: (save: ChatSave) => void;
   onChatRestored?: () => void; // New callback for when chat is restored
+  // 新增 firstMes 属性
+  firstMes?: string;
 }
 
 const SaveManager: React.FC<SaveManagerProps> = ({
@@ -48,7 +50,9 @@ const SaveManager: React.FC<SaveManagerProps> = ({
   onSaveCreated,
   onLoadSave,
   onPreviewSave,
-  onChatRestored
+  onChatRestored,
+  // 新增 firstMes 解构
+  firstMes
 }) => {
   const [tab, setTab] = useState<'load' | 'save' | 'import'>('load');
   const [saveDescription, setSaveDescription] = useState('');
@@ -139,7 +143,8 @@ const SaveManager: React.FC<SaveManagerProps> = ({
         characterName,
         [], // 空白消息
         saveDescription,
-        characterAvatar
+        characterAvatar,
+        firstMes // 传递 firstMes
       );
       setSaveDescription('');
       setSaves(prev => [newSave, ...prev]);

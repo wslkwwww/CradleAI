@@ -1559,25 +1559,6 @@ useEffect(() => {
       }
     };
 
-    // Process memory cache when app goes to background
-    const handleAppBackground = async () => {
-      try {
-        console.log('[App] AppState: 进入后台，开始处理所有记忆缓存...');
-        await Mem0Service.getInstance().processAllCharacterMemories();
-        console.log('[App] 所有记忆缓存已处理并写入数据库');
-      } catch (error) {
-        console.error('[App] 处理记忆缓存时出错:', error);
-      }
-    };
-
-    // Add app state change listener
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        saveScrollPositions();
-        handleAppBackground();
-      }
-    });
-    
     // Load saved scroll positions
     const loadScrollPositions = async () => {
       try {
@@ -1593,7 +1574,6 @@ useEffect(() => {
     loadScrollPositions();
     
     return () => {
-      subscription.remove();
       saveScrollPositions();
     };
   }, [chatScrollPositions]);
@@ -2492,25 +2472,41 @@ useEffect(() => {
               
               {/* Save Manager */}
               {characterToUse && (
-                <SaveManager
-                  visible={isSaveManagerVisible}
-                  onClose={() => setIsSaveManagerVisible(false)}
-                  conversationId={selectedConversationId || ''}
-                  characterId={characterToUse.id}
-                  characterName={characterToUse.name}
-                  characterAvatar={characterToUse.avatar || undefined}
-                  messages={messages}
-                  onSaveCreated={handleSaveCreated}
-                  onLoadSave={handleLoadSave}
-                  onPreviewSave={handlePreviewSave}
-                  // 新增：onChatRestored 回调，强制刷新消息列表
-                  onChatRestored={async () => {
-                    if (selectedConversationId) {
-                      const refreshed = await getMessages(selectedConversationId);
-                      setMessages(refreshed);
+                // 新增：解析 first_mes 并传递给 SaveManager
+                (() => {
+                  let firstMes = '';
+                  try {
+                    if (characterToUse.jsonData) {
+                      const characterData = JSON.parse(characterToUse.jsonData);
+                      firstMes = characterData?.roleCard?.first_mes || '';
                     }
-                  }}
-                />
+                  } catch (e) {
+                    firstMes = '';
+                  }
+                  return (
+                    <SaveManager
+                      visible={isSaveManagerVisible}
+                      onClose={() => setIsSaveManagerVisible(false)}
+                      conversationId={selectedConversationId || ''}
+                      characterId={characterToUse.id}
+                      characterName={characterToUse.name}
+                      characterAvatar={characterToUse.avatar || undefined}
+                      messages={messages}
+                      onSaveCreated={handleSaveCreated}
+                      onLoadSave={handleLoadSave}
+                      onPreviewSave={handlePreviewSave}
+                      // 新增：onChatRestored 回调，强制刷新消息列表
+                      onChatRestored={async () => {
+                        if (selectedConversationId) {
+                          const refreshed = await getMessages(selectedConversationId);
+                          setMessages(refreshed);
+                        }
+                      }}
+                      // 新增：传递 firstMes
+                      firstMes={firstMes}
+                    />
+                  );
+                })()
               )}
               
               {/* TTS Enhancer Modal */}

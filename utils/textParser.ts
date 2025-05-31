@@ -1,4 +1,4 @@
-import { StyleProp, TextStyle } from 'react-native';
+import { StyleProp, TextStyle,Platform } from 'react-native';
 
 type TextSegment = {
   text: string;
@@ -9,61 +9,163 @@ type TextSegment = {
 export const parseHtmlText = (text: string): TextSegment[] => {
   if (!text) return [{ text: '', style: {} }];
 
-  // Handle basic tags for simple messages (not complex HTML)
-  let currentText = text;
-  const segments: TextSegment[] = [];
+  // 处理代码块（```...```）
+  const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
+  let segments: TextSegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
 
-  // Replace <br> tags with newlines
-  currentText = currentText.replace(/<br\s*\/?>/g, '\n');
-
-  // Replace basic HTML tags with styled text segments
-  while (currentText.length > 0) {
-    let boldMatch = currentText.match(/<b>(.*?)<\/b>/);
-    let italicMatch = currentText.match(/<i>(.*?)<\/i>/);
-    let firstMatch = null;
-    let matchStyle = {};
-    let matchLength = 0;
-
-    // Find the first occurring tag
-    if (boldMatch && (!italicMatch || boldMatch.index! < italicMatch.index!)) {
-      firstMatch = boldMatch;
-      matchStyle = { fontWeight: 'bold' };
-      matchLength = 7; // <b></b> total length
-    } else if (italicMatch) {
-      firstMatch = italicMatch;
-      matchStyle = { fontStyle: 'italic' };
-      matchLength = 7; // <i></i> total length
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      // 处理代码块前的内容
+      segments = segments.concat(parseInlineMarkdown(text.substring(lastIndex, match.index)));
     }
-
-    if (firstMatch && firstMatch.index !== undefined) {
-      // Add text before the tag
-      if (firstMatch.index > 0) {
-        segments.push({
-          text: currentText.substring(0, firstMatch.index),
-          style: {},
-        });
+    // 代码块
+    segments.push({
+      text: match[2],
+      style: {
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        backgroundColor: '#111',
+        color: '#fff',
+        fontSize: 14,
+        padding: 4,
       }
-
-      // Add the styled text
-      segments.push({
-        text: firstMatch[1],
-        style: matchStyle,
-      });
-
-      // Update currentText to continue processing
-      currentText = currentText.substring(firstMatch.index + firstMatch[0].length);
-    } else {
-      // No more tags, add remaining text
-      segments.push({
-        text: currentText,
-        style: {},
-      });
-      break;
-    }
+    });
+    lastIndex = match.index + match[0].length;
   }
-
+  if (lastIndex < text.length) {
+    segments = segments.concat(parseInlineMarkdown(text.substring(lastIndex)));
+  }
   return segments;
 };
+
+// 处理除代码块外的其它 markdown 语法
+function parseInlineMarkdown(text: string): TextSegment[] {
+  let segments: TextSegment[] = [];
+  let cursor = 0;
+
+  // 支持的语法：标题、粗体、斜体、删除线、链接、图片、引用、任务列表、表格、列表
+  // 按顺序处理，优先长匹配
+  const regex = /^(#{1,6})\s+(.*)$|^>\s?(.*)$|^(\s*[-*+]|\d+\.)\s+(.*)$|^-\s\[( |x)\]\s(.*)$|!\[([^\]]*)\]\(([^\)]+)\)|\[(.*?)\]\(([^\)]+)\)|\*\*([^\*]+)\*\*|__([^_]+)__|\*([^\*]+)\*|_([^_]+)_|~~([^~]+)~~|`([^`]+)`/gm;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.substring(lastIndex, match.index), style: {} });
+    }
+    // 标题
+    if (match[1]) {
+      const level = match[1].length;
+      segments.push({
+        text: match[2],
+        style: {
+          fontWeight: 'bold',
+          fontSize: 24 - (level - 1) * 2,
+          marginVertical: 4,
+        }
+      });
+    }
+    // 引用
+    else if (match[3]) {
+      segments.push({
+        text: match[3],
+        style: {
+          color: '#d0d0d0',
+          fontStyle: 'italic',
+          borderLeftWidth: 4,
+          borderLeftColor: '#ff79c6',
+          paddingLeft: 6,
+        }
+      });
+    }
+    // 有序/无序列表
+    else if (match[4]) {
+      segments.push({
+        text: match[5],
+        style: {
+          marginLeft: 12,
+          fontSize: 15,
+        }
+      });
+    }
+    // 任务列表
+    else if (typeof match[6] !== 'undefined') {
+      segments.push({
+        text: (match[6] === 'x' ? '[x] ' : '[ ] ') + match[7],
+        style: {
+          color: match[6] === 'x' ? '#27ae60' : '#bbb',
+          textDecorationLine: match[6] === 'x' ? 'line-through' : undefined,
+        }
+      });
+    }
+    // 图片
+    else if (match[8] && match[9]) {
+      segments.push({
+        text: `[图片:${match[8]}](${match[9]})`,
+        style: { color: '#3498db' }
+      });
+    }
+    // 链接
+    else if (match[10] && match[11]) {
+      segments.push({
+        text: match[10],
+        style: { color: '#3498db', textDecorationLine: 'underline' }
+      });
+    }
+    // 粗体
+    else if (match[12]) {
+      segments.push({
+        text: match[12],
+        style: { fontWeight: 'bold' }
+      });
+    }
+    else if (match[13]) {
+      segments.push({
+        text: match[13],
+        style: { fontWeight: 'bold' }
+      });
+    }
+    // 斜体
+    else if (match[14]) {
+      segments.push({
+        text: match[14],
+        style: { fontStyle: 'italic' }
+      });
+    }
+    else if (match[15]) {
+      segments.push({
+        text: match[15],
+        style: { fontStyle: 'italic' }
+      });
+    }
+    // 删除线
+    else if (match[16]) {
+      segments.push({
+        text: match[16],
+        style: { textDecorationLine: 'line-through', color: '#bbb' }
+      });
+    }
+    // 行内代码
+    else if (match[17]) {
+      segments.push({
+        text: match[17],
+        style: {
+          fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+          backgroundColor: '#222',
+          color: '#fff',
+          borderRadius: 3,
+          padding: 2,
+        }
+      });
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ text: text.substring(lastIndex), style: {} });
+  }
+  return segments;
+}
 
 // Check if text contains complex HTML that should be rendered with the HTML renderer
 export const containsComplexHtml = (text: string): boolean => {
@@ -139,14 +241,8 @@ export const optimizeHtmlForRendering = (html: string): string => {
 export const preprocessCustomTags = (html: string): string => {
   if (!html) return '';
   
-  // We don't need to convert custom tags to divs anymore
-  // Just ensure they're properly formatted XML
-  
-  // Convert markdown bold to HTML
+  // 只处理粗体，斜体交给 Markdown 渲染器
   let processed = html.replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>');
-  
-  // Convert markdown italic to HTML
-  processed = processed.replace(/\*([\s\S]*?)\*/g, '<i>$1</i>');
-  
+
   return processed;
 };

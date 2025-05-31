@@ -97,6 +97,17 @@ jobs:
           -dontwarn com.facebook.react.**
           EOF
 
+      - name: Copy keystore for signing
+        run: |
+          mkdir -p android/app
+          cp credentials/android/keystore.jks android/app/keystore.jks
+
+      - name: Set up signing config env
+        run: |
+          echo "KEYSTORE_PASSWORD=55363247273395f8d95b9af47602c6c9" >> $GITHUB_ENV
+          echo "KEY_ALIAS=827710eb0c94fe645c8ff6e5d82928c5" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=c7a328e8f03f503a52f2196ce2da9ede" >> $GITHUB_ENV
+
       - name: Assemble for ${{ matrix.abi }}
         run: |
           cd android
@@ -194,6 +205,17 @@ jobs:
           -keep class com.facebook.hermes.** { *; }
           -dontwarn com.facebook.react.**
           EOF
+
+      - name: Copy keystore for signing
+        run: |
+          mkdir -p android/app
+          cp credentials/android/keystore.jks android/app/keystore.jks
+
+      - name: Set up signing config env
+        run: |
+          echo "KEYSTORE_PASSWORD=55363247273395f8d95b9af47602c6c9" >> $GITHUB_ENV
+          echo "KEY_ALIAS=827710eb0c94fe645c8ff6e5d82928c5" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=c7a328e8f03f503a52f2196ce2da9ede" >> $GITHUB_ENV
 
       - name: Build Universal APK
         run: |
