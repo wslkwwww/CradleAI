@@ -317,6 +317,12 @@ const isWebViewContent = (text: string): boolean => {
   if (isFullHtmlPage(text)) {
     return true;
   }
+  
+  // 检查是否包含完整HTML页面（即使不在开头）
+  if (/<!DOCTYPE\s+html[\s\S]*?<\/html>/i.test(text)) {
+    return true;
+  }
+  
   // 检查是否有包含在三重反引号中的HTML内容
   const codeBlockMatch = text.match(/```(?:html)?\s*([\s\S]*?)```/);
   if (codeBlockMatch && isFullHtmlPage(codeBlockMatch[1])) {
@@ -329,12 +335,35 @@ const isWebViewContent = (text: string): boolean => {
   if (codeBlockMatch && containsStructuralTags(codeBlockMatch[1])) {
     return true;
   }
+  
+  // 检查是否同时包含完整HTML和其他内容的混合情况
+  const fullHtmlMatch = text.match(/<!DOCTYPE\s+html[\s\S]*?<\/html>/i);
+  if (fullHtmlMatch) {
+    const remainingContent = text.replace(fullHtmlMatch[0], '').trim();
+    // 如果移除完整HTML后还有其他内容，也应该用WebView渲染
+    if (remainingContent) {
+      return true;
+    }
+  }
+  
   return false;
 };
 
-// 新增：提取被三重反引号包裹的HTML内容
+// 新增：提取被三重反引号包裹的HTML内容，同时保留其他内容
 function extractHtmlFromCodeBlock(text: string): string {
   if (!text) return '';
+  
+  // 首先检查是否直接包含完整HTML页面
+  if (isFullHtmlPage(text) || containsStructuralTags(text)) {
+    return text;
+  }
+  
+  // 检查是否包含完整HTML页面（不在开头的情况）
+  const fullHtmlMatch = text.match(/<!DOCTYPE\s+html[\s\S]*?<\/html>/i);
+  if (fullHtmlMatch) {
+    // 如果找到完整HTML，返回整个文本让enhanceHtmlWithMarkdown处理
+    return text;
+  }
   
   // 检查是否有三重反引号包裹的HTML内容
   const codeBlockMatch = text.match(/```(?:html)?\s*([\s\S]*?)```/);
@@ -342,27 +371,46 @@ function extractHtmlFromCodeBlock(text: string): string {
     const content = codeBlockMatch[1].trim();
     // 检查提取的内容是否为HTML页面
     if (isFullHtmlPage(content) || containsStructuralTags(content)) {
-      return content;
+      // 如果代码块中包含完整HTML，检查是否还有其他内容
+      const remainingContent = text.replace(codeBlockMatch[0], '').trim();
+      if (remainingContent) {
+        // 有其他内容，返回整个文本让enhanceHtmlWithMarkdown处理
+        return text;
+      } else {
+        // 只有代码块中的HTML，返回提取的内容
+        return content;
+      }
     }
   }
   
-  // 如果没有找到三重反引号包裹的HTML，返回原始文本
+  // 如果没有找到HTML内容，返回原始文本
   return text;
 }
 
 // 修改 enhanceHtmlWithMarkdown，支持混合 html、markdown、css 的完整渲染
 const enhanceHtmlWithMarkdown = (raw: string): string => {
-  // 1. 提取三重反引号包裹的代码块
+  // 1. 首先检测是否包含完整的HTML页面
+  const fullHtmlMatch = raw.match(/(<!DOCTYPE\s+html[\s\S]*?<\/html>)/i);
+  let fullHtmlContent = '';
+  let remainingContent = raw;
+  
+  if (fullHtmlMatch) {
+    fullHtmlContent = fullHtmlMatch[1];
+    // 移除完整HTML页面，保留其他内容
+    remainingContent = raw.replace(fullHtmlMatch[0], '').trim();
+  }
+
+  // 2. 提取三重反引号包裹的代码块
   const codeBlockRegex = /```([a-zA-Z]*)\s*([\s\S]*?)```/g;
   let htmlBlocks: string[] = [];
   let markdownBlocks: string[] = [];
   let cssBlocks: string[] = [];
   let otherBlocks: string[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
+  let processedContent = remainingContent;
 
-  // 2. 遍历所有代码块，分类
-  while ((match = codeBlockRegex.exec(raw)) !== null) {
+  // 3. 遍历所有代码块，分类
+  let match: RegExpExecArray | null;
+  while ((match = codeBlockRegex.exec(remainingContent)) !== null) {
     const [full, lang, content] = match;
     if (lang.trim().toLowerCase() === 'html') {
       htmlBlocks.push(content);
@@ -373,67 +421,160 @@ const enhanceHtmlWithMarkdown = (raw: string): string => {
     } else {
       otherBlocks.push(content);
     }
-    lastIndex = codeBlockRegex.lastIndex;
   }
 
-  // 3. 提取三重反引号之外的内容（如纯文本/markdown/HTML）
-  let rest = raw.replace(codeBlockRegex, '').trim();
+  // 4. 移除代码块后的剩余内容
+  processedContent = remainingContent.replace(codeBlockRegex, '').trim();
 
-  // 4. 合成最终 HTML
-  let htmlContent = '';
-  // 优先完整 html 页面
-  if (htmlBlocks.length > 0) {
-    htmlContent = htmlBlocks.join('\n');
-  } else if (/^\s*(<!DOCTYPE html|<html)/i.test(rest)) {
-    htmlContent = rest;
-    rest = '';
-  }
-
-  // 合并 markdown 内容
-  let markdownContent = '';
+  // 5. 合并所有非完整HTML的内容作为附加内容
+  let additionalContent = '';
+  
+  // 添加markdown内容
   if (markdownBlocks.length > 0) {
-    markdownContent = markdownBlocks.join('\n\n');
+    additionalContent += markdownBlocks.join('\n\n') + '\n\n';
   }
-  // rest 里如果还有 markdown，也合并
-  if (rest) {
-    markdownContent += '\n' + rest;
+  
+  // 添加剩余的文本内容（可能包含HTML标签）
+  if (processedContent) {
+    additionalContent += processedContent + '\n\n';
+  }
+  
+  // 添加HTML代码块内容
+  if (htmlBlocks.length > 0) {
+    additionalContent += htmlBlocks.join('\n\n') + '\n\n';
   }
 
-  // 合并 css 内容
+  // 合并 CSS 内容
   let cssContent = '';
   if (cssBlocks.length > 0) {
     cssContent = cssBlocks.join('\n');
   }
 
-  // 5. 构造最终 HTML 页面
-  // 如果有完整 html 页面，插入 markdown 渲染和 css
-  if (htmlContent) {
-    // 注入 style
-    let htmlWithCss = htmlContent.replace(
-      /<\/head>/i,
-      `<style>
-        .markdown-content { color: #fff !important; } /* 强制白色字体 */
-        ${cssContent}
-      </style>
-      <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-      </head>`
-    );
-    // 注入 markdown 渲染容器
-    if (markdownContent.trim()) {
-      htmlWithCss = htmlWithCss.replace(
+  // 6. 构造最终 HTML 页面
+  if (fullHtmlContent) {
+    // 如果有完整HTML页面，将附加内容插入到body中
+    let enhancedHtml = fullHtmlContent;
+    
+    // 注入额外的CSS
+    if (cssContent) {
+      enhancedHtml = enhancedHtml.replace(
+        /<\/head>/i,
+        `<style>
+          .additional-content { 
+            color: #fff !important; 
+            margin: 2em 0; 
+            padding: 1em; 
+            background-color: rgba(40, 42, 54, 0.8); 
+            border-radius: 8px; 
+            border-left: 4px solid #ff79c6;
+          }
+          .additional-content h1, .additional-content h2, .additional-content h3 { 
+            color: #ff79c6; 
+          }
+          .additional-content code { 
+            background: rgba(20, 22, 34, 0.8); 
+            padding: 0.2em 0.4em; 
+            border-radius: 3px; 
+            font-family: monospace; 
+            font-size: 0.9em; 
+          }
+          .additional-content pre { 
+            background: rgba(20, 22, 34, 0.8); 
+            padding: 1em; 
+            border-radius: 5px; 
+            overflow-x: auto; 
+          }
+          .additional-content blockquote { 
+            border-left: 4px solid #ff79c6; 
+            padding-left: 1em; 
+            color: #d0d0d0; 
+          }
+          ${cssContent}
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        </head>`
+      );
+    } else {
+      // 即使没有CSS，也要添加marked.js用于markdown渲染
+      enhancedHtml = enhancedHtml.replace(
+        /<\/head>/i,
+        `<style>
+          .additional-content { 
+            color: #fff !important; 
+            margin: 2em 0; 
+            padding: 1em; 
+            background-color: rgba(40, 42, 54, 0.8); 
+            border-radius: 8px; 
+            border-left: 4px solid #ff79c6;
+          }
+          .additional-content h1, .additional-content h2, .additional-content h3 { 
+            color: #ff79c6; 
+          }
+          .additional-content code { 
+            background: rgba(20, 22, 34, 0.8); 
+            padding: 0.2em 0.4em; 
+            border-radius: 3px; 
+            font-family: monospace; 
+            font-size: 0.9em; 
+          }
+          .additional-content pre { 
+            background: rgba(20, 22, 34, 0.8); 
+            padding: 1em; 
+            border-radius: 5px; 
+            overflow-x: auto; 
+          }
+          .additional-content blockquote { 
+            border-left: 4px solid #ff79c6; 
+            padding-left: 1em; 
+            color: #d0d0d0; 
+          }
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        </head>`
+      );
+    }
+    
+    // 将附加内容插入到body的末尾
+    if (additionalContent.trim()) {
+      enhancedHtml = enhancedHtml.replace(
         /<\/body>/i,
-        `<div id="markdown-content" class="markdown-content"></div>
+        `<div class="additional-content">
+          <h3>附加内容</h3>
+          <div id="additional-markdown-content"></div>
+          <div id="additional-html-content"></div>
+        </div>
         <script>
-          document.getElementById('markdown-content').innerHTML = marked.parse(\`${markdownContent.replace(/`/g, '\\`')}\`);
+          // 渲染markdown内容
+          if (typeof marked !== 'undefined' && \`${additionalContent.replace(/`/g, '\\`')}\`.trim()) {
+            try {
+              // 分离可能的HTML标签和markdown内容
+              const content = \`${additionalContent.replace(/`/g, '\\`')}\`;
+              const htmlTagRegex = /<[^>]+>/g;
+              const hasHtmlTags = htmlTagRegex.test(content);
+              
+              if (hasHtmlTags) {
+                // 如果包含HTML标签，直接插入
+                document.getElementById('additional-html-content').innerHTML = content;
+              } else {
+                // 如果没有HTML标签，作为markdown处理
+                document.getElementById('additional-markdown-content').innerHTML = marked.parse(content);
+              }
+            } catch (e) {
+              // 如果markdown解析失败，直接显示原内容
+              document.getElementById('additional-html-content').innerHTML = \`${additionalContent.replace(/`/g, '\\`')}\`;
+            }
+          }
         </script>
         </body>`
       );
     }
-    return htmlWithCss;
+    
+    return enhancedHtml;
   }
 
-  // 否则，自动包裹为完整 html 页面
-  return `<!DOCTYPE html>
+  // 如果没有完整HTML页面，但有其他内容，自动包裹为完整 html 页面
+  if (additionalContent.trim() || cssContent.trim()) {
+    return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -456,8 +597,33 @@ const enhanceHtmlWithMarkdown = (raw: string): string => {
 <body>
   <div id="markdown-content" class="markdown-content"></div>
   <script>
-    document.getElementById('markdown-content').innerHTML = marked.parse(\`${markdownContent.replace(/`/g, '\\`')}\`);
+    if (typeof marked !== 'undefined') {
+      try {
+        document.getElementById('markdown-content').innerHTML = marked.parse(\`${additionalContent.replace(/`/g, '\\`')}\`);
+      } catch (e) {
+        document.getElementById('markdown-content').innerHTML = \`${additionalContent.replace(/`/g, '\\`')}\`;
+      }
+    } else {
+      document.getElementById('markdown-content').innerHTML = \`${additionalContent.replace(/`/g, '\\`')}\`;
+    }
   </script>
+</body>
+</html>`;
+  }
+
+  // 如果什么都没有，返回空的HTML页面
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>空内容</title>
+  <style>
+    body { background: #222; color: #f8f8f2; font-family: 'Helvetica', 'Arial', sans-serif; margin: 0; padding: 1em; text-align: center; }
+  </style>
+</head>
+<body>
+  <p>没有内容可显示</p>
 </body>
 </html>`;
 };
