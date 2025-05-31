@@ -1130,132 +1130,130 @@ const MemoOverlay: React.FC<MemoOverlayProps> = ({ isVisible, onClose, character
   // Render the tables tab with tag-based table selection and full-width table
   const renderTablesTab = () => (
     <View style={styles.tabContent}>
-      <ScrollView style={styles.tablesScrollView} showsVerticalScrollIndicator={false}>
-        {/* 表格选择Tag */}
-        <View style={styles.tableTagsContainer}>
-          {characterTablesData?.success && characterTablesData.tables.length > 0 ? (
-            characterTablesData.tables.map((table) => (
+      {/* 表格选择Tag */}
+      <View style={styles.tableTagsContainer}>
+        {characterTablesData?.success && characterTablesData.tables.length > 0 ? (
+          characterTablesData.tables.map((table) => (
+            <TouchableOpacity
+              key={table.id}
+              style={[
+                styles.tableTag,
+                selectedTableId === table.id && styles.tableTagSelected
+              ]}
+              onPress={() => handleSelectTable(table.id)}
+            >
+              <Text style={[
+                styles.tableTagText,
+                selectedTableId === table.id && styles.tableTagTextSelected
+              ]}>
+                {table.name}
+              </Text>
               <TouchableOpacity
-                key={table.id}
-                style={[
-                  styles.tableTag,
-                  selectedTableId === table.id && styles.tableTagSelected
-                ]}
-                onPress={() => handleSelectTable(table.id)}
+                style={styles.tableTagDelete}
+                onPress={() => handleDeleteTable(table.id)}
               >
-                <Text style={[
-                  styles.tableTagText,
-                  selectedTableId === table.id && styles.tableTagTextSelected
-                ]}>
-                  {table.name}
-                </Text>
-                <TouchableOpacity
-                  style={styles.tableTagDelete}
-                  onPress={() => handleDeleteTable(table.id)}
-                >
-                  <Ionicons name="close-circle" size={16} color="#ff6b6b" />
-                </TouchableOpacity>
+                <Ionicons name="close-circle" size={16} color="#ff6b6b" />
               </TouchableOpacity>
-            ))
-          ) : (
-            <Text style={styles.emptyText}>暂无表格，请先在模板页创建</Text>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <Text style={styles.emptyText}>暂无表格，请先在模板页创建</Text>
+        )}
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={handleRefreshTables}
+          disabled={loading}
+        >
+          <Ionicons
+            name="refresh"
+            size={20}
+            color={loading ? "#666" : "#ff9f1c"}
+          />
+        </TouchableOpacity>
+      </View>
+      {/* 表格内容 */}
+      <View style={styles.tableDataContainerFull}>
+        <View style={styles.tablesHeader}>
+          <Text style={styles.tabTitle}>
+            {selectedTableId
+              ? characterTablesData?.tables.find(t => t.id === selectedTableId)?.name || '表格数据'
+              : '请选择表格'}
+          </Text>
+          {selectedTableId && (
+            <Text style={styles.tableIdText}>{selectedTableId}</Text>
           )}
-          <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={handleRefreshTables}
-            disabled={loading}
-          >
-            <Ionicons
-              name="refresh"
-              size={20}
-              color={loading ? "#666" : "#ff9f1c"}
-            />
-          </TouchableOpacity>
         </View>
-        {/* 表格内容 */}
-        <View style={styles.tableDataContainerFull}>
-          <View style={styles.tablesHeader}>
-            <Text style={styles.tabTitle}>
-              {selectedTableId
-                ? characterTablesData?.tables.find(t => t.id === selectedTableId)?.name || '表格数据'
-                : '请选择表格'}
-            </Text>
-            {selectedTableId && (
-              <Text style={styles.tableIdText}>{selectedTableId}</Text>
-            )}
-          </View>
-          {selectedTableId && characterTablesData?.success ? (() => {
-            const table = characterTablesData.tables.find(t => t.id === selectedTableId);
-            if (!table) {
-              return (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>该表格暂无数据</Text>
-                </View>
-              );
-            }
-            const matrix = [table.headers, ...table.rows];
+        {selectedTableId && characterTablesData?.success ? (() => {
+          const table = characterTablesData.tables.find(t => t.id === selectedTableId);
+          if (!table) {
             return (
-              <>
-                <ScrollView horizontal>
-                  <ScrollView>
-                    <View style={styles.tableGrid}>
-                      {matrix.map((row, rowIndex) => (
-                        <View key={`row-${rowIndex}`} style={styles.tableRow}>
-                          {row.map((cell, colIndex) => (
-                            <TouchableOpacity
-                              key={`cell-${rowIndex}-${colIndex}`}
-                              style={[
-                                styles.tableCell,
-                                rowIndex === 0 && styles.tableHeaderCell,
-                                editingCell?.rowIndex === rowIndex && editingCell?.colIndex === colIndex && styles.tableCellEditing
-                              ]}
-                              onPress={() => rowIndex > 0 && handleEditCell(rowIndex, colIndex, cell)}
-                              disabled={rowIndex === 0}
-                            >
-                              <Text
-                                style={[
-                                  styles.tableCellText,
-                                  rowIndex === 0 && styles.tableHeaderCellText
-                                ]}
-                                numberOfLines={2}
-                              >
-                                {cell}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                          {rowIndex > 0 && (
-                            <TouchableOpacity
-                              style={styles.rowDeleteButton}
-                              onPress={() => handleDeleteRow(rowIndex)}
-                            >
-                              <Ionicons name="close-circle" size={18} color="#ff6b6b" />
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </ScrollView>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.addRowButton]}
-                  onPress={handleAddRow}
-                >
-                  <Ionicons name="add" size={20} color="#fff" />
-                  <Text style={styles.actionButtonText}>添加行</Text>
-                </TouchableOpacity>
-              </>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>该表格暂无数据</Text>
+              </View>
             );
-          })() : selectedTableId ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>该表格暂无数据</Text>
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>请先选择左上方的表格标签</Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
+          }
+          const matrix = [table.headers, ...table.rows];
+          return (
+            <>
+              <ScrollView horizontal>
+                <ScrollView>
+                  <View style={styles.tableGrid}>
+                    {matrix.map((row, rowIndex) => (
+                      <View key={`row-${rowIndex}`} style={styles.tableRow}>
+                        {row.map((cell, colIndex) => (
+                          <TouchableOpacity
+                            key={`cell-${rowIndex}-${colIndex}`}
+                            style={[
+                              styles.tableCell,
+                              rowIndex === 0 && styles.tableHeaderCell,
+                              editingCell?.rowIndex === rowIndex && editingCell?.colIndex === colIndex && styles.tableCellEditing
+                            ]}
+                            onPress={() => rowIndex > 0 && handleEditCell(rowIndex, colIndex, cell)}
+                            disabled={rowIndex === 0}
+                          >
+                            <Text
+                              style={[
+                                styles.tableCellText,
+                                rowIndex === 0 && styles.tableHeaderCellText
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {cell}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                        {rowIndex > 0 && (
+                          <TouchableOpacity
+                            style={styles.rowDeleteButton}
+                            onPress={() => handleDeleteRow(rowIndex)}
+                          >
+                            <Ionicons name="close-circle" size={18} color="#ff6b6b" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+              </ScrollView>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.addRowButton]}
+                onPress={handleAddRow}
+              >
+                <Ionicons name="add" size={20} color="#fff" />
+                <Text style={styles.actionButtonText}>添加行</Text>
+              </TouchableOpacity>
+            </>
+          );
+        })() : selectedTableId ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>该表格暂无数据</Text>
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>请先选择左上方的表格标签</Text>
+          </View>
+        )}
+      </View>
     </View>
   );
 
@@ -1480,261 +1478,258 @@ const MemoOverlay: React.FC<MemoOverlayProps> = ({ isVisible, onClose, character
 
   // Render the settings tab with combined settings from both components
   const renderSettingsTab = () => (
-    <View style={styles.tabContent}>
-      <ScrollView style={styles.settingsScrollView} showsVerticalScrollIndicator={false}>
-        {/* 模板管理区块（移自模板标签页） */}
+  <ScrollView style={styles.settingsScrollView} contentContainerStyle={{ paddingBottom: 40 }}>
+      <View style={styles.settingSection}>
+        <TouchableOpacity 
+          style={styles.settingSectionHeader}
+          onPress={() => setIsTemplateManagementExpanded(!isTemplateManagementExpanded)}
+        >
+          <Text style={styles.settingSectionTitle}>表格模板管理</Text>
+          <Ionicons 
+            name={isTemplateManagementExpanded ? "chevron-up" : "chevron-down"} 
+            size={20} 
+            color="#ff9f1c" 
+          />
+        </TouchableOpacity>
+        
+        {isTemplateManagementExpanded && (
+          <>
+            <View style={styles.helperTextContainer}>
+              <Ionicons name="information-circle-outline" size={16} color="#ff9f1c" />
+              <Text style={styles.helperText}>
+                选择模板后可批量创建表格，表格将由AI自动填充，作为长期记忆。
+              </Text>
+            </View>
+            {/* 替换ScrollView+FlatList为FlatList单独渲染，避免嵌套 */}
+            <FlatList
+              data={allTemplates}
+              keyExtractor={item => item.uid}
+              style={{ maxHeight: 300 }}
+              renderItem={({ item }) => (
+                <View key={item.uid} style={[styles.templateItem, { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8 }]}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.templateCheckbox,
+                      selectedTemplateIds.includes(item.uid) && styles.templateCheckboxSelected
+                    ]}
+                    onPress={() => handleTemplateSelection(item.uid, !selectedTemplateIds.includes(item.uid))}
+                  >
+                    {selectedTemplateIds.includes(item.uid) && (
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                  <Text style={[styles.templateName, { marginLeft: 10, flex: 1 }]} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>未找到模板</Text>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => {
+                      initializePluginAsync();
+                    }}
+                  >
+                    <Text style={styles.actionButtonText}>初始化默认模板</Text>
+                  </TouchableOpacity>
+                </View>
+              }
+            />
+            <View style={styles.tabActions}>
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  styles.primaryButton,
+                  selectedTemplateIds.length === 0 && styles.disabledButton
+                ]}
+                onPress={handleCreateTablesFromTemplates}
+                disabled={selectedTemplateIds.length === 0}
+              >
+                <MaterialIcons name="add-chart" size={20} color="#fff" />
+                <Text style={styles.actionButtonText}>
+                  创建 {selectedTemplateIds.length} 个表格
+                </Text>
+              </TouchableOpacity>
+              {selectedTemplateIds.length > 0 && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.secondaryButton, styles.clearButton]}
+                  onPress={() => {
+                    TableMemory.API.selectTemplates([]);
+                    setSelectedTemplateIds([]);
+                  }}
+                >
+                  <Text style={styles.clearButtonText}>清除选择</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        )}
+      </View>
+
+      {/* 向量记忆系统设置 */}
+      <View style={styles.settingSection}>
+        <Text style={styles.settingSectionTitle}>向量记忆系统</Text>
+        <View style={styles.settingItem}>
+          <View style={styles.settingLabel}>
+            <Text style={styles.settingTitle}>启用记忆功能</Text>
+            <Text style={styles.settingDescription}>
+              {memoryEnabled ? '记忆系统已启用，将自动记录对话内容' : '记忆系统已禁用，不会记录新的对话'}
+            </Text>
+          </View>
+          <Switch
+            value={memoryEnabled}
+            onValueChange={setMemoryEnabled}
+            trackColor={{ false: '#767577', true: 'rgba(255, 159, 28, 0.7)' }}
+            thumbColor={memoryEnabled ? '#ff9f1c' : '#f4f3f4'}
+          />
+        </View>
+        
+        <View style={styles.settingSubSection}>
+          <Text style={styles.settingSubSectionTitle}>记忆处理间隔</Text>
+          <Text style={styles.settingDescription}>
+            每隔多少轮用户消息处理一次记忆（1-20轮）
+          </Text>
+          
+          <View style={styles.sliderContainer}>
+            <Text style={styles.sliderValue}>1</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={1}
+              maximumValue={20}
+              step={1}
+              value={currentInterval}
+              onValueChange={handleIntervalChange}
+              minimumTrackTintColor="#ff9f1c"
+              maximumTrackTintColor="#767577"
+              thumbTintColor="#ff9f1c"
+            />
+            <Text style={styles.sliderValue}>20</Text>
+          </View>
+          
+          <View style={styles.currentValueContainer}>
+            <Text style={styles.currentValueLabel}>当前设置:</Text>
+            <Text style={styles.currentValue}>{currentInterval} 轮</Text>        
+          </View>
+        </View>
+      </View>
+
+      {/* 表格记忆插件设置 */}
+      <View style={styles.settingSection}>
+        <Text style={styles.settingSectionTitle}>表格记忆插件</Text>
+
+        <View style={styles.settingItem}>
+          <View style={styles.settingLabel}>
+            <Text style={styles.settingTitle}>启用表格记忆</Text>
+            <Text style={styles.settingDescription}>
+              启用表格记忆增强以存储结构化数据
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.toggle,
+              pluginEnabled ? styles.toggleActive : styles.toggleInactive
+            ]}
+            onPress={() => handleTogglePluginEnabled(!pluginEnabled)}
+          >
+            <View
+              style={[
+                styles.toggleThumb,
+                pluginEnabled ? styles.toggleThumbActive : styles.toggleThumbInactive
+              ]}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {selectedTableId && (
         <View style={styles.settingSection}>
           <TouchableOpacity 
             style={styles.settingSectionHeader}
-            onPress={() => setIsTemplateManagementExpanded(!isTemplateManagementExpanded)}
+            onPress={() => setIsTableMaintenanceExpanded(!isTableMaintenanceExpanded)}
           >
-            <Text style={styles.settingSectionTitle}>表格模板管理</Text>
+            <Text style={styles.settingSectionTitle}>表格维护</Text>
             <Ionicons 
-              name={isTemplateManagementExpanded ? "chevron-up" : "chevron-down"} 
+              name={isTableMaintenanceExpanded ? "chevron-up" : "chevron-down"} 
               size={20} 
               color="#ff9f1c" 
             />
           </TouchableOpacity>
-          
-          {isTemplateManagementExpanded && (
+          {isTableMaintenanceExpanded && (
             <>
-              <View style={styles.helperTextContainer}>
-                <Ionicons name="information-circle-outline" size={16} color="#ff9f1c" />
-                <Text style={styles.helperText}>
-                  选择模板后可批量创建表格，表格将由AI自动填充，作为长期记忆。
-                </Text>
-              </View>
-              {/* 替换ScrollView+FlatList为FlatList单独渲染，避免嵌套 */}
-              <FlatList
-                data={allTemplates}
-                keyExtractor={item => item.uid}
-                style={{ maxHeight: 300 }}
-                renderItem={({ item }) => (
-                  <View key={item.uid} style={[styles.templateItem, { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8 }]}
-                  >
-                    <TouchableOpacity
-                      style={[
-                        styles.templateCheckbox,
-                        selectedTemplateIds.includes(item.uid) && styles.templateCheckboxSelected
-                      ]}
-                      onPress={() => handleTemplateSelection(item.uid, !selectedTemplateIds.includes(item.uid))}
-                    >
-                      {selectedTemplateIds.includes(item.uid) && (
-                        <Ionicons name="checkmark" size={16} color="#fff" />
-                      )}
-                    </TouchableOpacity>
-                    <Text style={[styles.templateName, { marginLeft: 10, flex: 1 }]} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                  </View>
-                )}
-                ListEmptyComponent={
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>未找到模板</Text>
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={() => {
-                        initializePluginAsync();
-                      }}
-                    >
-                      <Text style={styles.actionButtonText}>初始化默认模板</Text>
-                    </TouchableOpacity>
-                  </View>
-                }
-              />
-              <View style={styles.tabActions}>
+              <View style={styles.maintenanceGrid}>
+                {/* rebuild_base */}
                 <TouchableOpacity
-                  style={[
-                    styles.actionButton,
-                    styles.primaryButton,
-                    selectedTemplateIds.length === 0 && styles.disabledButton
-                  ]}
-                  onPress={handleCreateTablesFromTemplates}
-                  disabled={selectedTemplateIds.length === 0}
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'rebuild_base')}
                 >
-                  <MaterialIcons name="add-chart" size={20} color="#fff" />
-                  <Text style={styles.actionButtonText}>
-                    创建 {selectedTemplateIds.length} 个表格
-                  </Text>
+                  <MaterialIcons name="build" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>重建表格（基础）</Text>
                 </TouchableOpacity>
-                {selectedTemplateIds.length > 0 && (
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.secondaryButton, styles.clearButton]}
-                    onPress={() => {
-                      TableMemory.API.selectTemplates([]);
-                      setSelectedTemplateIds([]);
-                    }}
-                  >
-                    <Text style={styles.clearButtonText}>清除选择</Text>
-                  </TouchableOpacity>
-                )}
+                {/* rebuild_compatible */}
+                <TouchableOpacity
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'rebuild_compatible')}
+                >
+                  <MaterialIcons name="compare-arrows" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>兼容重建表格</Text>
+                </TouchableOpacity>
+                {/* rebuild_summary */}
+                <TouchableOpacity
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'rebuild_summary')}
+                >
+                  <MaterialIcons name="summarize" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>摘要重建表格</Text>
+                </TouchableOpacity>
+                {/* rebuild_fix_all */}
+                <TouchableOpacity
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'rebuild_fix_all')}
+                >
+                  <MaterialIcons name="healing" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>修复表格数据（全部）</Text>
+                </TouchableOpacity>
+                {/* rebuild_fix_simplify_all */}
+                <TouchableOpacity
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'rebuild_fix_simplify_all')}
+                >
+                  <MaterialIcons name="filter-list" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>修复并简化（全部）</Text>
+                </TouchableOpacity>
+                {/* rebuild_fix_simplify_without_history */}
+                <TouchableOpacity
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'rebuild_fix_simplify_without_history')}
+                >
+                  <MaterialIcons name="filter-alt" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>修复并简化（无历史）</Text>
+                </TouchableOpacity>
+                {/* rebuild_simplify_history */}
+                <TouchableOpacity
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'rebuild_simplify_history')}
+                >
+                  <MaterialIcons name="compress" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>简化历史记录</Text>
+                </TouchableOpacity>
+                {/* refresh_table_old */}
+                <TouchableOpacity
+                  style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
+                  onPress={() => handleRebuildTable(selectedTableId, 'refresh_table_old')}
+                >
+                  <MaterialIcons name="refresh" size={20} color="#ccc" />
+                  <Text style={styles.maintenanceButtonText}>刷新表格（旧版）</Text>
+                </TouchableOpacity>
               </View>
             </>
           )}
         </View>
-
-        {/* 向量记忆系统设置 */}
-        <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>向量记忆系统</Text>
-          <View style={styles.settingItem}>
-            <View style={styles.settingLabel}>
-              <Text style={styles.settingTitle}>启用记忆功能</Text>
-              <Text style={styles.settingDescription}>
-                {memoryEnabled ? '记忆系统已启用，将自动记录对话内容' : '记忆系统已禁用，不会记录新的对话'}
-              </Text>
-            </View>
-            <Switch
-              value={memoryEnabled}
-              onValueChange={setMemoryEnabled}
-              trackColor={{ false: '#767577', true: 'rgba(255, 159, 28, 0.7)' }}
-              thumbColor={memoryEnabled ? '#ff9f1c' : '#f4f3f4'}
-            />
-          </View>
-          
-          <View style={styles.settingSubSection}>
-            <Text style={styles.settingSubSectionTitle}>记忆处理间隔</Text>
-            <Text style={styles.settingDescription}>
-              每隔多少轮用户消息处理一次记忆（1-20轮）
-            </Text>
-            
-            <View style={styles.sliderContainer}>
-              <Text style={styles.sliderValue}>1</Text>
-              <Slider
-                style={styles.slider}
-                minimumValue={1}
-                maximumValue={20}
-                step={1}
-                value={currentInterval}
-                onValueChange={handleIntervalChange}
-                minimumTrackTintColor="#ff9f1c"
-                maximumTrackTintColor="#767577"
-                thumbTintColor="#ff9f1c"
-              />
-              <Text style={styles.sliderValue}>20</Text>
-            </View>
-            
-            <View style={styles.currentValueContainer}>
-              <Text style={styles.currentValueLabel}>当前设置:</Text>
-              <Text style={styles.currentValue}>{currentInterval} 轮</Text>        
-            </View>
-          </View>
-        </View>
-
-        {/* 表格记忆插件设置 */}
-        <View style={styles.settingSection}>
-          <Text style={styles.settingSectionTitle}>表格记忆插件</Text>
-
-          <View style={styles.settingItem}>
-            <View style={styles.settingLabel}>
-              <Text style={styles.settingTitle}>启用表格记忆</Text>
-              <Text style={styles.settingDescription}>
-                启用表格记忆增强以存储结构化数据
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={[
-                styles.toggle,
-                pluginEnabled ? styles.toggleActive : styles.toggleInactive
-              ]}
-              onPress={() => handleTogglePluginEnabled(!pluginEnabled)}
-            >
-              <View
-                style={[
-                  styles.toggleThumb,
-                  pluginEnabled ? styles.toggleThumbActive : styles.toggleThumbInactive
-                ]}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {selectedTableId && (
-          <View style={styles.settingSection}>
-            <TouchableOpacity 
-              style={styles.settingSectionHeader}
-              onPress={() => setIsTableMaintenanceExpanded(!isTableMaintenanceExpanded)}
-            >
-              <Text style={styles.settingSectionTitle}>表格维护</Text>
-              <Ionicons 
-                name={isTableMaintenanceExpanded ? "chevron-up" : "chevron-down"} 
-                size={20} 
-                color="#ff9f1c" 
-              />
-            </TouchableOpacity>
-            {isTableMaintenanceExpanded && (
-              <>
-                <View style={styles.maintenanceGrid}>
-                  {/* rebuild_base */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'rebuild_base')}
-                  >
-                    <MaterialIcons name="build" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>重建表格（基础）</Text>
-                  </TouchableOpacity>
-                  {/* rebuild_compatible */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'rebuild_compatible')}
-                  >
-                    <MaterialIcons name="compare-arrows" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>兼容重建表格</Text>
-                  </TouchableOpacity>
-                  {/* rebuild_summary */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'rebuild_summary')}
-                  >
-                    <MaterialIcons name="summarize" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>摘要重建表格</Text>
-                  </TouchableOpacity>
-                  {/* rebuild_fix_all */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'rebuild_fix_all')}
-                  >
-                    <MaterialIcons name="healing" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>修复表格数据（全部）</Text>
-                  </TouchableOpacity>
-                  {/* rebuild_fix_simplify_all */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'rebuild_fix_simplify_all')}
-                  >
-                    <MaterialIcons name="filter-list" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>修复并简化（全部）</Text>
-                  </TouchableOpacity>
-                  {/* rebuild_fix_simplify_without_history */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'rebuild_fix_simplify_without_history')}
-                  >
-                    <MaterialIcons name="filter-alt" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>修复并简化（无历史）</Text>
-                  </TouchableOpacity>
-                  {/* rebuild_simplify_history */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'rebuild_simplify_history')}
-                  >
-                    <MaterialIcons name="compress" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>简化历史记录</Text>
-                  </TouchableOpacity>
-                  {/* refresh_table_old */}
-                  <TouchableOpacity
-                    style={[styles.maintenanceButton, styles.maintenanceButtonGrid]}
-                    onPress={() => handleRebuildTable(selectedTableId, 'refresh_table_old')}
-                  >
-                    <MaterialIcons name="refresh" size={20} color="#ccc" />
-                    <Text style={styles.maintenanceButtonText}>刷新表格（旧版）</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </View>
-        )}
-      </ScrollView>
-    </View>
+      )}
+  </ScrollView>
   );
 
   // Modal for editing cell value (中文化)
@@ -1967,9 +1962,9 @@ const MemoOverlay: React.FC<MemoOverlayProps> = ({ isVisible, onClose, character
                   
                   // 获取API设置
                   const settings = getApiSettings();
-                  // 适配API设置格式 - 处理openai-compatible不被支持的情况
+                  // 适配API设置格式
                   const apiConfig = {
-                    apiProvider: settings.apiProvider === 'openai-compatible' ? 'gemini' as const : settings.apiProvider as 'gemini' | 'openrouter',
+                    apiProvider: settings.apiProvider as 'gemini' | 'openrouter'| 'openai-compatible',
                     openrouter: settings.openrouter,
                     apikey: settings.apiKey // 确保API密钥正确传递
                   };
@@ -2047,11 +2042,10 @@ const MemoOverlay: React.FC<MemoOverlayProps> = ({ isVisible, onClose, character
                   
                   // 获取API设置
                   const settings = getApiSettings();
-                  // 适配API设置格式 - 处理openai-compatible不被支持的情况
+                  // 适配API设置格式
                   const apiConfig = {
-                    apiProvider: settings.apiProvider === 'openai-compatible' ? 'gemini' as const : settings.apiProvider as 'gemini' | 'openrouter',
-                    openrouter: settings.openrouter,
-                    apikey: settings.apiKey // 确保API密钥正确传递
+                    apiProvider: settings.apiProvider as 'gemini' | 'openrouter' | 'openai-compatible',
+                    openrouter: settings.openrouter
                   };
                   
                   const result = await memoryService.summarizeMemoryNow(
@@ -3057,14 +3051,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
-  },
-  
-  // ScrollView styles for different tabs
-  settingsScrollView: {
-    flex: 1,
-  },
-  
-  tablesScrollView: {
-    flex: 1,
   },
 });
