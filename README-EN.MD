@@ -70,9 +70,9 @@ Continued to fix some issues for 1.0.3, no new features added.
 **Group Chat**
 
 *   Fixed the issue where group chats could not be disbanded.
-=======
+
 ## Changelog Log
->>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
+
 
 ### 1.0.4
 
@@ -126,8 +126,7 @@ Continued to fix some issues for 1.0.3, no new features added.
 *   Batch delete and export character data in management mode, supports character gallery and image generation.
 
 
-### 2. Chat
->>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
+### 2. Roleplay Chat
 
 *   Independently implemented World Info, Presets, and character information systems equivalent to SillyTavern's functions:
     *   **World Info Entry Management**: Automatically inject relevant world setting entries into the conversation, intelligently matched based on conversation keywords.
