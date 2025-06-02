@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # Project Documentation
+=======
+# CradleAI
+>>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
 
 ## Interface Preview
 
@@ -35,6 +39,7 @@
 *   **Discord:**  https://discord.gg/TMmgtPpU (For tutorial,Q&A, bug reports, feedback)
 *   **QQ Group:** 1017292082 (For Q&A, bug reports, feedback)
 
+<<<<<<< HEAD
 ## Update Log
 
 ### 0518 - 1.0.3 Further Optimization
@@ -69,6 +74,9 @@ Continued to fix some issues for 1.0.3, no new features added.
 **Group Chat**
 
 *   Fixed the issue where group chats could not be disbanded.
+=======
+## Changelog Log
+>>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
 
 ### 1.0.4
 
@@ -121,7 +129,11 @@ Continued to fix some issues for 1.0.3, no new features added.
 *   Characters can have custom avatars, backgrounds, and animated live portraits.
 *   Batch delete and export character data in management mode, supports character gallery and image generation.
 
+<<<<<<< HEAD
 ### 2. Smart Chat
+=======
+### 2. Chat
+>>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
 
 *   Independently implemented World Info, Presets, and character information systems equivalent to SillyTavern's functions:
     *   **World Info Entry Management**: Automatically inject relevant world setting entries into the conversation, intelligently matched based on conversation keywords.
