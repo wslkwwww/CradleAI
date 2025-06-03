@@ -35,7 +35,6 @@
 *   **Discord:**  https://discord.gg/TMmgtPpU (For tutorial,Q&A, bug reports, feedback)
 *   **QQ Group:** 1017292082 (For Q&A, bug reports, feedback)
 
-<<<<<<< HEAD
 ## Update Log
 
 ### 0518 - 1.0.3 Further Optimization
