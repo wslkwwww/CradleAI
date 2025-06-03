@@ -251,7 +251,13 @@ Continued to fix some issues for 1.0.3, no new features added.
 
 ## Deployment Method
 
-This application is developed based on the [Expo](https://expo.dev/) framework, and it is recommended to use EAS Build for packaging and deployment:
+### Github Action
+It`s a easy approach to package：
+``
+Use main.yml to run Github Action workflow for packaging：x86，x86_64 and arm64 apk.
+``
+### EAS Build
+This application is developed based on the [Expo](https://expo.dev/) framework, and it is recommended to use EAS Build for packaging:
 
 1.  **Android Platform Packaging**
     Execute the following command in the project root directory to build an Android installation package (APK or AAB) via EAS:
