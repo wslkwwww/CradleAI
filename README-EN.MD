@@ -275,20 +275,6 @@ This application is developed based on the [Expo](https://expo.dev/) framework, 
 
 > **Note**: Please ensure that your Expo account, EAS CLI, and relevant platform certificates are configured correctly. Refer to the [Expo Official Documentation](https://docs.expo.dev/build/introduction/) for detailed configuration and distribution procedures.
 
-## Current Limitations
-
-### API Support
-
-*   Currently, only Gemini and OpenRouter API channels are supported.
-*   Plans to add support for more official API channels in future versions, such as ChatGPT, Claude, etc.
-*   Image generation currently only supports NovelAI, plans to add more options.
-
-### Other Known Issues
-
-*   Some advanced features require developers to configure the endpoint themselves.
-*   The memory vector database might have performance bottlenecks with a large amount of data.
-*   Some features might respond slowly when the network is unstable.
-
 ## License
 
 This project is open-sourced under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license and must comply with the following rules:
