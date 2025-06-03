@@ -203,8 +203,11 @@
 *   支持多种主题与界面自定义。
 
 ## 部署方法
-
-本应用基于 [Expo](https://expo.dev/) 框架开发，推荐使用 EAS Build 进行打包和部署：
+### 可以使用 Github Action 进行APK构建
+```
+使用`main.yml`文件作为Github Action的工作流文件，进行构建即可，包含x86，x86_64，arm64的apk
+```
+### 可以使用 EAS Build 进行APK构建
 
 1.  **Android 平台打包**
     在项目根目录下执行以下命令，通过 EAS 构建 Android 安装包（APK 或 AAB）：
