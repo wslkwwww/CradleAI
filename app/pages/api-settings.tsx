@@ -269,6 +269,7 @@ const ApiSettings = () => {
 
   const availableGeminiModels = [
     'gemini-2.5-pro-exp-03-25',
+    'gemini-2.5-pro-preview-05-06',
     'gemini-2.5-flash-preview-04-17', // 新增
     'gemini-2.0-flash-exp',
     'gemini-2.0-pro-exp-02-05',
