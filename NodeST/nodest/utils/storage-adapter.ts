@@ -799,16 +799,16 @@ export class StorageAdapter {
   /**
    * 删除指定 AI 消息及其对应的用户消息
    */
-  static async deleteAiMessageByIndex(conversationId: string, messageIndex: number, apiKey: string): Promise<boolean> {
-    const core = new NodeSTCore(apiKey);
+  static async deleteAiMessageByIndex(conversationId: string, messageIndex: number, apiKey: string, apiSettings?: any): Promise<boolean> {
+    const core = new NodeSTCore(apiKey, apiSettings);
     return await core.deleteAiMessageByIndex(conversationId, messageIndex);
   }
 
   /**
    * 编辑指定 AI 消消息内容
    */
-  static async editAiMessageByIndex(conversationId: string, messageIndex: number, newContent: string, apiKey: string): Promise<boolean> {
-    const core = new NodeSTCore(apiKey);
+  static async editAiMessageByIndex(conversationId: string, messageIndex: number, newContent: string, apiKey: string, apiSettings?: any): Promise<boolean> {
+    const core = new NodeSTCore(apiKey, apiSettings);
     return await core.editAiMessageByIndex(conversationId, messageIndex, newContent);
   }
 
@@ -831,16 +831,16 @@ export class StorageAdapter {
   /**
    * 删除指定用户消息及其对应的AI消息
    */
-  static async deleteUserMessageByIndex(conversationId: string, messageIndex: number, apiKey: string): Promise<boolean> {
-    const core = new NodeSTCore(apiKey);
+  static async deleteUserMessageByIndex(conversationId: string, messageIndex: number, apiKey: string, apiSettings?: any): Promise<boolean> {
+    const core = new NodeSTCore(apiKey, apiSettings);
     return await core.deleteUserMessageByIndex(conversationId, messageIndex);
   }
 
   /**
    * 编辑指定用户消息内容
    */
-  static async editUserMessageByIndex(conversationId: string, messageIndex: number, newContent: string, apiKey: string): Promise<boolean> {
-    const core = new NodeSTCore(apiKey);
+  static async editUserMessageByIndex(conversationId: string, messageIndex: number, newContent: string, apiKey: string, apiSettings?: any): Promise<boolean> {
+    const core = new NodeSTCore(apiKey, apiSettings);
     return await core.editUserMessageByIndex(conversationId, messageIndex, newContent);
   }
 
@@ -918,5 +918,256 @@ export class StorageAdapter {
    */
   static async getFirstMes(conversationId: string): Promise<string | null> {
     return await NodeSTCore.getFirstMes(conversationId);
+  }
+
+  // ========== 测试功能 ==========
+
+  /**
+   * 创建测试用的聊天历史数据（用于验证索引查找功能）
+   * @param conversationId 会话ID
+   * @param messageCount 要创建的消息数量
+   * @returns 创建的消息列表
+   */
+  static async createTestChatHistory(conversationId: string, messageCount: number = 61): Promise<ChatMessage[]> {
+    try {
+      console.log(`[StorageAdapter] 开始创建 ${messageCount} 条测试消息到会话 ${conversationId}`);
+
+      // 创建标准的ChatHistoryEntity结构
+      const chatHistory: ChatHistoryEntity = {
+        name: 'test-conversation',
+        role: 'conversation',
+        parts: []
+      };
+
+      const testMessages: ChatMessage[] = [];
+      const baseTimestamp = Date.now() - (messageCount * 60000); // 从1小时前开始
+
+      // 创建交替的用户和AI消息
+      for (let i = 1; i <= messageCount; i++) {
+        const isUserMessage = i % 2 === 1;
+        const messageTimestamp = baseTimestamp + (i * 60000); // 每条消息间隔1分钟
+        
+        const message: ChatMessage = {
+          role: isUserMessage ? "user" : "model",
+          parts: [{
+            text: isUserMessage ? `测试用户消息 #${Math.ceil(i/2)}` : `测试AI回复 #${Math.floor(i/2)}`
+          }],
+          timestamp: messageTimestamp,
+          messageIndex: i - 1, // 全局索引
+          is_d_entry: false
+        };
+
+        chatHistory.parts.push(message);
+        testMessages.push(message);
+      }
+
+      // 保存到存储
+      await this.saveJson(this.getStorageKey(conversationId, '_history'), chatHistory);
+      
+      console.log(`[StorageAdapter] 成功创建 ${messageCount} 条测试消息`);
+      return testMessages;
+    } catch (error) {
+      console.error('[StorageAdapter] 创建测试消息失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 验证消息索引查找功能
+   * @param conversationId 会话ID
+   * @param messageId 消息ID（时间戳格式）
+   * @param role 消息角色
+   * @returns 验证结果
+   */
+  static async verifyMessageIndexLookup(
+    conversationId: string, 
+    messageId: string, 
+    role: 'user' | 'model'
+  ): Promise<{
+    success: boolean;
+    globalIndex: number;
+    roleIndex: number;
+    totalMessages: number;
+    totalRoleMessages: number;
+    message?: ChatMessage;
+    error?: string;
+  }> {
+    try {
+      console.log(`[StorageAdapter] 验证消息索引查找: ${messageId}, role: ${role}`);
+
+      // 获取完整的聊天历史
+      const completeHistory = await this.getCleanChatHistory(conversationId);
+      
+      if (completeHistory.length === 0) {
+        return {
+          success: false,
+          globalIndex: -1,
+          roleIndex: -1,
+          totalMessages: 0,
+          totalRoleMessages: 0,
+          error: '没有找到聊天历史'
+        };
+      }
+
+      // 解析messageId中的时间戳
+      const timestampMatch = messageId.match(/^(\d+)-/);
+      if (!timestampMatch) {
+        return {
+          success: false,
+          globalIndex: -1,
+          roleIndex: -1,
+          totalMessages: completeHistory.length,
+          totalRoleMessages: completeHistory.filter(m => m.role === role && !m.is_first_mes).length,
+          error: 'messageId格式无效'
+        };
+      }
+
+      const targetTimestamp = parseInt(timestampMatch[1]);
+      
+      // 查找匹配的消息（排除 first_mes，与 message-service.ts 的逻辑保持一致）
+      let foundMessage: ChatMessage | undefined;
+      let globalIndex = -1;
+
+      for (let i = 0; i < completeHistory.length; i++) {
+        const msg = completeHistory[i];
+        if (msg.role === role && !msg.is_first_mes && msg.timestamp && 
+            Math.abs(msg.timestamp - targetTimestamp) < 1000) { // 允许1秒误差
+          foundMessage = msg;
+          globalIndex = i;
+          break;
+        }
+      }
+
+      if (!foundMessage || globalIndex === -1) {
+        return {
+          success: false,
+          globalIndex: -1,
+          roleIndex: -1,
+          totalMessages: completeHistory.length,
+          totalRoleMessages: completeHistory.filter(m => m.role === role && !m.is_first_mes).length,
+          error: `未找到匹配的${role}消息`
+        };
+      }
+
+      // 计算在同类型消息中的索引（1-based，与 NodeSTCore 期望一致，排除 first_mes）
+      let roleIndex = 0;
+      for (let i = 0; i <= globalIndex; i++) {
+        if (completeHistory[i].role === role && !completeHistory[i].is_first_mes) {
+          if (i === globalIndex) {
+            roleIndex++; // 包含当前消息，使其成为 1-based
+            break;
+          }
+          roleIndex++;
+        }
+      }
+
+      const totalRoleMessages = completeHistory.filter(m => m.role === role && !m.is_first_mes).length;
+
+      console.log(`[StorageAdapter] 索引查找结果: globalIndex=${globalIndex}, roleIndex=${roleIndex}`);
+
+      return {
+        success: true,
+        globalIndex,
+        roleIndex,
+        totalMessages: completeHistory.length,
+        totalRoleMessages,
+        message: foundMessage
+      };
+
+    } catch (error) {
+      console.error('[StorageAdapter] 验证索引查找失败:', error);
+      return {
+        success: false,
+        globalIndex: -1,
+        roleIndex: -1,
+        totalMessages: 0,
+        totalRoleMessages: 0,
+        error: `验证过程出错: ${error}`
+      };
+    }
+  }
+
+  /**
+   * 获取测试用的消息索引映射表
+   * @param conversationId 会话ID
+   * @returns 消息索引映射
+   */
+  static async getTestMessageIndexMap(conversationId: string): Promise<{
+    userMessages: Array<{ globalIndex: number; roleIndex: number; timestamp: number; text: string }>;
+    aiMessages: Array<{ globalIndex: number; roleIndex: number; timestamp: number; text: string }>;
+    totalMessages: number;
+  }> {
+    try {
+      const completeHistory = await this.getCleanChatHistory(conversationId);
+      
+      const userMessages: Array<{ globalIndex: number; roleIndex: number; timestamp: number; text: string }> = [];
+      const aiMessages: Array<{ globalIndex: number; roleIndex: number; timestamp: number; text: string }> = [];
+      
+      let userCount = 0;
+      let aiCount = 0;
+
+      completeHistory.forEach((msg, globalIndex) => {
+        const text = msg.parts?.[0]?.text || '';
+        const timestamp = msg.timestamp || 0;
+
+        // 过滤掉 first_mes，与 message-service.ts 的逻辑保持一致
+        if (msg.role === 'user' && !msg.is_first_mes) {
+          userMessages.push({
+            globalIndex,
+            roleIndex: userCount + 1, // 改为 1-based，与 NodeSTCore 期望一致
+            timestamp,
+            text
+          });
+          userCount++;
+        } else if ((msg.role === 'model' || msg.role === 'assistant') && !msg.is_first_mes) {
+          aiMessages.push({
+            globalIndex,
+            roleIndex: aiCount + 1, // 改为 1-based，与 NodeSTCore 期望一致
+            timestamp,
+            text
+          });
+          aiCount++;
+        }
+      });
+
+      return {
+        userMessages,
+        aiMessages,
+        totalMessages: completeHistory.length
+      };
+
+    } catch (error) {
+      console.error('[StorageAdapter] 获取测试索引映射失败:', error);
+      return {
+        userMessages: [],
+        aiMessages: [],
+        totalMessages: 0
+      };
+    }
+  }
+
+  /**
+   * 清理测试数据
+   * @param conversationId 会话ID
+   * @returns 是否成功
+   */
+  static async cleanupTestData(conversationId: string): Promise<boolean> {
+    try {
+      console.log(`[StorageAdapter] 清理测试数据: ${conversationId}`);
+
+      // 删除聊天历史
+      const historyKey = this.getStorageKey(conversationId, '_history');
+      await this.saveJson(historyKey, { 
+        name: 'empty-conversation',
+        role: 'conversation',
+        parts: []
+      });
+
+      console.log(`[StorageAdapter] 测试数据清理完成`);
+      return true;
+    } catch (error) {
+      console.error('[StorageAdapter] 清理测试数据失败:', error);
+      return false;
+    }
   }
 }

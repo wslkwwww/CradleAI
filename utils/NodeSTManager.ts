@@ -14,11 +14,22 @@ class NodeSTManagerClass {
     apiProvider: 'gemini'
   };
   private searchEnabled: boolean = false;
-    async setSearchEnabled(enabled: boolean): Promise<void> {
-console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add logging
-      this.searchEnabled = enabled;
-    }
-    
+  private isProcessing: boolean = false;
+  private latestRequestId: string | null = null; // 新增：跟踪最新请求ID
+
+  // 新增：记录请求元数据
+  private activeRequestMetadata: {
+    requestId: string;
+    startTime: number;
+    conversationId: string;
+    userMessage: string;
+  } | null = null;
+
+  async setSearchEnabled(enabled: boolean): Promise<void> {
+    console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add logging
+    this.searchEnabled = enabled;
+  }
+
   // Add static properties to fix the TypeScript errors
   private static instance: NodeSTManagerClass | null = null;
   private static apiKey: string = '';
@@ -125,8 +136,39 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     success: boolean;
     text?: string;
     error?: string;
+    requestId?: string; // 新增：返回请求ID
   }> {
     try {
+      // 生成唯一请求ID
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      this.latestRequestId = requestId;
+      
+      // 记录请求元数据
+      this.activeRequestMetadata = {
+        requestId,
+        startTime: Date.now(),
+        conversationId: params.conversationId,
+        userMessage: params.userMessage.substring(0, 100) // 只保存前100字符
+      };
+
+      console.log('[NodeSTManager] Starting processChatMessage with params:', {
+        requestId,
+        userMessage: params.userMessage.substring(0, 50),
+        status: params.status,
+        conversationId: params.conversationId,
+        hasApiKey: !!params.apiKey,
+        hasCharacter: !!params.character,
+        characterId: params.characterId
+      });
+
+      // Set processing state
+      this.isProcessing = true;
+
+      // Early abort check
+      if (this.hasActiveRequest()) {
+        console.log('[NodeSTManager] Request already in progress, checking abort status');
+      }
+
       const characterId = params.character?.id || params.conversationId;
       const jsonString = params.character?.jsonData;
       const apiKey = params.apiKey || this.apiKey || ''; // Use instance apiKey as fallback, empty string as last resort
@@ -217,23 +259,35 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
       });
 
       if (response.success) {
+        // 清除请求元数据
+        this.activeRequestMetadata = null;
         return {
           success: true,
-          text: response.response
+          text: response.response,
+          requestId
         };
       } else {
         console.error('[NodeSTManager] Error from NodeST:', response.error);
+        // 清除请求元数据
+        this.activeRequestMetadata = null;
         return {
           success: false,
-          error: response.error || "Unknown error"
+          error: response.error || "Unknown error",
+          requestId
         };
       }
     } catch (error) {
       console.error('[NodeSTManager] Error processing chat message:', error);
+      // 清除请求元数据
+      this.activeRequestMetadata = null;
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error"
+        error: error instanceof Error ? error.message : "Unknown error",
+        requestId: this.latestRequestId || undefined
       };
+    } finally {
+      // Reset processing state
+      this.isProcessing = false;
     }
   }
 
@@ -796,10 +850,10 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
 
   // Add static method for setting search enabled
   static async setSearchEnabled(enabled: boolean): Promise<void> {
-    if (NodeSTManagerClass.instance) {
-      await NodeSTManagerClass.instance.setSearchEnabled(enabled);
+    if (!NodeSTManagerClass.instance) {
+      NodeSTManagerClass.instance = new NodeSTManagerClass();
     }
-    return Promise.resolve();
+    await NodeSTManagerClass.instance.setSearchEnabled(enabled);
   }
 
   // 新增：立即总结记忆方法
@@ -892,7 +946,136 @@ console.log(`[NodeSTManager] Setting search enabled to: ${enabled}`); // Add log
     const instance = new NodeSTManagerClass();
     return await instance.editAiMessageByIndex(params);
   }
+
+  // Add abort functionality
+  abortCurrentRequest(): { success: boolean; wasActive: boolean } {
+    try {
+      // Use NodeSTCore static method directly
+      const NodeSTCore = (globalThis as any).NodeSTCore;
+      if (NodeSTCore && typeof NodeSTCore.abortCurrentRequest === 'function') {
+        const wasActive = NodeSTCore.abortCurrentRequest();
+        this.isProcessing = false;
+        return { success: true, wasActive };
+      }
+      
+      console.warn('[NodeSTManager] NodeSTCore.abortCurrentRequest not available');
+      this.isProcessing = false;
+      return { success: false, wasActive: false };
+    } catch (error) {
+      console.error('[NodeSTManager] Error aborting request:', error);
+      this.isProcessing = false;
+      return { success: false, wasActive: false };
+    }
+  }
+
+  // Check if there's an active request
+  hasActiveRequest(): boolean {
+    try {
+      const NodeSTCore = (globalThis as any).NodeSTCore;
+      if (NodeSTCore && typeof NodeSTCore.hasActiveRequest === 'function') {
+        return NodeSTCore.hasActiveRequest() || this.isProcessing;
+      }
+      
+      return this.isProcessing;
+    } catch (error) {
+      console.error('[NodeSTManager] Error checking active request:', error);
+      return this.isProcessing;
+    }
+  }
+
+  // Static abort methods
+  static abortCurrentRequest(): { success: boolean; wasActive: boolean } {
+    if (!NodeSTManagerClass.instance) {
+      NodeSTManagerClass.instance = new NodeSTManagerClass();
+    }
+    return NodeSTManagerClass.instance.abortCurrentRequest();
+  }
+
+  static hasActiveRequest(): boolean {
+    if (!NodeSTManagerClass.instance) {
+      NodeSTManagerClass.instance = new NodeSTManagerClass();
+    }
+    return NodeSTManagerClass.instance.hasActiveRequest();
+  }
+
+  // 新增：检查请求是否可能因后台而失效
+  checkRequestValidity(requestId?: string): {
+    isValid: boolean;
+    reason?: string;
+    elapsedTime?: number;
+  } {
+    if (!this.activeRequestMetadata) {
+      return { isValid: false, reason: 'No active request' };
+    }
+
+    if (requestId && this.activeRequestMetadata.requestId !== requestId) {
+      return { isValid: false, reason: 'Request ID mismatch' };
+    }
+
+    const elapsedTime = Date.now() - this.activeRequestMetadata.startTime;
+    
+    // 如果请求超过2分钟，认为可能已失效
+    if (elapsedTime > 120000) {
+      return { 
+        isValid: false, 
+        reason: 'Request timeout', 
+        elapsedTime 
+      };
+    }
+
+    return { isValid: true, elapsedTime };
+  }
+
+  // 新增：获取当前请求信息
+  getCurrentRequestInfo() {
+    return this.activeRequestMetadata;
+  }
 }
+
+/**
+ * Abort 功能需求文档
+ * 
+ * 1. 功能目标
+ * ---------------
+ * 用户在 AI 回复生成过程中，可以主动中止（abort）本次回复，避免等待无效响应或节省资源。
+ * 
+ * 2. 触发时机与边界
+ * ---------------
+ * - abort 只能中止"尚未完成写入历史"的 AI 回复流程。
+ * - 一旦 AI 回复和用户消息已写入聊天历史（后端存储），abort 仅能中止前端流式展示，无法撤销历史记录。
+ * - abort 应在流式响应、长时间生成、网络异常等场景下可用。
+ * 
+ * 3. 前后端协作
+ * ---------------
+ * - 前端：在用户点击"中止"按钮时，向后端发送 abort 请求（如通过取消 fetch/stream 或调用专门的 abort API）。
+ * - 后端：收到 abort 请求后，立即中止当前生成流程，确保未写入历史时不写入，已写入则不做额外处理。
+ * - 前端需根据后端返回状态，决定是否移除/保留本次 AI 回复在消息列表中的占位符。
+ * 
+ * 4. 典型流程
+ * ---------------
+ * - 用户发送消息，AI 开始生成回复（流式/非流式）。
+ * - 用户点击"中止"，前端发起 abort。
+ *   - 若 AI 回复尚未写入历史，前端移除本次 AI 回复占位符，后端不写入历史。
+ *   - 若 AI 回复已写入历史，abort 仅中止展示，历史记录不会被撤销。
+ * 
+ * 5. 注意事项
+ * ---------------
+ * - abort 不是"撤回"功能，不能删除已存储的历史消息。
+ * - 若需支持"撤回"，需单独实现消息删除/撤回接口。
+ * - 前端需区分"流式展示中止"与"历史已写入"的状态，避免 UI 与历史不一致。
+ * - 后端需保证写入历史的原子性，避免部分写入导致数据不一致。
+ * 
+ * 6. 相关接口建议
+ * ---------------
+ * - 前端：提供 abort 控件，调用 abort API 或中止流式 fetch。
+ * - 后端：支持流式响应的中止、生成流程的取消，返回明确的 abort 状态。
+ * 
+ * 7. 典型场景举例
+ * ---------------
+ * - 用户发现 AI 回复无关/太慢，点击"中止"，本次回复不进入历史。
+ * - 网络异常导致生成超时，用户 abort，前端移除 loading 占位符。
+ * - AI 回复已写入历史，用户 abort，仅中止流式展示，历史仍保留。
+ */
 
 // Create and export a singleton instance
 export interface ProcessChatOptions {

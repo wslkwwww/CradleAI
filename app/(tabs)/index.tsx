@@ -15,8 +15,10 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  Dimensions
+  Dimensions,
+  ScrollView
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import ChatDialog from '@/components/ChatDialog';
 import ChatInput from '@/components/ChatInput';
@@ -151,6 +153,37 @@ const createStableMemoryConfig: CreateConfigFunction = (user: any): MemoryConfig
 // Helper functions for performance optimization
 
 const App = () => {
+  // 性能优化：页面可见性状态
+  const [isPageVisible, setIsPageVisible] = useState(true);
+  const [appState, setAppState] = useState<string>(AppState.currentState);
+  
+  // 性能优化：定时器引用集合，用于页面不可见时清理
+  const timersRef = useRef<Set<any>>(new Set());
+  const intervalsRef = useRef<Set<any>>(new Set());
+  
+  // 优化：创建安全的定时器函数，自动管理清理
+  const createSafeTimeout = useCallback((callback: () => void, delay: number) => {
+    const timer = setTimeout(() => {
+      timersRef.current.delete(timer);
+      callback();
+    }, delay);
+    timersRef.current.add(timer);
+    return timer;
+  }, []);
+  
+  const createSafeInterval = useCallback((callback: () => void, delay: number) => {
+    const interval = setInterval(callback, delay);
+    intervalsRef.current.add(interval);
+    return interval;
+  }, []);
+  
+  // 清理所有定时器
+  const clearAllTimers = useCallback(() => {
+    timersRef.current.forEach(timer => clearTimeout(timer));
+    intervalsRef.current.forEach(interval => clearInterval(interval));
+    timersRef.current.clear();
+    intervalsRef.current.clear();
+  }, []);
     
   // Initialize the message service for use throughout the component
   const messageService = useMemo(() => MessageService, []);
@@ -290,8 +323,48 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
   const [isTopBarVisible, setIsTopBarVisible] = useState(true);
   const [isTestMarkdownVisible, setIsTestMarkdownVisible] = useState(false);
 
+  // 新增：消息管理测试相关状态
+  const [isMessageTestVisible, setIsMessageTestVisible] = useState(false);
+  const [testResults, setTestResults] = useState<string[]>([]);
+
   // 修改：使用 CharactersContext 获取生成图片
   const { addGeneratedImage, deleteGeneratedImage, getGeneratedImages, clearGeneratedImages } = useCharacters();
+
+  // 性能优化：页面可见性管理
+  useFocusEffect(
+    useCallback(() => {
+      setIsPageVisible(true);
+      console.log('[Performance] Index page focused');
+      
+      return () => {
+        setIsPageVisible(false);
+        console.log('[Performance] Index page unfocused - clearing timers');
+        clearAllTimers();
+      };
+    }, [clearAllTimers])
+  );
+
+  // 性能优化：应用状态管理
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: any) => {
+      setAppState(nextAppState);
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        console.log('[Performance] App backgrounded - clearing timers');
+        clearAllTimers();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, [clearAllTimers]);
+
+  // 性能优化：统一的错误处理函数
+  const showTransientError = useCallback((errorMessage: string) => {
+    setTransientError(errorMessage);
+    createSafeTimeout(() => {
+      setTransientError(null);
+    }, 5000);
+  }, [createSafeTimeout]);
 
   // 修改：处理生成图片，使用 CharactersContext
   const handleGenerateImage = useCallback((imageId: string, prompt: string) => {
@@ -344,8 +417,10 @@ useEffect(() => {
   })();
 }, []);
 
-// 过滤掉自动消息 inputText 的 user 消消息
+// 过滤掉自动消息 inputText 的 user 消消息 - 优化：减少计算频率
 const filteredMessages = useMemo(() => {
+  if (!isPageVisible) return []; // 性能优化：页面不可见时返回空数组
+  
   return messages.filter(msg => {
     // 过滤掉标记为自动消息输入的用户消息
     if (msg.sender === 'user' && msg.metadata?.isAutoMessageInput === true) {
@@ -361,7 +436,7 @@ const filteredMessages = useMemo(() => {
     }
     return true;
   });
-}, [messages, autoMessageInputText]);
+}, [messages, autoMessageInputText, isPageVisible]);
 
   // Filtered messages - remove "continue" user messages
   
@@ -374,7 +449,7 @@ const filteredMessages = useMemo(() => {
 
   // Load user groups
   const loadUserGroups = useCallback(async () => {
-    if (!user) return;
+    if (!user || !isPageVisible) return; // 性能优化：页面不可见时跳过
     
     try {
       const userGroups = await getUserGroups(user);
@@ -384,11 +459,11 @@ const filteredMessages = useMemo(() => {
     } catch (error) {
       console.error('Failed to load user groups:', error);
     }
-  }, [user, disbandedGroups]);
+  }, [user, disbandedGroups, isPageVisible]);
 
   // Load group messages
   const loadGroupMessages = useCallback(async (groupId: string) => {
-    if (!groupId) return;
+    if (!groupId || !isPageVisible) return; // 性能优化：页面不可见时跳过
 
     try {
       const messages = await getGroupMessages(groupId);
@@ -396,7 +471,7 @@ const filteredMessages = useMemo(() => {
     } catch (error) {
       console.error('Failed to load group messages:', error);
     }
-  }, []);
+  }, [isPageVisible]);
 
   // Handle group disbanded
   const handleGroupDisbanded = useCallback((groupId: string) => {
@@ -509,7 +584,7 @@ const filteredMessages = useMemo(() => {
     
     setPreviewBannerVisible(true);
     
-    setTimeout(() => {
+    createSafeTimeout(() => {
       setPreviewBannerVisible(false);
     }, 5000);
   }, [messages, isPreviewMode]);
@@ -583,8 +658,7 @@ const filteredMessages = useMemo(() => {
                            newMessage.includes("发送消息时出现了错误");
 
     if (isErrorMessage) {
-      setTransientError("处理消息时出现了错误");
-      setTimeout(() => setTransientError(null), 5000);
+      showTransientError("处理消息时出现了错误");
       // 移除最后一个AI loading消息和其对应的user消息（UI和context）
       setMessages(prev => {
         let msgs = [...prev];
@@ -773,7 +847,7 @@ const filteredMessages = useMemo(() => {
         [messageId]: 'processing'
       }));
       
-      setTimeout(() => {
+      createSafeTimeout(() => {
         processMessageMemory(messageId, newMessage, selectedConversationId);
       }, 500);
     }
@@ -820,79 +894,6 @@ const filteredMessages = useMemo(() => {
     }
   }, [selectedGroupId, user]);
 
-  // Message regeneration with message service
-  const handleRegenerateMessage = useCallback(async (messageId: string, messageIndex: number) => {
-    if (!selectedConversationId) {
-      console.warn('No conversation selected for regeneration');
-      return;
-    }
-  
-    try {
-      setRegeneratingMessageId(messageId);
-      
-      // Find message position for display purposes
-      const targetMsgIndex = messages.findIndex(msg => msg.id === messageId);
-      if (targetMsgIndex === -1) {
-        console.warn('Target message not found:', messageId);
-        setRegeneratingMessageId(null);
-        return;
-      }
-      
-      // Get the message for display purposes
-      const targetMsg = messages[targetMsgIndex];
-      
-      // Create messages to keep and loading state for display
-      let messagesToKeep = messages.slice(0, targetMsgIndex);
-      const displayMessages = [
-        ...messagesToKeep,
-        {
-          ...targetMsg,
-          isLoading: true,
-          text: '正在重新生成回复...',
-          metadata: { ...targetMsg.metadata, isRegenerating: true }
-        }
-      ];
-      
-      // Update UI to show loading
-      setMessages(displayMessages);
-      
-      // Call the message service
-      const result = await messageService.handleRegenerateMessage(
-        messageId, 
-        messageIndex, 
-        selectedConversationId, 
-        messages,
-        fallbackCharacter || selectedCharacter,
-        user
-      );
-      
-      if (result.success && result.messages) {
-        // Save messages
-        await clearMessages(selectedConversationId);
-        const savePromises = result.messages.map(msg => addMessage(selectedConversationId, msg));
-        await Promise.all(savePromises);
-      
-        // Update UI
-        setMessages(result.messages);
-      } else {
-        setTransientError("处理消息时出现了错误");
-        setTimeout(() => setTransientError(null), 5000);
-      }
-      
-      setRegeneratingMessageId(null);
-    } catch (error) {
-      console.error('Error regenerating message:', error);
-      
-      setRegeneratingMessageId(null);
-      setTransientError("处理消息时出现了错误");
-      setTimeout(() => setTransientError(null), 5000);
-    }
-  }, [
-    selectedConversationId, messages, fallbackCharacter, 
-    selectedCharacter, clearMessages, addMessage, user, messageService
-  ]);
-
-
   // Replace the existing handleDeleteAiMessage with the new version using the service
   const handleDeleteAiMessage = useCallback(async (messageId: string, aiIndex: number) => {
     if (!selectedConversationId) return;
@@ -912,8 +913,13 @@ const filteredMessages = useMemo(() => {
         const messagePromises = result.messages.map(m => addMessage(selectedConversationId, m));
         await Promise.all(messagePromises);
         
-        // Update UI
-        setMessages(result.messages);
+        // Force reload current page to maintain pagination state
+        if (getMessagesPaged) {
+          const { messages: pagedMessages, hasMore } = await getMessagesPaged(selectedConversationId, 1, PAGE_SIZE_SAFE);
+          setMessages(pagedMessages);
+          setCurrentPage(1);
+          setHasMoreMessages(hasMore);
+        }
       } else {
         setTransientError("处理消息时出现了错误");
         setTimeout(() => setTransientError(null), 5000);
@@ -922,7 +928,7 @@ const filteredMessages = useMemo(() => {
       setTransientError("处理消息时出现了错误");
       setTimeout(() => setTransientError(null), 5000);
     }
-  }, [selectedConversationId, clearMessages, addMessage, messages, messageService]);
+  }, [selectedConversationId, clearMessages, addMessage, messages, messageService, getMessagesPaged, PAGE_SIZE_SAFE]);
 
 
 
@@ -945,8 +951,13 @@ const filteredMessages = useMemo(() => {
         const messagePromises = result.messages.map(m => addMessage(selectedConversationId, m));
         await Promise.all(messagePromises);
         
-        // Update UI
-        setMessages(result.messages);
+        // Force reload current page to maintain pagination state
+        if (getMessagesPaged) {
+          const { messages: pagedMessages, hasMore } = await getMessagesPaged(selectedConversationId, 1, PAGE_SIZE_SAFE);
+          setMessages(pagedMessages);
+          setCurrentPage(1);
+          setHasMoreMessages(hasMore);
+        }
       } else {
         setTransientError("处理消息时出现了错误");
         setTimeout(() => setTransientError(null), 5000);
@@ -955,7 +966,7 @@ const filteredMessages = useMemo(() => {
       setTransientError("处理消息时出现了错误");
       setTimeout(() => setTransientError(null), 5000);
     }
-  }, [selectedConversationId, clearMessages, addMessage, messages, messageService]);
+  }, [selectedConversationId, clearMessages, addMessage, messages, messageService, getMessagesPaged, PAGE_SIZE_SAFE]);
 
 
 
@@ -980,8 +991,13 @@ const filteredMessages = useMemo(() => {
         const messagePromises = result.messages.map(m => addMessage(selectedConversationId, m));
         await Promise.all(messagePromises);
         
-        // Update UI
-        setMessages(result.messages);
+        // Force reload current page to maintain pagination state
+        if (getMessagesPaged) {
+          const { messages: pagedMessages, hasMore } = await getMessagesPaged(selectedConversationId, 1, PAGE_SIZE_SAFE);
+          setMessages(pagedMessages);
+          setCurrentPage(1);
+          setHasMoreMessages(hasMore);
+        }
       } else {
         setTransientError("处理消息时出现了错误");
         setTimeout(() => setTransientError(null), 5000);
@@ -990,7 +1006,7 @@ const filteredMessages = useMemo(() => {
       setTransientError("处理消息时出现了错误");
       setTimeout(() => setTransientError(null), 5000);
     }
-  }, [selectedConversationId, clearMessages, addMessage, messages, messageService]);
+  }, [selectedConversationId, clearMessages, addMessage, messages, messageService, getMessagesPaged, PAGE_SIZE_SAFE]);
 
 
 
@@ -1850,7 +1866,7 @@ useEffect(() => {
 
   // === 新增：同步每个会话的背景生成状态 ===
   useEffect(() => {
-    if (!characterToUse?.id) return;
+    if (!characterToUse?.id || !isPageVisible) return; // 性能优化：页面不可见时跳过
     const updateState = () => {
       const state = postChatService.getCurrentState(characterToUse.id);
       setExtraBgStates(prev => ({
@@ -1864,9 +1880,9 @@ useEffect(() => {
       }));
     };
     updateState();
-    const interval = setInterval(updateState, 800);
+    const interval = createSafeInterval(updateState, 800); // 使用安全定时器
     return () => clearInterval(interval);
-  }, [characterToUse?.id, postChatService]);
+  }, [characterToUse?.id, postChatService, isPageVisible, createSafeInterval]);
 
   // === 新增：每次切换characterId时加载已处理消息ID ===
   useEffect(() => {
@@ -2050,16 +2066,51 @@ useEffect(() => {
   // 加载更多（上一页）
   const loadMoreMessages = useCallback(async () => {
     if (!selectedConversationId || !hasMoreMessages || loadingMore) return;
+    
+    console.log(`[Index] loadMoreMessages: currentPage=${currentPage}, hasMore=${hasMoreMessages}, loadingMore=${loadingMore}`);
+    
     setLoadingMore(true);
-    if (getMessagesPaged) {
-      const nextPage = currentPage + 1;
-      const { messages: moreMessages, hasMore } = await getMessagesPaged(selectedConversationId, nextPage, PAGE_SIZE_SAFE);
-      setMessages(prev => [...moreMessages, ...prev]);
-      setCurrentPage(nextPage);
-      setHasMoreMessages(hasMore);
+    try {
+      if (getMessagesPaged) {
+        const nextPage = currentPage + 1;
+        console.log(`[Index] Loading page ${nextPage} for conversation ${selectedConversationId}`);
+        
+        const { messages: moreMessages, hasMore } = await getMessagesPaged(selectedConversationId, nextPage, PAGE_SIZE_SAFE);
+        
+        console.log(`[Index] Loaded ${moreMessages.length} messages from page ${nextPage}, hasMore=${hasMore}`);
+        console.log(`[Index] First message in loaded batch: ${moreMessages[0]?.text?.substring(0, 50) || 'N/A'}`);
+        console.log(`[Index] Last message in loaded batch: ${moreMessages[moreMessages.length - 1]?.text?.substring(0, 50) || 'N/A'}`);
+        
+        // 检查是否有新消息，防止重复添加
+        if (moreMessages.length > 0) {
+          setMessages(prev => {
+            // 防重复：检查第一条旧消息是否已存在
+            const firstOldMessage = moreMessages[0];
+            const alreadyExists = prev.some(msg => msg.id === firstOldMessage.id);
+            
+            if (alreadyExists) {
+              console.log(`[Index] Messages already exist, skipping merge to prevent duplicates`);
+              return prev;
+            }
+            
+            const newMessages = [...moreMessages, ...prev];
+            console.log(`[Index] After merge: total ${newMessages.length} messages`);
+            console.log(`[Index] First message after merge: ${newMessages[0]?.text?.substring(0, 50) || 'N/A'}`);
+            console.log(`[Index] Last message after merge: ${newMessages[newMessages.length - 1]?.text?.substring(0, 50) || 'N/A'}`);
+            return newMessages;
+          });
+          
+          setCurrentPage(nextPage);
+        }
+        
+        setHasMoreMessages(hasMore);
+      }
+    } catch (error) {
+      console.error('[Index] Error loading more messages:', error);
+    } finally {
+      setLoadingMore(false);
     }
-    setLoadingMore(false);
-  }, [selectedGroupId, currentPage, hasMoreMessages, loadingMore, getMessagesPaged, PAGE_SIZE_SAFE]);
+  }, [selectedConversationId, currentPage, hasMoreMessages, loadingMore, getMessagesPaged, PAGE_SIZE_SAFE]);
 
   // 切换会话时，加载第一页
   useEffect(() => {
@@ -2095,6 +2146,306 @@ useEffect(() => {
       lastProcessedMsgIdRef.current = null;
     }
   }, [selectedConversationId]);
+
+  // Message regeneration with message service
+  const handleRegenerateMessage = useCallback(async (messageId: string, messageIndex: number) => {
+    if (!selectedConversationId) {
+      console.warn('No conversation selected for regeneration');
+      return;
+    }
+  
+    try {
+      setRegeneratingMessageId(messageId);
+      
+      // Find message position for display purposes
+      const targetMsgIndex = messages.findIndex(msg => msg.id === messageId);
+      if (targetMsgIndex === -1) {
+        console.warn('Target message not found:', messageId);
+        setRegeneratingMessageId(null);
+        return;
+      }
+      
+      // Get the message for display purposes
+      const targetMsg = messages[targetMsgIndex];
+      
+      // Create messages to keep and loading state for display
+      let messagesToKeep = messages.slice(0, targetMsgIndex);
+      const displayMessages = [
+        ...messagesToKeep,
+        {
+          ...targetMsg,
+          isLoading: true,
+          text: '正在重新生成回复...',
+          metadata: { ...targetMsg.metadata, isRegenerating: true }
+        }
+      ];
+      
+      // Update UI to show loading
+      setMessages(displayMessages);
+      
+      // Call the message service
+      const result = await messageService.handleRegenerateMessage(
+        messageId, 
+        messageIndex, 
+        selectedConversationId, 
+        messages,
+        fallbackCharacter || selectedCharacter,
+        user
+      );
+      
+      if (result.success && result.messages) {
+        // Save messages
+        await clearMessages(selectedConversationId);
+        const savePromises = result.messages.map(msg => addMessage(selectedConversationId, msg));
+        await Promise.all(savePromises);
+      
+        // Force reload current page to maintain pagination state
+        if (getMessagesPaged) {
+          const { messages: pagedMessages, hasMore } = await getMessagesPaged(selectedConversationId, 1, PAGE_SIZE_SAFE);
+          setMessages(pagedMessages);
+          setCurrentPage(1);
+          setHasMoreMessages(hasMore);
+        }
+      } else {
+        setTransientError("处理消息时出现了错误");
+        setTimeout(() => setTransientError(null), 5000);
+      }
+      
+      setRegeneratingMessageId(null);
+    } catch (error) {
+      console.error('Error regenerating message:', error);
+      
+      setRegeneratingMessageId(null);
+      setTransientError("处理消息时出现了错误");
+      setTimeout(() => setTransientError(null), 5000);
+    }
+  }, [
+    selectedConversationId, messages, fallbackCharacter, 
+    selectedCharacter, clearMessages, addMessage, user, messageService, getMessagesPaged, PAGE_SIZE_SAFE
+  ]);
+
+  // 新增：测试分页消息管理功能
+  const testPaginatedMessageManagement = useCallback(async () => {
+    if (!selectedConversationId || !characterToUse) {
+      Alert.alert('提示', '请先选择一个角色开始对话');
+      return;
+    }
+
+    setTestResults(['=== 开始分页消息管理功能测试 ===']);
+    
+    try {
+      const result = await messageService.testPaginatedMessageManagement(selectedConversationId, PAGE_SIZE_SAFE);
+      setTestResults(result.results);
+    } catch (error) {
+      console.error('分页测试过程中发生错误:', error);
+      setTestResults(prev => [...prev, `✗ 测试失败: ${error}`]);
+    }
+  }, [selectedConversationId, characterToUse, messageService, PAGE_SIZE_SAFE]);
+
+  // 新增：测试消息管理功能
+  const testMessageManagement = useCallback(async () => {
+    if (!selectedConversationId || !characterToUse) {
+      Alert.alert('提示', '请先选择一个角色开始对话');
+      return;
+    }
+
+    setTestResults(['=== 开始强化版消息管理索引查找测试 ===']);
+    
+    try {
+      // ========== 第一阶段：清理并创建测试环境 ==========
+      setTestResults(prev => [...prev, '第一阶段：准备测试环境']);
+      
+      // 1. 清理现有UI消息
+      setMessages([]);
+      setTestResults(prev => [...prev, '✓ 清空UI消息列表']);
+      
+      // 2. 清理CharactersContext中的消息
+      await clearMessages(selectedConversationId);
+      setTestResults(prev => [...prev, '✓ 清空CharactersContext消息']);
+      
+      // 3. 清理StorageAdapter中的消息（如果有的话）
+      await messageService.cleanupTestData(selectedConversationId);
+      setTestResults(prev => [...prev, '✓ 清空StorageAdapter历史数据']);
+      
+      // ========== 第二阶段：创建61条标准测试消息到StorageAdapter ==========
+      setTestResults(prev => [...prev, '第二阶段：创建标准测试消息']);
+      
+      const testMessages = await messageService.createTestMessages(selectedConversationId, 61);
+      setTestResults(prev => [...prev, `✓ 在StorageAdapter中创建了${testMessages.length}条测试消息`]);
+      
+      // ========== 第三阶段：验证StorageAdapter集成 ==========
+      setTestResults(prev => [...prev, '第三阶段：验证StorageAdapter集成']);
+      
+      const integration = await messageService.verifyStorageAdapterIntegration(selectedConversationId);
+      if (integration.success) {
+        setTestResults(prev => [...prev, `✓ StorageAdapter集成验证成功:`]);
+        setTestResults(prev => [...prev, `  - 总消息数: ${integration.messageCount}`]);
+        setTestResults(prev => [...prev, `  - 用户消息数: ${integration.userMessageCount}`]);
+        setTestResults(prev => [...prev, `  - AI消息数: ${integration.aiMessageCount}`]);
+      } else {
+        setTestResults(prev => [...prev, `✗ StorageAdapter集成验证失败: ${integration.error}`]);
+        return;
+      }
+      
+      // ========== 第四阶段：生成基于真实数据的测试用例 ==========
+      setTestResults(prev => [...prev, '第四阶段：生成测试用例']);
+      
+      const testCases = await messageService.generateTestCases(selectedConversationId, 20);
+      setTestResults(prev => [...prev, `✓ 生成了${testCases.length}个测试用例`]);
+      
+      // 显示部分测试用例示例
+      setTestResults(prev => [...prev, '测试用例示例:']);
+      testCases.slice(0, 5).forEach((testCase, index) => {
+        setTestResults(prev => [...prev, `  ${index + 1}. ${testCase.role}消息, 期望索引=${testCase.expectedIndex}, 时间戳=${testCase.timestamp}`]);
+      });
+      
+      // ========== 第五阶段：执行索引查找精确度测试 ==========
+      setTestResults(prev => [...prev, '第五阶段：测试索引查找精确度']);
+      
+      const indexResults = await messageService.testIndexLookupAccuracy(selectedConversationId, testCases);
+      
+      let successCount = 0;
+      let failureCount = 0;
+      
+      indexResults.forEach((result, index) => {
+        if (result.success) {
+          successCount++;
+          if (index < 10) { // 只显示前10个成功的结果
+            setTestResults(prev => [...prev, `✓ 测试${index + 1}: ${result.role}消息索引查找成功 (期望=${result.expectedIndex}, 实际=${result.actualIndex})`]);
+          }
+        } else {
+          failureCount++;
+          setTestResults(prev => [...prev, `✗ 测试${index + 1}: ${result.role}消息索引查找失败 (期望=${result.expectedIndex}, 实际=${result.actualIndex}) ${result.error || ''}`]);
+        }
+      });
+      
+      // ========== 第六阶段：测试结果汇总 ==========
+      setTestResults(prev => [...prev, '第六阶段：测试结果汇总']);
+      setTestResults(prev => [...prev, `总测试用例: ${testCases.length}`]);
+      setTestResults(prev => [...prev, `成功: ${successCount} (${((successCount / testCases.length) * 100).toFixed(1)}%)`]);
+      setTestResults(prev => [...prev, `失败: ${failureCount} (${((failureCount / testCases.length) * 100).toFixed(1)}%)`]);
+      
+      if (successCount === testCases.length) {
+        setTestResults(prev => [...prev, '🎉 所有测试通过！索引查找功能完全正常！']);
+      } else if (successCount > testCases.length * 0.8) {
+        setTestResults(prev => [...prev, '⚠️  大部分测试通过，索引查找基本正常，但存在少量问题']);
+      } else {
+        setTestResults(prev => [...prev, '❌ 大量测试失败，索引查找功能存在严重问题']);
+      }
+      
+      // ========== 第七阶段：边界测试 ==========
+      setTestResults(prev => [...prev, '第七阶段：边界条件测试']);
+      
+      if (integration.indexMapping) {
+        const { userMessages, aiMessages } = integration.indexMapping;
+        
+        // 测试第一条和最后一条用户消息
+        if (userMessages.length > 0) {
+          const firstUser = userMessages[0];
+          const lastUser = userMessages[userMessages.length - 1];
+          
+          const boundaryTestCases: Array<{ messageId: string; role: 'user' | 'model'; expectedIndex: number }> = [
+            { messageId: `${firstUser.timestamp}-test-user`, role: 'user', expectedIndex: 0 },
+            { messageId: `${lastUser.timestamp}-test-user`, role: 'user', expectedIndex: userMessages.length - 1 }
+          ];
+          
+          if (aiMessages.length > 0) {
+            const firstAI = aiMessages[0];
+            const lastAI = aiMessages[aiMessages.length - 1];
+            boundaryTestCases.push(
+              { messageId: `${firstAI.timestamp}-test-ai`, role: 'model', expectedIndex: 0 },
+              { messageId: `${lastAI.timestamp}-test-ai`, role: 'model', expectedIndex: aiMessages.length - 1 }
+            );
+          }
+          
+          const boundaryResults = await messageService.testIndexLookupAccuracy(selectedConversationId, boundaryTestCases);
+          boundaryResults.forEach((result, index) => {
+            const testType = index < 2 ? (index === 0 ? '第一条用户消息' : '最后一条用户消息') 
+                                       : (index === 2 ? '第一条AI消息' : '最后一条AI消息');
+            if (result.success) {
+              setTestResults(prev => [...prev, `✓ ${testType}索引查找正确`]);
+            } else {
+              setTestResults(prev => [...prev, `✗ ${testType}索引查找错误: 期望=${result.expectedIndex}, 实际=${result.actualIndex}`]);
+            }
+          });
+        }
+      }
+      
+      // ========== 第八阶段：将测试消息同步到UI（可选） ==========
+      setTestResults(prev => [...prev, '第八阶段：同步测试消息到UI（验证分页功能）']);
+      
+      // 将测试消息转换为UI Message格式并添加到CharactersContext
+      for (let i = 0; i < testMessages.length; i++) {
+        const testMsg = testMessages[i];
+        const uiMessage = {
+          id: `${testMsg.timestamp}-${Math.random().toString(36).substring(2, 8)}`,
+          text: testMsg.parts?.[0]?.text || '',
+          sender: testMsg.role === 'user' ? 'user' : 'bot',
+          timestamp: testMsg.timestamp,
+          isLoading: false
+        };
+        await addMessage(selectedConversationId, uiMessage);
+        
+        // 每10条消息显示进度
+        if ((i + 1) % 10 === 0) {
+          setTestResults(prev => [...prev, `同步进度: ${i + 1}/${testMessages.length}`]);
+        }
+      }
+      
+      // 重新加载分页消息以验证分页功能
+      if (getMessagesPaged) {
+        const { messages: pagedMessages, hasMore, total } = await getMessagesPaged(selectedConversationId, 1, PAGE_SIZE_SAFE);
+        setMessages(pagedMessages);
+        setCurrentPage(1);
+        setHasMoreMessages(hasMore);
+        setTestResults(prev => [...prev, `✓ 分页加载: 显示${pagedMessages.length}条，总共${total}条，hasMore=${hasMore}`]);
+      }
+      
+      setTestResults(prev => [...prev, '=== 强化版测试完成 ===']);
+      setTestResults(prev => [...prev, '']);
+      setTestResults(prev => [...prev, '测试总结:']);
+      setTestResults(prev => [...prev, '1. 成功在StorageAdapter中创建了61条标准测试消息']);
+      setTestResults(prev => [...prev, '2. 验证了getCleanChatHistory能正确返回消息']);
+      setTestResults(prev => [...prev, '3. 测试了findMessageGlobalIndex的索引查找精确度']);
+      setTestResults(prev => [...prev, '4. 验证了分页功能与索引查找的兼容性']);
+      setTestResults(prev => [...prev, '5. 完全还原了真实使用场景的消息管理流程']);
+      
+    } catch (error) {
+      console.error('强化版测试过程中发生错误:', error);
+      setTestResults(prev => [...prev, `✗ 测试失败: ${error}`]);
+    }
+  }, [selectedConversationId, characterToUse, clearMessages, addMessage, getMessagesPaged, PAGE_SIZE_SAFE, messageService]);
+
+  // 新增：清理测试消息
+  const clearTestMessages = useCallback(async () => {
+    if (!selectedConversationId) return;
+    
+    try {
+      // 清理UI消息
+      setMessages([]);
+      setTestResults(['开始清理测试数据...']);
+      
+      // 清理CharactersContext中的消息
+      await clearMessages(selectedConversationId);
+      setTestResults(prev => [...prev, '✓ 清理CharactersContext消息']);
+      
+      // 清理StorageAdapter中的测试数据
+      const success = await messageService.cleanupTestData(selectedConversationId);
+      if (success) {
+        setTestResults(prev => [...prev, '✓ 清理StorageAdapter测试数据']);
+      } else {
+        setTestResults(prev => [...prev, '✗ 清理StorageAdapter测试数据失败']);
+      }
+      
+      // 重置分页状态
+      setCurrentPage(1);
+      setHasMoreMessages(false);
+      
+      setTestResults(prev => [...prev, '✓ 所有测试数据已清理完成']);
+    } catch (error) {
+      console.error('清理测试消息失败:', error);
+    }
+  }, [selectedConversationId, clearMessages]);
 
   return (
     <View style={styles.outerContainer}>
@@ -2535,6 +2886,81 @@ useEffect(() => {
                 <Text style={styles.floatingLogButtonText}>Web</Text>
               </TouchableOpacity> */}
               
+              {/* 新增：消息管理测试按钮 */}
+              <TouchableOpacity
+                style={[styles.floatingLogButton, { bottom: 100 }]}
+                onPress={() => setIsMessageTestVisible(true)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.floatingLogButtonText}>Test</Text>
+              </TouchableOpacity>
+
+              {/* 新增：消息管理测试模态框 */}
+              {isMessageTestVisible && (
+                <View style={styles.testModalOverlay}>
+                  <View style={styles.testModalContainer}>
+                    <View style={styles.testModalHeader}>
+                      <Text style={styles.testModalTitle}>消息管理功能测试</Text>
+                      <TouchableOpacity
+                        style={styles.testModalCloseButton}
+                        onPress={() => setIsMessageTestVisible(false)}
+                      >
+                        <Text style={styles.testModalCloseText}>×</Text>
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.testModalContent}>
+                      <Text style={styles.testModalDescription}>
+                        【消息管理功能测试】包含两种测试：
+                        
+                        🔹 索引测试：创建61条标准测试消息，验证MessageService的findMessageGlobalIndex方法在真实场景下的索引查找准确性。
+                        
+                        🔹 分页测试：创建85条消息模拟多分页场景，验证在分页情况下消息编辑、删除、重新生成功能是否能准确找到消息索引并正常工作。
+                        
+                        测试完全还原真实使用场景，确保消息管理功能在各种情况下都能正常工作。
+                      </Text>
+                      
+                      <View style={styles.testButtonContainer}>
+                        <TouchableOpacity
+                          style={styles.testButton}
+                          onPress={testMessageManagement}
+                        >
+                          <Text style={styles.testButtonText}>索引测试</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          style={styles.testButton}
+                          onPress={testPaginatedMessageManagement}
+                        >
+                          <Text style={styles.testButtonText}>分页测试</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          style={[styles.testButton, styles.clearButton]}
+                          onPress={clearTestMessages}
+                        >
+                          <Text style={styles.testButtonText}>清理消息</Text>
+                        </TouchableOpacity>
+                      </View>
+                      
+                      <View style={styles.testResultsContainer}>
+                        <Text style={styles.testResultsTitle}>测试结果:</Text>
+                        <ScrollView 
+                          style={styles.testResultsScrollView}
+                          showsVerticalScrollIndicator={true}
+                          nestedScrollEnabled={true}
+                        >
+                          {testResults.map((result, index) => (
+                            <Text key={index} style={styles.testResultText}>
+                              {result}
+                            </Text>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              )}
             </View>
           </KeyboardAvoidingView>
         </Animated.View>
@@ -2754,6 +3180,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
   },
+  floatingLogButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   transientErrorContainer: {
     position: 'absolute',
     top: 10,
@@ -2779,7 +3210,92 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: 'bold'
-  }
+  },
+  testModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 99999,
+  },
+  testModalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    maxHeight: '80%',
+  },
+  testModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 10,
+  },
+  testModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  testModalCloseButton: {
+    padding: 5,
+    borderRadius: 5,
+  },
+  testModalCloseText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  testModalContent: {
+    width: '100%',
+  },
+  testModalDescription: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  testButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 15,
+  },
+  testButton: {
+    flex: 1,
+    paddingVertical: 8,
+    backgroundColor: '#4CAF50',
+    borderRadius: 5,
+    marginHorizontal: 2,
+    alignItems: 'center',
+  },
+  testButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  clearButton: {
+    backgroundColor: '#f44336',
+  },
+  testResultsContainer: {
+    width: '100%',
+    maxHeight: 200,
+  },
+  testResultsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  testResultsScrollView: {
+    maxHeight: 150,
+  },
+  testResultText: {
+    fontSize: 12,
+    marginBottom: 3,
+    color: '#333',
+  },
 });
 
 export default App;

@@ -1,3 +1,4 @@
+import '@/lib/polyfills';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
@@ -6,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 import { Animated, useWindowDimensions, Easing, View, StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { CharactersProvider } from '@/constants/CharactersContext';
 import { UserProvider } from '@/constants/UserContext';
@@ -80,26 +82,28 @@ export default function RootLayout() {
   };
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <UserProvider>
-        <CharactersProvider>
-          <RegexProvider>
-            <View style={styles.container}>
-              <ThemeProvider value={theme}>
-                <Stack screenOptions={{headerShown: false}}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="pages/character-detail" />
-                  <Stack.Screen name="pages/create_char" />
-                  <Stack.Screen name="pages/create_character_tabs" />
-                </Stack>
-                <StatusBar style="dark" backgroundColor='black' />
-              </ThemeProvider>
-            </View>
-          </RegexProvider>
-        </CharactersProvider>
-      </UserProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <UserProvider>
+          <CharactersProvider>
+            <RegexProvider>
+              <View style={styles.container}>
+                <ThemeProvider value={theme}>
+                  <Stack screenOptions={{headerShown: false}}>
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="pages/character-detail" />
+                    <Stack.Screen name="pages/create_char" />
+                    <Stack.Screen name="pages/create_character_tabs" />
+                  </Stack>
+                  <StatusBar style="dark" backgroundColor='black' />
+                </ThemeProvider>
+              </View>
+            </RegexProvider>
+          </CharactersProvider>
+        </UserProvider>
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }
 

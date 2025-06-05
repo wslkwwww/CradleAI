@@ -230,6 +230,7 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
   // All state hooks should be called at the top level of the component
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUnmounted, setIsUnmounted] = useState(false);
   const [characterName, setCharacterName] = useState('');
   const [gender, setGender] = useState<'male' | 'female' | 'other'>('male');
   const [description, setDescription] = useState('');
@@ -292,32 +293,42 @@ const CradleCreateForm: React.FC<CradleCreateFormProps> = ({
 
 
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      setIsUnmounted(true);
+    };
+  }, []);
+
   // Reset state when form closes
   useEffect(() => {
     if (!isVisible && !embedded) {
       // 短暂延迟后重置表单，避免关闭动画过程中看到表单重置
       const timer = setTimeout(() => {
-        setStep(1);
-        setCharacterName('');
-        setGender('male');
-        setUserGender('male');
-        setCharacterAge('young-adult');
-        setDescription('');
-        setAvatarUri(null);
-        setBackgroundUri(null);
-        setCardImageUri(null);
-        setTraitCategories(DEFAULT_TRAIT_CATEGORIES);
-        setGenerateImmediately(false);
-        setUploadMode('upload');
-        setPositiveTags([]);
-        setNegativeTags([]);
-        setSelectedTraits([]);
-        setActiveSection('appearance');
+        if (!isUnmounted) {
+          setStep(1);
+          setCharacterName('');
+          setGender('male');
+          setUserGender('male');
+          setCharacterAge('young-adult');
+          setDescription('');
+          setAvatarUri(null);
+          setBackgroundUri(null);
+          setCardImageUri(null);
+          setTraitCategories(DEFAULT_TRAIT_CATEGORIES);
+          setGenerateImmediately(false);
+          setUploadMode('upload');
+          setPositiveTags([]);
+          setNegativeTags([]);
+          setSelectedTraits([]);
+          setActiveSection('appearance');
+          setIsLoading(false); // 确保loading状态被重置
+        }
       }, 300);
       
       return () => clearTimeout(timer);
     }
-  }, [isVisible, embedded]);
+  }, [isVisible, embedded, isUnmounted]);
 
   const pickAvatar = async () => {
     try {
@@ -390,6 +401,11 @@ const handleCreateCharacter = async () => {
     return;
   }
 
+  if (isUnmounted) {
+    console.log('[摇篮角色创建] 组件已卸载，取消创建');
+    return;
+  }
+
   setIsLoading(true);
 
   try {
@@ -403,8 +419,6 @@ const handleCreateCharacter = async () => {
     
     // Log API settings for debugging
     console.log(`[摇篮角色创建] 使用API提供商: ${apiProvider}, 密钥有效: ${!!apiKey}`);
-    
-
     
     // 生成稳定的、唯一的ID
     const characterId = generateUniqueId();
@@ -472,42 +486,55 @@ const handleCreateCharacter = async () => {
     
     console.log(`[摇篮角色创建] 图像创建模式: ${uploadMode}`);
     
+    console.log('[摇篮角色创建] 添加角色到摇篮系统');
+    const addedCharacter = await addCradleCharacter(cradleCharacter);
+    console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${addedCharacter.id}`);
+    
+    // Give filesystem time to complete writing before proceeding
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Generate the character immediately with proper API settings
+    console.log(`[摇篮角色创建] 正在生成角色: ${addedCharacter.id}, API提供商: ${apiProvider}`);
+    
+    // Pass the character with API settings to the generation function
+    const generatedCharacter = await generateCharacterFromCradle(addedCharacter);
+    console.log(`[摇篮角色创建] 角色已成功生成，ID: ${generatedCharacter.id}`);
+    
+    // 成功后关闭弹窗并跳转
     try {
-      console.log('[摇篮角色创建] 添加角色到摇篮系统');
-      const addedCharacter = await addCradleCharacter(cradleCharacter);
-      console.log(`[摇篮角色创建] 摇篮角色已创建，ID: ${addedCharacter.id}`);
-      
-      // Give filesystem time to complete writing before proceeding
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // Generate the character immediately with proper API settings
-      console.log(`[摇篮角色创建] 正在生成角色: ${addedCharacter.id}, API提供商: ${apiProvider}`);
-      try {
-        // Pass the character with API settings to the generation function
-        const generatedCharacter = await generateCharacterFromCradle(addedCharacter);
-        console.log(`[摇篮角色创建] 角色已成功生成，ID: ${generatedCharacter.id}`);
-        
-        onClose();
-        router.replace({
-          pathname: "/(tabs)/Character",
-          params: { characterId: generatedCharacter.id }
-        });
-        if (onSuccess) onSuccess();
-
-      } catch (genError) {
-        console.error('[摇篮角色创建] 生成角色失败:', genError);
-        Alert.alert('错误', '创建角色失败。', [
-        ]);
-      }
-    } catch (error) {
-      console.error('[摇篮角色创建] 创建角色失败:', error);
-      Alert.alert('错误', '创建角色失败: ' + (error instanceof Error ? error.message : String(error)));
+      onClose();
+      router.replace({
+        pathname: "/(tabs)/Character",
+        params: { characterId: generatedCharacter.id }
+      });
+      if (onSuccess) onSuccess();
+    } catch (navigationError) {
+      console.error('[摇篮角色创建] 导航失败:', navigationError);
+      // 即使导航失败，至少关闭弹窗
+      onClose();
     }
+
   } catch (error) {
     console.error('[摇篮角色创建] 创建角色失败:', error);
-    Alert.alert('错误', '创建角色失败: ' + (error instanceof Error ? error.message : String(error)));
+    
+    // 确保错误处理有正确的按钮回调
+    Alert.alert(
+      '创建失败', 
+      `创建角色时发生错误: ${error instanceof Error ? error.message : String(error)}`,
+      [
+        {
+          text: '确定',
+          style: 'default'
+        }
+      ],
+      { cancelable: false }
+    );
+    return; // 确保不会继续执行
   } finally {
-    setIsLoading(false);
+    // 无论成功还是失败都重置loading状态，但只在组件未卸载时执行
+    if (!isUnmounted) {
+      setIsLoading(false);
+    }
   }
 };
 
@@ -1064,24 +1091,24 @@ const handleCreateCharacter = async () => {
             
             <View style={styles.traitModalContent}>
               {searchQuery ? (
-                // Show search results
-                <FlatList
-                  data={vndbData
-                      .flatMap(category => [
-                        { id: category.id, name: category.name, children: [], isCategory: true },
-                        ...category.children.flatMap(subCat => [
-                          { id: subCat.id, name: subCat.name, children: [], isCategory: false },
-                          ...subCat.children.map(trait => ({ ...trait, isCategory: false }))
-                        ]),
-                        ...category.children.flatMap(subCat => 
-                          subCat.children.map(trait => ({ ...trait, isCategory: false }))
-                        )
-                      ])
-                    .filter(trait => 
-                      getTranslatedName(trait.name).toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      trait.name.toLowerCase().includes(searchQuery.toLowerCase())
-                    )
-                  }
+                              // Show search results
+              <FlatList
+                data={vndbData
+                    .flatMap(category => [
+                      { id: category.id, name: category.name, children: [], isCategory: true },
+                      ...category.children.flatMap(subCat => [
+                        { id: subCat.id, name: subCat.name, children: [], isCategory: false },
+                        ...subCat.children.map(traitId => ({ id: traitId, name: traitId, children: [], isCategory: false }))
+                      ]),
+                      ...category.children.flatMap(subCat => 
+                        subCat.children.map(traitId => ({ id: traitId, name: traitId, children: [], isCategory: false }))
+                      )
+                    ])
+                  .filter(trait => 
+                    getTranslatedName(trait.name).toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    trait.name.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                }
                   keyExtractor={item => item.id}
                   renderItem={({item}) => {
                     if (item.isCategory) return null;
@@ -2160,8 +2187,9 @@ function findTraitById(id: string): VndbTrait | null {
     children: category.children.map(subCategory => ({
       ...subCategory,
       isCategory: true,
-      children: subCategory.children.map(trait => ({
-        ...trait,
+      children: subCategory.children.map(traitId => ({
+        id: traitId,
+        name: traitId,
         isCategory: false,
         children: []
       }))

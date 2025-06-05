@@ -33,6 +33,26 @@ export class NodeSTCore {
         errorMessage?: string;
     } | null = null;
 
+    // 添加静态属性用于存储当前的 AbortController
+    private static currentAbortController: AbortController | null = null;
+
+    // 添加静态方法用于中止当前请求
+    public static abortCurrentRequest(): boolean {
+        if (NodeSTCore.currentAbortController) {
+            NodeSTCore.currentAbortController.abort();
+            NodeSTCore.currentAbortController = null;
+            console.log('[NodeSTCore] 已中止当前请求');
+            return true;
+        }
+        console.log('[NodeSTCore] 没有正在进行的请求可以中止');
+        return false;
+    }
+
+    // 添加静态方法用于检查是否有正在进行的请求
+    public static hasActiveRequest(): boolean {
+        return NodeSTCore.currentAbortController !== null;
+    }
+
     // 添加静态方法用于获取最新请求/响应
     public static getLatestRequestData() {
         // 新增：结构化解析响应，提取状态码、状态文本、错误信息
@@ -195,20 +215,31 @@ export class NodeSTCore {
                 // 支持 /pattern/flags 格式
                 let pattern = findRegex;
                 let flags = script.flags || '';
-                // 如果 findRegex 形如 /xxx/gi
+                
+                // 如果 findRegex 形如 /xxx/gi，解析出 pattern 和 flags
                 const regexMatch = /^\/(.+)\/([a-z]*)$/i.exec(findRegex);
                 if (regexMatch) {
                     pattern = regexMatch[1];
-                    flags = regexMatch[2] || flags;
+                    const regexFlags = regexMatch[2];
+                    
+                    // 优先使用 findRegex 中的 flags，如果为空才使用 script.flags
+                    if (regexFlags && regexFlags.trim() !== '') {
+                        flags = regexFlags;
+                    }
+                    // 否则保持使用 script.flags
                 }
 
                 // 修正：flags 为空时自动补全为 'g'
-                if (!flags) flags = 'g';
+                if (!flags || flags.trim() === '') flags = 'g';
 
                 // 增加详细日志
                 const before = result;
+                console.log(`[NodeSTCore][GlobalRegex] 脚本${script.scriptName}: pattern="${pattern}", flags="${flags}", originalFindRegex="${findRegex}"`);
                 const regex = new RegExp(pattern, flags);
                 result = result.replace(regex, replaceString);
+                if (before !== result) {
+                    console.log(`[NodeSTCore][GlobalRegex] 脚本${script.scriptName} 匹配成功，替换前长度: ${before.length}, 替换后长度: ${result.length}`);
+                }
             } catch (e) {
                 console.warn('[NodeSTCore][GlobalRegex] 正则脚本执行异常:', script?.scriptName, e);
                 continue;
@@ -1020,13 +1051,22 @@ export class NodeSTCore {
         conversationId: string,
         userMessage: string,
         apiKey: string | null = null, 
-        characterId?: string,
+        characterId: string, // 改为必需参数
         customUserName?: string,
         useToolCalls: boolean = false,
         onStream?: (delta: string) => void ,
         summaryRange?: { start: number, end: number } 
     ): Promise<string | null> {
         try {
+            // 创建新的 AbortController
+            const abortController = new AbortController();
+            NodeSTCore.currentAbortController = abortController;
+
+            // 检查是否已被中止
+            if (abortController.signal.aborted) {
+                console.log('[NodeSTCore] 请求在开始前已被中止');
+                return null;
+            }
     
             // 确保 Adapter 已初始化 - 传递 apiKey 即使它是 null
             if (!this.geminiAdapter || !this.openRouterAdapter || !this.openAICompatibleAdapter) {
@@ -1368,6 +1408,14 @@ export class NodeSTCore {
             console.log('[NodeSTCore] Processing chat...', {
                 characterId_passed_to_processChat: characterId // <--- 记录传递给processChat的characterId
             });
+
+            // 检查是否已被中止
+            if (abortController.signal.aborted) {
+                console.log('[NodeSTCore] 请求在处理对话时被中止');
+                NodeSTCore.currentAbortController = null;
+                return null;
+            }
+
             const response = useToolCalls 
                 ? await this.processChatWithTools(
                     userMessage,
@@ -1375,11 +1423,12 @@ export class NodeSTCore {
                     dEntries,
                     conversationId,
                     roleCard,
+                    characterId, // 必需参数移到前面
                     adapter || undefined,
                     customUserName,
                     memorySearchResults,
-                    characterId, // 新增
-                    onStream
+                    onStream,
+                    abortController // 传递 abort controller
                 )
                 : await this.processChat(
                     userMessage,
@@ -1387,11 +1436,12 @@ export class NodeSTCore {
                     dEntries,
                     conversationId,
                     roleCard,
+                    characterId, // 必需参数移到前面
                     adapter || undefined,
                     customUserName,
                     memorySearchResults,
-                    characterId, // 新增
-                    onStream
+                    onStream,
+                    abortController // 传递 abort controller
                 );
 
             // === 新增：对AI响应应用全局正则脚本（placement=2） ===
@@ -1434,10 +1484,39 @@ export class NodeSTCore {
                 });
             }
 
-            return processedResponse; // 返回正则处理后的响应
+            // Save updated history if we have a response
+            if (processedResponse) {
+                console.log('[NodeSTCore] Saving updated history...');
+                
+                // 检查是否已被中止
+                if (abortController.signal.aborted) {
+                    console.log('[NodeSTCore] 请求在保存历史前被中止，不保存历史');
+                    NodeSTCore.currentAbortController = null;
+                    return null;
+                }
 
+                const updatedHistory = this.updateChatHistory(
+                    updatedChatHistory,
+                    userMessage,
+                    processedResponse, // 用正则处理后的响应
+                    dEntries
+                );
+                
+                await this.saveJson(
+                    this.getStorageKey(conversationId, '_history'),
+                    updatedHistory
+                );
+                console.log('[NodeSTCore] History saved successfully');
+            }
+
+            // 清理 AbortController
+            NodeSTCore.currentAbortController = null;
+            
+            return processedResponse;
         } catch (error) {
             console.error('[NodeSTCore] Error in continueChat:', error);
+            // 确保在错误时也清理 AbortController
+            NodeSTCore.currentAbortController = null;
             return null;
         }
     }
@@ -1712,11 +1791,12 @@ export class NodeSTCore {
         dEntries: ChatMessage[],
         sessionId: string,
         roleCard: RoleCardJson,
+        characterId: string, // 必需参数移到前面
         adapter?: GeminiAdapter | OpenRouterAdapter | OpenAIAdapter | null,
         customUserName?: string,
         memorySearchResults?: any,
-        characterId?: string,
-        onStream?: (delta: string) => void // 新增参数
+        onStream?: (delta: string) => void,
+        abortController?: AbortController
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChat with:', {
@@ -1727,6 +1807,12 @@ export class NodeSTCore {
                 hasCustomUserName: !!customUserName,
                 characterId: characterId // <--- 记录characterId
             });
+
+            // 检查是否已被中止
+            if (abortController?.signal.aborted) {
+                console.log('[NodeSTCore] processChat 被中止');
+                return null;
+            }
 
             // === 新增：优先读取全局预设 ===
             let preset: PresetJson | null = null;
@@ -1963,7 +2049,7 @@ export class NodeSTCore {
             }
             } else if (shouldUseMemoryResults && activeAdapter) {
                 // console.log('[NodeSTCore] 调用generateContentWithTools，传递characterId:', characterId); // <--- 记录
-                const response = await activeAdapter.generateContentWithTools(cleanedContents, characterId, memorySearchResults, userMessage);
+                const response = await activeAdapter.generateContentWithTools(cleanedContents as any, characterId, memorySearchResults, userMessage);
                 console.log('[NodeSTCore] API response received:', {
                     hasResponse: !!response,
                     responseLength: response?.length || 0
@@ -1988,7 +2074,7 @@ export class NodeSTCore {
                     return null;
                 }
                 // console.log('[NodeSTCore] 调用generateContent，传递characterId:', characterId); 
-                const response = await activeAdapter.generateContent(cleanedContents, characterId);
+                const response = await activeAdapter.generateContent(cleanedContents as any, characterId);
                 console.log('[NodeSTCore] API response received:', {
                     hasResponse: !!response,
                     responseLength: response?.length || 0
@@ -2051,11 +2137,12 @@ export class NodeSTCore {
         dEntries: ChatMessage[],
         sessionId: string,
         roleCard: RoleCardJson,
+        characterId: string, // 必需参数移到前面
         adapter?: GeminiAdapter | OpenRouterAdapter | OpenAIAdapter | null,
         customUserName?: string,
         memoryResults?: any,
-        characterId?: string,
-        onStream?: (delta: string) => void // 新增参数
+        onStream?: (delta: string) => void,
+        abortController?: AbortController
     ): Promise<string | null> {
         try {
             console.log('[NodeSTCore] Starting processChatWithTools with:', {
@@ -2067,6 +2154,12 @@ export class NodeSTCore {
                 hasMemoryResults: memoryResults?.results?.length > 0,
                 characterId: characterId // <--- 记录characterId
             });
+
+            // 检查是否已被中止
+            if (abortController?.signal.aborted) {
+                console.log('[NodeSTCore] processChatWithTools 被中止');
+                return null;
+            }
 
             // 新增：如果用工具调用，则自动为userMessage加前缀
             let toolUserMessage = userMessage;
@@ -2318,7 +2411,7 @@ export class NodeSTCore {
             } else if (activeAdapter) {
                 console.log('[NodeSTCore] 调用generateContentWithTools，传递characterId:', characterId); // <--- 记录
                 const response = await activeAdapter.generateContentWithTools(
-                    cleanedContents, characterId, memoryResults, toolUserMessage
+                    cleanedContents as any, characterId, memoryResults, toolUserMessage
                 );
                 console.log('[NodeSTCore] API response received:', {
                     hasResponse: !!response,
@@ -2365,7 +2458,6 @@ export class NodeSTCore {
                     updatedHistory
                 );
                 console.log('[NodeSTCore] Content framework and history saved successfully');
-
             }
 
             return responseText;
@@ -2594,7 +2686,6 @@ export class NodeSTCore {
                 try {
                     let findRegex = script.findRegex;
                     const replaceString = script.replaceString;
-
                     if (!findRegex || !replaceString) {
                         continue;
                     }
@@ -2902,11 +2993,11 @@ export class NodeSTCore {
                 dEntries,
                 conversationId,
                 roleCard,
+                characterId!, // Pass characterId as required parameter - use ! since it's checked above
                 adapter,
                 customUserName, // Pass customUserName to processChat
-                undefined,
-                characterId, // Pass characterId to processChat
-                onStream // 新增
+                undefined, // memorySearchResults
+                onStream // stream callback
             );
 
             // === 新增：记录请求体数据（与processChat保持一致） ===
@@ -3878,15 +3969,16 @@ export class NodeSTCore {
             const content = await FileSystem.readAsStringAsync(filePath);
             const chatHistory: ChatHistoryEntity = JSON.parse(content);
 
-            // 追加用户消息
+            // 追加用户消息，包含时间戳
             chatHistory.parts.push({
                 role: "user",
-                parts: [{ text: userMessage }]
+                parts: [{ text: userMessage }],
+                timestamp: Date.now() // 添加时间戳
             });
 
             // 保存
             await FileSystem.writeAsStringAsync(filePath, JSON.stringify(chatHistory));
-            console.log('[NodeSTCore] addUserMessage: 用户消息已添加');
+            console.log('[NodeSTCore] addUserMessage: 用户消息已添加（含时间戳）');
             return true;
         } catch (error) {
             console.error('[NodeSTCore] addUserMessage error:', error);
@@ -3912,15 +4004,16 @@ export class NodeSTCore {
             const content = await FileSystem.readAsStringAsync(filePath);
             const chatHistory: ChatHistoryEntity = JSON.parse(content);
 
-            // 追加AI消息（role统一为model）
+            // 追加AI消息（role统一为model），包含时间戳
             chatHistory.parts.push({
                 role: "model",
-                parts: [{ text: aiMessage }]
+                parts: [{ text: aiMessage }],
+                timestamp: Date.now() // 添加时间戳
             });
 
             // 保存
             await FileSystem.writeAsStringAsync(filePath, JSON.stringify(chatHistory));
-            console.log('[NodeSTCore] addAiMessage: AI消息已添加');
+            console.log('[NodeSTCore] addAiMessage: AI消息已添加（含时间戳）');
             return true;
         } catch (error) {
             console.error('[NodeSTCore] addAiMessage error:', error);
@@ -3946,4 +4039,5 @@ export class NodeSTCore {
         }
     }
 }
+
 

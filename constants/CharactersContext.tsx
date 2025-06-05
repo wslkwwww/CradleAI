@@ -1785,13 +1785,20 @@ const getMessagesPaged = async (
   const allMessages = await getMessages(conversationId);
   const total = allMessages.length;
 
-  // 2. 计算分页
-  const start = Math.max(0, total - page * pageSize);
+  // 2. 修复分页计算逻辑
+  // 第1页返回最新的pageSize条消息，第2页返回接下来的pageSize条，以此类推
   const end = total - (page - 1) * pageSize;
+  const start = Math.max(0, end - pageSize);
   const messages = allMessages.slice(start, end);
 
   // 3. 是否还有更多
   const hasMore = start > 0;
+
+  console.log(`[CharactersContext] getMessagesPaged: page=${page}, total=${total}, start=${start}, end=${end}, returned=${messages.length} messages`);
+  if (messages.length > 0) {
+    console.log(`[CharactersContext] First message: ${messages[0]?.text?.substring(0, 30) || 'N/A'}`);
+    console.log(`[CharactersContext] Last message: ${messages[messages.length - 1]?.text?.substring(0, 30) || 'N/A'}`);
+  }
 
   return {
     messages,

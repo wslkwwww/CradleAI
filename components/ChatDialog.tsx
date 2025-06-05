@@ -236,10 +236,11 @@ const KNOWN_TAGS = [
   'summary', 'details',
   'p', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span',
   'b', 'strong', 'i', 'em', 'u', 'br', 'hr', 'ul', 'ol', 'li',
+  'del', 's', 'strike', // 删除线标签
   'table', 'tr', 'td', 'th', 'thead', 'tbody', 'blockquote',
   'pre', 'code', 'mark', 'figure', 'figcaption', 'video', 'audio',
-  'source', 'section', 'article', 'aside', 'nav', 'header', 'footer'
-  ,'style', 'script', 'html', 'body', 'head', 'meta', 'link', 'title','doctype' 
+  'source', 'section', 'article', 'aside', 'nav', 'header', 'footer',
+  'style', 'script', 'html', 'body', 'head', 'meta', 'link', 'title', 'doctype' 
 ];
 
 // 移除未知标签，仅保留内容
@@ -1658,7 +1659,7 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     return null;
   };
 
-  function getTextStyle(isUser: boolean) {
+  function getTextStyle(isUser: boolean): Record<string, any> {
   // 兼容三种模式
   if (mode === 'normal') {
     return {
@@ -1718,18 +1719,29 @@ function getBubblePadding() {
     }
   }, [selectedCharacter?.id, currentConversationId]);
 
+  // 修改：只在新消息添加到末尾时才自动滚动到底部，分页加载旧消息时不滚动
+  const lastMessageId = useRef<string | null>(null);
+  
   useEffect(() => {
     if (messages.length > 0 && mode !== 'visual-novel') {
-      const timer = setTimeout(() => {
-        if (flatListRef.current) {
-          try {
-            flatListRef.current.scrollToEnd({ animated: false });
-          } catch (e) {}
-        }
-      }, 100);
-      return () => clearTimeout(timer);
+      const currentLastMessage = messages[messages.length - 1];
+      const isNewMessageAtEnd = currentLastMessage && currentLastMessage.id !== lastMessageId.current;
+      
+      // 只有当最后一条消息是新的时，才自动滚动到底部
+      // 这避免了分页加载旧消息时的意外滚动
+      if (isNewMessageAtEnd) {
+        lastMessageId.current = currentLastMessage.id;
+        const timer = setTimeout(() => {
+          if (flatListRef.current) {
+            try {
+              flatListRef.current.scrollToEnd({ animated: false });
+            } catch (e) {}
+          }
+        }, 100);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [messages.length, mode]);
+  }, [messages, mode]);
 
   const handleScroll = (event: any) => {
     const yOffset = event.nativeEvent.contentOffset.y;
@@ -2127,10 +2139,10 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
     // 新增：如果是HTML页面占位，直接显示占位文本
     if (opts?.isHtmlPagePlaceholder) {
       return (
-        <Text style={[
-          isUser ? styles.userMessageText : styles.botMessageText,
-          getTextStyle(isUser)
-        ]}>
+        <Text style={{
+          ...(isUser ? styles.userMessageText : styles.botMessageText),
+          ...getTextStyle(isUser)
+        }}>
           [页面消息]
         </Text>
       );
@@ -2138,34 +2150,70 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
 
     if (!text || text.trim() === '') {
       return (
-        <Text style={[
-          isUser ? styles.userMessageText : styles.botMessageText,
-          getTextStyle(isUser)
-        ]}>
+        <Text style={{
+          ...(isUser ? styles.userMessageText : styles.botMessageText),
+          ...getTextStyle(isUser)
+        }}>
           (Empty message)
         </Text>
       );
     }
 
-    if (containsCustomTags(text) || /<\/?[a-z][^>]*>/i.test(text)) {
-      // 渲染前先移除未知标签
-      const cleanedText = stripUnknownTags(text);
-      return (
+    // 检查是否包含自定义标签或HTML标签
+    const hasCustomTags = containsCustomTags(text);
+    const hasHtmlTags = /<\/?[a-z][^>]*>/i.test(text);
+    
+    // 检查是否包含Markdown语法
+    const codeBlockPattern = /```([a-zA-Z0-9]*)\n([\s\S]*?)```/g;
+    const hasCodeBlock = codeBlockPattern.test(text);
+    const markdownPattern = /(^|\n)(\s{0,3}#|```|>\s|[*+-]\s|\d+\.\s|\|.*\|)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(__[^_]+__)|(_[^_]+_)|(~~[^~]+~~)|(`[^`]+`)/;
+    const hasMarkdown = hasCodeBlock || markdownPattern.test(text);
+    
+    // 如果同时包含HTML标签和Markdown，或者只包含HTML标签，使用RichTextRenderer
+    if (hasCustomTags || hasHtmlTags) {
+      let processedText = text;
+      
+             // 如果同时包含Markdown，先将Markdown转换为HTML
+       if (hasMarkdown) {
+         // 将常见的Markdown语法转换为HTML
+         // 使用占位符技术来避免嵌套处理问题
+         processedText = processedText
+           // 先处理代码块（避免内部内容被其他规则影响）
+           .replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+             return `<pre><code>${code}</code></pre>`;
+           })
+           // 行内代码
+           .replace(/`([^`]+)`/g, '<code>$1</code>')
+           // 粗体（必须在斜体之前处理）
+           .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
+           .replace(/__([^_]+?)__/g, '<strong>$1</strong>')
+           // 斜体（现在处理单个星号或下划线）
+           .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
+           .replace(/_([^_\n]+?)_/g, '<em>$1</em>')
+           // 删除线
+           .replace(/~~(.*?)~~/g, '<del>$1</del>')
+                      // 换行
+           .replace(/\n/g, '<br/>');
+       }
+       
+       // 渲染前先移除未知标签
+       const cleanedText = stripUnknownTags(processedText);
+             return (
         <RichTextRenderer
           html={optimizeHtmlForRendering(cleanedText)}
-          baseStyle={[isUser ? styles.userMessageText : styles.botMessageText, getTextStyle(isUser)]}
+          baseStyle={{
+            ...(isUser ? styles.userMessageText : styles.botMessageText),
+            ...getTextStyle(isUser)
+          }}
           onImagePress={(url) => setFullscreenImage(url)}
           maxImageHeight={MAX_IMAGE_HEIGHT}
+          uiSettings={uiSettings}
         />
       );
     }
 
-    // Enhanced check for Markdown code blocks with triple backticks
-    const codeBlockPattern = /```([a-zA-Z0-9]*)\n([\s\S]*?)```/g;
-    const hasCodeBlock = codeBlockPattern.test(text);
-    
-    const markdownPattern = /(^|\n)(\s{0,3}#|```|>\s|[*+-]\s|\d+\.\s|\|.*\|)/;
-    if (hasCodeBlock || markdownPattern.test(text)) {
+    // 如果只包含Markdown（没有HTML标签），使用Markdown组件
+    if (hasMarkdown) {
       return (
         <View style={{ width: '100%' }}>
           <Markdown
@@ -2352,17 +2400,7 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
       }
     }
 
-    const hasCustomTags = (
-      /<\s*(thinking|think|status|mem|websearch)[^>]*>([\s\S]*?)<\/\s*(thinking|think|status|mem|websearch)\s*>/i.test(text) ||
-      /<\s*char\s+think\s*>([\s\S]*?)<\/\s*char\s+think\s*>/i.test(text)
-    );
-
-    const hasMarkdown = /```[\w]*\s*([\s\S]*?)```/.test(text) ||
-                     /!\[[\s\S]*?\]\([\s\S]*?\)/.test(text) ||
-                     /\*\*([\s\S]*?)\*\*/.test(text) ||
-                     /\*([\s\S]*?)\*/.test(text);
-
-    const hasHtml = /<\/?[a-z][^>]*>/i.test(text);
+    // Note: hasCustomTags and hasMarkdown are already declared above
 
     const imageIdRegex = /!\[(.*?)\]\(image:([^\s)]+)\)/g;
     let match: RegExpExecArray | null;
@@ -2541,13 +2579,16 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
 
   const renderMessageText = (text: string, isUser: boolean) => {
     const segments = parseHtmlText(text);
+    const baseStyle = isUser ? styles.userMessageText : styles.botMessageText;
+    const textStyle = getTextStyle(isUser);
+    
     return (
-      <Text style={[
-        isUser ? styles.userMessageText : styles.botMessageText,
-        getTextStyle(isUser)
-      ]}>
+      <Text style={{
+        ...baseStyle,
+        ...textStyle
+      }}>
         {segments.map((segment, index) => (
-          <Text key={index} style={[segment.style, getTextStyle(isUser)]}>
+          <Text key={index} style={[segment.style, textStyle]}>
             {segment.text}
           </Text>
         ))}
@@ -2670,8 +2711,16 @@ const getAiMessageIndex = (realIndex: number): number => {
     );
     if (mode === 'visual-novel') return messages;
     if (isHistoryModalVisible) return messages;
-    return messages.slice(-30);
-  }, [messages, mode, isHistoryModalVisible]);
+    
+    // 修复：如果有onLoadMore属性，说明启用了分页功能，应该显示所有传入的消息
+    // 而不是截断为最后30条，因为Index已经通过分页逻辑控制了消息数量
+    if (onLoadMore) {
+      return filtered;
+    }
+    
+    // 只有在没有分页功能时才限制为最后30条消息
+    return filtered.slice(-30);
+  }, [messages, mode, isHistoryModalVisible, onLoadMore]);
 
 // 新增：缓存 combinedItems，避免每次都新建对象，key 保持稳定
 const combinedItems = useMemo(() => {
@@ -2705,11 +2754,12 @@ const combinedItems = useMemo(() => {
   });
   
   // For normal and background-focus modes, we want:
-  // 1. Regular messages (sorted by timestamp)
+  // 1. Regular messages (preserved in original order from index.tsx for pagination)
   // 2. User loading message (if any) at the end
   
-  // Regular messages sorted by timestamp (no image items in the new version)
-  const combined = [...regularMessages].sort((a, b) => a.timestamp - b.timestamp);
+  // 移除时间戳排序，保持 index.tsx 传入的消息顺序以支持分页功能
+  // Regular messages in original order (DO NOT sort by timestamp to preserve pagination order)
+  const combined = [...regularMessages];
   
   // Always append user loading messages at the end
   return [...combined, ...userLoadingMessages];
@@ -3427,22 +3477,7 @@ const combinedItems = useMemo(() => {
                   styles.actionCircleButton,
                   { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginLeft: 8 }
                 ]}
-                onPress={() => {
-                  Alert.alert(
-                    '删除AI消息',
-                    '确定要删除该AI消息及其对应的用户消息吗？',
-                    [
-                      { text: '取消', style: 'cancel' },
-                      {
-                        text: '删除',
-                        style: 'destructive',
-                        onPress: () => {
-                          if (onDeleteAiMessage) onDeleteAiMessage(lastMessage.id, aiIndex);
-                        }
-                      }
-                    ]
-                  );
-                }}
+                onPress={() => handleDeleteButton(lastMessage, aiIndex, false)}
                 disabled={!!regeneratingMessageId}
               >
                 <Ionicons name="trash-outline" size={BUTTON_ICON_SIZE} color={regeneratingMessageId ? "#999999" : "#e74c3c"} />
@@ -3535,13 +3570,13 @@ const combinedItems = useMemo(() => {
             styles.messageContainer,
             isUser ? styles.userMessageContainer : styles.botMessageContainer,
           ]}>
-            {renderMessageContent(message, isUser, index)}
-            {/* 最后一条用户消息右侧显示 loading indicator */}
+            {/* 最后一条用户消息左侧显示 loading indicator */}
             {isLastUser && (
-              <View style={{ justifyContent: 'center', marginRight: 8 ,marginTop: 2 }}>
+              <View style={{ justifyContent: 'center', marginLeft: 8, marginTop: 2 }}>
                 <ActivityIndicator size="small" color="#bbb" />
               </View>
             )}
+            {renderMessageContent(message, isUser, index)}
           </View>
         </View>
       );
@@ -3572,9 +3607,26 @@ const keyExtractor = useCallback((item: CombinedItem) => {
 
   // FlatList onScroll 监听顶部
   const handleFlatListScroll = useCallback((event: any) => {
-    if (event.nativeEvent.contentOffset.y <= 0 && hasMore && !loadingMore) {
-      // 滚动到顶部，触发加载更多
-      if (onLoadMore) onLoadMore();
+    const offsetY = event.nativeEvent.contentOffset.y;
+    const contentHeight = event.nativeEvent.contentSize.height;
+    const scrollViewHeight = event.nativeEvent.layoutMeasurement.height;
+    
+    // 调试日志：滚动位置信息
+    if (offsetY <= 10) { // 只在接近顶部时记录日志
+      console.log(`[ChatDialog] Scroll: offsetY=${Math.round(offsetY)}, contentHeight=${Math.round(contentHeight)}, hasMore=${hasMore}, loadingMore=${loadingMore}`);
+    }
+    
+    // 修复：增强加载条件检查，防止重复加载
+    if (offsetY <= 0 && hasMore && !loadingMore && onLoadMore) {
+      // 添加防抖机制，避免快速滚动时重复触发
+      const now = Date.now();
+      if (!lastLoadTimeRef.current || now - lastLoadTimeRef.current > 1000) {
+        console.log(`[ChatDialog] Triggering onLoadMore - scrolled to top`);
+        lastLoadTimeRef.current = now;
+        onLoadMore();
+      } else {
+        console.log(`[ChatDialog] Load request ignored - too soon after last load (${now - lastLoadTimeRef.current}ms)`);
+      }
     }
     handleScroll(event); // 保持原有滚动处理
   }, [onLoadMore, hasMore, loadingMore, handleScroll]);
@@ -3629,6 +3681,9 @@ const keyExtractor = useCallback((item: CombinedItem) => {
       keyboardWillHideListener.remove();
     };
   }, []);
+
+  // 新增：防抖机制 - 记录上次加载时间
+  const lastLoadTimeRef = useRef<number>(0);
 
   return (
     <>

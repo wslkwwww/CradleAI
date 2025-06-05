@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   TextInput,
@@ -14,7 +14,8 @@ import {
   ScrollView,
   TouchableWithoutFeedback,
   Switch,
-  ActivityIndicator
+  ActivityIndicator,
+  AppState // 添加AppState导入
 } from 'react-native';
 import { MaterialIcons, Ionicons, } from '@expo/vector-icons';
 import { Character } from '@/shared/types';
@@ -69,10 +70,170 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onShowFullHistory, // 新增
   onGenerateImage, // 新增：生成图片回调
 }) => {
-  const autoImageService = AutoImageService.getInstance();
+  // console.log('ChatInput - selectedCharacter:', selectedCharacter);
+  
   const [text, setText] = useState('');
-  const [inputHeight, setInputHeight] = useState(40); // Initial height
   const [isLoading, setIsLoading] = useState(false);
+  const [isContinuing, setIsContinuing] = useState(false); // 新增：继续说按钮loading状态
+  const [isAbortAvailable, setIsAbortAvailable] = useState(false); // 新增：跟踪是否可以中止
+  const [showAbortAfterDelay, setShowAbortAfterDelay] = useState(false); // 新增：1分钟后显示中断按钮
+  const [loadingTimeRemaining, setLoadingTimeRemaining] = useState(60); // 新增：倒计时显示
+
+  // 新增：App状态监听，处理后台切换
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        console.log('[ChatInput] App进入后台，检查是否需要处理正在进行的请求');
+        
+        // 如果有正在进行的请求，尝试保存状态并准备恢复
+        if (isLoading || isContinuing) {
+          console.log('[ChatInput] 检测到后台切换时有正在进行的请求，将在前台恢复时检查状态');
+          // 设置标记，表示有未完成的请求
+          (global as any).__chatInputPendingRequest = {
+            conversationId: selectedConversationId,
+            timestamp: Date.now()
+          };
+        }
+      } else if (nextAppState === 'active') {
+        console.log('[ChatInput] App恢复前台，检查是否有未完成的请求');
+        
+        // 检查是否有待恢复的请求
+        const pendingRequest = (global as any).__chatInputPendingRequest;
+        if (pendingRequest && pendingRequest.conversationId === selectedConversationId) {
+          const timeElapsed = Date.now() - pendingRequest.timestamp;
+          
+          // 如果后台时间超过30秒，认为请求可能已失败
+          if (timeElapsed > 30000) {
+            console.log('[ChatInput] 后台时间过长，重置loading状态');
+            setIsLoading(false);
+            setIsContinuing(false);
+            setIsAbortAvailable(false);
+            setShowAbortAfterDelay(false); // 新增：重置延迟显示状态
+            
+            // 发送一个超时错误消息
+            onSendMessage('请求超时，请重新发送消息。', 'bot', false, { 
+              isErrorMessage: true, 
+              error: 'Request timeout due to app backgrounding' 
+            });
+          } else {
+            console.log('[ChatInput] 短时间后台切换，继续等待响应');
+          }
+          
+          // 清除标记
+          delete (global as any).__chatInputPendingRequest;
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    return () => {
+      subscription?.remove();
+    };
+  }, [isLoading, isContinuing, selectedConversationId, onSendMessage]);
+
+  // 新增：管理中断按钮延迟显示的效果和倒计时
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let intervalId: ReturnType<typeof setInterval>;
+    
+    // 任何一个状态为true时都需要延迟显示中断按钮
+    const isAnyLoading = isLoading || isContinuing;
+    
+    if (isAnyLoading) {
+      // 重置倒计时
+      setLoadingTimeRemaining(60);
+      
+      // 开始倒计时
+      intervalId = setInterval(() => {
+        setLoadingTimeRemaining(prev => {
+          if (prev <= 1) {
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+      // 1分钟后显示中断按钮
+      timeoutId = setTimeout(() => {
+        setShowAbortAfterDelay(true);
+      }, 60000); // 60秒 = 1分钟
+    } else {
+      // 重置状态
+      setShowAbortAfterDelay(false);
+      setLoadingTimeRemaining(60);
+    }
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [isLoading, isContinuing]);
+
+  // 新增：检查是否有活跃请求的效果
+  useEffect(() => {
+    const checkActiveRequest = () => {
+      try {
+        // 使用 NodeSTManager 检查是否有活跃请求
+        const hasActive = (global as any).NodeSTManager?.hasActiveRequest?.() || false;
+        const isAnyLoading = isLoading || isContinuing;
+        setIsAbortAvailable(hasActive && isAnyLoading && showAbortAfterDelay); // 只有在延迟后才允许中止
+      } catch (error) {
+        console.warn('[ChatInput] Error checking active request:', error);
+        setIsAbortAvailable(false);
+      }
+    };
+
+    const isAnyLoading = isLoading || isContinuing;
+    if (isAnyLoading && showAbortAfterDelay) {
+      // 当正在加载且已过延迟时间时，定期检查是否可以中止
+      const interval = setInterval(checkActiveRequest, 500);
+      return () => clearInterval(interval);
+    } else {
+      setIsAbortAvailable(false);
+    }
+  }, [isLoading, isContinuing, showAbortAfterDelay]);
+
+  // 新增：处理中止请求（统一处理发送和继续的中止）
+  const handleAbortRequest = useCallback(() => {
+    try {
+      console.log('[ChatInput] User requested abort');
+      const result = (global as any).NodeSTManager?.abortCurrentRequest?.();
+      
+      if (result?.success) {
+        if (result.wasActive) {
+          console.log('[ChatInput] Successfully aborted active request');
+          onSendMessage('', 'user', false, { aborted: true });
+        } else {
+          console.log('[ChatInput] No active request to abort');
+        }
+      } else {
+        console.warn('[ChatInput] Failed to abort request');
+      }
+      
+      // 重置所有相关状态（包括发送和继续状态）
+      setIsLoading(false);
+      setIsContinuing(false);
+      setIsAbortAvailable(false);
+      setShowAbortAfterDelay(false);
+    } catch (error) {
+      console.error('[ChatInput] Error during abort:', error);
+      // 确保在任何错误情况下都重置状态
+      setIsLoading(false);
+      setIsContinuing(false);
+      setIsAbortAvailable(false);
+      setShowAbortAfterDelay(false);
+    }
+  }, [onSendMessage]);
+
+
+
+  const autoImageService = AutoImageService.getInstance();
+  const [inputHeight, setInputHeight] = useState(40); // Initial height
   const [showActions, setShowActions] = useState(false);
   const { user } = useUser();
   const inputRef = useRef<TextInput>(null);
@@ -107,7 +268,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
  const [useSeed, setUseSeed] = useState<boolean>(false);
  const [novelAIConfig, setNovelAIConfig] = useState<any>(null);
  const [allPositiveTags, setAllPositiveTags] = useState<string[]>([]);
- const [isContinuing, setIsContinuing] = useState(false); // 新增：继续说按钮loading状态
  
   // 新增：获取 CharactersContext 方法
   const { clearGeneratedImages, clearAllGeneratedImages } = useCharacters();
@@ -440,13 +600,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
         console.error('NodeST error:', result.error);
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('[ChatInput] Error sending message:', error);
       onSendMessage('抱歉，发送消息时出现了错误，请重试。', 'bot', false, { 
         isErrorMessage: true, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
     } finally {
+      // 确保在任何情况下都重置所有加载相关状态
       setIsLoading(false);
+      setIsAbortAvailable(false);
+      setShowAbortAfterDelay(false);
     }
   };
 
@@ -486,12 +649,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
         });
       }
     } catch (error) {
-      setIsContinuing(false);
+      console.error('[ChatInput] Error in handleContinue:', error);
       onSendMessage('抱歉，发送消息时出现了错误，请重试。', 'bot', false, { 
         isErrorMessage: true, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
     } finally {
+      // 确保在任何情况下都重置继续状态
       setIsContinuing(false);
     }
   };
@@ -657,7 +821,10 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
         console.error('[ChatInput] Failed to save error message to NodeST:', storageError);
       }
     } finally {
+      // 确保在任何情况下都重置所有加载相关状态
       setIsLoading(false);
+      setIsAbortAvailable(false);
+      setShowAbortAfterDelay(false);
       setShowActions(false);
     }
   };
@@ -1450,48 +1617,62 @@ ${recentMessagesContext ? `最近的对话记录:\n${recentMessagesContext}\n` :
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, styles.continueButton, styles.smallButton, isContinuing && styles.disabledButton]}
+          style={[styles.button, styles.continueButton, styles.smallButton, (isLoading || isContinuing) && styles.disabledButton]}
           onPress={handleContinue}
           disabled={isLoading || isContinuing}
         >
-          {isContinuing ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Ionicons name="play-forward" size={18} color={theme.colors.primary} />
-          )}
+          <Ionicons name="play-forward" size={18} color={theme.colors.primary} />
         </TouchableOpacity>
 
         <TextInput
           ref={inputRef}
-          style={[
-            styles.input, 
-            { height: inputHeight } // Dynamic height based on content
-          ]}
-          placeholder="输入消息..."
-          placeholderTextColor="#999"
+          style={[styles.textInput, { height: Math.max(40, Math.min(inputHeight, 120)) }]}
           value={text}
           onChangeText={setText}
+          placeholder="输入消息..."
+          placeholderTextColor="#999"
           multiline
-          maxLength={1000}
-          onContentSizeChange={handleContentSizeChange} // Add this handler
-          onFocus={() => setShowActions(false)}
+          onContentSizeChange={handleContentSizeChange}
+          editable={!isLoading}
         />
-
-        <TouchableOpacity
-          style={[styles.button, styles.sendButton, styles.smallButton]}
-          onPress={handleSendPress}
-          disabled={isLoading || text.trim() === ''}
-        >
-          {isLoading ? (
-            <Ionicons name="ellipsis-horizontal" size={20} color="#777" />
-          ) : (
-            <MaterialIcons
-              name="send"
-              size={20}
-              color={text.trim() === '' ? '#777' : theme.colors.primary}
-            />
+        
+        <View style={styles.buttonContainer}>
+          {/* 加载状态显示：先显示加载指示器和倒计时，1分钟后显示中断按钮 */}
+          {(isLoading || isContinuing) && !showAbortAfterDelay && (
+            <View style={styles.loadingContainer}>
+              <TouchableOpacity
+                style={[styles.button, styles.loadingButton, styles.smallButton]}
+                disabled={true}
+              >
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              </TouchableOpacity>
+              {loadingTimeRemaining > 0 && (
+                <Text style={styles.countdownText}>{loadingTimeRemaining}s</Text>
+              )}
+            </View>
           )}
-        </TouchableOpacity>
+          
+          {/* 中止按钮：只在1分钟后显示 */}
+          {(isLoading || isContinuing) && showAbortAfterDelay && isAbortAvailable && (
+            <TouchableOpacity
+              style={[styles.button, styles.abortButton, styles.smallButton]}
+              onPress={handleAbortRequest}
+            >
+              <Ionicons name="stop" size={18} color="#e74c3c" />
+            </TouchableOpacity>
+          )}
+          
+          {/* 发送按钮：只在非加载状态显示 */}
+          {!isLoading && !isContinuing && (
+            <TouchableOpacity
+              style={[styles.button, styles.sendButton, styles.smallButton]}
+              onPress={handleSendPress}
+              disabled={isLoading || isContinuing || text.trim() === ''}
+            >
+              <Ionicons name="send" size={18} color={text.trim() === '' ? '#777' : theme.colors.primary} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <Modal
@@ -1855,13 +2036,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  input: {
+  textInput: {
     flex: 1,
     fontSize: 16,
     color: '#fff',
     paddingHorizontal: 8,
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
     textAlignVertical: 'center', // Helps with alignment in multi-line mode
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 2,
   },
   button: {
     width: 32,
@@ -2215,6 +2401,23 @@ const styles = StyleSheet.create({
       fontSize: 12,
       fontWeight: 'bold',
     },
+      abortButton: {
+    backgroundColor: '#e74c3c',
+  },
+  loadingButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  countdownText: {
+    color: '#fff',
+    fontSize: 10,
+    marginLeft: 4,
+    minWidth: 20,
+    textAlign: 'center',
+  },
 });
 
 export default ChatInput;

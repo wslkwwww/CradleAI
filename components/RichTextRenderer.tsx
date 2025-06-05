@@ -15,6 +15,18 @@ interface RichTextRendererProps {
   onImagePress?: (url: string) => void;
   onLinkPress?: (url: string) => void;
   maxImageHeight?: number;
+  uiSettings?: {
+    markdownTextColor?: string;
+    markdownBoldColor?: string;
+    markdownCodeTextColor?: string;
+    markdownCodeBackgroundColor?: string;
+    markdownCodeScale?: number;
+    markdownTextScale?: number;
+    markdownHeadingColor?: string;
+    markdownQuoteColor?: string;
+    markdownQuoteBackgroundColor?: string;
+    markdownLinkColor?: string;
+  };
 }
 
 const RichTextRenderer: React.FC<RichTextRendererProps> = ({
@@ -23,6 +35,7 @@ const RichTextRenderer: React.FC<RichTextRendererProps> = ({
   onImagePress,
   onLinkPress,
   maxImageHeight = 300,
+  uiSettings = {},
 }) => {
   // 只渲染 HTML，不做 markdown 检测和渲染
   if (!html || html.trim() === '') {
@@ -75,6 +88,7 @@ const RichTextRenderer: React.FC<RichTextRendererProps> = ({
           handleLinkPress,
           handleImagePress,
           maxImageHeight,
+          uiSettings,
         })}
       </View>
     );

@@ -1510,12 +1510,25 @@ export default function GlobalSettingsPage() {
           return;
         }
         try {
-          let findRegex = script.findRegex;
-          if (findRegex.startsWith('/') && findRegex.endsWith('/')) {
-            findRegex = findRegex.slice(1, -1);
+          let pattern = script.findRegex;
+          let flags = script.flags || '';
+          
+          // 如果 findRegex 形如 /xxx/gi，解析出 pattern 和 flags
+          const regexMatch = /^\/(.+)\/([a-z]*)$/i.exec(script.findRegex);
+          if (regexMatch) {
+            pattern = regexMatch[1];
+            const regexFlags = regexMatch[2];
+            
+            // 优先使用 findRegex 中的 flags，如果为空才使用 script.flags
+            if (regexFlags && regexFlags.trim() !== '') {
+              flags = regexFlags;
+            }
           }
-          const flags = script.flags || '';
-          const regex = new RegExp(findRegex, flags);
+
+          // flags 为空时自动补全为 'g'
+          if (!flags || flags.trim() === '') flags = 'g';
+          
+          const regex = new RegExp(pattern, flags);
           const before = tempUser;
           tempUser = tempUser.replace(regex, script.replaceString);
           log += `脚本#${idx + 1} 应用后: ${before} => ${tempUser}\n`;
@@ -1539,12 +1552,25 @@ export default function GlobalSettingsPage() {
           return;
         }
         try {
-          let findRegex = script.findRegex;
-          if (findRegex.startsWith('/') && findRegex.endsWith('/')) {
-            findRegex = findRegex.slice(1, -1);
+          let pattern = script.findRegex;
+          let flags = script.flags || '';
+          
+          // 如果 findRegex 形如 /xxx/gi，解析出 pattern 和 flags
+          const regexMatch = /^\/(.+)\/([a-z]*)$/i.exec(script.findRegex);
+          if (regexMatch) {
+            pattern = regexMatch[1];
+            const regexFlags = regexMatch[2];
+            
+            // 优先使用 findRegex 中的 flags，如果为空才使用 script.flags
+            if (regexFlags && regexFlags.trim() !== '') {
+              flags = regexFlags;
+            }
           }
-          const flags = script.flags || '';
-          const regex = new RegExp(findRegex, flags);
+
+          // flags 为空时自动补全为 'g'
+          if (!flags || flags.trim() === '') flags = 'g';
+          
+          const regex = new RegExp(pattern, flags);
           const before = tempAi;
           tempAi = tempAi.replace(regex, script.replaceString);
           log += `脚本#${idx + 1} 应用后: ${before} => ${tempAi}\n`;
@@ -1854,7 +1880,7 @@ export default function GlobalSettingsPage() {
       // 世界书同理
       const updatedGlobalWorldbookList = globalWorldbookList.map(tpl =>
         tpl.id === selectedWorldbookId
-          ? { ...tpl, worldbookJson: worldbookConfig.worldbookJson }
+          ? { ...tpl, worldbookJson: worldbookConfig.worldbookJson || { entries: {} } }
           : tpl
       );
       setGlobalWorldbookList(updatedGlobalWorldbookList);
@@ -1863,7 +1889,10 @@ export default function GlobalSettingsPage() {
       const { StorageAdapter } = await import('@/NodeST/nodest/utils/storage-adapter');
       await StorageAdapter.saveGlobalPresetList?.(updatedGlobalPresetList);
       await StorageAdapter.saveSelectedGlobalPresetId?.(selectedPresetId);
-      await StorageAdapter.saveGlobalWorldbookList?.(updatedGlobalWorldbookList);
+      await StorageAdapter.saveGlobalWorldbookList?.(updatedGlobalWorldbookList.map(tpl => ({
+        ...tpl,
+        worldbookJson: tpl.worldbookJson || { entries: {} }
+      })));
       await StorageAdapter.saveSelectedGlobalWorldbookId?.(selectedWorldbookId);
 
       // === 关键：保存正则脚本组时给每个脚本加上bindType/bindCharacterId ===

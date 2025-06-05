@@ -231,14 +231,22 @@ const GlobalDetailSidebar: React.FC<GlobalDetailSidebarProps> = ({
         return;
       }
       let pattern = localRegex.findRegex;
-      let flags = 'g';
+      let flags = localRegex.flags || '';
+      
       // 支持 /pattern/flags 格式
       const regexMatch = /^\/(.+)\/([a-z]*)$/i.exec(localRegex.findRegex);
       if (regexMatch) {
         pattern = regexMatch[1];
-        flags = regexMatch[2] || 'g';
-        if (!flags.includes('g')) flags += 'g';
+        const regexFlags = regexMatch[2];
+        
+        // 优先使用 findRegex 中的 flags，如果为空才使用 script.flags
+        if (regexFlags && regexFlags.trim() !== '') {
+          flags = regexFlags;
+        }
       }
+      
+      // flags 为空时自动补全为 'g'
+      if (!flags || flags.trim() === '') flags = 'g';
       let regex: RegExp;
       try {
         regex = new RegExp(pattern, flags);

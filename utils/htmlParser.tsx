@@ -248,6 +248,18 @@ export const parseHtmlToReactNative = (
     handleLinkPress?: (url: string) => void;
     handleImagePress?: (url: string) => void;
     maxImageHeight?: number;
+    uiSettings?: {
+      markdownTextColor?: string;
+      markdownBoldColor?: string;
+      markdownCodeTextColor?: string;
+      markdownCodeBackgroundColor?: string;
+      markdownCodeScale?: number;
+      markdownTextScale?: number;
+      markdownHeadingColor?: string;
+      markdownQuoteColor?: string;
+      markdownQuoteBackgroundColor?: string;
+      markdownLinkColor?: string;
+    };
   } = {}
 ): React.ReactNode => {
   const {
@@ -255,6 +267,7 @@ export const parseHtmlToReactNative = (
     handleLinkPress = (url) => Linking.openURL(url),
     handleImagePress,
     maxImageHeight = 300,
+    uiSettings = {},
   } = options;
 
   // 直接传递原始 html，不做换行替换
@@ -272,7 +285,8 @@ export const parseHtmlToReactNative = (
     'b', 'strong', 'i', 'em', 'u', 'br', 'hr', 'ul', 'ol', 'li',
     'table', 'tr', 'td', 'th', 'thead', 'tbody', 'blockquote',
     'pre', 'code', 'mark', 'figure', 'figcaption', 'video', 'audio',
-    'source', 'section', 'article', 'aside', 'nav', 'header', 'footer'
+    'source', 'section', 'article', 'aside', 'nav', 'header', 'footer',
+    'del', 's', 'strike'  // 添加删除线相关标签
   ];
 
   const renderers = {
@@ -394,19 +408,125 @@ export const parseHtmlToReactNative = (
     }),
   };
 
-  // 定义标签样式
+  // 定义标签样式，使用 UI 设置
   const tagsStyles = {
-    p: { marginBottom: 10, ...baseStyle },
-    a: { color: '#3498db', textDecorationLine: 'underline' as const },
-    h1: { fontSize: 24, fontWeight: 'bold' as const, marginVertical: 10, ...baseStyle },
-    h2: { fontSize: 22, fontWeight: 'bold' as const, marginVertical: 8, ...baseStyle },
-    h3: { fontSize: 20, fontWeight: 'bold' as const, marginVertical: 6, ...baseStyle },
-    h4: { fontSize: 18, fontWeight: 'bold' as const, marginVertical: 5, ...baseStyle },
-    h5: { fontSize: 16, fontWeight: 'bold' as const, marginVertical: 4, ...baseStyle },
-    h6: { fontSize: 14, fontWeight: 'bold' as const, marginVertical: 3, ...baseStyle },
-    text: { color: '#fff', ...baseStyle },
-    span: { color: '#fff', ...baseStyle }, // Ensure span tags match text styles
+    p: { marginBottom: 10, color: uiSettings.markdownTextColor || '#fff', ...baseStyle },
+    a: { color: uiSettings.markdownLinkColor || '#3498db', textDecorationLine: 'underline' as const },
+    h1: { 
+      fontSize: (24 * (uiSettings.markdownTextScale || 1)), 
+      fontWeight: 'bold' as const, 
+      marginVertical: 10, 
+      color: uiSettings.markdownHeadingColor || '#fff',
+      ...baseStyle 
+    },
+    h2: { 
+      fontSize: (22 * (uiSettings.markdownTextScale || 1)), 
+      fontWeight: 'bold' as const, 
+      marginVertical: 8, 
+      color: uiSettings.markdownHeadingColor || '#fff',
+      ...baseStyle 
+    },
+    h3: { 
+      fontSize: (20 * (uiSettings.markdownTextScale || 1)), 
+      fontWeight: 'bold' as const, 
+      marginVertical: 6, 
+      color: uiSettings.markdownHeadingColor || '#fff',
+      ...baseStyle 
+    },
+    h4: { 
+      fontSize: (18 * (uiSettings.markdownTextScale || 1)), 
+      fontWeight: 'bold' as const, 
+      marginVertical: 5, 
+      color: uiSettings.markdownHeadingColor || '#fff',
+      ...baseStyle 
+    },
+    h5: { 
+      fontSize: (16 * (uiSettings.markdownTextScale || 1)), 
+      fontWeight: 'bold' as const, 
+      marginVertical: 4, 
+      color: uiSettings.markdownHeadingColor || '#fff',
+      ...baseStyle 
+    },
+    h6: { 
+      fontSize: (14 * (uiSettings.markdownTextScale || 1)), 
+      fontWeight: 'bold' as const, 
+      marginVertical: 3, 
+      color: uiSettings.markdownHeadingColor || '#fff',
+      ...baseStyle 
+    },
+    text: { color: uiSettings.markdownTextColor || '#fff', ...baseStyle },
+    span: { color: uiSettings.markdownTextColor || '#fff', ...baseStyle },
     br: { height: 12 }, // Add specific height to line breaks to ensure visibility
+    // 添加基本HTML标签样式，使用 UI 设置
+    strong: { 
+      fontWeight: 'bold' as const, 
+      color: uiSettings.markdownBoldColor || '#fff', 
+      ...baseStyle 
+    },
+    b: { 
+      fontWeight: 'bold' as const, 
+      color: uiSettings.markdownBoldColor || '#fff', 
+      ...baseStyle 
+    },
+    em: { 
+      fontStyle: 'italic' as const, 
+      color: uiSettings.markdownTextColor || '#fff', 
+      ...baseStyle 
+    },
+    i: { 
+      fontStyle: 'italic' as const, 
+      color: uiSettings.markdownTextColor || '#fff', 
+      ...baseStyle 
+    },
+    u: { 
+      textDecorationLine: 'underline' as const, 
+      color: uiSettings.markdownTextColor || '#fff', 
+      ...baseStyle 
+    },
+    del: { 
+      textDecorationLine: 'line-through' as const, 
+      color: '#aaa', 
+      ...baseStyle 
+    },
+    s: { 
+      textDecorationLine: 'line-through' as const, 
+      color: '#aaa', 
+      ...baseStyle 
+    },
+    strike: { 
+      textDecorationLine: 'line-through' as const, 
+      color: '#aaa', 
+      ...baseStyle 
+    },
+    code: { 
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      backgroundColor: uiSettings.markdownCodeBackgroundColor || '#222',
+      color: uiSettings.markdownCodeTextColor || '#fff',
+      borderRadius: 3,
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+      fontSize: (14 * (uiSettings.markdownCodeScale || 1)),
+      ...baseStyle
+    },
+    pre: {
+      backgroundColor: uiSettings.markdownCodeBackgroundColor || '#111',
+      borderRadius: 6,
+      padding: 12,
+      marginVertical: 8,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      color: uiSettings.markdownCodeTextColor || '#fff',
+      fontSize: (14 * (uiSettings.markdownCodeScale || 1)),
+      ...baseStyle
+    },
+    blockquote: {
+      backgroundColor: uiSettings.markdownQuoteBackgroundColor || 'rgba(255, 255, 255, 0.1)',
+      borderLeftWidth: 4,
+      borderLeftColor: '#aaa',
+      padding: 8,
+      marginVertical: 6,
+      color: uiSettings.markdownQuoteColor || '#fff',
+      ...baseStyle
+    },
     // Add styles for mem and websearch tags to make all text inside them italic
     mem: { fontStyle: 'italic' as const },
     websearch: { fontStyle: 'italic' as const },
@@ -433,7 +553,7 @@ export const parseHtmlToReactNative = (
       customHTMLElementModels={customHTMLElementModels}
       renderers={renderers}
       baseStyle={{ 
-        color: '#fff', 
+        color: uiSettings.markdownTextColor || '#fff', 
         fontSize: 16, 
         ...baseStyle,
         textAlignVertical: 'center',

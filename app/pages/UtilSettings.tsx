@@ -180,7 +180,12 @@ export default function UtilSettings() {
   };
 
   const saveConfig = async () => {
+    setError('');
+    setIsLoading(true);
     try {
+      // 先生成消息数组
+      await generateMessageArrayForCurrentTab();
+      
       if (activeTab === 'autoMessage') {
         const config: AutoMessagePromptConfig = {
           inputText,
@@ -225,9 +230,67 @@ export default function UtilSettings() {
         await AsyncStorage.setItem(IMAGEGEN_STORAGE_KEY, JSON.stringify(config));
         Alert.alert('保存成功', '图像生成提示词配置已保存');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('保存配置失败:', e);
+      setError('保存失败: ' + (e?.message || e));
       Alert.alert('保存失败', '无法保存配置');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const generateMessageArrayForCurrentTab = async () => {
+    let currentPreset = '', currentInput = '', currentAdapter: 'gemini' | 'openrouter' | 'openai-compatible' = 'gemini', currentWorldBook = '';
+    if (activeTab === 'autoMessage') {
+      currentPreset = presetJson;
+      currentInput = inputText;
+      currentAdapter = adapterType;
+      currentWorldBook = worldBookJson;
+    } else if (activeTab === 'memorySummary') {
+      currentPreset = memoryPresetJson;
+      currentInput = memoryInputText;
+      currentAdapter = memoryAdapterType;
+      currentWorldBook = memoryWorldBookJson;
+    } else if (activeTab === 'imagegen') {
+      currentPreset = imagegenPresetJson;
+      currentInput = imagegenInputText;
+      currentAdapter = imagegenAdapterType;
+      currentWorldBook = imagegenWorldBookJson;
+    }
+
+    // If we only have inputText, create a simple message array with just the input
+    if (!currentPreset) {
+      const simpleArray = [{
+        role: currentAdapter === 'gemini' ? 'user' : 'user',
+        ...(currentAdapter === 'gemini' || currentAdapter === 'openrouter' 
+          ? { parts: [{ text: currentInput }] } 
+          : { content: currentInput })
+      }];
+      
+      if (activeTab === 'autoMessage') {
+        setMessageArray(simpleArray);
+      } else if (activeTab === 'memorySummary') {
+        setMemoryMessageArray(simpleArray);
+      } else if (activeTab === 'imagegen') {
+        setImagegenMessageArray(simpleArray);
+      }
+      return;
+    }
+
+    // If we have preset, use NodeSTCore.buildRFrameworkWithChatHistory
+    const arr = await NodeSTCore.buildRFrameworkWithChatHistory(
+      currentInput,
+      currentPreset,
+      currentAdapter,
+      currentWorldBook || undefined
+    );
+    
+    if (activeTab === 'autoMessage') {
+      setMessageArray(arr);
+    } else if (activeTab === 'memorySummary') {
+      setMemoryMessageArray(arr);
+    } else if (activeTab === 'imagegen') {
+      setImagegenMessageArray(arr);
     }
   };
 
@@ -433,14 +496,6 @@ export default function UtilSettings() {
               >
                 <Ionicons name="close-circle-outline" size={18} color={!worldBookJson ? '#666' : '#e74c3c'} />
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.sectionButton, isLoading && styles.disabledButton]} 
-                onPress={handleGenerateMessageArray}
-                disabled={isLoading}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="code-outline" size={18} color={isLoading ? '#666' : '#27ae60'} />
-              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.sectionButton, (apiLoading || !hasMessageArray) && styles.disabledButton]}
                 onPress={handleApiTest}
@@ -466,7 +521,7 @@ export default function UtilSettings() {
             />
 
             <Text style={styles.helperText}>
-              你可以只输入指令文本生成简单消息数组，或导入preset和worldbook生成完整消息数组
+              你可以只输入指令文本生成简单消息数组，或导入preset和worldbook生成完整消息数组。保存时将自动生成消息数组。
             </Text>
 
             <Text style={styles.inputLabel}>自动消息发送间隔（分钟）</Text>
@@ -521,9 +576,19 @@ export default function UtilSettings() {
               </View>
             </View> */}
 
-            <TouchableOpacity style={styles.saveButton} onPress={saveConfig}>
-              <Ionicons name="save-outline" size={18} color="black" style={styles.buttonIcon} />
-              <Text style={styles.saveButtonText}>保存配置</Text>
+            <TouchableOpacity 
+              style={[styles.saveButton, isLoading && styles.disabledButton]} 
+              onPress={saveConfig}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color="black" style={styles.buttonIcon} />
+              ) : (
+                <Ionicons name="save-outline" size={18} color="black" style={styles.buttonIcon} />
+              )}
+              <Text style={styles.saveButtonText}>
+                {isLoading ? '正在保存...' : '保存配置'}
+              </Text>
             </TouchableOpacity>
 
             {error ? (
@@ -588,14 +653,6 @@ export default function UtilSettings() {
               >
                 <Ionicons name="close-circle-outline" size={18} color={!memoryWorldBookJson ? '#666' : '#e74c3c'} />
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.sectionButton, isLoading && styles.disabledButton]} 
-                onPress={handleGenerateMessageArray}
-                disabled={isLoading}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="code-outline" size={18} color={isLoading ? '#666' : '#27ae60'} />
-              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.sectionButton, (apiLoading || !hasMessageArray) && styles.disabledButton]}
                 onPress={handleApiTest}
@@ -618,7 +675,7 @@ export default function UtilSettings() {
             />
 
             <Text style={styles.helperText}>
-              你可以只输入指令文本生成简单消息数组，或导入preset和worldbook生成完整消息数组
+              你可以只输入指令文本生成简单消息数组，或导入preset和worldbook生成完整消息数组。保存时将自动生成消息数组。
             </Text>
 
             <Text style={styles.sectionSubtitle}>记忆服务设置</Text>
@@ -740,9 +797,19 @@ export default function UtilSettings() {
               </View>
             </View> */}
 
-            <TouchableOpacity style={styles.saveButton} onPress={saveConfig}>
-              <Ionicons name="save-outline" size={18} color="black" style={styles.buttonIcon} />
-              <Text style={styles.saveButtonText}>保存配置</Text>
+            <TouchableOpacity 
+              style={[styles.saveButton, isLoading && styles.disabledButton]} 
+              onPress={saveConfig}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color="black" style={styles.buttonIcon} />
+              ) : (
+                <Ionicons name="save-outline" size={18} color="black" style={styles.buttonIcon} />
+              )}
+              <Text style={styles.saveButtonText}>
+                {isLoading ? '正在保存...' : '保存配置'}
+              </Text>
             </TouchableOpacity>
 
             {error ? (
@@ -807,14 +874,6 @@ export default function UtilSettings() {
               >
                 <Ionicons name="close-circle-outline" size={18} color={!imagegenWorldBookJson ? '#666' : '#e74c3c'} />
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.sectionButton, isLoading && styles.disabledButton]} 
-                onPress={handleGenerateMessageArray}
-                disabled={isLoading}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="code-outline" size={18} color={isLoading ? '#666' : '#27ae60'} />
-              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.sectionButton, (apiLoading || !hasMessageArray) && styles.disabledButton]}
                 onPress={handleApiTest}
@@ -837,7 +896,7 @@ export default function UtilSettings() {
             />
 
             <Text style={styles.helperText}>
-              你可以只输入指令文本生成简单消息数组，或导入preset和worldbook生成完整消息数组
+              你可以只输入指令文本生成简单消息数组，或导入preset和worldbook生成完整消息数组。保存时将自动生成消息数组。
             </Text>
 {/* 
             <View style={styles.statusSection}>
@@ -879,9 +938,19 @@ export default function UtilSettings() {
               </View>
             </View> */}
 
-            <TouchableOpacity style={styles.saveButton} onPress={saveConfig}>
-              <Ionicons name="save-outline" size={18} color="black" style={styles.buttonIcon} />
-              <Text style={styles.saveButtonText}>保存配置</Text>
+            <TouchableOpacity 
+              style={[styles.saveButton, isLoading && styles.disabledButton]} 
+              onPress={saveConfig}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color="black" style={styles.buttonIcon} />
+              ) : (
+                <Ionicons name="save-outline" size={18} color="black" style={styles.buttonIcon} />
+              )}
+              <Text style={styles.saveButtonText}>
+                {isLoading ? '正在保存...' : '保存配置'}
+              </Text>
             </TouchableOpacity>
 
             {error ? (
