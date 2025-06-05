@@ -185,6 +185,8 @@ interface ExtendedChatDialogProps extends ChatDialogProps {
   hasMore?: boolean;       // 新增
   generatedImages?: GeneratedImage[]; // 新增：生成的图片列表
   onDeleteGeneratedImage?: (imageId: string) => void; // 新增：删除生成图片的回调
+  shouldScrollToBottom?: boolean; // 新增：是否应该强制滚动到底部
+  onScrollToBottomComplete?: () => void; // 新增：滚动到底部完成的回调
 }
 
 const { width, height } = Dimensions.get('window');
@@ -1484,6 +1486,8 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   hasMore,
   generatedImages = [], // 新增：生成的图片列表
   onDeleteGeneratedImage, // 新增：删除生成图片的回调
+  shouldScrollToBottom = false, // 新增：是否应该强制滚动到底部
+  onScrollToBottomComplete, // 新增：滚动到底部完成的回调
 }) => {
   // Get safe area insets for proper spacing
   const insets = useSafeAreaInsets();
@@ -1718,6 +1722,35 @@ function getBubblePadding() {
       setCurrentConversationId(selectedCharacter.id);
     }
   }, [selectedCharacter?.id, currentConversationId]);
+
+  // 新增：处理强制滚动到底部的逻辑
+  useEffect(() => {
+    if (shouldScrollToBottom && messages.length > 0) {
+      if (mode !== 'visual-novel') {
+        const timer = setTimeout(() => {
+          if (flatListRef.current) {
+            try {
+              flatListRef.current.scrollToEnd({ animated: false });
+              console.log(`[ChatDialog] 强制滚动到底部完成，消息数量: ${messages.length}`);
+              // 通知父组件滚动完成
+              if (onScrollToBottomComplete) {
+                onScrollToBottomComplete();
+              }
+            } catch (e) {
+              console.log('Failed to force scroll to bottom:', e);
+            }
+          }
+        }, 300); // 增加延迟确保列表已完全渲染
+        return () => clearTimeout(timer);
+      } else {
+        // 视觉小说模式下，直接完成滚动（因为总是显示最新消息）
+        console.log(`[ChatDialog] 视觉小说模式切换对话，直接完成滚动标记重置`);
+        if (onScrollToBottomComplete) {
+          onScrollToBottomComplete();
+        }
+      }
+    }
+  }, [shouldScrollToBottom, messages.length, mode, onScrollToBottomComplete]);
 
   // 修改：只在新消息添加到末尾时才自动滚动到底部，分页加载旧消息时不滚动
   const lastMessageId = useRef<string | null>(null);
