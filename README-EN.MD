@@ -36,6 +36,7 @@
 *   **QQ Group:** 1017292082 (For Q&A, bug reports, feedback)
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ## Update Log
 
 ### 0518 - 1.0.3 Further Optimization
@@ -71,6 +72,8 @@ Continued to fix some issues for 1.0.3, no new features added.
 
 *   Fixed the issue where group chats could not be disbanded.
 
+=======
+>>>>>>> 8dd60c926fc344908730320d0d2e547a60bdcc54
 ## Changelog Log
 
 

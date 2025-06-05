@@ -1,5 +1,9 @@
 # 介绍
-[简体中文](README.md)   [English](README-EN.MD)
+[简体中文](README.md)   
+
+[English](README-EN.MD) 
+
+[DeepWiki](https://deepwiki.com/AliceSyndrome285/CradleAI/5.2-memory-ui-and-table-memory-plugin)
 
 ## 界面预览
 
