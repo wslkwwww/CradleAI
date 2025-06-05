@@ -2887,13 +2887,6 @@ useEffect(() => {
               </TouchableOpacity> */}
               
               {/* 新增：消息管理测试按钮 */}
-              <TouchableOpacity
-                style={[styles.floatingLogButton, { bottom: 100 }]}
-                onPress={() => setIsMessageTestVisible(true)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.floatingLogButtonText}>Test</Text>
-              </TouchableOpacity>
 
               {/* 新增：消息管理测试模态框 */}
               {isMessageTestVisible && (
@@ -2911,13 +2904,6 @@ useEffect(() => {
                     
                     <View style={styles.testModalContent}>
                       <Text style={styles.testModalDescription}>
-                        【消息管理功能测试】包含两种测试：
-                        
-                        🔹 索引测试：创建61条标准测试消息，验证MessageService的findMessageGlobalIndex方法在真实场景下的索引查找准确性。
-                        
-                        🔹 分页测试：创建85条消息模拟多分页场景，验证在分页情况下消息编辑、删除、重新生成功能是否能准确找到消息索引并正常工作。
-                        
-                        测试完全还原真实使用场景，确保消息管理功能在各种情况下都能正常工作。
                       </Text>
                       
                       <View style={styles.testButtonContainer}>
