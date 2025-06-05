@@ -142,8 +142,8 @@ export default function TabLayout() {
               ),
             }}
           />
-          {/* <Tabs.Screen
-            name="cradle"
+          <Tabs.Screen
+            name="server"
             options={{
               title: '摇篮',
               headerShown: false,
@@ -155,7 +155,7 @@ export default function TabLayout() {
                 />
               ),
             }}
-          /> */}
+          />
           <Tabs.Screen
             name="profile"
             options={{
