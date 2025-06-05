@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# Project Documentation
-=======
 # CradleAI
->>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
 
 ## Interface Preview
 
@@ -74,9 +70,9 @@ Continued to fix some issues for 1.0.3, no new features added.
 **Group Chat**
 
 *   Fixed the issue where group chats could not be disbanded.
-=======
+
 ## Changelog Log
->>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
+
 
 ### 1.0.4
 
@@ -129,11 +125,8 @@ Continued to fix some issues for 1.0.3, no new features added.
 *   Characters can have custom avatars, backgrounds, and animated live portraits.
 *   Batch delete and export character data in management mode, supports character gallery and image generation.
 
-<<<<<<< HEAD
-### 2. Smart Chat
-=======
-### 2. Chat
->>>>>>> 06cc6794539d80d95c58a1c92f2c509d57a3af3f
+
+### 2. Roleplay Chat
 
 *   Independently implemented World Info, Presets, and character information systems equivalent to SillyTavern's functions:
     *   **World Info Entry Management**: Automatically inject relevant world setting entries into the conversation, intelligently matched based on conversation keywords.
@@ -258,7 +251,13 @@ Continued to fix some issues for 1.0.3, no new features added.
 
 ## Deployment Method
 
-This application is developed based on the [Expo](https://expo.dev/) framework, and it is recommended to use EAS Build for packaging and deployment:
+### Github Action
+It`s a easy approach to package：
+``
+Use main.yml to run Github Action workflow for packaging：x86，x86_64 and arm64 apk.
+``
+### EAS Build
+This application is developed based on the [Expo](https://expo.dev/) framework, and it is recommended to use EAS Build for packaging:
 
 1.  **Android Platform Packaging**
     Execute the following command in the project root directory to build an Android installation package (APK or AAB) via EAS:
@@ -275,20 +274,6 @@ This application is developed based on the [Expo](https://expo.dev/) framework, 
     However, it has not been fully tested on real Apple devices yet, so it is recommended to use with caution in production environments.
 
 > **Note**: Please ensure that your Expo account, EAS CLI, and relevant platform certificates are configured correctly. Refer to the [Expo Official Documentation](https://docs.expo.dev/build/introduction/) for detailed configuration and distribution procedures.
-
-## Current Limitations
-
-### API Support
-
-*   Currently, only Gemini and OpenRouter API channels are supported.
-*   Plans to add support for more official API channels in future versions, such as ChatGPT, Claude, etc.
-*   Image generation currently only supports NovelAI, plans to add more options.
-
-### Other Known Issues
-
-*   Some advanced features require developers to configure the endpoint themselves.
-*   The memory vector database might have performance bottlenecks with a large amount of data.
-*   Some features might respond slowly when the network is unstable.
 
 ## License
 
