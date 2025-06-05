@@ -1,3 +1,24 @@
+// 安全的 polyfills 初始化
+try {
+  require('react-native-get-random-values');
+  require('text-encoding-polyfill');
+  require('react-native-url-polyfill/auto');
+  
+  if (typeof global === 'undefined') {
+    (global as any) = globalThis;
+  }
+  
+  if (typeof (global as any).process === 'undefined') {
+    (global as any).process = require('process/browser');
+  }
+  
+  if (typeof (global as any).Buffer === 'undefined') {
+    (global as any).Buffer = require('buffer').Buffer;
+  }
+} catch (error) {
+  console.warn('[useMatrix] Polyfills initialization warning:', error);
+}
+
 import '@/lib/polyfills'; // 导入 polyfills，确保兼容性
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Room, MatrixEvent, ClientEvent, RoomEvent, SyncState } from 'matrix-js-sdk';

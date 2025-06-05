@@ -1,4 +1,80 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
+
+// 添加错误边界组件
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class AppErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
+  constructor(props: React.PropsWithChildren<{}>) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('App Error Boundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={errorStyles.errorContainer}>
+          <Text style={errorStyles.errorTitle}>应用出现错误</Text>
+          <Text style={errorStyles.errorMessage}>
+            {this.state.error?.message || '未知错误'}
+          </Text>
+          <TouchableOpacity
+            style={errorStyles.errorButton}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={errorStyles.errorButtonText}>重试</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// 错误边界样式
+const errorStyles = StyleSheet.create({
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#181818',
+    padding: 20,
+  },
+  errorTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 20,
+  },
+  errorMessage: {
+    fontSize: 16,
+    color: '#ccc',
+    textAlign: 'center',
+    marginBottom: 30,
+  },
+  errorButton: {
+    backgroundColor: '#4a6fa5',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  errorButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+});
 import {
   View,
   StyleSheet,
@@ -3313,4 +3389,11 @@ const styles = StyleSheet.create({
   },
 });
 
-export default App;
+// 用错误边界包装 App 组件
+const SafeApp = () => (
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>
+);
+
+export default SafeApp;
