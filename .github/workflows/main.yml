@@ -65,14 +65,84 @@ jobs:
 
       - name: Configure ProGuard for release
         run: |
-          # 启用代码压缩和混淆
+          # 启用代码压缩但禁用混淆，避免Matrix SDK问题
           if ! grep -q "minifyEnabled true" android/app/build.gradle; then
-            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"/' android/app/build.gradle
+            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources false\n            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"/' android/app/build.gradle
           fi
           
-          # 创建ProGuard规则文件
+          # 创建更安全的ProGuard规则文件
           cat > android/app/proguard-rules.pro << 'EOF'
-          # Remove all logging
+          # Keep React Native and Expo
+          -keep class com.facebook.react.** { *; }
+          -keep class com.facebook.hermes.** { *; }
+          -keep class expo.** { *; }
+          -keep class versioned.host.exp.exponent.** { *; }
+          -dontwarn com.facebook.react.**
+          -dontwarn expo.**
+          
+          # Keep Matrix SDK
+          -keep class org.matrix.** { *; }
+          -keep class matrix.** { *; }
+          -dontwarn org.matrix.**
+          -dontwarn matrix.**
+          
+          # Keep Node.js polyfills
+          -keep class com.peel.** { *; }
+          -keep class com.tradle.** { *; }
+          -keep class stream.** { *; }
+          -keep class crypto.** { *; }
+          -keep class buffer.** { *; }
+          -keep class events.** { *; }
+          -keep class util.** { *; }
+          -keep class url.** { *; }
+          -keep class querystring.** { *; }
+          -dontwarn com.peel.**
+          -dontwarn com.tradle.**
+          -dontwarn stream.**
+          -dontwarn crypto.**
+          -dontwarn buffer.**
+          -dontwarn events.**
+          -dontwarn util.**
+          -dontwarn url.**
+          -dontwarn querystring.**
+          
+          # Keep polyfills and native modules
+          -keep class * implements com.facebook.react.bridge.NativeModule { *; }
+          -keep class * implements com.facebook.react.turbomodule.core.TurboModule { *; }
+          -keep class * implements com.facebook.react.bridge.JavaScriptModule { *; }
+          
+          # Keep application entry points
+          -keep class * extends android.app.Application
+          -keep class * extends android.app.Activity
+          -keep class * extends android.app.Service
+          -keep class * extends android.content.BroadcastReceiver
+          -keep class * extends android.content.ContentProvider
+          
+          # Keep AsyncStorage
+          -keep class com.reactnativecommunity.asyncstorage.** { *; }
+          -dontwarn com.reactnativecommunity.asyncstorage.**
+          
+          # Keep Video components
+          -keep class com.brentvatne.** { *; }
+          -dontwarn com.brentvatne.**
+          
+          # Keep WebView
+          -keep class com.reactnativecommunity.webview.** { *; }
+          -dontwarn com.reactnativecommunity.webview.**
+          
+          # Keep SQLite
+          -keep class org.sqlite.** { *; }
+          -keep class io.expo.sqlite.** { *; }
+          -dontwarn org.sqlite.**
+          -dontwarn io.expo.sqlite.**
+          
+          # Keep all native modules used in the app
+          -keep class com.reactnativecommunity.** { *; }
+          -keep class org.reactnative.** { *; }
+          -dontwarn com.reactnativecommunity.**
+          -dontwarn org.reactnative.**
+          
+          # 保守的混淆配置 - 仅移除日志
           -assumenosideeffects class android.util.Log {
               public static boolean isLoggable(java.lang.String, int);
               public static int v(...);
@@ -82,20 +152,35 @@ jobs:
               public static int e(...);
           }
           
-          # Remove console.log in React Native
-          -assumenosideeffects class * {
-              void console.log(...);
-              void console.warn(...);
-              void console.error(...);
-              void console.info(...);
-              void console.debug(...);
+          # Keep all classes with @Keep annotation
+          -keep @interface androidx.annotation.Keep
+          -keep @androidx.annotation.Keep class *
+          -keepclassmembers class * {
+              @androidx.annotation.Keep *;
           }
           
-          # Keep React Native components
-          -keep class com.facebook.react.** { *; }
-          -keep class com.facebook.hermes.** { *; }
-          -dontwarn com.facebook.react.**
+          # React Native specifics
+          -keepclassmembers class * {
+              @com.facebook.react.uimanager.annotations.ReactProp <methods>;
+          }
+          -keepclassmembers class * {
+              @com.facebook.react.uimanager.annotations.ReactPropGroup <methods>;
+          }
+          -keepclassmembers class * {
+              void *(**On*Event)(com.facebook.react.bridge.WritableMap);
+          }
           EOF
+
+      - name: Copy keystore for signing
+        run: |
+          mkdir -p android/app
+          cp credentials/android/keystore.jks android/app/keystore.jks
+
+      - name: Set up signing config env
+        run: |
+          echo "KEYSTORE_PASSWORD=55363247273395f8d95b9af47602c6c9" >> $GITHUB_ENV
+          echo "KEY_ALIAS=827710eb0c94fe645c8ff6e5d82928c5" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=c7a328e8f03f503a52f2196ce2da9ede" >> $GITHUB_ENV
 
       - name: Assemble for ${{ matrix.abi }}
         run: |
@@ -103,10 +188,10 @@ jobs:
           ./gradlew assembleRelease \
             -PcdvAbi="${{ matrix.abi }}" \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
-            --no-daemon
+            --no-daemon \
+            --stacktrace
         env:
           NODE_ENV: production
-          REACT_NATIVE_DISABLE_LOGGING: true
 
       - name: Collect APK
         run: mkdir -p output && cp android/app/build/outputs/apk/release/app-${{ matrix.abi }}-release.apk output/
@@ -163,14 +248,84 @@ jobs:
 
       - name: Configure ProGuard for release
         run: |
-          # 启用代码压缩和混淆
+          # 启用代码压缩但禁用混淆，避免Matrix SDK问题
           if ! grep -q "minifyEnabled true" android/app/build.gradle; then
-            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"/' android/app/build.gradle
+            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources false\n            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"/' android/app/build.gradle
           fi
           
-          # 创建ProGuard规则文件
+          # 创建更安全的ProGuard规则文件
           cat > android/app/proguard-rules.pro << 'EOF'
-          # Remove all logging
+          # Keep React Native and Expo
+          -keep class com.facebook.react.** { *; }
+          -keep class com.facebook.hermes.** { *; }
+          -keep class expo.** { *; }
+          -keep class versioned.host.exp.exponent.** { *; }
+          -dontwarn com.facebook.react.**
+          -dontwarn expo.**
+          
+          # Keep Matrix SDK
+          -keep class org.matrix.** { *; }
+          -keep class matrix.** { *; }
+          -dontwarn org.matrix.**
+          -dontwarn matrix.**
+          
+          # Keep Node.js polyfills
+          -keep class com.peel.** { *; }
+          -keep class com.tradle.** { *; }
+          -keep class stream.** { *; }
+          -keep class crypto.** { *; }
+          -keep class buffer.** { *; }
+          -keep class events.** { *; }
+          -keep class util.** { *; }
+          -keep class url.** { *; }
+          -keep class querystring.** { *; }
+          -dontwarn com.peel.**
+          -dontwarn com.tradle.**
+          -dontwarn stream.**
+          -dontwarn crypto.**
+          -dontwarn buffer.**
+          -dontwarn events.**
+          -dontwarn util.**
+          -dontwarn url.**
+          -dontwarn querystring.**
+          
+          # Keep polyfills and native modules
+          -keep class * implements com.facebook.react.bridge.NativeModule { *; }
+          -keep class * implements com.facebook.react.turbomodule.core.TurboModule { *; }
+          -keep class * implements com.facebook.react.bridge.JavaScriptModule { *; }
+          
+          # Keep application entry points
+          -keep class * extends android.app.Application
+          -keep class * extends android.app.Activity
+          -keep class * extends android.app.Service
+          -keep class * extends android.content.BroadcastReceiver
+          -keep class * extends android.content.ContentProvider
+          
+          # Keep AsyncStorage
+          -keep class com.reactnativecommunity.asyncstorage.** { *; }
+          -dontwarn com.reactnativecommunity.asyncstorage.**
+          
+          # Keep Video components
+          -keep class com.brentvatne.** { *; }
+          -dontwarn com.brentvatne.**
+          
+          # Keep WebView
+          -keep class com.reactnativecommunity.webview.** { *; }
+          -dontwarn com.reactnativecommunity.webview.**
+          
+          # Keep SQLite
+          -keep class org.sqlite.** { *; }
+          -keep class io.expo.sqlite.** { *; }
+          -dontwarn org.sqlite.**
+          -dontwarn io.expo.sqlite.**
+          
+          # Keep all native modules used in the app
+          -keep class com.reactnativecommunity.** { *; }
+          -keep class org.reactnative.** { *; }
+          -dontwarn com.reactnativecommunity.**
+          -dontwarn org.reactnative.**
+          
+          # 保守的混淆配置 - 仅移除日志
           -assumenosideeffects class android.util.Log {
               public static boolean isLoggable(java.lang.String, int);
               public static int v(...);
@@ -180,30 +335,45 @@ jobs:
               public static int e(...);
           }
           
-          # Remove console.log in React Native
-          -assumenosideeffects class * {
-              void console.log(...);
-              void console.warn(...);
-              void console.error(...);
-              void console.info(...);
-              void console.debug(...);
+          # Keep all classes with @Keep annotation
+          -keep @interface androidx.annotation.Keep
+          -keep @androidx.annotation.Keep class *
+          -keepclassmembers class * {
+              @androidx.annotation.Keep *;
           }
           
-          # Keep React Native components
-          -keep class com.facebook.react.** { *; }
-          -keep class com.facebook.hermes.** { *; }
-          -dontwarn com.facebook.react.**
+          # React Native specifics
+          -keepclassmembers class * {
+              @com.facebook.react.uimanager.annotations.ReactProp <methods>;
+          }
+          -keepclassmembers class * {
+              @com.facebook.react.uimanager.annotations.ReactPropGroup <methods>;
+          }
+          -keepclassmembers class * {
+              void *(**On*Event)(com.facebook.react.bridge.WritableMap);
+          }
           EOF
+
+      - name: Copy keystore for signing
+        run: |
+          mkdir -p android/app
+          cp credentials/android/keystore.jks android/app/keystore.jks
+
+      - name: Set up signing config env
+        run: |
+          echo "KEYSTORE_PASSWORD=55363247273395f8d95b9af47602c6c9" >> $GITHUB_ENV
+          echo "KEY_ALIAS=827710eb0c94fe645c8ff6e5d82928c5" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=c7a328e8f03f503a52f2196ce2da9ede" >> $GITHUB_ENV
 
       - name: Build Universal APK
         run: |
           cd android
           ./gradlew assembleRelease \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
-            --no-daemon
+            --no-daemon \
+            --stacktrace
         env:
           NODE_ENV: production
-          REACT_NATIVE_DISABLE_LOGGING: true
 
       - name: Collect Universal APK
         run: mkdir -p output && cp android/app/build/outputs/apk/release/app-universal-release.apk output/
