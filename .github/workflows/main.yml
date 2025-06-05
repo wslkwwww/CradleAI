@@ -171,16 +171,16 @@ jobs:
           }
           EOF
 
-      - name: Copy keystore for signing
+      - name: Setup Android Keystore
         run: |
           mkdir -p android/app
-          cp credentials/android/keystore.jks android/app/keystore.jks
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore.jks
 
       - name: Set up signing config env
         run: |
-          echo "KEYSTORE_PASSWORD=55363247273395f8d95b9af47602c6c9" >> $GITHUB_ENV
-          echo "KEY_ALIAS=827710eb0c94fe645c8ff6e5d82928c5" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=c7a328e8f03f503a52f2196ce2da9ede" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
 
       - name: Assemble for ${{ matrix.abi }}
         run: |
@@ -354,16 +354,16 @@ jobs:
           }
           EOF
 
-      - name: Copy keystore for signing
+      - name: Setup Android Keystore
         run: |
           mkdir -p android/app
-          cp credentials/android/keystore.jks android/app/keystore.jks
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore.jks
 
       - name: Set up signing config env
         run: |
-          echo "KEYSTORE_PASSWORD=55363247273395f8d95b9af47602c6c9" >> $GITHUB_ENV
-          echo "KEY_ALIAS=827710eb0c94fe645c8ff6e5d82928c5" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=c7a328e8f03f503a52f2196ce2da9ede" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
 
       - name: Build Universal APK
         run: |
