@@ -142,7 +142,7 @@ export default function TabLayout() {
               ),
             }}
           />
-          <Tabs.Screen
+          {/* <Tabs.Screen
             name="server"
             options={{
               title: '摇篮',
@@ -155,7 +155,7 @@ export default function TabLayout() {
                 />
               ),
             }}
-          />
+          /> */}
           <Tabs.Screen
             name="profile"
             options={{
