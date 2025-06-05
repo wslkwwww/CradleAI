@@ -1292,6 +1292,33 @@ const filteredMessages = useMemo(() => {
     }, 200); // Debounce for better performance
   }, []);
 
+  // 添加对话切换的滚动控制逻辑
+  const lastSelectedCharacterId = useRef<string | null>(null);
+  const [shouldScrollToBottom, setShouldScrollToBottom] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedConversationId && selectedConversationId !== lastSelectedCharacterId.current) {
+      // 对话发生切换，标记需要滚动到底部
+      lastSelectedCharacterId.current = selectedConversationId;
+      setShouldScrollToBottom(true);
+      console.log(`[Index] 检测到对话切换: ${selectedConversationId}, 将在消息加载后滚动到底部`);
+    }
+  }, [selectedConversationId]);
+
+  // 当消息加载完成且需要滚动到底部时，确保触发滚动
+  useEffect(() => {
+    if (shouldScrollToBottom && filteredMessages.length > 0) {
+      console.log(`[Index] 消息已加载完成 (${filteredMessages.length} 条)，准备滚动到底部`);
+    }
+  }, [shouldScrollToBottom, filteredMessages.length]);
+
+  // 处理滚动到底部完成的回调
+  const handleScrollToBottomComplete = useCallback(() => {
+    // 只有当前选中的对话ID与触发滚动时的ID一致时才重置标记
+    setShouldScrollToBottom(false);
+    console.log(`[Index] 滚动到底部完成，重置标记 (当前对话: ${selectedConversationId})`);
+  }, [selectedConversationId]);
+
   // Toggle brave search
   const toggleBraveSearch = useCallback(() => {
     setBraveSearchEnabled(prev => {
@@ -2754,6 +2781,8 @@ useEffect(() => {
                         hasMore={hasMoreMessages}
                         generatedImages={selectedConversationId ? getGeneratedImages(selectedConversationId) : []}
                         onDeleteGeneratedImage={handleDeleteGeneratedImage}
+                        shouldScrollToBottom={shouldScrollToBottom}
+                        onScrollToBottomComplete={handleScrollToBottomComplete}
                       />
                   )}
                 </View>
