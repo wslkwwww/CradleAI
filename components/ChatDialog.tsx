@@ -1550,11 +1550,8 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   const [vnBgAlpha, setVnBgAlpha] = useState(() => {
     return uiSettings.vnDialogAlpha;
   });
-  const [showAlphaSlider, setShowAlphaSlider] = useState(false);
 
-  // 修复类型错误：不要用 TouchableOpacity 作为类型
-  const alphaBtnRef = useRef<any>(null);
-  const [alphaBtnLayout, setAlphaBtnLayout] = useState<{x: number, y: number, width: number, height: number}>({x: 0, y: 0, width: 0, height: 0});
+
 
   // 视觉小说对话框头部高度和底部actions高度
   const VN_HEADER_HEIGHT = vnExpanded ? 0 : 58; // 展开时无header
@@ -1615,14 +1612,6 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
     return rgb ? `rgba(${rgb.join(',')},${vnBgAlpha})` : `rgba(0,0,0,${vnBgAlpha})`;
   };
 
-  const handleAlphaChange = (alpha: number) => {
-    setVnBgAlpha(alpha);
-    // 更新 visualNovelSettings
-    const color = uiSettings.vnDialogColor;
-    const rgb = parseColor(color);
-    const newColor = rgb ? `rgba(${rgb.join(',')},${alpha})` : `rgba(0,0,0,${alpha})`;
-    updateVisualNovelSettings({ backgroundColor: newColor });
-  };
 
   // 新增：HEX 转 RGB 的辅助函数
   const hexToRgb = (hex: string): [number, number, number] | null => {
@@ -3251,23 +3240,7 @@ const combinedItems = useMemo(() => {
         entering={FadeIn.duration(350)}
         style={vnContainerStyle}
       >
-        {/* Rest of the existing visual novel dialog code... */}
-        
-        {/* Right top: background transparency button */}
-        <View style={styles.visualNovelAlphaButtonFixed}>
-          <TouchableOpacity
-            ref={ref => { alphaBtnRef.current = ref }}
-            style={[
-              styles.visualNovelHeaderButton,
-              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent' }
-            ]}
-            onLayout={e => setAlphaBtnLayout(e.nativeEvent.layout)}
-            onPress={() => setShowAlphaSlider(v => !v)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="color-filter-outline" size={BUTTON_ICON_SIZE} color="#fff" />
-          </TouchableOpacity>
-        </View>
+
         {/* Left bottom: expand/collapse button */}
         <View style={styles.visualNovelExpandButtonFixed}>
           <TouchableOpacity
@@ -3280,45 +3253,7 @@ const combinedItems = useMemo(() => {
             <Ionicons name={vnExpanded ? "chevron-down" : "chevron-up"} size={BUTTON_ICON_SIZE} color="#fff" />
           </TouchableOpacity>
         </View>
-        {/* History button still in top right, avoid overlap, place inside top */}
-        <View style={styles.visualNovelHistoryButtonFixed}>
-          <TouchableOpacity
-            style={[
-              styles.visualNovelHeaderButton,
-              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent' }
-            ]}
-            onPress={() => setHistoryModalVisible && setHistoryModalVisible(true)}
-          >
-            <Ionicons name="time-outline" size={BUTTON_ICON_SIZE} color="#fff" />
-          </TouchableOpacity>
-        </View>
-        {/* Transparency adjustment pad, absolute position to the right of transparency button */}
-        {showAlphaSlider && (
-          <View
-            style={[
-              styles.visualNovelAlphaSliderContainer,
-              {
-                top: alphaBtnLayout.y,
-                left: alphaBtnLayout.x + alphaBtnLayout.width + 8,
-                right: undefined,
-                maxWidth: width - (alphaBtnLayout.x + alphaBtnLayout.width + 24),
-              }
-            ]}
-          >
-            <Text style={styles.visualNovelAlphaLabel}>背景透明度: {(vnBgAlpha * 100).toFixed(0)}%</Text>
-            <Slider
-              style={{ width: 140, height: 32 }}
-              minimumValue={0.2}
-              maximumValue={1}
-              step={0.01}
-              value={vnBgAlpha}
-              minimumTrackTintColor="#FFD580"
-              maximumTrackTintColor="#888"
-              thumbTintColor="#FFD580"
-              onValueChange={handleAlphaChange}
-            />
-          </View>
-        )}
+
         {/* Don't show avatar and name when expanded */}
         {!vnExpanded && (
           <View style={styles.visualNovelHeader}>
@@ -4991,7 +4926,6 @@ const styles = StyleSheet.create({
     height: 240,
     backgroundColor: '#111',
   },
-  // 确保在背景强调模式下，内容区域足够高以显示完整图片
   imagesCarouselContentBackgroundFocus: {
     height: '70%',
   },
