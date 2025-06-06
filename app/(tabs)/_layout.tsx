@@ -13,7 +13,6 @@ import { DialogModeProvider } from '@/constants/DialogModeContext';
 export default function TabLayout() {
   const colorScheme = useColorScheme() || 'light';
   const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [isLayoutReady, setIsLayoutReady] = useState(false); // 新增：布局就绪状态
   
   // Define fallback theme to prevent undefined tint error
   const colorTheme = {
@@ -24,16 +23,6 @@ export default function TabLayout() {
     tabIconDefault: '#ccc',
     tabIconSelected: colorScheme === 'dark' ? '#fff' :'rgb(255, 224, 195)',
   };
-
-  // 新增：延迟标记布局就绪
-  useEffect(() => {
-    const layoutTimer = setTimeout(() => {
-      setIsLayoutReady(true);
-      console.log('[TabLayout] Layout ready');
-    }, 500); // 0.5秒延迟
-
-    return () => clearTimeout(layoutTimer);
-  }, []);
 
   // Load unread messages count on app start
   useEffect(() => {
@@ -48,44 +37,25 @@ export default function TabLayout() {
       }
     };
 
-    if (isLayoutReady) {
-      loadUnreadCount();
-    }
-  }, [isLayoutReady]);
+    loadUnreadCount();
+  }, []);
 
   // Listen for unread messages updates using React Native EventRegister
   useEffect(() => {
-    // 只有在布局就绪后才注册事件监听器
-    if (!isLayoutReady) {
-      return;
-    }
-
-    let eventListener: any = null;
-    
-    try {
-      // Add listener for unread messages updates
-      eventListener = EventRegister.addEventListener(
-        'unreadMessagesUpdated',
-        (data) => {
-          const count = typeof data === 'number' ? data : 0;
-          setUnreadCount(count);
-        }
-      );
-    } catch (error) {
-      console.error('[TabLayout] Failed to register event listener:', error);
-    }
+    // Add listener for unread messages updates
+    const eventListener = EventRegister.addEventListener(
+      'unreadMessagesUpdated',
+      (data) => {
+        const count = typeof data === 'number' ? data : 0;
+        setUnreadCount(count);
+      }
+    );
 
     return () => {
       // Clean up event listener
-      if (eventListener) {
-        try {
-          EventRegister.removeEventListener(eventListener as string);
-        } catch (error) {
-          console.error('[TabLayout] Failed to remove event listener:', error);
-        }
-      }
+      EventRegister.removeEventListener(eventListener as string);
     };
-  }, [isLayoutReady]);
+  }, []);
 
   // Reset unread count when user navigates to chat tab
   const handleTabPress = (tabName: string) => {

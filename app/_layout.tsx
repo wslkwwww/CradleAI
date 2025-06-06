@@ -7,8 +7,8 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import { Animated, useWindowDimensions, Easing, View, StyleSheet, AppState } from 'react-native';
+import { useEffect } from 'react';
+import { Animated, useWindowDimensions, Easing, View, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { CharactersProvider } from '@/constants/CharactersContext';
@@ -22,53 +22,19 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme() || 'light';
-  const [loaded] = useFonts({
+  const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
   const { height: windowHeight } = useWindowDimensions();
-  const [isRootReady, setIsRootReady] = useState(false); // 新增：根布局就绪状态
 
-  // 新增：安全初始化根布局
+  // Initialize cloud service tracker with error handling
   useEffect(() => {
-    const initRoot = async () => {
-      try {
-        // 检查基础服务
-        const appState = AppState.currentState;
-        console.log('[RootLayout] Current app state:', appState);
-        
-        // 确保只在前台状态下初始化
-        if (appState === 'active') {
-          setTimeout(() => {
-            setIsRootReady(true);
-            console.log('[RootLayout] Root layout ready');
-          }, 300);
-        } else {
-          // 如果不在前台，监听状态变化
-          const handleAppStateChange = (nextAppState: string) => {
-            if (nextAppState === 'active') {
-              setIsRootReady(true);
-              subscription.remove();
-            }
-          };
-          
-          const subscription = AppState.addEventListener('change', handleAppStateChange);
-        }
-      } catch (error) {
-        console.error('[RootLayout] Initialization error:', error);
-        // 出错也要初始化
-        setTimeout(() => setIsRootReady(true), 1000);
-      }
-    };
-    
-    initRoot();
-  }, []);
-
-  // Initialize cloud service tracker
-  useEffect(() => {
-    if (isRootReady) {
+    try {
       initCloudServiceTracker();
+    } catch (error) {
+      console.warn('[RootLayout] Cloud service tracker initialization failed:', error);
     }
-  }, [isRootReady]);
+  }, []);
 
   // Use the correct theme structure that ReactNavigation expects
   const theme = colorScheme === 'dark' 
@@ -96,13 +62,17 @@ export default function RootLayout() {
       };
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    if (loaded || error) {
+      try {
+        SplashScreen.hideAsync();
+      } catch (hideError) {
+        console.warn('[RootLayout] Failed to hide splash screen:', hideError);
+      }
     }
-  }, [loaded]);
+  }, [loaded, error]);
 
-  // 等待字体加载和根布局就绪
-  if (!loaded || !isRootReady) {
+  // 如果字体加载失败，仍然显示应用
+  if (!loaded && !error) {
     return null;
   }
 
