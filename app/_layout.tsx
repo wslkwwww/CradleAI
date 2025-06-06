@@ -1,5 +1,5 @@
-import '@/lib/polyfills';
-import '@/lib/matrix/init'; // 安全初始化Matrix SDK
+// import '@/lib/polyfills';
+// import '@/lib/matrix/init'; // 安全初始化Matrix SDK
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';

@@ -822,4 +822,4 @@
 //   }
 // }
 
-// export const matrixClient = new MatrixClientManager(); 
+// export const matrixClient = new MatrixClientManager();
