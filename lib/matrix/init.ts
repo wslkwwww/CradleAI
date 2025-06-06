@@ -2,8 +2,6 @@
 import '@/lib/polyfills';
 import matrixConfig from './config';
 
-console.log('[Matrix Init] Starting safe Matrix SDK initialization for ARM64...');
-
 // 检查环境兼容性
 const checkEnvironmentCompatibility = (): boolean => {
   const requiredGlobals = ['Buffer', 'process', 'btoa', 'atob'];
@@ -88,12 +86,8 @@ export const initializeMatrixSDK = async (): Promise<boolean> => {
 
 // 立即执行初始化检查（但不阻塞）
 setTimeout(() => {
-  initializeMatrixSDK().then(success => {
-    if (success) {
-      console.log('[Matrix Init] ✓ Matrix SDK is ready for use');
-    } else {
-      console.error('[Matrix Init] ✗ Matrix SDK initialization failed - app may crash');
-    }
+  initializeMatrixSDK().catch(error => {
+    console.error('[Matrix Init] ✗ Matrix SDK initialization failed:', error);
   });
 }, 100);
 

@@ -1,7 +1,14 @@
 module.exports = function (api) {
   api.cache(true);
   return {
-    presets: ["babel-preset-expo"],
+    presets: [
+      [
+        "babel-preset-expo",
+        {
+          unstable_transformImportMeta: true, // 支持Matrix SDK的WASM模块
+        }
+      ]
+    ],
     plugins: [
       // 如果您已经在使用 expo-router，这一行可能已经存在
       "@babel/plugin-transform-export-namespace-from",

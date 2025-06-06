@@ -30,6 +30,8 @@ export class MatrixClientManager {
         userId: credentials.userId,
         deviceId: credentials.deviceId,
         timelineSupport: true,
+        // 禁用加密功能避免WASM依赖
+        cryptoStore: undefined,
       });
 
       // 启动客户端同步，但不等待完成 - 使用ARM64兼容设置

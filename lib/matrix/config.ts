@@ -1,5 +1,4 @@
 // Matrix SDK配置 - ARM64兼容性
-console.log('[Matrix Config] Initializing Matrix SDK configuration for ARM64 compatibility...');
 
 // 禁用Matrix SDK的某些可能导致ARM64问题的功能
 const matrixConfig = {
@@ -20,9 +19,10 @@ const matrixConfig = {
     maxRetries: 3,
   },
   
-  // 加密设置 - 在ARM64上可能有兼容性问题
+  // 加密设置 - 禁用以避免WASM模块依赖
   cryptoSettings: {
-    enableE2E: false, // 暂时禁用端到端加密
+    enableE2E: false, // 完全禁用端到端加密
+    disableCrypto: true, // 禁用所有加密功能
   },
   
   // 调试设置
@@ -38,6 +38,4 @@ if (typeof global !== 'undefined') {
 }
 
 // 导出配置供其他模块使用
-export default matrixConfig;
-
-console.log('[Matrix Config] Configuration loaded successfully'); 
+export default matrixConfig; 

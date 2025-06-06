@@ -62,6 +62,20 @@ config.resolver.alias = {
 // 添加 resolver platforms
 config.resolver.platforms = ['native', 'android', 'ios', 'web'];
 
+// 排除Matrix SDK的WASM模块避免构建错误
+config.resolver.blockList = [
+  /@matrix-org\/matrix-sdk-crypto-wasm/,
+  /matrix-sdk-crypto-wasm/,
+  /olm/,
+];
+
+// 提供WASM模块的空实现
+config.resolver.alias = {
+  ...config.resolver.alias,
+  '@matrix-org/matrix-sdk-crypto-wasm': path.resolve(__dirname, 'lib/matrix/crypto-stub.js'),
+  '@matrix-org/olm': path.resolve(__dirname, 'lib/matrix/crypto-stub.js'),
+};
+
 // 在生产环境中移除console语句
 if (process.env.NODE_ENV === 'production') {
   config.transformer.minifierConfig = {

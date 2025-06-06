@@ -21,7 +21,6 @@ const getGlobalObject = (): any => {
 const globalObj: any = getGlobalObject();
 
 // 安全初始化 polyfills
-console.log('[Polyfills] Starting initialization for Matrix SDK compatibility...');
 
 // Polyfill for Promise.withResolvers for React Native compatibility
 if (!Promise.withResolvers) {
@@ -39,7 +38,6 @@ if (!Promise.withResolvers) {
 // React Native crypto polyfills - 安全初始化
 try {
   require('react-native-get-random-values');
-  console.log('[Polyfills] ✓ react-native-get-random-values loaded');
 } catch (error) {
   console.warn('[Polyfills] Failed to load react-native-get-random-values:', error);
 }
@@ -47,7 +45,6 @@ try {
 // URL polyfill
 try {
   require('react-native-url-polyfill/auto');
-  console.log('[Polyfills] ✓ react-native-url-polyfill loaded');
 } catch (error) {
   console.warn('[Polyfills] Failed to load react-native-url-polyfill:', error);
 }
@@ -57,7 +54,6 @@ try {
   const { EventEmitter } = require('events');
   if (!globalObj.EventEmitter) {
     globalObj.EventEmitter = EventEmitter;
-    console.log('[Polyfills] ✓ EventEmitter polyfill loaded');
   }
 } catch (error) {
   console.warn('[Polyfills] EventEmitter polyfill failed:', error);
@@ -66,7 +62,6 @@ try {
 // 添加TextEncoder/TextDecoder polyfill
 try {
   require('text-encoding-polyfill');
-  console.log('[Polyfills] ✓ text-encoding-polyfill loaded');
 } catch (error) {
   console.warn('[Polyfills] text-encoding-polyfill failed:', error);
 }
@@ -75,7 +70,6 @@ try {
 try {
   if (!globalObj.process) {
     globalObj.process = require('process/browser');
-    console.log('[Polyfills] ✓ process polyfill loaded');
   }
 } catch (error) {
   console.warn('[Polyfills] Process polyfill failed:', error);
@@ -86,7 +80,6 @@ try {
   const { Buffer } = require('buffer');
   if (!globalObj.Buffer) {
     globalObj.Buffer = Buffer;
-    console.log('[Polyfills] ✓ Buffer polyfill loaded');
   }
 } catch (error) {
   console.warn('[Polyfills] Buffer polyfill failed:', error);
@@ -97,7 +90,6 @@ if (typeof globalObj.btoa === 'undefined') {
   try {
     const { encode } = require('base-64');
     globalObj.btoa = encode;
-    console.log('[Polyfills] ✓ btoa polyfill loaded');
   } catch (error) {
     console.warn('[Polyfills] btoa polyfill failed:', error);
   }
@@ -107,12 +99,9 @@ if (typeof globalObj.atob === 'undefined') {
   try {
     const { decode } = require('base-64');
     globalObj.atob = decode;
-    console.log('[Polyfills] ✓ atob polyfill loaded');
   } catch (error) {
     console.warn('[Polyfills] atob polyfill failed:', error);
   }
 }
-
-console.log('[Polyfills] Initialization completed');
 
 export {}; // 使文件成为模块 
