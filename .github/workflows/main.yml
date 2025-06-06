@@ -1,9 +1,9 @@
-name: RN Android Multi-Arch Build
+name: RN Android No ProGuard Test
 
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -63,39 +63,28 @@ jobs:
             perl -i -pe 's/(android\s*\{)/\1\n  splits {\n    abi {\n      enable true\n      reset()\n      include "${{ matrix.abi }}"\n      universalApk true\n    }\n  }/' android/app/build.gradle
           fi
 
-      - name: Configure ProGuard for release
+      - name: Disable ProGuard completely
         run: |
-          # 启用代码压缩和混淆
-          if ! grep -q "minifyEnabled true" android/app/build.gradle; then
-            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"/' android/app/build.gradle
+          # 完全禁用ProGuard/R8来测试是否是混淆导致的闪退
+          echo "完全禁用ProGuard/R8进行测试构建"
+          
+          # 确保release配置中禁用了所有优化
+          if ! grep -q "minifyEnabled false" android/app/build.gradle; then
+            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled false\n            shrinkResources false/' android/app/build.gradle
           fi
           
-          # 创建ProGuard规则文件
-          cat > android/app/proguard-rules.pro << 'EOF'
-          # Remove all logging
-          -assumenosideeffects class android.util.Log {
-              public static boolean isLoggable(java.lang.String, int);
-              public static int v(...);
-              public static int i(...);
-              public static int w(...);
-              public static int d(...);
-              public static int e(...);
-          }
-          
-          # Remove console.log in React Native
-          -assumenosideeffects class * {
-              void console.log(...);
-              void console.warn(...);
-              void console.error(...);
-              void console.info(...);
-              void console.debug(...);
-          }
-          
-          # Keep React Native components
-          -keep class com.facebook.react.** { *; }
-          -keep class com.facebook.hermes.** { *; }
-          -dontwarn com.facebook.react.**
-          EOF
+          echo "ProGuard已被禁用"
+
+      - name: Setup Android Keystore
+        run: |
+          mkdir -p android/app
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > android/app/keystore.jks
+
+      - name: Set up signing config env
+        run: |
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
 
       - name: Assemble for ${{ matrix.abi }}
         run: |
@@ -103,10 +92,10 @@ jobs:
           ./gradlew assembleRelease \
             -PcdvAbi="${{ matrix.abi }}" \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
-            --no-daemon
+            --no-daemon \
+            --stacktrace
         env:
           NODE_ENV: production
-          REACT_NATIVE_DISABLE_LOGGING: true
 
       - name: Collect APK
         run: mkdir -p output && cp android/app/build/outputs/apk/release/app-${{ matrix.abi }}-release.apk output/
@@ -114,7 +103,7 @@ jobs:
       - name: Upload APK ${{ matrix.abi }}
         uses: actions/upload-artifact@v4
         with:
-          name: apk-${{ matrix.abi }}
+          name: apk-no-proguard-${{ matrix.abi }}
           path: output/app-${{ matrix.abi }}-release.apk
 
   universal:
@@ -161,49 +150,38 @@ jobs:
           mkdir -p android/app/src/main/res/xml/
           cp assets/network_security_config.xml android/app/src/main/res/xml/
 
-      - name: Configure ProGuard for release
+      - name: Disable ProGuard completely
         run: |
-          # 启用代码压缩和混淆
-          if ! grep -q "minifyEnabled true" android/app/build.gradle; then
-            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"/' android/app/build.gradle
+          # 完全禁用ProGuard/R8来测试是否是混淆导致的闪退
+          echo "完全禁用ProGuard/R8进行测试构建"
+          
+          # 确保release配置中禁用了所有优化
+          if ! grep -q "minifyEnabled false" android/app/build.gradle; then
+            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled false\n            shrinkResources false/' android/app/build.gradle
           fi
           
-          # 创建ProGuard规则文件
-          cat > android/app/proguard-rules.pro << 'EOF'
-          # Remove all logging
-          -assumenosideeffects class android.util.Log {
-              public static boolean isLoggable(java.lang.String, int);
-              public static int v(...);
-              public static int i(...);
-              public static int w(...);
-              public static int d(...);
-              public static int e(...);
-          }
-          
-          # Remove console.log in React Native
-          -assumenosideeffects class * {
-              void console.log(...);
-              void console.warn(...);
-              void console.error(...);
-              void console.info(...);
-              void console.debug(...);
-          }
-          
-          # Keep React Native components
-          -keep class com.facebook.react.** { *; }
-          -keep class com.facebook.hermes.** { *; }
-          -dontwarn com.facebook.react.**
-          EOF
+          echo "ProGuard已被禁用"
+
+      - name: Setup Android Keystore
+        run: |
+          mkdir -p android/app
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > android/app/keystore.jks
+
+      - name: Set up signing config env
+        run: |
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
 
       - name: Build Universal APK
         run: |
           cd android
           ./gradlew assembleRelease \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
-            --no-daemon
+            --no-daemon \
+            --stacktrace
         env:
           NODE_ENV: production
-          REACT_NATIVE_DISABLE_LOGGING: true
 
       - name: Collect Universal APK
         run: mkdir -p output && cp android/app/build/outputs/apk/release/app-universal-release.apk output/
@@ -211,7 +189,7 @@ jobs:
       - name: Upload Universal APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-universal
+          name: apk-no-proguard-universal
           path: output/app-universal-release.apk
 
   release:
@@ -231,7 +209,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Release ${{ steps.get_version.outputs.VERSION }}
+          name: Release ${{ steps.get_version.outputs.VERSION }} (No ProGuard)
           files: |
             dist/**/*.apk
 
@@ -249,7 +227,7 @@ jobs:
         uses: marvinpinto/action-automatic-releases@latest
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: latest
-          title: "Latest Build"
+          automatic_release_tag: latest-no-proguard
+          title: "Latest Build (No ProGuard Test)"
           files: |
-            latest/**/*.apk
+            latest/**/*.apk 
