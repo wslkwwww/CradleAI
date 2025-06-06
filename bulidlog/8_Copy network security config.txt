@@ -1,0 +1,8 @@
+﻿2025-06-05T16:58:49.8097682Z ##[group]Run mkdir -p android/app/src/main/res/xml/
+2025-06-05T16:58:49.8098359Z [36;1mmkdir -p android/app/src/main/res/xml/[0m
+2025-06-05T16:58:49.8099062Z [36;1mcp assets/network_security_config.xml android/app/src/main/res/xml/[0m
+2025-06-05T16:58:49.8171706Z shell: /usr/bin/bash -e {0}
+2025-06-05T16:58:49.8171959Z env:
+2025-06-05T16:58:49.8172257Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:49.8172727Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:49.8173073Z ##[endgroup]

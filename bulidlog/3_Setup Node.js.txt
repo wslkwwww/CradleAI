@@ -1,0 +1,30 @@
+﻿2025-06-05T16:58:02.0020960Z ##[group]Run actions/setup-node@v3
+2025-06-05T16:58:02.0021382Z with:
+2025-06-05T16:58:02.0021663Z   node-version: 19.x
+2025-06-05T16:58:02.0021957Z   cache: npm
+2025-06-05T16:58:02.0022244Z   always-auth: false
+2025-06-05T16:58:02.0022537Z   check-latest: false
+2025-06-05T16:58:02.0022964Z   token: ***
+2025-06-05T16:58:02.0023256Z ##[endgroup]
+2025-06-05T16:58:02.2077763Z Attempting to download 19.x...
+2025-06-05T16:58:02.4768040Z Not found in manifest. Falling back to download directly from Node
+2025-06-05T16:58:02.7607338Z Acquiring 19.9.0 - x64 from https://nodejs.org/dist/v19.9.0/node-v19.9.0-linux-x64.tar.gz
+2025-06-05T16:58:03.2627110Z Extracting ...
+2025-06-05T16:58:03.2744783Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword -C /home/runner/work/_temp/5a4a8198-a2a8-45cf-886d-52b9f56cf409 -f /home/runner/work/_temp/9130362c-0ce8-4a20-b777-46a4fe625951
+2025-06-05T16:58:04.2311306Z Adding to the cache ...
+2025-06-05T16:58:05.8590859Z Done
+2025-06-05T16:58:05.8594626Z ##[group]Environment details
+2025-06-05T16:58:06.2144595Z node: v19.9.0
+2025-06-05T16:58:06.2145047Z npm: 9.6.3
+2025-06-05T16:58:06.2145248Z yarn: 1.22.22
+2025-06-05T16:58:06.2155300Z ##[endgroup]
+2025-06-05T16:58:06.2156034Z [command]/opt/hostedtoolcache/node/19.9.0/x64/bin/npm config get cache
+2025-06-05T16:58:06.5493314Z /home/runner/.npm
+2025-06-05T16:58:06.6050435Z Cache hit for: node-cache-Linux-npm-4876aa4afa1235a463ecf9f386afc5e542f5bf19229fdcfc38f973ff907c267e
+2025-06-05T16:58:07.6648913Z Received 130023424 of 139566009 (93.2%), 124.0 MBs/sec
+2025-06-05T16:58:08.6657194Z Received 130023424 of 139566009 (93.2%), 62.0 MBs/sec
+2025-06-05T16:58:09.2918216Z Received 139566009 of 139566009 (100.0%), 50.7 MBs/sec
+2025-06-05T16:58:09.2919273Z Cache Size: ~133 MB (139566009 B)
+2025-06-05T16:58:09.2960060Z [command]/usr/bin/tar -xf /home/runner/work/_temp/b910e0f4-b689-4d4d-a84d-d5611bd41089/cache.tzst -P -C /home/runner/work/CradleAI/CradleAI --use-compress-program unzstd
+2025-06-05T16:58:09.6721075Z Cache restored successfully
+2025-06-05T16:58:09.7012939Z Cache restored from key: node-cache-Linux-npm-4876aa4afa1235a463ecf9f386afc5e542f5bf19229fdcfc38f973ff907c267e

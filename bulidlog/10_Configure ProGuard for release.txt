@@ -1,0 +1,37 @@
+﻿2025-06-05T16:58:49.8576773Z ##[group]Run # 启用代码压缩和混淆
+2025-06-05T16:58:49.8577092Z [36;1m# 启用代码压缩和混淆[0m
+2025-06-05T16:58:49.8577386Z [36;1mif ! grep -q "minifyEnabled true" android/app/build.gradle; then[0m
+2025-06-05T16:58:49.8578250Z [36;1m  perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"/' android/app/build.gradle[0m
+2025-06-05T16:58:49.8578993Z [36;1mfi[0m
+2025-06-05T16:58:49.8579162Z [36;1m[0m
+2025-06-05T16:58:49.8579363Z [36;1m# 创建ProGuard规则文件[0m
+2025-06-05T16:58:49.8579659Z [36;1mcat > android/app/proguard-rules.pro << 'EOF'[0m
+2025-06-05T16:58:49.8579957Z [36;1m# Remove all logging[0m
+2025-06-05T16:58:49.8580229Z [36;1m-assumenosideeffects class android.util.Log {[0m
+2025-06-05T16:58:49.8580610Z [36;1m    public static boolean isLoggable(java.lang.String, int);[0m
+2025-06-05T16:58:49.8580940Z [36;1m    public static int v(...);[0m
+2025-06-05T16:58:49.8581221Z [36;1m    public static int i(...);[0m
+2025-06-05T16:58:49.8581456Z [36;1m    public static int w(...);[0m
+2025-06-05T16:58:49.8581688Z [36;1m    public static int d(...);[0m
+2025-06-05T16:58:49.8581917Z [36;1m    public static int e(...);[0m
+2025-06-05T16:58:49.8582126Z [36;1m}[0m
+2025-06-05T16:58:49.8582283Z [36;1m[0m
+2025-06-05T16:58:49.8582467Z [36;1m# Remove console.log in React Native[0m
+2025-06-05T16:58:49.8582730Z [36;1m-assumenosideeffects class * {[0m
+2025-06-05T16:58:49.8582980Z [36;1m    void console.log(...);[0m
+2025-06-05T16:58:49.8583214Z [36;1m    void console.warn(...);[0m
+2025-06-05T16:58:49.8583444Z [36;1m    void console.error(...);[0m
+2025-06-05T16:58:49.8583676Z [36;1m    void console.info(...);[0m
+2025-06-05T16:58:49.8583909Z [36;1m    void console.debug(...);[0m
+2025-06-05T16:58:49.8584117Z [36;1m}[0m
+2025-06-05T16:58:49.8584273Z [36;1m[0m
+2025-06-05T16:58:49.8584448Z [36;1m# Keep React Native components[0m
+2025-06-05T16:58:49.8584719Z [36;1m-keep class com.facebook.react.** { *; }[0m
+2025-06-05T16:58:49.8585028Z [36;1m-keep class com.facebook.hermes.** { *; }[0m
+2025-06-05T16:58:49.8585313Z [36;1m-dontwarn com.facebook.react.**[0m
+2025-06-05T16:58:49.8585802Z [36;1mEOF[0m
+2025-06-05T16:58:49.8636169Z shell: /usr/bin/bash -e {0}
+2025-06-05T16:58:49.8636406Z env:
+2025-06-05T16:58:49.8636688Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:49.8637171Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:49.8637524Z ##[endgroup]

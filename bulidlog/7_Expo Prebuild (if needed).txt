@@ -1,0 +1,23 @@
+﻿2025-06-05T16:58:45.8271805Z ##[group]Run if [ ! -d android ]; then
+2025-06-05T16:58:45.8272141Z [36;1mif [ ! -d android ]; then[0m
+2025-06-05T16:58:45.8272421Z [36;1m  echo "android 目录不存在，执行 expo prebuild"[0m
+2025-06-05T16:58:45.8272729Z [36;1m  npx expo prebuild --platform android[0m
+2025-06-05T16:58:45.8272974Z [36;1melse[0m
+2025-06-05T16:58:45.8273166Z [36;1m  echo "android 目录已存在，跳过 prebuild"[0m
+2025-06-05T16:58:45.8273403Z [36;1mfi[0m
+2025-06-05T16:58:45.8328124Z shell: /usr/bin/bash -e {0}
+2025-06-05T16:58:45.8328355Z env:
+2025-06-05T16:58:45.8328647Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:45.8329108Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:45.8329446Z ##[endgroup]
+2025-06-05T16:58:45.8546121Z android 目录不存在，执行 expo prebuild
+2025-06-05T16:58:46.5294434Z - Creating native directory (./android)
+2025-06-05T16:58:47.6639969Z ✔ Created native directory
+2025-06-05T16:58:47.6646080Z - Updating package.json
+2025-06-05T16:58:47.6704135Z ✔ Updated package.json | no changes
+2025-06-05T16:58:47.6704970Z - Running prebuild
+2025-06-05T16:58:47.8294856Z » android: EDGE_TO_EDGE_PLUGIN: No configuration found for `edgeToEdgeEnabled` field in the project app config, falling back to false. In Android 16+ (targetSdkVersion 36) it will no longer be possible to disable edge-to-edge. Learn more: https://expo.fyi/edge-to-edge-rollout
+2025-06-05T16:58:47.8296762Z - Running prebuild
+2025-06-05T16:58:49.7645844Z » android: userInterfaceStyle: Install expo-system-ui in your project to enable this feature.
+2025-06-05T16:58:49.7646889Z - Running prebuild
+2025-06-05T16:58:49.7697116Z ✔ Finished prebuild

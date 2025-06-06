@@ -1,0 +1,26 @@
+﻿2025-06-05T16:58:27.6015980Z ##[group]Run actions/cache@v3
+2025-06-05T16:58:27.6016278Z with:
+2025-06-05T16:58:27.6016486Z   path: ~/.gradle/caches/
+~/.gradle/wrapper/
+
+2025-06-05T16:58:27.6016749Z   key: Linux-gradle-
+2025-06-05T16:58:27.6016953Z   enableCrossOsArchive: false
+2025-06-05T16:58:27.6017183Z   fail-on-cache-miss: false
+2025-06-05T16:58:27.6017386Z   lookup-only: false
+2025-06-05T16:58:27.6017563Z env:
+2025-06-05T16:58:27.6017835Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:27.6018297Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
+2025-06-05T16:58:27.6018644Z ##[endgroup]
+2025-06-05T16:58:27.8140413Z Cache hit for: Linux-gradle-
+2025-06-05T16:58:28.8673867Z Received 239075328 of 1767274956 (13.5%), 227.8 MBs/sec
+2025-06-05T16:58:29.8717491Z Received 494927872 of 1767274956 (28.0%), 235.4 MBs/sec
+2025-06-05T16:58:30.8739340Z Received 746586112 of 1767274956 (42.2%), 236.8 MBs/sec
+2025-06-05T16:58:31.8760214Z Received 1002438656 of 1767274956 (56.7%), 238.5 MBs/sec
+2025-06-05T16:58:32.8761037Z Received 1258291200 of 1767274956 (71.2%), 239.6 MBs/sec
+2025-06-05T16:58:33.8773468Z Received 1476395008 of 1767274956 (83.5%), 234.3 MBs/sec
+2025-06-05T16:58:34.9098299Z Received 1744830464 of 1767274956 (98.7%), 236.3 MBs/sec
+2025-06-05T16:58:35.0164318Z Received 1767274956 of 1767274956 (100.0%), 235.7 MBs/sec
+2025-06-05T16:58:35.0167111Z Cache Size: ~1685 MB (1767274956 B)
+2025-06-05T16:58:35.0208325Z [command]/usr/bin/tar -xf /home/runner/work/_temp/f47fae0f-1deb-4291-8595-4f3dfbe3a951/cache.tzst -P -C /home/runner/work/CradleAI/CradleAI --use-compress-program unzstd
+2025-06-05T16:58:45.5112133Z Cache restored successfully
+2025-06-05T16:58:45.8145060Z Cache restored from key: Linux-gradle-
