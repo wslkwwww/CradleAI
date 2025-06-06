@@ -1,80 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
 
-// 添加错误边界组件
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
-
-class AppErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
-  constructor(props: React.PropsWithChildren<{}>) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('App Error Boundary caught an error:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View style={errorStyles.errorContainer}>
-          <Text style={errorStyles.errorTitle}>应用出现错误</Text>
-          <Text style={errorStyles.errorMessage}>
-            {this.state.error?.message || '未知错误'}
-          </Text>
-          <TouchableOpacity
-            style={errorStyles.errorButton}
-            onPress={() => this.setState({ hasError: false, error: null })}
-          >
-            <Text style={errorStyles.errorButtonText}>重试</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
-// 错误边界样式
-const errorStyles = StyleSheet.create({
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#181818',
-    padding: 20,
-  },
-  errorTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 20,
-  },
-  errorMessage: {
-    fontSize: 16,
-    color: '#ccc',
-    textAlign: 'center',
-    marginBottom: 30,
-  },
-  errorButton: {
-    backgroundColor: '#4a6fa5',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  errorButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-});
 import {
   View,
   StyleSheet,
@@ -237,37 +162,95 @@ const App = () => {
   // 性能优化：定时器引用集合，用于页面不可见时清理
   const timersRef = useRef<Set<any>>(new Set());
   const intervalsRef = useRef<Set<any>>(new Set());
+  const eventListenersRef = useRef<Set<any>>(new Set()); // 新增：事件监听器集合
   
   // 优化：创建安全的定时器函数，自动管理清理
   const createSafeTimeout = useCallback((callback: () => void, delay: number) => {
+    if (!isPageVisible) return null; // 页面不可见时不创建定时器
+    
     const timer = setTimeout(() => {
       timersRef.current.delete(timer);
-      callback();
+      if (isPageVisible) { // 执行前再次检查页面可见性
+        callback();
+      }
     }, delay);
     timersRef.current.add(timer);
     return timer;
-  }, []);
+  }, [isPageVisible]);
   
   const createSafeInterval = useCallback((callback: () => void, delay: number) => {
-    const interval = setInterval(callback, delay);
+    if (!isPageVisible) return null; // 页面不可见时不创建定时器
+    
+    const interval = setInterval(() => {
+      if (isPageVisible) { // 执行前检查页面可见性
+        callback();
+      }
+    }, delay);
     intervalsRef.current.add(interval);
     return interval;
-  }, []);
+  }, [isPageVisible]);
   
-  // 清理所有定时器
+  // 清理所有定时器和监听器
   const clearAllTimers = useCallback(() => {
-    timersRef.current.forEach(timer => clearTimeout(timer));
-    intervalsRef.current.forEach(interval => clearInterval(interval));
+    console.log(`[Performance] 清理定时器: ${timersRef.current.size} timeouts, ${intervalsRef.current.size} intervals, ${eventListenersRef.current.size} listeners`);
+    
+    timersRef.current.forEach(timer => {
+      if (timer) clearTimeout(timer);
+    });
+    intervalsRef.current.forEach(interval => {
+      if (interval) clearInterval(interval);
+    });
+    eventListenersRef.current.forEach(listener => {
+      if (listener && typeof listener === 'string') {
+        EventRegister.removeEventListener(listener);
+      }
+    });
+    
     timersRef.current.clear();
     intervalsRef.current.clear();
+    eventListenersRef.current.clear();
+  }, []);
+
+  // 新增：节流函数，防止频繁调用
+  const throttle = useCallback((func: Function, delay: number) => {
+    let timeoutId: any;
+    let lastExecTime = 0;
+    return (...args: any[]) => {
+      const currentTime = Date.now();
+      
+      if (currentTime - lastExecTime > delay) {
+        func(...args);
+        lastExecTime = currentTime;
+      } else {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          func(...args);
+          lastExecTime = Date.now();
+        }, delay - (currentTime - lastExecTime));
+      }
+    };
+  }, []);
+
+  // 新增：防抖函数，防止频繁状态更新
+  const debounce = useCallback((func: Function, delay: number) => {
+    let timeoutId: any;
+    return (...args: any[]) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => func(...args), delay);
+    };
   }, []);
     
   // Initialize the message service for use throughout the component
   const messageService = useMemo(() => MessageService, []);
 
-  // AutoMessageService 实例 ===
-  const autoMessageService = useMemo(() => AutoMessageService.getInstance(), []);
+  // AutoMessageService 实例 - 使用 useMemo 避免重复创建
+  const autoMessageService = useMemo(() => {
+    console.log('[Performance] 创建 AutoMessageService 实例');
+    return AutoMessageService.getInstance();
+  }, []);
+  
   const insets = useSafeAreaInsets();
+  
   // References to avoid re-creating functions on each render
   const asyncStorageOperations = useRef<Set<Promise<any>>>(new Set());
   
@@ -276,8 +259,10 @@ const App = () => {
   const params = useLocalSearchParams();
   const characterId = params.characterId as string;
   const { user } = useUser();
-// 新增：用于标记是否已尝试恢复 lastConversationId，避免重复恢复
-const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(false);
+
+  // 新增：用于标记是否已尝试恢复 lastConversationId，避免重复恢复
+  const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(false);
+  
   // Animation refs (created once, persist between renders)
   const contentSlideAnim = useRef(new Animated.Value(0)).current;
   const settingsSlideAnim = useRef(new Animated.Value(0)).current;
@@ -288,8 +273,11 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
   const SIDEBAR_WIDTH = 280;
   const EXTRA_BG_IDS_KEY_PREFIX = 'extraBgProcessedIds-';
 
-  // Create a stable memory configuration
-  const memoryConfig = useMemo(() => createStableMemoryConfig(user), [user]);
+  // Create a stable memory configuration - 使用 useMemo 优化
+  const memoryConfig = useMemo(() => {
+    if (!user) return null;
+    return createStableMemoryConfig(user);
+  }, [user?.settings?.chat?.zhipuApiKey, user?.settings?.chat?.apiProvider, user?.settings?.chat?.characterApiKey, user?.settings?.chat?.openrouter]);
 
   // Character context
   const {
@@ -306,9 +294,9 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
     removeMessage,
     getMessagesPaged,
     PAGE_SIZE
-  } = useCharacters() as any; // <--- 由于类型是可选，需断言或加默认值
+  } = useCharacters() as any;
 
-  const PAGE_SIZE_SAFE = PAGE_SIZE || 30; // 兜底
+  const PAGE_SIZE_SAFE = PAGE_SIZE || 30;
 
   // UI state - core functionality
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -355,8 +343,6 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
   const processingTaskIds = useRef<Set<string>>(new Set());
   const firstMessageSentRef = useRef<Record<string, boolean>>({});
   const firstMesSentRef = useRef<Record<string, boolean>>({});
-  
-
 
   // Chat scroll positions with improved handling
   const [chatScrollPositions, setChatScrollPositions] = useState<Record<string, number>>({});
@@ -410,13 +396,18 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
   // 性能优化：页面可见性管理
   useFocusEffect(
     useCallback(() => {
-      setIsPageVisible(true);
       console.log('[Performance] Index page focused');
+      setIsPageVisible(true);
       
       return () => {
+        console.log('[Performance] Index page unfocused - cleaning up');
         setIsPageVisible(false);
-        console.log('[Performance] Index page unfocused - clearing timers');
         clearAllTimers();
+        
+        // 强制垃圾回收（如果可用）
+        if (global.gc) {
+          global.gc();
+        }
       };
     }, [clearAllTimers])
   );
@@ -424,99 +415,129 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
   // 性能优化：应用状态管理
   useEffect(() => {
     const handleAppStateChange = (nextAppState: any) => {
+      console.log(`[Performance] App state changed: ${appState} -> ${nextAppState}`);
       setAppState(nextAppState);
+      
       if (nextAppState === 'background' || nextAppState === 'inactive') {
-        console.log('[Performance] App backgrounded - clearing timers');
+        console.log('[Performance] App backgrounded - cleaning up');
+        setIsPageVisible(false);
         clearAllTimers();
+        
+        // 清理音频缓存已移除
+        
+        // 强制垃圾回收
+        if (global.gc) {
+          global.gc();
+        }
+      } else if (nextAppState === 'active') {
+        console.log('[Performance] App activated');
+        setIsPageVisible(true);
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => subscription?.remove();
-  }, [clearAllTimers]);
+    return () => {
+      subscription?.remove();
+    };
+  }, [appState, clearAllTimers]);
 
-  // 性能优化：统一的错误处理函数
-  const showTransientError = useCallback((errorMessage: string) => {
+  // 性能优化：节流的错误显示函数
+  const showTransientError = useCallback(throttle((errorMessage: string) => {
+    if (!isPageVisible) return;
+    
     setTransientError(errorMessage);
-    createSafeTimeout(() => {
+    const timer = createSafeTimeout(() => {
       setTransientError(null);
     }, 5000);
-  }, [createSafeTimeout]);
+    
+    if (timer) {
+      timersRef.current.add(timer);
+    }
+  }, 1000), [createSafeTimeout, isPageVisible, throttle]);
 
   // 修改：处理生成图片，使用 CharactersContext
   const handleGenerateImage = useCallback((imageId: string, prompt: string) => {
-    if (selectedConversationId) {
-      addGeneratedImage(selectedConversationId, {
-        id: imageId,
-        prompt,
-        timestamp: Date.now()
-      });
-    }
-  }, [selectedConversationId, addGeneratedImage]);
+    if (!selectedConversationId || !isPageVisible) return;
+    
+    addGeneratedImage(selectedConversationId, {
+      id: imageId,
+      prompt,
+      timestamp: Date.now()
+    });
+  }, [selectedConversationId, addGeneratedImage, isPageVisible]);
 
   // 修改：处理删除生成的图片，使用 CharactersContext
   const handleDeleteGeneratedImage = useCallback((imageId: string) => {
-    if (selectedConversationId) {
-      deleteGeneratedImage(selectedConversationId, imageId);
-    }
-  }, [selectedConversationId, deleteGeneratedImage]);
+    if (!selectedConversationId || !isPageVisible) return;
+    
+    deleteGeneratedImage(selectedConversationId, imageId);
+  }, [selectedConversationId, deleteGeneratedImage, isPageVisible]);
 
-  // Calculate selected character information with memoization
-  const selectedCharacter: Character | undefined | null = useMemo(() => 
-    selectedConversationId ? characters.find((char: Character) => char.id === selectedConversationId) : null,
-  [selectedConversationId, characters]);
+  // Calculate selected character information with memoization - 优化依赖项
+  const selectedCharacter: Character | undefined | null = useMemo(() => {
+    if (!selectedConversationId || !characters.length) return null;
+    return characters.find((char: Character) => char.id === selectedConversationId) || null;
+  }, [selectedConversationId, characters]);
   
   const characterToUse = useMemo(() => fallbackCharacter || selectedCharacter, 
     [fallbackCharacter, selectedCharacter]);
 
   // Selected group with memoization
-  const selectedGroup: Group | null = useMemo(() => 
-    selectedGroupId ? groups.find(g => g.groupId === selectedGroupId) || null : null,
-  [selectedGroupId, groups]);
+  const selectedGroup: Group | null = useMemo(() => {
+    if (!selectedGroupId || !groups.length) return null;
+    return groups.find(g => g.groupId === selectedGroupId) || null;
+  }, [selectedGroupId, groups]);
 
-// 保存自动消息 inputText
-const [autoMessageInputText, setAutoMessageInputText] = useState<string | null>(null);
+  // 保存自动消息 inputText
+  const [autoMessageInputText, setAutoMessageInputText] = useState<string | null>(null);
 
-//加载自动消息 inputText
-useEffect(() => {
-  (async () => {
-    try {
-      const configStr = await AsyncStorage.getItem('auto_message_prompt_config');
-      if (configStr) {
-        const config = JSON.parse(configStr);
-        setAutoMessageInputText(config.inputText || null);
-      } else {
-        setAutoMessageInputText(null);
+  // 加载自动消息 inputText - 优化：只在组件挂载时执行一次
+  useEffect(() => {
+    let isMounted = true;
+    
+    (async () => {
+      try {
+        const configStr = await AsyncStorage.getItem('auto_message_prompt_config');
+        if (isMounted) {
+          if (configStr) {
+            const config = JSON.parse(configStr);
+            setAutoMessageInputText(config.inputText || null);
+          } else {
+            setAutoMessageInputText(null);
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setAutoMessageInputText(null);
+        }
       }
-    } catch {
-      setAutoMessageInputText(null);
-    }
-  })();
-}, []);
+    })();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-// 过滤掉自动消息 inputText 的 user 消消息 - 优化：减少计算频率
-const filteredMessages = useMemo(() => {
-  if (!isPageVisible) return []; // 性能优化：页面不可见时返回空数组
-  
-  return messages.filter(msg => {
-    // 过滤掉标记为自动消息输入的用户消息
-    if (msg.sender === 'user' && msg.metadata?.isAutoMessageInput === true) {
-      return false;
-    }
-    // 过滤掉标记为继续的用户消息
-    if (msg.sender === 'user' && msg.metadata?.isContinue === true) {
-      return false;
-    }
-    // 兼容旧的过滤方式：如果没有 isAutoMessageInput 标记，但文本匹配 autoMessageInputText
-    if (autoMessageInputText && msg.sender === 'user' && msg.text === autoMessageInputText) {
-      return false;
-    }
-    return true;
-  });
-}, [messages, autoMessageInputText, isPageVisible]);
-
-  // Filtered messages - remove "continue" user messages
-  
+  // 过滤掉自动消息 inputText 的 user 消消息 - 优化：减少计算频率
+  const filteredMessages = useMemo(() => {
+    if (!isPageVisible || !messages.length) return messages;
+    
+    return messages.filter(msg => {
+      // 过滤掉标记为自动消息输入的用户消息
+      if (msg.sender === 'user' && msg.metadata?.isAutoMessageInput === true) {
+        return false;
+      }
+      // 过滤掉标记为继续的用户消息
+      if (msg.sender === 'user' && msg.metadata?.isContinue === true) {
+        return false;
+      }
+      // 兼容旧的过滤方式：如果没有 isAutoMessageInput 标记，但文本匹配 autoMessageInputText
+      if (autoMessageInputText && msg.sender === 'user' && msg.text === autoMessageInputText) {
+        return false;
+      }
+      return true;
+    });
+  }, [messages, autoMessageInputText, isPageVisible]);
 
   // Character ID for memo overlay
   const characterIdForMemo = useMemo(() => selectedConversationId || '', [selectedConversationId]);
@@ -524,34 +545,41 @@ const filteredMessages = useMemo(() => {
     selectedConversationId ? `conversation-${selectedConversationId}` : '',
   [selectedConversationId]);
 
-  // Load user groups
-  const loadUserGroups = useCallback(async () => {
-    if (!user || !isPageVisible) return; // 性能优化：页面不可见时跳过
+  // Load user groups - 优化：添加防抖和页面可见性检查
+  const loadUserGroups = useCallback(debounce(async () => {
+    if (!user || !isPageVisible) return;
     
     try {
       const userGroups = await getUserGroups(user);
       const filteredGroups = userGroups.filter(group => !disbandedGroups.includes(group.groupId));
-      setGroups(filteredGroups);
-      console.log(`[Index] Loaded ${filteredGroups.length} groups (filtered from ${userGroups.length})`);
+      
+      if (isPageVisible) {
+        setGroups(filteredGroups);
+        console.log(`[Index] Loaded ${filteredGroups.length} groups (filtered from ${userGroups.length})`);
+      }
     } catch (error) {
       console.error('Failed to load user groups:', error);
     }
-  }, [user, disbandedGroups, isPageVisible]);
+  }, 500), [user, disbandedGroups, isPageVisible, debounce]);
 
-  // Load group messages
-  const loadGroupMessages = useCallback(async (groupId: string) => {
-    if (!groupId || !isPageVisible) return; // 性能优化：页面不可见时跳过
+  // Load group messages - 优化：添加防抖
+  const loadGroupMessages = useCallback(debounce(async (groupId: string) => {
+    if (!groupId || !isPageVisible) return;
 
     try {
       const messages = await getGroupMessages(groupId);
-      setGroupMessages(messages);
+      if (isPageVisible) {
+        setGroupMessages(messages);
+      }
     } catch (error) {
       console.error('Failed to load group messages:', error);
     }
-  }, [isPageVisible]);
+  }, 300), [isPageVisible, debounce]);
 
-  // Handle group disbanded
+  // Handle group disbanded - 优化：添加页面可见性检查
   const handleGroupDisbanded = useCallback((groupId: string) => {
+    if (!isPageVisible) return;
+    
     console.log(`[Index] Group disbanded: ${groupId}`);
     
     setDisbandedGroups(prev => [...prev, groupId]);
@@ -570,10 +598,12 @@ const filteredMessages = useMemo(() => {
     }
     
     loadUserGroups();
-  }, [selectedGroupId, selectedConversationId, conversations, loadUserGroups]);
+  }, [selectedGroupId, selectedConversationId, conversations, loadUserGroups, isPageVisible]);
 
-  // Handle group background changed
+  // Handle group background changed - 优化：添加页面可见性检查
   const handleGroupBackgroundChanged = useCallback((groupId: string, newBackground: string | undefined) => {
+    if (!isPageVisible) return;
+    
     setGroupBackgrounds(prev => ({
       ...prev,
       [groupId]: newBackground,
@@ -584,7 +614,7 @@ const filteredMessages = useMemo(() => {
         g.groupId === groupId ? { ...g, backgroundImage: newBackground } : g
       )
     );
-  }, []);
+  }, [isPageVisible]);
 
   // Toggle sidebars with optimized animations
   const toggleSettingsSidebar = useCallback(() => {
@@ -1427,8 +1457,10 @@ const filteredMessages = useMemo(() => {
     }
   }, [selectedConversationId, getMessages, isSendingMessage]);
 
-  // Setup auto message when character or conversation changes
+  // Setup auto message when character or conversation changes - 优化：减少依赖项和频繁重新设置
   useEffect(() => {
+    if (!isPageVisible) return; // 页面不可见时跳过
+
     if (characterToUse && selectedConversationId && user) {
       autoMessageService.setupAutoMessage({
         enabled: characterToUse.autoMessage === true,
@@ -1440,7 +1472,7 @@ const filteredMessages = useMemo(() => {
         messages: messages,
         onMessageAdded: addMessage,
         onUnreadCountUpdate: updateUnreadMessagesCount,
-        onMessagesRefresh: handleMessagesRefresh // 新增
+        onMessagesRefresh: handleMessagesRefresh
       });
     } else if (selectedConversationId) {
       // Clear auto message if character not available
@@ -1452,10 +1484,24 @@ const filteredMessages = useMemo(() => {
         autoMessageService.clearAutoMessage(selectedConversationId);
       }
     };
-  }, [characterToUse, selectedConversationId, user, messages, addMessage, updateUnreadMessagesCount, autoMessageService, handleMessagesRefresh]);
+  }, [
+    characterToUse?.id, // 只依赖关键ID，减少重新设置
+    characterToUse?.autoMessage,
+    characterToUse?.autoMessageInterval,
+    selectedConversationId, 
+    user?.id, // 只依赖用户ID
+    messages.length, // 只依赖消息数量，避免深度比较
+    addMessage, 
+    updateUnreadMessagesCount, 
+    autoMessageService, 
+    handleMessagesRefresh,
+    isPageVisible
+  ]);
 
-  // Initialize default characters and load preferences
+  // Initialize default characters and load preferences - 优化：减少并发操作
   useEffect(() => {
+    let isMounted = true;
+    
     (async () => {
       try {
         console.log('[index] 调用 importDefaultCharactersIfNeeded ...');
@@ -1476,13 +1522,15 @@ const filteredMessages = useMemo(() => {
         
         console.log('[index] importDefaultCharactersIfNeeded 完成', result);
         
-        if (result && result.characterId) {
+        if (isMounted && result && result.characterId) {
           setSelectedConversationId(result.characterId);
           
           if (result.imported) {
             const characterMessages = await getMessages(result.characterId);
-            setMessages(characterMessages);
-            console.log(`[index] 选择了新导入的默认角色：${result.characterId}`);
+            if (isMounted) {
+              setMessages(characterMessages);
+              console.log(`[index] 选择了新导入的默认角色：${result.characterId}`);
+            }
           }
           
           if (mode === 'visual-novel') {
@@ -1491,38 +1539,71 @@ const filteredMessages = useMemo(() => {
           }
         }
         
-        setTimeout(() => setIsInitializing(false), 500);
-      } catch (e) {
-        console.warn('[DefaultCharacterImporter] 初始化失败:', e);
-        setIsInitializing(false);
-      }
-    })();
-
-    // Load character view mode
-    (async () => {
-      try {
-        const mode = await AsyncStorage.getItem('character_view_mode');
-        if (
-          mode === 'large' ||
-          mode === 'small' ||
-          mode === 'vertical'
-        ) {
-          characterViewModeCache = mode;
-        } else {
-          characterViewModeCache = null;
+        if (isMounted) {
+          setTimeout(() => setIsInitializing(false), 500);
         }
       } catch (e) {
-        characterViewModeCache = null;
+        console.warn('[DefaultCharacterImporter] 初始化失败:', e);
+        if (isMounted) {
+          setIsInitializing(false);
+        }
       }
     })();
 
-    // Load global settings
-    (async () => {
-      const globalSettings = await loadGlobalSettingsState();
-      if (globalSettings && typeof window !== 'undefined') {
-        window.__globalSettingsCache = globalSettings;
-      }
-    })();
+    // 并行加载其他设置，避免阻塞主流程
+    Promise.all([
+      // Load character view mode
+      (async () => {
+        try {
+          const mode = await AsyncStorage.getItem('character_view_mode');
+          if (
+            mode === 'large' ||
+            mode === 'small' ||
+            mode === 'vertical'
+          ) {
+            characterViewModeCache = mode;
+          } else {
+            characterViewModeCache = null;
+          }
+        } catch (e) {
+          characterViewModeCache = null;
+        }
+      })(),
+
+      // Load global settings
+      (async () => {
+        const globalSettings = await loadGlobalSettingsState();
+        if (globalSettings && typeof window !== 'undefined') {
+          window.__globalSettingsCache = globalSettings;
+        }
+      })(),
+
+      // Load search preference
+      (async () => {
+        try {
+          const savedPref = await AsyncStorage.getItem('braveSearchEnabled');
+          if (savedPref !== null && isMounted) {
+            setBraveSearchEnabled(JSON.parse(savedPref));
+          }
+        } catch (error) {
+          console.error('[App] Failed to load search preference:', error);
+        }
+      })(),
+
+      // Load TTS enhancer settings
+      (async () => {
+        try {
+          const settings = ttsService.getEnhancerSettings();
+          if (isMounted) {
+            setIsTtsEnhancerEnabled(settings.enabled);
+          }
+        } catch (error) {
+          console.error('[App] Error loading TTS enhancer settings:', error);
+        }
+      })()
+    ]).catch(e => {
+      console.warn('[index] 并行加载设置失败:', e);
+    });
 
     // Sync table memory plugin
     try {
@@ -1533,38 +1614,23 @@ const filteredMessages = useMemo(() => {
       console.warn('[index] 同步表格记忆插件开关失败:', e);
     }
 
-    // Load search preference
-    (async () => {
-      try {
-        const savedPref = await AsyncStorage.getItem('braveSearchEnabled');
-        if (savedPref !== null) {
-          setBraveSearchEnabled(JSON.parse(savedPref));
-        }
-      } catch (error) {
-        console.error('[App] Failed to load search preference:', error);
-      }
-    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []); // 只在组件挂载时执行一次
 
-    // Load TTS enhancer settings
-    (async () => {
-      try {
-        const settings = ttsService.getEnhancerSettings();
-        setIsTtsEnhancerEnabled(settings.enabled);
-      } catch (error) {
-        console.error('[App] Error loading TTS enhancer settings:', error);
-      }
-    })();
-  }, []);
-
-  // Fall back to loading character from storage if not found in context
+  // Fall back to loading character from storage if not found in context - 优化：防抖处理
   useEffect(() => {
+    if (!isPageVisible) return;
+
     if (
       selectedConversationId &&
       !selectedCharacter &&
       !charactersLoading
     ) {
-      console.warn('[App] selectedCharacter not found in context, try fallback from storage:', selectedConversationId);
-      (async () => {
+      // 使用防抖避免频繁加载
+      const debouncedLoad = debounce(async () => {
+        console.warn('[App] selectedCharacter not found in context, try fallback from storage:', selectedConversationId);
         try {
           const filePath = FileSystem.documentDirectory + 'characters.json';
           const fileInfo = await FileSystem.getInfoAsync(filePath);
@@ -1573,7 +1639,7 @@ const filteredMessages = useMemo(() => {
             const arr = JSON.parse(content);
             if (Array.isArray(arr)) {
               const found = arr.find((c: any) => c.id === selectedConversationId);
-              if (found) {
+              if (found && isPageVisible) {
                 setFallbackCharacter(found);
                 
                 if (!characters.some((c: Character) => c.id === found.id)) {
@@ -1583,37 +1649,59 @@ const filteredMessages = useMemo(() => {
               }
             }
           }
-          setFallbackCharacter(null);
+          if (isPageVisible) {
+            setFallbackCharacter(null);
+          }
         } catch (e) {
-          setFallbackCharacter(null);
+          if (isPageVisible) {
+            setFallbackCharacter(null);
+          }
         }
-      })();
+      }, 300);
+
+      debouncedLoad();
     } else {
       setFallbackCharacter(null);
     }
-  }, [selectedConversationId, selectedCharacter, charactersLoading, characters, setCharacters]);
-// 初始化时尝试恢复上次的对话
-useEffect(() => {
-  // 只有在没有通过URL参数指定characterId时才自动恢复
-  if (!characterId && !selectedConversationId && !hasRestoredLastConversation && characters.length > 0) {
-    (async () => {
-      try {
-        const lastId = await AsyncStorage.getItem('lastConversationId');
-        if (lastId && characters.some((char: Character) => char.id === lastId)) {
-          setSelectedConversationId(lastId);
-          const characterMessages = await getMessages(lastId);
-          setMessages(characterMessages);
-        }
-      } catch (e) {
-        // ignore
-      } finally {
-        setHasRestoredLastConversation(true);
-      }
-    })();
-  }
-}, [characterId, selectedConversationId, hasRestoredLastConversation, characters, getMessages]);
-  // Load groups when user changes
+  }, [selectedConversationId, selectedCharacter, charactersLoading, characters, setCharacters, isPageVisible, debounce]);
+
+  // 初始化时尝试恢复上次的对话 - 优化：避免重复检查
   useEffect(() => {
+    if (!isPageVisible) return;
+
+    // 只有在没有通过URL参数指定characterId时才自动恢复
+    if (!characterId && !selectedConversationId && !hasRestoredLastConversation && characters.length > 0) {
+      let isMounted = true;
+      
+      (async () => {
+        try {
+          const lastId = await AsyncStorage.getItem('lastConversationId');
+          if (isMounted && lastId && characters.some((char: Character) => char.id === lastId)) {
+            setSelectedConversationId(lastId);
+            const characterMessages = await getMessages(lastId);
+            if (isMounted) {
+              setMessages(characterMessages);
+            }
+          }
+        } catch (e) {
+          // ignore
+        } finally {
+          if (isMounted) {
+            setHasRestoredLastConversation(true);
+          }
+        }
+      })();
+
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [characterId, selectedConversationId, hasRestoredLastConversation, characters.length, getMessages, isPageVisible]);
+
+  // Load groups when user changes - 优化：避免不必要的重新加载
+  useEffect(() => {
+    if (!isPageVisible) return;
+
     if (user) {
       loadUserGroups();
     } else {
@@ -1869,7 +1957,7 @@ useEffect(() => {
   }, [autoMessageService]);
 
 
-  // TTS enhancer settings listener
+  // TTS enhancer settings listener - 优化：确保事件监听器正确清理
   useEffect(() => {
     const enhancerSettingsListener = EventRegister.addEventListener(
       'ttsEnhancerSettingsChanged',
@@ -1880,40 +1968,50 @@ useEffect(() => {
       }
     );
 
+    // 添加到事件监听器集合中进行统一管理
+    if (typeof enhancerSettingsListener === 'string') {
+      eventListenersRef.current.add(enhancerSettingsListener);
+    }
+
     return () => {
       if (typeof enhancerSettingsListener === 'string') {
-         EventRegister.removeEventListener(enhancerSettingsListener);
-      } else {
-         console.warn('[App] Failed to remove TTS enhancer listener: Invalid listener ID type.');
+        EventRegister.removeEventListener(enhancerSettingsListener);
+        eventListenersRef.current.delete(enhancerSettingsListener);
       }
     };
   }, []);
 
-  // Handle keyboard events
+  // Handle keyboard events - 优化：防止内存泄漏
   useEffect(() => {
+    if (!isPageVisible) return; // 页面不可见时不监听键盘事件
+
     const keyboardWillShowListener = Keyboard.addListener(
       'keyboardWillShow',
       () => {
-        setKeyboardVisible(true);
-        Animated.timing(contentScaleAnim, {
-          toValue: 0.96,
-          duration: 220,
-          easing: Easing.out(Easing.ease),
-          useNativeDriver: true,
-        }).start();
+        if (isPageVisible) {
+          setKeyboardVisible(true);
+          Animated.timing(contentScaleAnim, {
+            toValue: 0.96,
+            duration: 220,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }).start();
+        }
       }
     );
     
     const keyboardWillHideListener = Keyboard.addListener(
       'keyboardWillHide',
       () => {
-        setKeyboardVisible(false);
-        Animated.timing(contentScaleAnim, {
-          toValue: 1,
-          duration: 220,
-          easing: Easing.out(Easing.ease),
-          useNativeDriver: true,
-        }).start();
+        if (isPageVisible) {
+          setKeyboardVisible(false);
+          Animated.timing(contentScaleAnim, {
+            toValue: 1,
+            duration: 220,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }).start();
+        }
       }
     );
 
@@ -1921,37 +2019,70 @@ useEffect(() => {
       keyboardWillShowListener.remove();
       keyboardWillHideListener.remove();
     };
-  }, [contentScaleAnim]);
+  }, [contentScaleAnim, isPageVisible]);
 
-  // Update tab bar visibility based on keyboard
+  // Update tab bar visibility based on keyboard - 优化：节流处理
   useEffect(() => {
-    if (Platform.OS === 'ios') {
-      router.setParams({ hideTabBar: isKeyboardVisible ? 'true' : 'false' });
-    }
-  }, [isKeyboardVisible, router]);
+    if (!isPageVisible) return;
 
-  // Listen for top bar visibility changes
+    if (Platform.OS === 'ios') {
+      // 使用节流函数避免频繁调用
+      const throttledSetParams = throttle((hideTabBar: string) => {
+        router.setParams({ hideTabBar });
+      }, 100);
+      
+      throttledSetParams(isKeyboardVisible ? 'true' : 'false');
+    }
+  }, [isKeyboardVisible, router, isPageVisible, throttle]);
+
+  // Listen for top bar visibility changes - 优化：确保事件监听器正确清理
   useEffect(() => {
     const listener = EventRegister.addEventListener('toggleTopBarVisibility', (visible: boolean) => {
-      setIsTopBarVisible(visible);
-      DeviceEventEmitter.emit('topBarVisibilityChanged', visible);
+      if (isPageVisible) {
+        setIsTopBarVisible(visible);
+        DeviceEventEmitter.emit('topBarVisibilityChanged', visible);
+      }
     });
-    return () => {
-      EventRegister.removeEventListener(listener as string);
-    };
-  }, []);
 
-  // Clear transient errors
+    // 添加到事件监听器集合中进行统一管理
+    if (typeof listener === 'string') {
+      eventListenersRef.current.add(listener);
+    }
+
+    return () => {
+      if (typeof listener === 'string') {
+        EventRegister.removeEventListener(listener);
+        eventListenersRef.current.delete(listener);
+      }
+    };
+  }, [isPageVisible]);
+
+  // Clear transient errors - 优化：减少不必要的副作用
   useEffect(() => {
+    if (!isPageVisible || !transientError) return;
+
     if (
-      transientError &&
       transientError.includes('处理消息时出现了错误') &&
       selectedConversationId &&
       messages.length > 0
     ) {
-      // Do nothing
+      // Do nothing - just check conditions
     }
-  }, [transientError, selectedConversationId, messages]);
+  }, [transientError, selectedConversationId, messages, isPageVisible]);
+
+  // 优化：PostChatService 和 AutoImageService 实例创建
+  const postChatService = useMemo(() => {
+    console.log('[Performance] 创建 PostChatService 实例');
+    return PostChatService.getInstance();
+  }, []);
+
+  const autoImageService = useMemo(() => {
+    console.log('[Performance] 创建 AutoImageService 实例');
+    return AutoImageService.getInstance();
+  }, []);
+  
+  // Track last processed message ID for auto image generation
+  const lastProcessedMsgIdRef = useRef<string | null>(null);
 
   // 计算顶部栏内容高度（与TopBarWithBackground一致）
   const { width } = Dimensions.get('window');
@@ -1959,19 +2090,14 @@ useEffect(() => {
   const topBarContentHeight = Math.max(AVATAR_SIZE + 16, 48);
   const navbarHeight = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
   const computedTopBarHeight = navbarHeight + topBarContentHeight;
-  // === 新增：PostChatService 实例 ===
-  const postChatService = useRef(PostChatService.getInstance()).current;
 
-  // === 新增：AutoImageService 实例 ===
-  const autoImageService = useRef(AutoImageService.getInstance()).current;
-  
-  // Track last processed message ID for auto image generation
-  const lastProcessedMsgIdRef = useRef<string | null>(null);
-
-  // === 新增：同步每个会话的背景生成状态 ===
+  // === 优化：同步每个会话的背景生成状态 ===
   useEffect(() => {
     if (!characterToUse?.id || !isPageVisible) return; // 性能优化：页面不可见时跳过
+    
     const updateState = () => {
+      if (!isPageVisible) return; // 执行前再次检查
+      
       const state = postChatService.getCurrentState(characterToUse.id);
       setExtraBgStates(prev => ({
         ...prev,
@@ -1983,9 +2109,12 @@ useEffect(() => {
         }
       }));
     };
+    
     updateState();
     const interval = createSafeInterval(updateState, 800); // 使用安全定时器
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [characterToUse?.id, postChatService, isPageVisible, createSafeInterval]);
 
   // === 新增：每次切换characterId时加载已处理消息ID ===
@@ -2377,7 +2506,7 @@ useEffect(() => {
         </View>
       )}
 
-      <MemoryProvider config={memoryConfig}>
+      <MemoryProvider config={memoryConfig || undefined}>
         <Mem0Initializer />
         
         <View style={styles.backgroundContainer}>
@@ -3033,11 +3162,4 @@ const styles = StyleSheet.create({
   },
 });
 
-// 用错误边界包装 App 组件
-const SafeApp = () => (
-  <AppErrorBoundary>
-    <App />
-  </AppErrorBoundary>
-);
-
-export default SafeApp;
+export default App;

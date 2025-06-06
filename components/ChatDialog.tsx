@@ -1933,11 +1933,62 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
     });
   }, [messages]);
 
+  // 新增：消息内容处理结果缓存
+  const messageContentCache = useRef<Map<string, React.ReactNode>>(new Map());
+
+  // 新增：生成缓存键的函数
+  const generateCacheKey = useCallback((text: string, isUser: boolean, opts?: { isHtmlPagePlaceholder?: boolean }) => {
+    return `${text}_${isUser}_${JSON.stringify(opts || {})}_${uiSettings.textSizeMultiplier}_${uiSettings.markdownTextScale}`;
+  }, [uiSettings.textSizeMultiplier, uiSettings.markdownTextScale]);
+
+  // 新增：清理过期缓存的 useEffect
+  useEffect(() => {
+    // 当消息列表变化时，清理不再需要的缓存项
+    const currentMessageTexts = new Set(messages.map(m => m.text));
+    const cacheKeysToDelete: string[] = [];
+    
+    for (const [key] of messageContentCache.current) {
+      const messageText = key.split('_')[0]; // 提取消息文本部分
+      if (!currentMessageTexts.has(messageText)) {
+        cacheKeysToDelete.push(key);
+      }
+    }
+    
+    // 删除过期的缓存项
+    cacheKeysToDelete.forEach(key => {
+      messageContentCache.current.delete(key);
+    });
+    
+    // 限制缓存大小，防止内存泄漏
+    if (messageContentCache.current.size > 100) {
+      const keysToDelete = Array.from(messageContentCache.current.keys()).slice(0, 50);
+      keysToDelete.forEach(key => {
+        messageContentCache.current.delete(key);
+      });
+    }
+  }, [messages]);
+
+  // 新增：当UI设置变化时清理缓存
+  useEffect(() => {
+    messageContentCache.current.clear();
+  }, [uiSettings]);
+
   // 修改处理消息内容的函数，应用文本样式和缓存图片信息
   const processMessageContent = useCallback((text: string, isUser: boolean, opts?: { isHtmlPagePlaceholder?: boolean }) => {
+    // 生成缓存键
+    const cacheKey = generateCacheKey(text, isUser, opts);
+    
+    // 检查缓存
+    if (messageContentCache.current.has(cacheKey)) {
+      return messageContentCache.current.get(cacheKey);
+    }
+
+    // 计算结果
+    let result: React.ReactNode;
+
     // 新增：如果是HTML页面占位，直接显示占位文本
     if (opts?.isHtmlPagePlaceholder) {
-      return (
+      result = (
         <Text style={{
           ...(isUser ? styles.userMessageText : styles.botMessageText),
           ...getTextStyle(isUser)
@@ -1945,10 +1996,12 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
           [页面消息]
         </Text>
       );
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
     if (!text || text.trim() === '') {
-      return (
+      result = (
         <Text style={{
           ...(isUser ? styles.userMessageText : styles.botMessageText),
           ...getTextStyle(isUser)
@@ -1956,9 +2009,11 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
           (Empty message)
         </Text>
       );
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
-    // 检查是否包含自定义标签或HTML标签
+    // 缓存正则表达式检查结果，避免重复计算
     const hasCustomTags = containsCustomTags(text);
     const hasHtmlTags = /<\/?[a-z][^>]*>/i.test(text);
     
@@ -1972,32 +2027,32 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
     if (hasCustomTags || hasHtmlTags) {
       let processedText = text;
       
-             // 如果同时包含Markdown，先将Markdown转换为HTML
-       if (hasMarkdown) {
-         // 将常见的Markdown语法转换为HTML
-         // 使用占位符技术来避免嵌套处理问题
-         processedText = processedText
-           // 先处理代码块（避免内部内容被其他规则影响）
-           .replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
-             return `<pre><code>${code}</code></pre>`;
-           })
-           // 行内代码
-           .replace(/`([^`]+)`/g, '<code>$1</code>')
-           // 粗体（必须在斜体之前处理）
-           .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
-           .replace(/__([^_]+?)__/g, '<strong>$1</strong>')
-           // 斜体（现在处理单个星号或下划线）
-           .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
-           .replace(/_([^_\n]+?)_/g, '<em>$1</em>')
-           // 删除线
-           .replace(/~~(.*?)~~/g, '<del>$1</del>')
-                      // 换行
-           .replace(/\n/g, '<br/>');
-       }
-       
-       // 渲染前先移除未知标签
-       const cleanedText = stripUnknownTags(processedText);
-             return (
+      // 如果同时包含Markdown，先将Markdown转换为HTML
+      if (hasMarkdown) {
+        // 将常见的Markdown语法转换为HTML
+        // 使用占位符技术来避免嵌套处理问题
+        processedText = processedText
+          // 先处理代码块（避免内部内容被其他规则影响）
+          .replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+            return `<pre><code>${code}</code></pre>`;
+          })
+          // 行内代码
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          // 粗体（必须在斜体之前处理）
+          .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/__([^_]+?)__/g, '<strong>$1</strong>')
+          // 斜体（现在处理单个星号或下划线）
+          .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
+          .replace(/_([^_\n]+?)_/g, '<em>$1</em>')
+          // 删除线
+          .replace(/~~(.*?)~~/g, '<del>$1</del>')
+          // 换行
+          .replace(/\n/g, '<br/>');
+      }
+      
+      // 渲染前先移除未知标签
+      const cleanedText = stripUnknownTags(processedText);
+      result = (
         <RichTextRenderer
           html={optimizeHtmlForRendering(cleanedText)}
           baseStyle={{
@@ -2009,11 +2064,13 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
           uiSettings={uiSettings}
         />
       );
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
     // 如果只包含Markdown（没有HTML标签），使用Markdown组件
     if (hasMarkdown) {
-      return (
+      result = (
         <View style={{ width: '100%' }}>
           <Markdown
             style={{
@@ -2159,8 +2216,11 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
           </Markdown>
         </View>
       );
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
+    // 图片相关处理逻辑保持不变但添加缓存
     const rawImageMarkdownRegex = /!\[(.*?)\]\(image:([a-zA-Z0-9\-_]+)\)/;
     const rawImageMatch = text.trim().match(rawImageMarkdownRegex);
 
@@ -2172,7 +2232,7 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
       const imageStyle = getImageDisplayStyle(imageInfo);
 
       if (imageInfo) {
-        return (
+        result = (
           <View style={styles.imageWrapper}>
             <TouchableOpacity
               style={styles.imageContainer}
@@ -2190,13 +2250,15 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
         );
       } else {
         console.error(`No image info found for ID: ${imageId}`);
-        return (
+        result = (
           <View style={styles.imageError}>
             <Ionicons name="alert-circle" size={36} color="#e74c3c" />
             <Text style={styles.imageErrorText}>图片无法加载 (ID: {imageId.substring(0, 8)}...)</Text>
           </View>
         );
       }
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
     // Note: hasCustomTags and hasMarkdown are already declared above
@@ -2214,7 +2276,7 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
 
     if (matches.length > 0) {
       console.log(`[ChatDialog] Found ${matches.length} image references in message`);
-      return (
+      result = (
         <View>
           {matches.map((img, idx) => {
             console.log(`[ChatDialog] Processing image ${idx+1}/${matches.length}, ID: ${img.id.substring(0, 8)}...`);
@@ -2249,6 +2311,8 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
           })}
         </View>
       );
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
     const imageMarkdownRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+|image:[^\s)]+)\)/g;
@@ -2264,7 +2328,7 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
     }
 
     if (urlMatches.length > 0) {
-      return (
+      result = (
         <View>
           {urlMatches.map((img, idx) => {
             const isImageId = img.url.startsWith('image:');
@@ -2338,6 +2402,8 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
           })}
         </View>
       );
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
     const linkRegex = /\[(.*?)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g;
@@ -2351,7 +2417,7 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
     }
 
     if (linkMatches.length > 0) {
-      return (
+      result = (
         <View>
           {linkMatches.map((link, idx) => (
             <TouchableOpacity
@@ -2371,10 +2437,17 @@ const handleTTSButtonPress = async (messageId: string, text: string) => {
           ))}
         </View>
       );
+      messageContentCache.current.set(cacheKey, result);
+      return result;
     }
 
-    return renderMessageText(text, isUser);
-  }, [getCachedImageInfo, uiSettings, getTextStyle, containsCustomTags, stripUnknownTags, optimizeHtmlForRendering, getImageDisplayStyle]);
+    // 默认文本渲染
+    result = renderMessageText(text, isUser);
+    messageContentCache.current.set(cacheKey, result);
+    return result;
+
+  // 新增：清理缓存的机制，避免内存泄漏
+  }, [getCachedImageInfo, uiSettings, getTextStyle, containsCustomTags, stripUnknownTags, optimizeHtmlForRendering, getImageDisplayStyle, generateCacheKey]);
 
   const renderMessageText = (text: string, isUser: boolean) => {
     const segments = parseHtmlText(text);
