@@ -1,6 +1,6 @@
 {
   "name": "my-app",
-"main": "polyfill-entry.js",
+  "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
@@ -25,8 +25,8 @@
     "axios": "^1.9.0",
     "babel-plugin-module-resolver": "^5.0.2",
     "base-64": "^1.0.0",
-    "buffer": "^6.0.3",
     "browserify-zlib": "^0.2.0",
+    "buffer": "^6.0.3",
     "console-browserify": "^1.2.0",
     "constants-browserify": "^1.0.0",
     "crypto-browserify": "^3.12.1",
@@ -59,7 +59,6 @@
     "expo-web-browser": "~14.1.6",
     "https-browserify": "^1.0.0",
     "jszip": "^3.10.1",
-    "matrix-js-sdk": "^37.6.0",
     "node-libs-react-native": "^1.2.1",
     "os-browserify": "^0.3.0",
     "pako": "^2.1.0",
