@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import './lib/polyfills';   
+import '@/lib/polyfills';
 import { Tabs } from 'expo-router';
 import { useColorScheme, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
