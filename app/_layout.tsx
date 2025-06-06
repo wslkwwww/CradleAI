@@ -1,7 +1,7 @@
 import 'react-native-reanimated'; // 必须最顶层
 import 'react-native-gesture-handler'; // 建议紧随其后
-import '@/lib/polyfills';
-// import '@/lib/matrix/init'; // 安全初始化Matrix SDK
+// import '@/lib/polyfills';
+// // import '@/lib/matrix/init'; // 安全初始化Matrix SDK
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
