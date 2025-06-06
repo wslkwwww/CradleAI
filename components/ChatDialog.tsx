@@ -3482,8 +3482,9 @@ const keyExtractor = useCallback((item: CombinedItem) => {
         <>
           <View style={[
             styles.container, 
-            style, 
-            styles.backgroundFocusContainer,
+            style,
+            // 视觉小说模式不使用 backgroundFocusContainer 样式，避免被限制在屏幕下半部分
+            // styles.backgroundFocusContainer, // 移除这个样式
             // 确保在展开模式下父容器不干扰布局
             vnExpanded && {
               zIndex: -1,
