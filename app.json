@@ -30,8 +30,7 @@
         "android.permission.INTERNET"
       ],
       "package": "com.anonymous.cradle",
-      "usesCleartextTraffic": true,
-      "networkSecurityConfig": "./assets/network_security_config.xml"
+      "usesCleartextTraffic": true
     },
     "web": {
       "bundler": "metro",

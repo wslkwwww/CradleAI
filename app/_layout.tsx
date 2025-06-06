@@ -1,4 +1,6 @@
-// import '@/lib/polyfills';
+import 'react-native-reanimated'; // 必须最顶层
+import 'react-native-gesture-handler'; // 建议紧随其后
+import '@/lib/polyfills';
 // import '@/lib/matrix/init'; // 安全初始化Matrix SDK
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -6,13 +8,11 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import 'react-native-reanimated';
 import { Animated, useWindowDimensions, Easing, View, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { CharactersProvider } from '@/constants/CharactersContext';
 import { UserProvider } from '@/constants/UserContext';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Colors from '@/constants/Colors';
 import { RegexProvider } from '@/constants/RegexContext';
 import { initCloudServiceTracker } from '@/utils/cloud-service-tracker';
@@ -85,27 +85,25 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <UserProvider>
-          <CharactersProvider>
-            <RegexProvider>
-              <View style={styles.container}>
-                <ThemeProvider value={theme}>
-                  <Stack screenOptions={{headerShown: false}}>
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="(tabs)" />
-                    <Stack.Screen name="pages/character-detail" />
-                    <Stack.Screen name="pages/create_char" />
-                    <Stack.Screen name="pages/create_character_tabs" />
-                  </Stack>
-                  <StatusBar style="dark" backgroundColor='black' />
-                </ThemeProvider>
-                {/* <MatrixDebugger /> */}
-              </View>
-            </RegexProvider>
-          </CharactersProvider>
-        </UserProvider>
-      </GestureHandlerRootView>
+      <UserProvider>
+        <CharactersProvider>
+          <RegexProvider>
+            <View style={styles.container}>
+              <ThemeProvider value={theme}>
+                <Stack screenOptions={{headerShown: false}}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="pages/character-detail" />
+                  <Stack.Screen name="pages/create_char" />
+                  <Stack.Screen name="pages/create_character_tabs" />
+                </Stack>
+                <StatusBar style="dark" backgroundColor='black' />
+              </ThemeProvider>
+              {/* <MatrixDebugger /> */}
+            </View>
+          </RegexProvider>
+        </CharactersProvider>
+      </UserProvider>
     </SafeAreaProvider>
   );
 }

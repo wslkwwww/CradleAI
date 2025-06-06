@@ -1,3 +1,5 @@
+import 'react-native-reanimated'; // 必须最顶层
+import 'react-native-gesture-handler'; // 建议紧随其后
 import React, { useState, useEffect } from 'react';
 // import '@/lib/polyfills';
 import { Tabs } from 'expo-router';
