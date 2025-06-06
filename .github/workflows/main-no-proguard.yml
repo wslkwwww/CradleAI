@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 19.x
+          node-version: 18.x
           cache: 'npm'
 
       - name: Setup Java
@@ -63,17 +63,22 @@ jobs:
             perl -i -pe 's/(android\s*\{)/\1\n  splits {\n    abi {\n      enable true\n      reset()\n      include "${{ matrix.abi }}"\n      universalApk true\n    }\n  }/' android/app/build.gradle
           fi
 
-      - name: Disable ProGuard completely
+      - name: Enable Hermes and optimize build
         run: |
-          # 完全禁用ProGuard/R8来测试是否是混淆导致的闪退
-          echo "完全禁用ProGuard/R8进行测试构建"
+          # 启用Hermes引擎优化性能
+          echo "启用Hermes引擎进行性能优化"
           
-          # 确保release配置中禁用了所有优化
-          if ! grep -q "minifyEnabled false" android/app/build.gradle; then
-            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled false\n            shrinkResources false/' android/app/build.gradle
+          # 确保Hermes已启用
+          if ! grep -q "enableHermes" android/app/build.gradle; then
+            perl -i -pe 's/(android\s*\{)/\1\n    project.ext.react = [\n        enableHermes: true\n    ]/' android/app/build.gradle
           fi
           
-          echo "ProGuard已被禁用"
+          # 适度启用优化而不是完全禁用ProGuard
+          if ! grep -q "minifyEnabled true" android/app/build.gradle; then
+            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"/' android/app/build.gradle
+          fi
+          
+          echo "Hermes已启用，构建优化已配置"
 
       - name: Setup Android Keystore
         run: |
@@ -116,7 +121,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 19.x
+          node-version: 18.x
           cache: 'npm'
 
       - name: Setup Java
@@ -150,17 +155,22 @@ jobs:
           mkdir -p android/app/src/main/res/xml/
           cp assets/network_security_config.xml android/app/src/main/res/xml/
 
-      - name: Disable ProGuard completely
+      - name: Enable Hermes and optimize build
         run: |
-          # 完全禁用ProGuard/R8来测试是否是混淆导致的闪退
-          echo "完全禁用ProGuard/R8进行测试构建"
+          # 启用Hermes引擎优化性能
+          echo "启用Hermes引擎进行性能优化"
           
-          # 确保release配置中禁用了所有优化
-          if ! grep -q "minifyEnabled false" android/app/build.gradle; then
-            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled false\n            shrinkResources false/' android/app/build.gradle
+          # 确保Hermes已启用
+          if ! grep -q "enableHermes" android/app/build.gradle; then
+            perl -i -pe 's/(android\s*\{)/\1\n    project.ext.react = [\n        enableHermes: true\n    ]/' android/app/build.gradle
           fi
           
-          echo "ProGuard已被禁用"
+          # 适度启用优化而不是完全禁用ProGuard
+          if ! grep -q "minifyEnabled true" android/app/build.gradle; then
+            perl -i -pe 's/(release\s*\{)/\1\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"/' android/app/build.gradle
+          fi
+          
+          echo "Hermes已启用，构建优化已配置"
 
       - name: Setup Android Keystore
         run: |
