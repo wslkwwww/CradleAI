@@ -734,231 +734,6 @@ const ChatHistoryModal = memo(function ChatHistoryModal({
   );
 });
 
-// Add ImageMessage component to render generated images
-const ImageMessage = memo(function ImageMessage({
-  imageId,
-  prompt,
-  timestamp,
-  onOpenFullscreen,
-  onSave,
-  onShare,
-  onDelete, // 新增：删除图片回调
-}: {
-  imageId: string;
-  prompt: string;
-  timestamp: number;
-  onOpenFullscreen: (imageId: string) => void;
-  onSave: (imageId: string) => void;
-  onShare: (imageId: string) => void;
-  onDelete: (imageId: string) => void; // 新增：删除图片回调
-}) {
-  const [imagePath, setImagePath] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // 新增：删除确认状态
-  const [isPromptExpanded, setIsPromptExpanded] = useState(false); // Default collapsed
-
-  useEffect(() => {
-    const loadImageInfo = async () => {
-      try {
-        setIsLoading(true);
-        // Use the static method directly
-        const info = await ImageManager.getImageInfo(imageId);
-        if (info) {
-          setImagePath(info.originalPath);
-        }
-      } catch (error) {
-        console.error('[ImageMessage] Error loading image info:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadImageInfo();
-  }, [imageId]);
-
-  const formattedTime = useMemo(() => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }, [timestamp]);
-
-  // 新增：处理删除确认
-  const handleDeletePress = () => {
-    setShowDeleteConfirm(true);
-  };
-
-  // 新增：取消删除
-  const handleCancelDelete = () => {
-    setShowDeleteConfirm(false);
-  };
-
-  // 新增：确认删除
-  const handleConfirmDelete = () => {
-    onDelete(imageId);
-    setShowDeleteConfirm(false);
-  };
-
-  if (isLoading) {
-    return (
-      <View style={styles.imageMessageContainer}>
-        <View style={styles.imageMessageLoading}>
-          <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.imageMessageLoadingText}>加载图片中...</Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (!imagePath) {
-    return (
-      <View style={styles.imageMessageContainer}>
-        <View style={styles.imageMessageError}>
-          <Ionicons name="alert-circle-outline" size={32} color="#e74c3c" />
-          <Text style={styles.imageMessageErrorText}>无法加载图片</Text>
-          {/* 新增：删除按钮 */}
-          <TouchableOpacity
-            style={[
-              styles.imageMessageAction,
-              { marginTop: 12, alignSelf: 'center' }
-            ]}
-            onPress={handleDeletePress}
-          >
-            <Ionicons name="trash-outline" size={22} color="#e74c3c" />
-            <Text style={{ color: '#e74c3c', marginLeft: 6, fontSize: 15 }}>删除</Text>
-          </TouchableOpacity>
-        </View>
-        {/* 删除确认弹窗 */}
-        <Modal
-          visible={showDeleteConfirm}
-          transparent={true}
-          animationType="fade"
-        >
-          <View style={styles.deleteConfirmModalContainer}>
-            <View style={styles.deleteConfirmModalContent}>
-              <Text style={styles.deleteConfirmTitle}>删除图片</Text>
-              <Text style={styles.deleteConfirmText}>确定要删除这张图片吗？</Text>
-              <View style={styles.deleteConfirmButtons}>
-                <TouchableOpacity
-                  style={[styles.deleteConfirmButton, styles.deleteConfirmCancelButton]}
-                  onPress={handleCancelDelete}
-                >
-                  <Text style={styles.deleteConfirmButtonText}>取消</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.deleteConfirmButton, styles.deleteConfirmDeleteButton]}
-                  onPress={handleConfirmDelete}
-                >
-                  <Text style={[styles.deleteConfirmButtonText, { color: '#fff' }]}>删除</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.imageMessageContainer}>
-      <TouchableOpacity 
-        style={[
-          styles.imageMessageHeader,
-          isPromptExpanded ? styles.imageMessageHeaderExpanded : styles.imageMessageHeaderCollapsed
-        ]}
-        onPress={() => setIsPromptExpanded(!isPromptExpanded)}
-        activeOpacity={0.8}
-      >
-        <View style={styles.imageMessagePromptContainer}>
-          {isPromptExpanded ? (
-            <Text style={styles.imageMessagePrompt} numberOfLines={3}>{prompt}</Text>
-          ) : (
-            <Text style={styles.imageMessagePromptCollapsed} numberOfLines={1}>
-              {prompt.length > 20 ? prompt.substring(0, 20) + '...' : prompt}
-            </Text>
-          )}
-          <View style={styles.imageMessageHeaderRight}>
-            <Text style={styles.imageMessageTime}>{formattedTime}</Text>
-            <Ionicons 
-              name={isPromptExpanded ? "chevron-up" : "chevron-down"} 
-              size={16} 
-              color="#aaa" 
-              style={{marginLeft: 8}}
-            />
-          </View>
-        </View>
-      </TouchableOpacity>
-
-      <TouchableOpacity 
-        style={[
-          styles.imageMessageContent,
-          isPromptExpanded ? styles.imageMessageContentSmaller : styles.imageMessageContentLarger
-        ]}
-        onPress={() => onOpenFullscreen(imageId)}
-        activeOpacity={0.9}
-      >
-        <Image 
-          source={{ uri: imagePath }} 
-          style={styles.imageMessageImage}
-          resizeMode="contain"
-        />
-      </TouchableOpacity>
-      <View style={styles.imageMessageActions}>
-        <TouchableOpacity 
-          style={styles.imageMessageAction}
-          onPress={() => onOpenFullscreen(imageId)}
-        >
-          <Ionicons name="expand-outline" size={22} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.imageMessageAction}
-          onPress={() => onSave(imageId)}
-        >
-          <Ionicons name="download-outline" size={22} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.imageMessageAction}
-          onPress={() => onShare(imageId)}
-        >
-          <Ionicons name="share-social-outline" size={22} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.imageMessageAction, { marginLeft: 8 }]}
-          onPress={handleDeletePress}
-        >
-          <Ionicons name="trash-outline" size={22} color="#e74c3c" />
-        </TouchableOpacity>
-      </View>
-
-      {/* 删除确认弹窗 */}
-      <Modal
-        visible={showDeleteConfirm}
-        transparent={true}
-        animationType="fade"
-      >
-        <View style={styles.deleteConfirmModalContainer}>
-          <View style={styles.deleteConfirmModalContent}>
-            <Text style={styles.deleteConfirmTitle}>删除图片</Text>
-            <Text style={styles.deleteConfirmText}>确定要删除这张图片吗？</Text>
-            <View style={styles.deleteConfirmButtons}>
-              <TouchableOpacity
-                style={[styles.deleteConfirmButton, styles.deleteConfirmCancelButton]}
-                onPress={handleCancelDelete}
-              >
-                <Text style={styles.deleteConfirmButtonText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.deleteConfirmButton, styles.deleteConfirmDeleteButton]}
-                onPress={handleConfirmDelete}
-              >
-                <Text style={[styles.deleteConfirmButtonText, { color: '#fff' }]}>删除</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
-});
-
 // Add new VisualNovelImageDisplay component after the ImageMessage component
 const VisualNovelImageDisplay = memo(function VisualNovelImageDisplay({
   images,
@@ -1561,39 +1336,51 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
       // Expanded: 占据整个屏幕，减去基本的内边距和按钮区域
       const buttonsHeight = 60; // 预留按钮区域高度
       const paddingHeight = 30; // 容器内边距
-      const safeAreaHeight = 40; // 安全区域
-      return height - buttonsHeight - paddingHeight - safeAreaHeight;
+      const safeAreaHeight = Math.max(40, insets.top + insets.bottom + 20); // 使用实际安全区域
+      // 确保使用完整的屏幕高度，不受其他因素影响
+      const fullScreenHeight = height; // 使用Dimensions获取的完整屏幕高度
+      return Math.max(200, fullScreenHeight - buttonsHeight - paddingHeight - safeAreaHeight); // 确保最小高度200px
     }
-    // Collapsed: fixed height or adjust for small screens with keyboard
-    const keyboardAdjustment = keyboardVisible ? keyboardHeight * 0.5 : 0; // Use partial adjustment when collapsed
-    return Math.max(100, 220 - keyboardAdjustment); // Ensure minimum height of 100
+    // Collapsed: 动态计算高度，确保不会溢出对话框或遮挡输入框
+    const headerHeight = vnExpanded ? 0 : 58; // header高度
+    const actionsHeight = 62; // actions区高度
+    const containerPadding = 30; // 容器内边距
+    const availableHeight = Math.min(
+      height * 0.35, // 最多占用35%屏幕高度
+      height - getCollapsedAbsTop() - Math.max(60, height * 0.08) // 动态计算，确保底部留足空间
+    );
+    const textMaxHeight = availableHeight - headerHeight - actionsHeight - containerPadding;
+    return Math.max(100, textMaxHeight); // 确保最小高度为100px
   };
 
   // Update getCollapsedAbsTop to adjust position when keyboard is visible
   const getCollapsedAbsTop = () => {
-    // Parameters for position calculation
-    const chatInputHeight = 120; 
-    const minDialogHeight = 240;
-    const spacing = 30; // Extra spacing
-    const safeAreaBottom = 24; // Safe area for iPhones with notch
+    // Parameters for position calculation - 增加响应式计算
+    const baseChatInputHeight = 120;
+    const responsiveChatInputHeight = Math.max(baseChatInputHeight, height * 0.12); // 至少占屏幕12%高度
+    const minDialogHeight = Math.min(240, height * 0.35); // 对话框最小高度，最多占35%屏幕
+    const baseSpacing = Math.max(40, height * 0.04); // 基础间距，至少40px或屏幕5%高度
+    const safeAreaBottom = Math.max(24, insets.bottom + 10); // 使用实际安全区域
     
     // Adjust calculation when keyboard is visible
     if (keyboardVisible) {
       // Move dialog up when keyboard is visible, but keep it at a reasonable position
-      const keyboardAdjustment = keyboardHeight * 0.8; // Use 80% of keyboard height for adjustment
-      const calculatedTop = height - chatInputHeight - minDialogHeight - spacing - safeAreaBottom - keyboardAdjustment;
+      const keyboardAdjustment = keyboardHeight * 0.85; // 稍微增加键盘调整比例
+      const additionalSpacing = Math.max(20, height * 0.02); // 键盘时的额外间距
+      const calculatedTop = height - responsiveChatInputHeight - minDialogHeight - baseSpacing - additionalSpacing - safeAreaBottom - keyboardAdjustment;
       
       // Ensure it's not too high or too low
-      const minTop = height * 0.1; // Allow it to go higher when keyboard is visible
-      const maxTop = height - minDialogHeight - keyboardHeight - spacing;
+      const minTop = Math.max(height * 0.08, 60); // 最小顶部距离
+      const maxTop = height - minDialogHeight - keyboardHeight - baseSpacing - additionalSpacing;
       return Math.min(Math.max(calculatedTop, minTop), maxTop);
     }
     
-    // Original calculation for when keyboard is not visible
-    const calculatedTop = height - chatInputHeight - minDialogHeight - spacing - safeAreaBottom;
+    // Original calculation for when keyboard is not visible - 增加更多间距确保不重合
+    const extraSpacing = Math.max(30, height * 0.03); // 额外间距确保不重合
+    const calculatedTop = height - responsiveChatInputHeight - minDialogHeight - baseSpacing - extraSpacing - safeAreaBottom;
     
-    // Ensure it's not too high (minimum distance from top is 30%)
-    const minTop = height * 0.3;
+    // Ensure it's not too high (minimum distance from top is 25% for better UX)
+    const minTop = height * 0.25;
     return Math.max(calculatedTop, minTop);
   };
 
@@ -3123,7 +2910,11 @@ const combinedItems = useMemo(() => {
           left: 0,
           right: 0,
           top: getCollapsedAbsTop(),
-          bottom: keyboardVisible ? keyboardHeight : 0, // Adjust bottom based on keyboard
+          // 确保底部不会超出屏幕或遮挡输入框
+          bottom: Math.max(
+            keyboardVisible ? keyboardHeight + Math.max(40, height * 0.05) : Math.max(60, height * 0.08),
+            0
+          ),
           zIndex: 1,
           flexDirection: 'column' as const,
           alignItems: 'stretch' as const,
@@ -3132,7 +2923,9 @@ const combinedItems = useMemo(() => {
         }
       : [
           styles.visualNovelDialogStack,
-          keyboardVisible && { bottom: keyboardHeight } // Add bottom adjustment when keyboard is visible
+          keyboardVisible && { 
+            bottom: keyboardHeight + Math.max(20, height * 0.02) // 键盘时增加额外间距
+          }
         ];
 
     const showUserMessage =
@@ -3209,16 +3002,41 @@ const combinedItems = useMemo(() => {
             : styles.visualNovelContainerCollapsed,
           {
             backgroundColor: getVnBgColor(),
-            maxHeight: height - 10 - VN_IMAGE_AREA_HEIGHT - 16 - (keyboardVisible ? keyboardHeight : 0),
-            minHeight: Math.min(200, height - (keyboardVisible ? keyboardHeight + 50 : 50)),
+            // 收缩状态下严格限制高度，防止溢出和重合
+            maxHeight: Math.min(
+              height * 0.4, // 减少最大高度占比，避免遮挡输入框
+              height - getCollapsedAbsTop() - Math.max(40, height * 0.05) - (hasGeneratedImages ? VN_IMAGE_AREA_HEIGHT + 24 : 0) // 动态计算可用高度
+            ),
+            minHeight: Math.min(140, height * 0.18), // 稍微减少最小高度
             marginTop: hasGeneratedImages ? 8 : 0,
+            // 确保底部不会超出安全区域
+            marginBottom: !hasGeneratedImages ? Math.max(20, height * 0.02) : 0,
           }
         ];
     // --- 关键修改结束 ---
 
     return (
-    // 关键：展开时使用不同的容器，收起且有图片时整体绝对定位
-    <View style={vnExpanded ? { flex: 1 } : (shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack)}>
+    // 关键：展开时使用全屏绝对定位容器，收起且有图片时整体绝对定位
+    <View style={vnExpanded ? { 
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: '100%',
+      height: '100%',
+      zIndex: 999, // 使用更高的 zIndex 确保能覆盖所有内容
+      ...Platform.select({
+        android: {
+          // 在 Android 上强制覆盖状态栏和导航栏
+          elevation: 999,
+        },
+        ios: {
+          // 在 iOS 上确保覆盖所有内容
+          shadowOpacity: 0,
+        }
+      })
+    } : (shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack)}>
       {hasGeneratedImages && !vnExpanded && (
         <Animated.View 
           entering={FadeIn.duration(400)} 
@@ -3353,7 +3171,7 @@ const combinedItems = useMemo(() => {
             </View>
           </ScrollView>
         ) : (
-          // 收起模式：保持原有的 ScrollView（无变化）
+          // 收起模式：使用固定高度的 ScrollView 防止溢出
           <ScrollView
             style={[
               styles.visualNovelTextContainer,
@@ -3363,7 +3181,12 @@ const combinedItems = useMemo(() => {
                 marginTop: 0,
               }
             ]}
-            contentContainerStyle={{ flexGrow: 1 }}
+            contentContainerStyle={{ 
+              flexGrow: 1,
+              minHeight: getVNTextMaxHeight(), // 确保最小高度
+            }}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
           >
             <View style={styles.visualNovelTextWrapper}>
               {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
@@ -4805,15 +4628,28 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   visualNovelContainerExpanded: {
-    // 展开时绝对定位铺满
+    // 展开时铺满父容器
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    margin: 0,
+    borderRadius: 0,
+    // 强制确保完全覆盖
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    margin: 0,
-    borderRadius: 0,
-    zIndex: 20,
+    ...Platform.select({
+      android: {
+        // Android 特定配置
+        elevation: 998, // 稍微低于外层容器
+      },
+      ios: {
+        // iOS 特定配置
+        zIndex: 998,
+      }
+    })
   },
   visualNovelContainerCollapsed: {
     // 收起时普通布局（有图片时）
@@ -4825,12 +4661,18 @@ const styles = StyleSheet.create({
   visualNovelContainerCollapsedAbs: {
     // 收起且无图片时吸底
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: 8, // 增加左右边距，避免贴边
+    right: 8,
     // top 将通过内联样式动态设置
     marginBottom: 0,
     borderRadius: 16,
     zIndex: 1, // 保证低于 ChatInput
+    // 添加阴影效果，让对话框更突出
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
   },
   // 新增：用户消息相关样式
   userMessageBubbleContainer: {
