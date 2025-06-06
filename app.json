@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "cradleapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -30,7 +30,8 @@
         "android.permission.INTERNET"
       ],
       "package": "com.anonymous.cradle",
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "jsEngine": "hermes"
     },
     "web": {
       "bundler": "metro",
