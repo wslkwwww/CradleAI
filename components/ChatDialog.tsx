@@ -3111,29 +3111,14 @@ const combinedItems = useMemo(() => {
               nestedScrollEnabled={true}
             >
               <View style={styles.visualNovelTextWrapper}>
-                {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
-                  <RichTextRenderer 
-                    html={optimizeHtmlForRendering(stripUnknownTags(displayText))}
-                    baseStyle={{ 
-                      color: visualNovelSettings.textColor,
-                      fontFamily: visualNovelSettings.fontFamily,
-                      fontSize: 16,
-                      lineHeight: 22
-                    }}
-                    onImagePress={(url) => setFullscreenImage(url)}
-                    maxImageHeight={MAX_IMAGE_HEIGHT}
-                  />
-                ) : (
-                  <Text style={[
-                    styles.visualNovelText,
-                    { 
-                      fontFamily: visualNovelSettings.fontFamily, 
-                      color: visualNovelSettings.textColor 
-                    }
-                  ]}>
-                    {displayText}
-                  </Text>
-                )}
+                {(() => {
+                  // 为视觉小说模式处理 HTML + Markdown 混合内容
+                  const text = displayText;
+                  const isUserBool = Boolean(isUser);
+                  
+                  // 应用与常规模式相同的混合渲染逻辑
+                  return processMessageContent(text, isUserBool);
+                })()}
               </View>
             </ScrollView>
           </View>
@@ -3156,29 +3141,14 @@ const combinedItems = useMemo(() => {
             nestedScrollEnabled={true}
           >
             <View style={styles.visualNovelTextWrapper}>
-              {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
-                <RichTextRenderer 
-                  html={optimizeHtmlForRendering(stripUnknownTags(displayText))}
-                  baseStyle={{ 
-                    color: visualNovelSettings.textColor,
-                    fontFamily: visualNovelSettings.fontFamily,
-                    fontSize: 16,
-                    lineHeight: 22
-                  }}
-                  onImagePress={(url) => setFullscreenImage(url)}
-                  maxImageHeight={MAX_IMAGE_HEIGHT}
-                />
-              ) : (
-                <Text style={[
-                  styles.visualNovelText,
-                  { 
-                    fontFamily: visualNovelSettings.fontFamily, 
-                    color: visualNovelSettings.textColor 
-                  }
-                ]}>
-                  {displayText}
-                </Text>
-              )}
+              {(() => {
+                // 为视觉小说模式处理 HTML + Markdown 混合内容
+                const text = displayText;
+                const isUserBool = Boolean(isUser);
+                
+                // 应用与常规模式相同的混合渲染逻辑
+                return processMessageContent(text, isUserBool);
+              })()}
             </View>
           </ScrollView>
         )}
@@ -4566,7 +4536,6 @@ const styles = StyleSheet.create({
   visualNovelExpandedTextArea: {
     flex: 1,
     marginTop: 5, // 减少顶部边距，给内容更多空间
-    marginBottom: 5, // 减少底部边距，给内容更多空间
   },
   visualNovelExpandedScrollView: {
     flex: 1,
@@ -4579,8 +4548,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingTop: 8, // 减少顶部内边距，给内容更多空间
-    paddingBottom: 15, // 减少底部内边距
+    paddingTop: 5, 
+    paddingBottom: 0, 
     paddingHorizontal: 15,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
