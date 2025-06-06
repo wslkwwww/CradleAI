@@ -92,13 +92,10 @@ jobs:
           ./gradlew assembleRelease \
             -PcdvAbi="${{ matrix.abi }}" \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
-            -Dcom.android.build.gradle.overrideVersionCheck=true \
             --no-daemon \
-            --stacktrace \
-            --debug
+            --stacktrace
         env:
           NODE_ENV: production
-          REACT_NATIVE_MATRIX_SDK_ARM64_COMPAT: true
 
       - name: Collect APK
         run: mkdir -p output && cp android/app/build/outputs/apk/release/app-${{ matrix.abi }}-release.apk output/
@@ -181,12 +178,10 @@ jobs:
           cd android
           ./gradlew assembleRelease \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
-            -Dcom.android.build.gradle.overrideVersionCheck=true \
             --no-daemon \
             --stacktrace
         env:
           NODE_ENV: production
-          REACT_NATIVE_MATRIX_SDK_ARM64_COMPAT: true
 
       - name: Collect Universal APK
         run: mkdir -p output && cp android/app/build/outputs/apk/release/app-universal-release.apk output/
