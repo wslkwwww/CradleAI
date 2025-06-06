@@ -44,6 +44,10 @@ config.resolver.extraNodeModules = {
 config.resolver.sourceExts.push('mjs', 'cjs');
 config.resolver.assetExts.push('wasm', 'bin');
 
+// ARM64兼容性设置
+config.resolver.platforms = ['native', 'android', 'ios', 'web'];
+config.resolver.resolverMainFields = ['react-native', 'browser', 'main'];
+
 // 添加对Matrix SDK的特殊处理
 config.resolver.alias = {
   ...config.resolver.alias,

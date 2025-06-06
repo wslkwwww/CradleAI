@@ -1,4 +1,5 @@
 import '@/lib/polyfills'; // 导入 polyfills，确保兼容性
+import matrixConfig from './config'; // 导入ARM64兼容性配置
 import { createClient, MatrixClient, Room, MatrixEvent, Preset, Visibility, EventType, MsgType, SyncState, ClientEvent, ReceiptType, PushRuleKind, type PushRuleAction, SetPresence } from 'matrix-js-sdk';
 
 export interface MatrixCredentials {
@@ -31,10 +32,11 @@ export class MatrixClientManager {
         timelineSupport: true,
       });
 
-      // 启动客户端同步，但不等待完成
+      // 启动客户端同步，但不等待完成 - 使用ARM64兼容设置
       await this.client.startClient({ 
-        initialSyncLimit: 10,
-        lazyLoadMembers: true,
+        initialSyncLimit: matrixConfig.syncSettings.initialSyncLimit,
+        lazyLoadMembers: matrixConfig.syncSettings.lazyLoadMembers,
+        threadSupport: matrixConfig.syncSettings.threadSupport,
       });
 
       return this.client;

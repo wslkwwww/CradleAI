@@ -1,4 +1,5 @@
 import '@/lib/polyfills';
+import '@/lib/matrix/init'; // 安全初始化Matrix SDK
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
@@ -15,6 +16,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Colors from '@/constants/Colors';
 import { RegexProvider } from '@/constants/RegexContext';
 import { initCloudServiceTracker } from '@/utils/cloud-service-tracker';
+// import { MatrixDebugger } from '@/components/MatrixDebugger';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -98,6 +100,7 @@ export default function RootLayout() {
                   </Stack>
                   <StatusBar style="dark" backgroundColor='black' />
                 </ThemeProvider>
+                {/* <MatrixDebugger /> */}
               </View>
             </RegexProvider>
           </CharactersProvider>
