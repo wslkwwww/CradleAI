@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
-import * as Crypto from 'expo-crypto';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Sharing from 'expo-sharing';
 
@@ -11,6 +10,27 @@ export interface ImageInfo {
   thumbnailPath: string; // Path to compressed WebP
   timestamp: number;
   size: number;
+}
+
+/**
+ * Generate a unique ID based on content and timestamp
+ * This replaces the crypto hash function for generating unique image IDs
+ */
+function generateUniqueId(content: string): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  
+  // Create a simple content-based hash for consistency
+  let hash = 0;
+  const contentSample = content.substring(0, 1000); // Use first 1000 chars like before
+  for (let i = 0; i < contentSample.length; i++) {
+    const char = contentSample.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  // Combine timestamp, random, and content hash for uniqueness
+  return `img_${timestamp}_${random}_${Math.abs(hash).toString(36)}`;
 }
 
 /**
@@ -110,11 +130,8 @@ export class ImageManager {
     id: string;
   }> {
     try {
-      // Create a unique ID based on content hash
-      const hash = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        base64Data.substring(0, 1000) // Use first 1000 chars for faster hashing
-      );
+      // Create a unique ID based on content
+      const hash = generateUniqueId(base64Data);
       
       const extension = this.getExtensionFromMimeType(mimeType);
       const filename = `${hash}.${extension}`;
@@ -183,12 +200,10 @@ export class ImageManager {
     id: string;
   }> {
     try {
-      // 读取文件内容生成hash
+      // 读取文件内容生成唯一ID
       const fileBuffer = await FileSystem.readAsStringAsync(filePath, { encoding: FileSystem.EncodingType.Base64 });
-      const hash = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        fileBuffer.substring(0, 1000)
-      );
+      const hash = generateUniqueId(fileBuffer);
+      
       const extension = this.getExtensionFromMimeType(mimeType);
       const filename = `${hash}.${extension}`;
       const originalPath = `${this.IMAGE_CACHE_DIR}${filename}`;

@@ -13,22 +13,11 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren<{}>, Erro
   }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    console.error('[AppErrorBoundary] Error caught:', error);
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('[AppErrorBoundary] Error details:', error, errorInfo);
-    
-    // 在构建版本中，如果是关键错误，尝试恢复应用
-    if (error.message && error.message.includes('navigation') || 
-        error.message.includes('router') ||
-        error.message.includes('focus')) {
-      console.log('[AppErrorBoundary] Attempting auto-recovery for navigation-related error');
-      setTimeout(() => {
-        this.setState({ hasError: false, error: null });
-      }, 1000);
-    }
+    console.error('App Error Boundary caught an error:', error, errorInfo);
   }
 
   render() {
@@ -418,54 +407,32 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
   // 修改：使用 CharactersContext 获取生成图片
   const { addGeneratedImage, deleteGeneratedImage, getGeneratedImages, clearGeneratedImages } = useCharacters();
 
-  // 性能优化：页面可见性管理 - 优化错误处理
+  // 性能优化：页面可见性管理
   useFocusEffect(
     useCallback(() => {
-      try {
-        setIsPageVisible(true);
-        console.log('[Performance] Index page focused');
-        
-        return () => {
-          try {
-            setIsPageVisible(false);
-            console.log('[Performance] Index page unfocused - clearing timers');
-            clearAllTimers();
-          } catch (error) {
-            console.warn('[Performance] Error in focus effect cleanup:', error);
-          }
-        };
-      } catch (error) {
-        console.error('[Performance] Error in focus effect:', error);
-        return () => {}; // 返回空函数避免错误
-      }
+      setIsPageVisible(true);
+      console.log('[Performance] Index page focused');
+      
+      return () => {
+        setIsPageVisible(false);
+        console.log('[Performance] Index page unfocused - clearing timers');
+        clearAllTimers();
+      };
     }, [clearAllTimers])
   );
 
   // 性能优化：应用状态管理
   useEffect(() => {
     const handleAppStateChange = (nextAppState: any) => {
-      console.log('[Performance] App state changed:', nextAppState);
       setAppState(nextAppState);
-      // 修复：原来的条件判断有错误，应该使用 === 而不是 ||
       if (nextAppState === 'background' || nextAppState === 'inactive') {
         console.log('[Performance] App backgrounded - clearing timers');
         clearAllTimers();
       }
     };
 
-    try {
-      const subscription = AppState.addEventListener('change', handleAppStateChange);
-      return () => {
-        try {
-          subscription?.remove();
-        } catch (error) {
-          console.warn('[Performance] Error removing AppState listener:', error);
-        }
-      };
-    } catch (error) {
-      console.error('[Performance] Error setting up AppState listener:', error);
-      return () => {}; // 返回空函数避免错误
-    }
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
   }, [clearAllTimers]);
 
   // 性能优化：统一的错误处理函数
@@ -1489,126 +1456,105 @@ const filteredMessages = useMemo(() => {
 
   // Initialize default characters and load preferences
   useEffect(() => {
-    let isMounted = true; // 防止组件卸载后继续执行
-
     (async () => {
       try {
-        console.log('[index] 开始初始化应用...');
+        console.log('[index] 调用 importDefaultCharactersIfNeeded ...');
         setIsInitializing(true);
         
-        // 分阶段初始化，避免一次性执行过多操作
+        const result = await importDefaultCharactersIfNeeded(
+          addCharacter,
+          addConversation,
+          (id: string, uri: string) => {
+            console.log(`[index] 调用 updateCharacterExtraBackgroundImage: id=${id}, uri=${uri}`);
+            return updateCharacterExtraBackgroundImage(id, uri);
+          },
+          (id: string, uri: string) => {
+            console.log(`[index] 调用 setCharacterAvatar: id=${id}, uri=${uri}`);
+            return Promise.resolve();
+          }
+        );
         
-        // 第一阶段：基础设置加载
-        try {
-          // Load character view mode
-          const mode = await AsyncStorage.getItem('character_view_mode');
-          if (
-            mode === 'large' ||
-            mode === 'small' ||
-            mode === 'vertical'
-          ) {
-            characterViewModeCache = mode;
-          } else {
-            characterViewModeCache = null;
+        console.log('[index] importDefaultCharactersIfNeeded 完成', result);
+        
+        if (result && result.characterId) {
+          setSelectedConversationId(result.characterId);
+          
+          if (result.imported) {
+            const characterMessages = await getMessages(result.characterId);
+            setMessages(characterMessages);
+            console.log(`[index] 选择了新导入的默认角色：${result.characterId}`);
           }
           
-          // Load search preference
-          const savedPref = await AsyncStorage.getItem('braveSearchEnabled');
-          if (savedPref !== null) {
-            setBraveSearchEnabled(JSON.parse(savedPref));
+          if (mode === 'visual-novel') {
+            console.log('[index] 视觉小说模式已激活，设置 defaultCharacterNavigated 为 true');
+            setDefaultCharacterNavigated(true);
           }
-          
-          // Load TTS enhancer settings
-          const settings = ttsService.getEnhancerSettings();
-          setIsTtsEnhancerEnabled(settings.enabled);
-          
-          console.log('[index] 第一阶段初始化完成');
-        } catch (error) {
-          console.warn('[index] 第一阶段初始化失败，继续执行:', error);
         }
-
-        if (!isMounted) return;
-
-        // 第二阶段：全局设置
-        try {
-          const globalSettings = await loadGlobalSettingsState();
-          if (globalSettings && typeof window !== 'undefined') {
-            window.__globalSettingsCache = globalSettings;
-          }
-          
-          // Sync table memory plugin
-          const enabled = isTableMemoryEnabled();
-          setTableMemoryEnabled(enabled);
-          console.log('[index] 同步表格记忆插件开关:', enabled);
-          
-          console.log('[index] 第二阶段初始化完成');
-        } catch (error) {
-          console.warn('[index] 第二阶段初始化失败，继续执行:', error);
-        }
-
-        if (!isMounted) return;
-
-        // 第三阶段：默认角色导入（最重要的部分）
-        try {
-          console.log('[index] 调用 importDefaultCharactersIfNeeded ...');
-          
-          const result = await importDefaultCharactersIfNeeded(
-            addCharacter,
-            addConversation,
-            (id: string, uri: string) => {
-              console.log(`[index] 调用 updateCharacterExtraBackgroundImage: id=${id}, uri=${uri}`);
-              return updateCharacterExtraBackgroundImage(id, uri);
-            },
-            (id: string, uri: string) => {
-              console.log(`[index] 调用 setCharacterAvatar: id=${id}, uri=${uri}`);
-              return Promise.resolve();
-            }
-          );
-          
-          console.log('[index] importDefaultCharactersIfNeeded 完成', result);
-          
-          if (isMounted && result && result.characterId) {
-            setSelectedConversationId(result.characterId);
-            
-            if (result.imported) {
-              const characterMessages = await getMessages(result.characterId);
-              setMessages(characterMessages);
-              console.log(`[index] 选择了新导入的默认角色：${result.characterId}`);
-            }
-            
-            if (mode === 'visual-novel') {
-              console.log('[index] 视觉小说模式已激活，设置 defaultCharacterNavigated 为 true');
-              setDefaultCharacterNavigated(true);
-            }
-          }
-          
-          console.log('[index] 第三阶段初始化完成');
-        } catch (error) {
-          console.error('[index] 默认角色导入失败:', error);
-          // 即使失败也不阻止应用启动
-        }
-
-        if (isMounted) {
-          // 延迟结束初始化状态，确保UI稳定
-          setTimeout(() => {
-            if (isMounted) {
-              setIsInitializing(false);
-              console.log('[index] 应用初始化完成');
-            }
-          }, 500);
-        }
-      } catch (error) {
-        console.error('[index] 应用初始化过程中发生严重错误:', error);
-        if (isMounted) {
-          setIsInitializing(false);
-        }
+        
+        setTimeout(() => setIsInitializing(false), 500);
+      } catch (e) {
+        console.warn('[DefaultCharacterImporter] 初始化失败:', e);
+        setIsInitializing(false);
       }
     })();
 
-    return () => {
-      isMounted = false; // 清理标记
-    };
-  }, []); // 依赖数组为空，确保只执行一次
+    // Load character view mode
+    (async () => {
+      try {
+        const mode = await AsyncStorage.getItem('character_view_mode');
+        if (
+          mode === 'large' ||
+          mode === 'small' ||
+          mode === 'vertical'
+        ) {
+          characterViewModeCache = mode;
+        } else {
+          characterViewModeCache = null;
+        }
+      } catch (e) {
+        characterViewModeCache = null;
+      }
+    })();
+
+    // Load global settings
+    (async () => {
+      const globalSettings = await loadGlobalSettingsState();
+      if (globalSettings && typeof window !== 'undefined') {
+        window.__globalSettingsCache = globalSettings;
+      }
+    })();
+
+    // Sync table memory plugin
+    try {
+      const enabled = isTableMemoryEnabled();
+      setTableMemoryEnabled(enabled);
+      console.log('[index] 同步表格记忆插件开关:', enabled);
+    } catch (e) {
+      console.warn('[index] 同步表格记忆插件开关失败:', e);
+    }
+
+    // Load search preference
+    (async () => {
+      try {
+        const savedPref = await AsyncStorage.getItem('braveSearchEnabled');
+        if (savedPref !== null) {
+          setBraveSearchEnabled(JSON.parse(savedPref));
+        }
+      } catch (error) {
+        console.error('[App] Failed to load search preference:', error);
+      }
+    })();
+
+    // Load TTS enhancer settings
+    (async () => {
+      try {
+        const settings = ttsService.getEnhancerSettings();
+        setIsTtsEnhancerEnabled(settings.enabled);
+      } catch (error) {
+        console.error('[App] Error loading TTS enhancer settings:', error);
+      }
+    })();
+  }, []);
 
   // Fall back to loading character from storage if not found in context
   useEffect(() => {
@@ -1925,37 +1871,20 @@ useEffect(() => {
 
   // TTS enhancer settings listener
   useEffect(() => {
-    let enhancerSettingsListener: string | undefined;
-    
-    try {
-      const listener = EventRegister.addEventListener(
-        'ttsEnhancerSettingsChanged',
-        (settings: any) => {
-          try {
-            if (settings && typeof settings.enabled === 'boolean') {
-              setIsTtsEnhancerEnabled(settings.enabled);
-            }
-          } catch (settingsError) {
-            console.warn('[App] Error handling TTS enhancer settings:', settingsError);
-          }
+    const enhancerSettingsListener = EventRegister.addEventListener(
+      'ttsEnhancerSettingsChanged',
+      (settings: any) => {
+        if (settings && typeof settings.enabled === 'boolean') {
+          setIsTtsEnhancerEnabled(settings.enabled);
         }
-      );
-      
-      // 确保listener是string类型才赋值
-      if (typeof listener === 'string') {
-        enhancerSettingsListener = listener;
       }
-    } catch (registerError) {
-      console.warn('[App] Error registering TTS enhancer listener:', registerError);
-    }
+    );
 
     return () => {
-      if (enhancerSettingsListener) {
-        try {
-          EventRegister.removeEventListener(enhancerSettingsListener);
-        } catch (removeError) {
-          console.warn('[App] Error removing TTS enhancer listener:', removeError);
-        }
+      if (typeof enhancerSettingsListener === 'string') {
+         EventRegister.removeEventListener(enhancerSettingsListener);
+      } else {
+         console.warn('[App] Failed to remove TTS enhancer listener: Invalid listener ID type.');
       }
     };
   }, []);
@@ -2624,18 +2553,7 @@ useEffect(() => {
 
   return (
     <View style={styles.outerContainer}>
-      {/* 修复：StatusBar配置优化，添加条件判断 */}
-      {Platform.OS === 'android' ? (
-        <StatusBar 
-          translucent 
-          backgroundColor="transparent" 
-          barStyle="light-content"
-        />
-      ) : (
-        <StatusBar 
-          barStyle="light-content"
-        />
-      )}
+           <StatusBar translucent backgroundColor="transparent" />
       
      {/* Restore top bar button */}
       {!isTopBarVisible && (

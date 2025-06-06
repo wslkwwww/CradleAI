@@ -22,18 +22,14 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme() || 'light';
-  const [loaded, error] = useFonts({
+  const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
   const { height: windowHeight } = useWindowDimensions();
 
-  // Initialize cloud service tracker with error handling
+  // Initialize cloud service tracker
   useEffect(() => {
-    try {
-      initCloudServiceTracker();
-    } catch (error) {
-      console.warn('[RootLayout] Cloud service tracker initialization failed:', error);
-    }
+    initCloudServiceTracker();
   }, []);
 
   // Use the correct theme structure that ReactNavigation expects
@@ -62,19 +58,10 @@ export default function RootLayout() {
       };
 
   useEffect(() => {
-    if (loaded || error) {
-      try {
-        SplashScreen.hideAsync();
-      } catch (hideError) {
-        console.warn('[RootLayout] Failed to hide splash screen:', hideError);
-      }
+    if (loaded) {
+      SplashScreen.hideAsync();
     }
-  }, [loaded, error]);
-
-  // 如果字体加载失败，仍然显示应用
-  if (!loaded && !error) {
-    return null;
-  }
+  }, [loaded]);
 
   const MyTransition = {
     gestureDirection: 'vertical' as const,
