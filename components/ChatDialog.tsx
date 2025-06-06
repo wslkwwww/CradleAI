@@ -3005,26 +3005,8 @@ const combinedItems = useMemo(() => {
     // --- 关键修改结束 ---
 
     return (
-    // 关键：展开时使用全屏绝对定位容器，收起且有图片时整体绝对定位
-    <View style={vnExpanded ? { 
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      width: '100%',
-      height: '100%',
-      ...Platform.select({
-        android: {
-          // 在 Android 上确保最高层级，强制覆盖所有组件
-          elevation: 1001,
-        },
-        ios: {
-          // 在 iOS 上确保最高层级
-          zIndex: 1001,
-        }
-      })
-    } : (shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack)}>
+    // 关键：展开时和其他情况都使用 visualNovelDialogStack，让内层容器处理全屏展开
+    <View style={shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack}>
       {hasGeneratedImages && !vnExpanded && (
         <Animated.View 
           entering={FadeIn.duration(400)} 
@@ -4397,27 +4379,15 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   visualNovelContainerExpanded: {
-    // 展开时完全铺满父容器，不使用flex属性
+    // 展开时绝对定位铺满，与 ChatDialogref.tsx 保持一致
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
+    // 注意：不设置 bottom: 0，让容器自适应内容高度
     margin: 0,
     borderRadius: 0,
-    // 确保层级高于所有其他组件
-    ...Platform.select({
-      android: {
-        // Android 特定配置 - 使用更高的 elevation
-        elevation: 1000,
-      },
-      ios: {
-        // iOS 特定配置
-        zIndex: 1000,
-      }
-    })
+    zIndex: 20, // 使用较高但不过度的层级
   },
   visualNovelContainerCollapsed: {
     // 收起时普通布局（有图片时）
