@@ -230,9 +230,66 @@ const createStableMemoryConfig: CreateConfigFunction = (user: any): MemoryConfig
 // Helper functions for performance optimization
 
 const App = () => {
+  // 新增：构建环境检测和安全启动
+  const [isSafeToRender, setIsSafeToRender] = useState(false);
+  
+  // 检测是否为开发环境
+  const isDevelopment = __DEV__;
+  
+  // 新增：安全启动检查
+  useEffect(() => {
+    const safeStartup = async () => {
+      try {
+        // 检查关键服务是否可用
+        const criticalChecks = [
+          // 检查AsyncStorage
+          () => AsyncStorage.getItem('test_key').catch(() => null),
+          // 检查AppState
+          () => Promise.resolve(AppState.currentState),
+        ];
+        
+        await Promise.all(criticalChecks.map(check => check()));
+        
+        // 在构建版本中添加额外延迟
+        const delay = isDevelopment ? 100 : 1500;
+        setTimeout(() => {
+          setIsSafeToRender(true);
+          console.log('[App] Safe startup completed');
+        }, delay);
+        
+      } catch (error) {
+        console.error('[App] Critical startup check failed:', error);
+        // 即使检查失败也要允许渲染，但延迟更长
+        setTimeout(() => {
+          setIsSafeToRender(true);
+        }, 2000);
+      }
+    };
+    
+    safeStartup();
+  }, [isDevelopment]);
+
+  // 如果还不安全渲染，显示加载界面
+  if (!isSafeToRender) {
+    return (
+      <View style={styles.initializingOverlay}>
+        <ImageBackground 
+          source={require('@/assets/images/default-background.jpg')}
+          style={styles.initializingBackground}
+          resizeMode="cover"
+        >
+          <View style={styles.initializingIndicatorContainer}>
+            <ActivityIndicator size="large" color="#ffffff" />
+          </View>
+        </ImageBackground>
+      </View>
+    );
+  }
+
   // 性能优化：页面可见性状态
   const [isPageVisible, setIsPageVisible] = useState(true);
   const [appState, setAppState] = useState<string>(AppState.currentState);
+  const [isAppInitialized, setIsAppInitialized] = useState(false); // 新增：应用初始化状态
   
   // 性能优化：定时器引用集合，用于页面不可见时清理
   const timersRef = useRef<Set<any>>(new Set());
@@ -260,6 +317,17 @@ const App = () => {
     intervalsRef.current.forEach(interval => clearInterval(interval));
     timersRef.current.clear();
     intervalsRef.current.clear();
+  }, []);
+
+  // 新增：应用初始化检查
+  useEffect(() => {
+    // 延迟标记应用为已初始化，避免启动时的状态检查冲突
+    const initTimer = setTimeout(() => {
+      setIsAppInitialized(true);
+      console.log('[Performance] App initialization completed');
+    }, 1000); // 1秒延迟
+
+    return () => clearTimeout(initTimer);
   }, []);
     
   // Initialize the message service for use throughout the component
@@ -410,6 +478,12 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
   // 性能优化：页面可见性管理
   useFocusEffect(
     useCallback(() => {
+      // 只有在应用初始化完成后才进行页面可见性管理
+      if (!isAppInitialized) {
+        console.log('[Performance] App not initialized yet, skipping focus effect');
+        return;
+      }
+
       setIsPageVisible(true);
       console.log('[Performance] Index page focused');
       
@@ -418,14 +492,22 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
         console.log('[Performance] Index page unfocused - clearing timers');
         clearAllTimers();
       };
-    }, [clearAllTimers])
+    }, [clearAllTimers, isAppInitialized])
   );
 
   // 性能优化：应用状态管理
   useEffect(() => {
+    // 只有在应用初始化完成后才监听应用状态变化
+    if (!isAppInitialized) {
+      return;
+    }
+
     const handleAppStateChange = (nextAppState: any) => {
+      console.log(`[Performance] App state changed from ${appState} to ${nextAppState}`);
       setAppState(nextAppState);
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
+      
+      // 只有在应用真正进入后台时才清理定时器，避免误判
+      if (nextAppState === 'background') {
         console.log('[Performance] App backgrounded - clearing timers');
         clearAllTimers();
       }
@@ -433,7 +515,7 @@ const [hasRestoredLastConversation, setHasRestoredLastConversation] = useState(f
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription?.remove();
-  }, [clearAllTimers]);
+  }, [clearAllTimers, isAppInitialized, appState]);
 
   // 性能优化：统一的错误处理函数
   const showTransientError = useCallback((errorMessage: string) => {
@@ -1925,10 +2007,15 @@ useEffect(() => {
 
   // Update tab bar visibility based on keyboard
   useEffect(() => {
-    if (Platform.OS === 'ios') {
-      router.setParams({ hideTabBar: isKeyboardVisible ? 'true' : 'false' });
+    // 只有在应用初始化完成后且为iOS平台才处理标签栏可见性
+    if (Platform.OS === 'ios' && isAppInitialized) {
+      try {
+        router.setParams({ hideTabBar: isKeyboardVisible ? 'true' : 'false' });
+      } catch (error) {
+        console.warn('[App] Failed to set router params:', error);
+      }
     }
-  }, [isKeyboardVisible, router]);
+  }, [isKeyboardVisible, router, isAppInitialized]);
 
   // Listen for top bar visibility changes
   useEffect(() => {
