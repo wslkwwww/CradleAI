@@ -1,0 +1,7 @@
+{
+  "name": "@matrix-org/matrix-sdk-crypto-wasm",
+  "version": "0.0.0-stub",
+  "description": "Stub implementation for React Native compatibility",
+  "main": "index.js",
+  "type": "commonjs"
+} 

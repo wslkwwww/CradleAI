@@ -17,6 +17,10 @@ config.resolver.extraNodeModules = {
   url: require.resolve('url/'),
   querystring: require.resolve('querystring-es3'),
   
+  // 添加 Matrix SDK WASM 模块的替换
+  '@matrix-org/matrix-sdk-crypto-wasm': path.resolve(__dirname, 'lib/matrix/crypto-stub'),
+  '@matrix-org/olm': path.resolve(__dirname, 'lib/matrix/crypto-stub'),
+  
   // 添加 argon2.wasm 的映射
   'argon2-browser/dist/argon2.wasm': path.resolve(__dirname, 'node_modules/argon2-browser/dist/argon2.wasm'),
   
@@ -48,9 +52,12 @@ config.resolver.assetExts.push('wasm', 'bin');
 config.resolver.platforms = ['native', 'android', 'ios', 'web'];
 config.resolver.resolverMainFields = ['react-native', 'browser', 'main'];
 
-// 添加对Matrix SDK的特殊处理
-config.resolver.alias = {
-  ...config.resolver.alias,
+  // 添加对Matrix SDK的特殊处理 - 合并所有别名
+  config.resolver.alias = {
+    ...config.resolver.alias,
+    // Matrix SDK WASM模块替换
+    '@matrix-org/matrix-sdk-crypto-wasm': path.resolve(__dirname, 'lib/matrix/crypto-stub'),
+    '@matrix-org/olm': path.resolve(__dirname, 'lib/matrix/crypto-stub'),
   // 确保使用正确的Buffer实现
   'buffer': require.resolve('buffer/'),
   // 确保事件发射器正常工作
@@ -62,19 +69,7 @@ config.resolver.alias = {
 // 添加 resolver platforms
 config.resolver.platforms = ['native', 'android', 'ios', 'web'];
 
-// 排除Matrix SDK的WASM模块避免构建错误
-config.resolver.blockList = [
-  /@matrix-org\/matrix-sdk-crypto-wasm/,
-  /matrix-sdk-crypto-wasm/,
-  /olm/,
-];
-
-// 提供WASM模块的空实现
-config.resolver.alias = {
-  ...config.resolver.alias,
-  '@matrix-org/matrix-sdk-crypto-wasm': path.resolve(__dirname, 'lib/matrix/crypto-stub.js'),
-  '@matrix-org/olm': path.resolve(__dirname, 'lib/matrix/crypto-stub.js'),
-};
+// 提供WASM模块的空实现 - 在下面的别名配置中处理
 
 // 在生产环境中移除console语句
 if (process.env.NODE_ENV === 'production') {
