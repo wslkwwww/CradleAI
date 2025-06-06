@@ -111,6 +111,7 @@ import { Group, GroupMessage, getUserGroups, getGroupMessages, sendGroupMessage 
 import { Message, Character, ChatSave } from '@/shared/types';
 import { useCharacters } from '@/constants/CharactersContext';
 import { useUser } from '@/constants/UserContext';
+import './lib/polyfills';   
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TopBarWithBackground from '@/components/TopBarWithBackground';

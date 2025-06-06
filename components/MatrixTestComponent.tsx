@@ -1,3 +1,4 @@
+import '@/lib/polyfills'; 
 import React, { useState } from 'react';
 import {
   View,

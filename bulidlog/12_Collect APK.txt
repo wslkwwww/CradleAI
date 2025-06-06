@@ -1,7 +1,0 @@
-﻿2025-06-05T17:12:20.9504359Z ##[group]Run mkdir -p output && cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk output/
-2025-06-05T17:12:20.9506581Z [36;1mmkdir -p output && cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk output/[0m
-2025-06-05T17:12:21.0237895Z shell: /usr/bin/bash -e {0}
-2025-06-05T17:12:21.0238239Z env:
-2025-06-05T17:12:21.0238609Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
-2025-06-05T17:12:21.0239224Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.15-6/x64
-2025-06-05T17:12:21.0239650Z ##[endgroup]
