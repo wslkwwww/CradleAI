@@ -13,13 +13,12 @@ import {
   FlatList,
   Keyboard,
   Platform,
-  TextInput,
   StatusBar,
   KeyboardEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview'; // Add WebView import
-import * as Clipboard from 'expo-clipboard'; // 添加 Clipboard 导入
+import { WebView } from 'react-native-webview'; 
+import * as Clipboard from 'expo-clipboard'; 
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -27,13 +26,11 @@ import Animated, {
   withSequence,
   withDelay,
   FadeIn,
-  Layout,
 } from 'react-native-reanimated';
 import { Message, ChatDialogProps, User } from '@/shared/types';
 import { Ionicons, MaterialIcons, FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { parseHtmlText, containsComplexHtml, optimizeHtmlForRendering } from '@/utils/textParser';
-import { Audio } from 'expo-av'; // 新增
 import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageManager from '@/utils/ImageManager';
 import {
@@ -47,7 +44,6 @@ import { useDialogMode } from '@/constants/DialogModeContext';
 import { DeviceEventEmitter } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import TextEditorModal from './common/TextEditorModal';
-
 import type { RenderFunction, ASTNode } from 'react-native-markdown-display';
 import { useRouter } from 'expo-router';
 import { Character } from '@/shared/types';
@@ -1322,13 +1318,6 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   };
   // 新增：视觉小说展开/收起状态和背景透明度
   const [vnExpanded, setVnExpanded] = useState(false);
-
-
-
-  // 视觉小说对话框头部高度和底部actions高度
-  const VN_HEADER_HEIGHT = vnExpanded ? 0 : 58; // 展开时无header
-  const VN_ACTIONS_HEIGHT = 62; // actions区高度
-  const VN_VERTICAL_PADDING = 30; // 上下padding和margin
 
   // 计算文本区最大高度
   const getVNTextMaxHeight = () => {
@@ -3025,15 +3014,14 @@ const combinedItems = useMemo(() => {
       bottom: 0,
       width: '100%',
       height: '100%',
-      zIndex: 999, // 使用更高的 zIndex 确保能覆盖所有内容
       ...Platform.select({
         android: {
-          // 在 Android 上强制覆盖状态栏和导航栏
-          elevation: 999,
+          // 在 Android 上确保最高层级，强制覆盖所有组件
+          elevation: 1001,
         },
         ios: {
-          // 在 iOS 上确保覆盖所有内容
-          shadowOpacity: 0,
+          // 在 iOS 上确保最高层级
+          zIndex: 1001,
         }
       })
     } : (shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack)}>
@@ -3097,6 +3085,8 @@ const combinedItems = useMemo(() => {
             { 
               height: getVNTextMaxHeight(),
               marginTop: vnExpanded ? 8 : 0,
+              // 展开模式下确保底部有足够空间
+              marginBottom: vnExpanded ? Math.max(20, insets.bottom + 10) : 0,
             }
           ]}>
             <WebView
@@ -3139,7 +3129,8 @@ const combinedItems = useMemo(() => {
             ]}
             contentContainerStyle={{ 
               flexGrow: 1,
-              paddingBottom: 20, // 底部留出一些空间
+              // 在展开模式下确保有足够的底部空间避免与系统UI重叠
+              paddingBottom: Math.max(30, insets.bottom + 20),
             }}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
@@ -3216,7 +3207,14 @@ const combinedItems = useMemo(() => {
           </ScrollView>
         )}
         
-        <View style={styles.visualNovelActions}>
+        <View style={[
+          styles.visualNovelActions,
+          // 展开模式下确保有足够的底部间距
+          vnExpanded && {
+            paddingBottom: Math.max(15, insets.bottom + 10),
+            marginBottom: 10,
+          }
+        ]}>
           {/* Volume button */}
           {!isUser && !lastMessage.isLoading && (
             <>
@@ -3482,7 +3480,16 @@ const keyExtractor = useCallback((item: CombinedItem) => {
     <>
       {mode === 'visual-novel' ? (
         <>
-          <View style={[styles.container, style, styles.backgroundFocusContainer]} />
+          <View style={[
+            styles.container, 
+            style, 
+            styles.backgroundFocusContainer,
+            // 确保在展开模式下父容器不干扰布局
+            vnExpanded && {
+              zIndex: -1,
+              elevation: -1,
+            }
+          ]} />
           {renderVisualNovelDialog()}
           {/* 历史消息 Modal */}
           <ChatHistoryModal
@@ -3694,9 +3701,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 32,
   },
-  messagesContainer: {
-    paddingHorizontal: 12,
-  },
   messageWrapper: {
     marginBottom: Math.max(12, height * 0.02),
     width: '100%',
@@ -3714,18 +3718,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingLeft: RESPONSIVE_PADDING,
   },
-  avatarContainer: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#444',
-  },
+
   messageContent: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -3902,40 +3895,6 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     fontSize: 16,
   },
-  richContentWrapper: {
-    width: '100%',
-    overflow: 'hidden',
-    borderRadius: 4,
-    marginBottom: 5,
-  },
-  memoryIndicatorContainer: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    zIndex: 10,
-  },
-  memoryIndicator: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  memoryTooltip: {
-    position: 'absolute',
-    top: 25,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    padding: 8,
-    borderRadius: 4,
-    width: 150,
-    zIndex: 100,
-  },
-  memoryTooltipText: {
-    color: 'white',
-    fontSize: 12,
-  },
   imageError: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -4018,29 +3977,6 @@ const styles = StyleSheet.create({
     padding: 0,
     margin: 0,
   },
-  visualNovelExpandButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginRight: 8,
-  },
-  visualNovelExpandText: {
-    color: '#fff',
-    fontSize: 14,
-    marginLeft: 4,
-  },
-  visualNovelAlphaButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-
   visualNovelHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4086,56 +4022,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
-  },
-  visualNovelRateButtons: {
-    flexDirection: 'row',
-    marginLeft: 8,
-  },
-  visualNovelRateButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  visualNovelRateButtonActive: {
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-  visualNovelTTSContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 'auto',
-  },
-  visualNovelTTSButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  visualNovelTTSButtonWithLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  visualNovelTTSButtonActive: {
-    backgroundColor: '#FFD580',
-  },
-  visualNovelTTSButtonEnhanced: {
-    backgroundColor: '#FFD580',
-  },
-  visualNovelTTSEnhancerIndicator: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: 'rgba(255, 193, 7, 0.9)',
-    borderRadius: 8,
-    width: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   historyModalContainer: {
     flex: 1,
@@ -4270,7 +4156,6 @@ const styles = StyleSheet.create({
     bottom: 10,
     zIndex: 30,
   },
-
     messageActionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -4299,123 +4184,6 @@ const styles = StyleSheet.create({
   },
   actionCircleButtonActive: {
     backgroundColor: 'rgba(255,224,195,0.85)',
-  },
-  // Image message styles
-  imageGroupContainer: {
-    marginVertical: 10,
-    width: '100%',
-  },
-  imageMessageContainer: {
-    marginVertical: 8,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(30, 30, 30, 0.8)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  imageMessageHeader: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  imageMessageHeaderExpanded: {
-    paddingVertical: 12,
-  },
-  imageMessageHeaderCollapsed: {
-    paddingVertical: 6,
-  },
-  imageMessagePromptContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  imageMessagePrompt: {
-    color: '#fff',
-    fontSize: 14,
-    flex: 1,
-  },
-  imageMessagePromptCollapsed: {
-    color: '#ddd',
-    fontSize: 12,
-    flex: 1,
-  },
-  imageMessageHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  imageMessageTime: {
-    color: '#aaa',
-    fontSize: 12,
-    marginLeft: 8,
-  },
-  imageMessageContent: {
-    width: '100%',
-    height: 300,
-    backgroundColor: '#111',
-  },
-  imageMessageContentSmaller: {
-    height: 250,
-  },
-  imageMessageContentLarger: {
-    height: 320,
-  },
-  imageMessageImage: {
-    width: '100%',
-    height: '100%',
-  },
-  imageMessageActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    padding: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  imageMessageAction: {
-    padding: 8,
-    marginHorizontal: 4,
-  },
-  imageMessageLoading: {
-    width: '100%',
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#222',
-  },
-  imageMessageLoadingText: {
-    color: '#fff',
-    marginTop: 12,
-  },
-  imageMessageError: {
-    width: '100%',
-    height: 150,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#222',
-  },
-  imageMessageErrorText: {
-    color: '#e74c3c',
-    marginTop: 8,
-  },
-  loadingMoreContainer: {
-    padding: 16,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  loadingMoreText: {
-    color: '#888',
-    marginLeft: 8,
-  },
-  loadMoreButton: {
-    padding: 12,
-    backgroundColor: 'rgba(50, 50, 50, 0.5)',
-    borderRadius: 8,
-    alignItems: 'center',
-    marginVertical: 8,
-    marginHorizontal: 16,
-  },
-  loadMoreButtonText: {
-    color: '#ddd',
   },
   deleteConfirmModalContainer: {
     flex: 1,
@@ -4628,26 +4396,25 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   visualNovelContainerExpanded: {
-    // 展开时铺满父容器
-    flex: 1,
-    width: '100%',
-    height: '100%',
-    margin: 0,
-    borderRadius: 0,
-    // 强制确保完全覆盖
+    // 展开时完全铺满父容器，不使用flex属性
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    width: '100%',
+    height: '100%',
+    margin: 0,
+    borderRadius: 0,
+    // 确保层级高于所有其他组件
     ...Platform.select({
       android: {
-        // Android 特定配置
-        elevation: 998, // 稍微低于外层容器
+        // Android 特定配置 - 使用更高的 elevation
+        elevation: 1000,
       },
       ios: {
         // iOS 特定配置
-        zIndex: 998,
+        zIndex: 1000,
       }
     })
   },
