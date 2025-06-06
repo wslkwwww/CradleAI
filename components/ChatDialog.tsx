@@ -1322,13 +1322,15 @@ const ChatDialog: React.FC<ExtendedChatDialogProps> = ({
   // 计算文本区最大高度
   const getVNTextMaxHeight = () => {
     if (vnExpanded) {
-      // Expanded: 占据整个屏幕，减去基本的内边距和按钮区域
-      const buttonsHeight = 60; // 预留按钮区域高度
-      const paddingHeight = 30; // 容器内边距
-      const safeAreaHeight = Math.max(40, insets.top + insets.bottom + 20); // 使用实际安全区域
-      // 确保使用完整的屏幕高度，不受其他因素影响
-      const fullScreenHeight = height; // 使用Dimensions获取的完整屏幕高度
-      return Math.max(200, fullScreenHeight - buttonsHeight - paddingHeight - safeAreaHeight); // 确保最小高度200px
+      // Expanded: 使用和常规模式相似的空间计算
+      const headerHeight = 60; // 头部区域高度
+      const actionsHeight = 80; // 按钮区域高度
+      const containerPadding = 60; // 容器内边距
+      const inputAreaHeight = Math.max(120, height * 0.12); // 输入区域高度
+      const safeAreaHeight = Math.max(30, insets.top + insets.bottom); // 安全区域
+      // 计算可用高度，类似于常规模式的消息列表
+      const availableHeight = height - inputAreaHeight - safeAreaHeight - headerHeight - actionsHeight - containerPadding;
+      return Math.max(200, availableHeight);
     }
     // Collapsed: 动态计算高度，确保不会溢出对话框或遮挡输入框
     const headerHeight = vnExpanded ? 0 : 58; // header高度
@@ -3005,8 +3007,7 @@ const combinedItems = useMemo(() => {
     // --- 关键修改结束 ---
 
     return (
-    // 关键：展开时和其他情况都使用 visualNovelDialogStack，让内层容器处理全屏展开
-    <View style={shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack}>
+    <View style={vnExpanded ? styles.visualNovelExpandedFullContainer : (shouldUseAbsolute ? collapsedStackStyle : styles.visualNovelDialogStack)}>
       {hasGeneratedImages && !vnExpanded && (
         <Animated.View 
           entering={FadeIn.duration(400)} 
@@ -3022,26 +3023,28 @@ const combinedItems = useMemo(() => {
         </Animated.View>
       )}
 
-      {/* 关键：这里用 vnContainerStyle */}
+      {/* 使用新的容器样式逻辑 */}
       <Animated.View 
         entering={FadeIn.duration(350)}
-        style={vnContainerStyle}
+        style={vnExpanded ? [styles.visualNovelExpandedContainer, { backgroundColor: getVnBgColor() }] : vnContainerStyle}
       >
         {/* Rest of the existing visual novel dialog code... */}
         
 
-        {/* Left bottom: expand/collapse button */}
-        <View style={styles.visualNovelExpandButtonFixed}>
-          <TouchableOpacity
-            style={[
-              styles.visualNovelHeaderButton,
-              { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent' }
-            ]}
-            onPress={() => setVnExpanded(v => !v)}
-          >
-            <Ionicons name={vnExpanded ? "chevron-down" : "chevron-up"} size={BUTTON_ICON_SIZE} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        {/* Left bottom: expand/collapse button - 只在收起时显示固定位置 */}
+        {!vnExpanded && (
+          <View style={styles.visualNovelExpandButtonFixed}>
+            <TouchableOpacity
+              style={[
+                styles.visualNovelHeaderButton,
+                { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent' }
+              ]}
+              onPress={() => setVnExpanded(v => !v)}
+            >
+              <Ionicons name="chevron-up" size={BUTTON_ICON_SIZE} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        )}
 
 
         {/* Don't show avatar and name when expanded */}
@@ -3099,50 +3102,41 @@ const combinedItems = useMemo(() => {
             />
           </View>
         ) : vnExpanded ? (
-          // 展开模式：使用 ScrollView 包装文本内容
-          <ScrollView
-            style={[
-              styles.visualNovelTextContainer,
-              {
-                maxHeight: getVNTextMaxHeight(),
-                marginBottom: 0,
-                marginTop: 8,
-              }
-            ]}
-            contentContainerStyle={{ 
-              flexGrow: 1,
-              // 在展开模式下确保有足够的底部空间避免与系统UI重叠
-              paddingBottom: Math.max(30, insets.bottom + 20),
-            }}
-            showsVerticalScrollIndicator={true}
-            nestedScrollEnabled={true}
-          >
-            <View style={styles.visualNovelTextWrapper}>
-              {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
-                <RichTextRenderer 
-                  html={optimizeHtmlForRendering(stripUnknownTags(displayText))}
-                  baseStyle={{ 
-                    color: visualNovelSettings.textColor,
-                    fontFamily: visualNovelSettings.fontFamily,
-                    fontSize: 16,
-                    lineHeight: 22
-                  }}
-                  onImagePress={(url) => setFullscreenImage(url)}
-                  maxImageHeight={MAX_IMAGE_HEIGHT}
-                />
-              ) : (
-                <Text style={[
-                  styles.visualNovelText,
-                  { 
-                    fontFamily: visualNovelSettings.fontFamily, 
-                    color: visualNovelSettings.textColor 
-                  }
-                ]}>
-                  {displayText}
-                </Text>
-              )}
-            </View>
-          </ScrollView>
+          // 展开模式：重新设计的滚动布局
+          <View style={styles.visualNovelExpandedTextArea}>
+            <ScrollView
+              style={styles.visualNovelExpandedScrollView}
+              contentContainerStyle={styles.visualNovelExpandedScrollContent}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+            >
+              <View style={styles.visualNovelTextWrapper}>
+                {containsComplexHtml(displayText) || /<\/?[a-z][^>]*>/i.test(displayText) ? (
+                  <RichTextRenderer 
+                    html={optimizeHtmlForRendering(stripUnknownTags(displayText))}
+                    baseStyle={{ 
+                      color: visualNovelSettings.textColor,
+                      fontFamily: visualNovelSettings.fontFamily,
+                      fontSize: 16,
+                      lineHeight: 22
+                    }}
+                    onImagePress={(url) => setFullscreenImage(url)}
+                    maxImageHeight={MAX_IMAGE_HEIGHT}
+                  />
+                ) : (
+                  <Text style={[
+                    styles.visualNovelText,
+                    { 
+                      fontFamily: visualNovelSettings.fontFamily, 
+                      color: visualNovelSettings.textColor 
+                    }
+                  ]}>
+                    {displayText}
+                  </Text>
+                )}
+              </View>
+            </ScrollView>
+          </View>
         ) : (
           // 收起模式：使用固定高度的 ScrollView 防止溢出
           <ScrollView
@@ -3191,12 +3185,28 @@ const combinedItems = useMemo(() => {
         
         <View style={[
           styles.visualNovelActions,
-          // 展开模式下确保有足够的底部间距
-          vnExpanded && {
-            paddingBottom: Math.max(15, insets.bottom + 10),
-            marginBottom: 10,
+          // 展开模式下固定在底部
+          vnExpanded ? styles.visualNovelExpandedActions : {
+            paddingBottom: 20,
+            marginBottom: 0,
           }
         ]}>
+          {/* 展开模式下的收起按钮 */}
+          {vnExpanded && (
+            <TouchableOpacity
+              style={[
+                styles.actionCircleButton,
+                { width: BUTTON_SIZE, height: BUTTON_SIZE, backgroundColor: 'transparent', marginRight: BUTTON_MARGIN }
+              ]}
+              onPress={() => setVnExpanded(false)}
+            >
+              <Ionicons
+                name="chevron-down"
+                size={BUTTON_ICON_SIZE}
+                color="#fff"
+              />
+            </TouchableOpacity>
+          )}
           {/* Volume button */}
           {!isUser && !lastMessage.isLoading && (
             <>
@@ -3462,18 +3472,17 @@ const keyExtractor = useCallback((item: CombinedItem) => {
     <>
       {mode === 'visual-novel' ? (
         <>
-          <View style={[
-            styles.container, 
-            style,
-            // 视觉小说模式不使用 backgroundFocusContainer 样式，避免被限制在屏幕下半部分
-            // styles.backgroundFocusContainer, // 移除这个样式
-            // 确保在展开模式下父容器不干扰布局
-            vnExpanded && {
-              zIndex: -1,
-              elevation: -1,
-            }
-          ]} />
-          {renderVisualNovelDialog()}
+          {/* 展开时使用简化的全屏布局结构 */}
+          {vnExpanded ? (
+            <View style={styles.visualNovelExpandedFullContainer}>
+              {renderVisualNovelDialog()}
+            </View>
+          ) : (
+            <>
+              <View style={[styles.container, style]} />
+              {renderVisualNovelDialog()}
+            </>
+          )}
           {/* 历史消息 Modal */}
           <ChatHistoryModal
             visible={!!isHistoryModalVisible}
@@ -4512,7 +4521,7 @@ const styles = StyleSheet.create({
   imagesCarouselPaginationText: {
     color: '#fff',
     fontSize: 12,
-    marginHorizontal: 8,
+    marginHorizontal: 4,
   },
   imagesCarouselActions: {
     flexDirection: 'row',
@@ -4539,6 +4548,43 @@ const styles = StyleSheet.create({
   imagesCarouselErrorText: {
     color: '#e74c3c',
     marginTop: 8,
+  },
+
+  visualNovelExpandedFullContainer: {
+    flex: 1,
+    paddingVertical: RESPONSIVE_PADDING + 8,
+  },
+  visualNovelExpandedContainer: {
+    flex: 1,
+    padding: 15,
+    backgroundColor: 'transparent', // 将在组件中动态设置
+    marginHorizontal: 1, // 减少左右边距
+    marginTop: -45, // 向上紧贴 TopBar
+    borderRadius: 16,
+    elevation: 8,
+  },
+  visualNovelExpandedTextArea: {
+    flex: 1,
+    marginTop: 5, // 减少顶部边距，给内容更多空间
+    marginBottom: 5, // 减少底部边距，给内容更多空间
+  },
+  visualNovelExpandedScrollView: {
+    flex: 1,
+  },
+  visualNovelExpandedScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
+  },
+  visualNovelExpandedActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingTop: 8, // 减少顶部内边距，给内容更多空间
+    paddingBottom: 15, // 减少底部内边距
+    paddingHorizontal: 15,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
   },
 });
 export default ChatDialog;
