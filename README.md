@@ -35,7 +35,7 @@
 </table>
 
 ## 联系与反馈
-*   **Discord:** https://discord.gg/v3ZYgaNq (教程、答疑、bug 反馈、意见反馈)
+*   **Discord:** https://discord.gg/F5bCEQy5 (教程、答疑、bug 反馈、意见反馈)
 *   **QQ 群:** (答疑、bug 反馈、意见反馈)
   
 二群：570343684
