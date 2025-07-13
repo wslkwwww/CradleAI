@@ -83,10 +83,8 @@
       "router": {
         "origin": false
       },
-      "eas": {
-        "projectId": "af0fdb7a-431d-4f1a-8c55-baa9c9cc0fdb"
-      }
+      "eas": {}
     },
-    "owner": "dmc2014"
+    "owner": "13651333507"
   }
 }
